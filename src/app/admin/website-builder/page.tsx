@@ -36,13 +36,14 @@ import Hero from '@/components/Hero';
 import HowItWorks from '@/components/HowItWorks';
 import ServicesSection from '@/components/ServicesSection';
 import Reviews from '@/components/Reviews';
+import FAQs from '@/components/FAQs';
 import Contact from '@/components/Contact';
 import Footer from '@/components/Footer';
 
 // Types
 interface WebsiteSection {
   id: string;
-  type: 'hero' | 'services' | 'how-it-works' | 'reviews' | 'contact' | 'footer';
+  type: 'hero' | 'services' | 'how-it-works' | 'reviews' | 'faqs' | 'contact' | 'footer';
   visible: boolean;
   data: any;
 }
@@ -118,6 +119,15 @@ const defaultSections: WebsiteSection[] = [
     data: {
       title: 'What Our Customers Say',
       reviews: []
+    }
+  },
+  {
+    id: 'faqs',
+    type: 'faqs',
+    visible: true,
+    data: {
+      title: 'Frequently Asked Questions',
+      subtitle: 'Find answers to common questions about our services and booking process.'
     }
   },
   {
@@ -326,6 +336,11 @@ export default function WebsiteBuilderPage() {
           title: 'What Our Customers Say',
           reviews: [],
         };
+      case 'faqs':
+        return {
+          title: 'Frequently Asked Questions',
+          subtitle: 'Find answers to common questions about our services and booking process.',
+        };
       case 'contact':
         return {
           title: 'Contact Us',
@@ -521,6 +536,7 @@ export default function WebsiteBuilderPage() {
                 <SelectItem value="how-it-works">How It Works</SelectItem>
                 <SelectItem value="services">Services</SelectItem>
                 <SelectItem value="reviews">Reviews</SelectItem>
+                <SelectItem value="faqs">FAQs</SelectItem>
                 <SelectItem value="contact">Contact</SelectItem>
               </SelectContent>
             </Select>
@@ -567,6 +583,9 @@ export default function WebsiteBuilderPage() {
                     )}
                     {section.type === 'reviews' && (
                       <Reviews data={section.data} />
+                    )}
+                    {section.type === 'faqs' && (
+                      <FAQs data={section.data} />
                     )}
                     {section.type === 'contact' && (
                       <Contact data={section.data} />
@@ -917,6 +936,31 @@ export default function WebsiteBuilderPage() {
                               </div>
                             </div>
                           ))}
+                        </div>
+                      </>
+                    )}
+                    {selectedSectionData.type === 'faqs' && (
+                      <>
+                        <div>
+                          <Label>Title</Label>
+                          <Input
+                            value={selectedSectionData.data.title || 'Frequently Asked Questions'}
+                            onChange={(e) => updateSection(selectedSection, { title: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>Subtitle</Label>
+                          <Textarea
+                            value={selectedSectionData.data.subtitle || 'Find answers to common questions about our services and booking process.'}
+                            onChange={(e) => updateSection(selectedSection, { subtitle: e.target.value })}
+                            rows={3}
+                          />
+                        </div>
+                        <div className="mt-4 p-4 bg-muted/50 rounded-lg">
+                          <p className="text-sm text-muted-foreground">
+                            FAQs are managed in the <strong>Settings → Design → FAQs</strong> tab. 
+                            The FAQs you add there will automatically appear in this section.
+                          </p>
                         </div>
                       </>
                     )}

@@ -6,6 +6,7 @@ import HowItWorks from "@/components/HowItWorks";
 import ServicesSection from "@/components/ServicesSection";
 import Reviews from "@/components/Reviews";
 import Contact from "@/components/Contact";
+import FAQs from "@/components/FAQs";
 import Footer from "@/components/Footer";
 import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -50,6 +51,8 @@ export default function BuilderLanding() {
             return <ServicesSection key={section.id} data={section.data} />;
           case 'reviews':
             return <Reviews key={section.id} data={section.data} />;
+          case 'faqs':
+            return <FAQs key={section.id} data={section.data} />;
           case 'contact':
             return <Contact key={section.id} data={section.data} />;
           default:

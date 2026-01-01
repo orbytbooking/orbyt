@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/use-toast";
 import { Layout, Palette, Save, Globe, ShoppingCart, HelpCircle, FileText, Eye } from "lucide-react";
+import { FAQsManager } from "@/components/admin/FAQsManager";
+import { JobOpeningsManager } from "@/components/admin/JobOpeningsManager";
 
 const WebsiteBuilderTab = () => {
   const [selectedTheme, setSelectedTheme] = useState('modern');
@@ -233,53 +235,9 @@ const ChangeDomainTab = () => {
   );
 };
 
-const FAQTab = () => (
-  <div className="space-y-4">
-    <div className="space-y-2">
-      <h3 className="font-medium">How do I customize my website?</h3>
-      <p className="text-sm text-muted-foreground">
-        Use the Website Builder & Theme tab to customize colors, upload your logo, and select a theme that matches your brand.
-      </p>
-    </div>
-    <div className="space-y-2">
-      <h3 className="font-medium">Can I use my own domain?</h3>
-      <p className="text-sm text-muted-foreground">
-        Yes, you can connect your own custom domain with a Pro subscription. Visit the Change Domain tab for more information.
-      </p>
-    </div>
-    <div className="space-y-2">
-      <h3 className="font-medium">How do I set up the job form?</h3>
-      <p className="text-sm text-muted-foreground">
-        Navigate to the Job Form tab to customize the fields and settings for your job application form.
-      </p>
-    </div>
-  </div>
-);
+const FAQTab = () => <FAQsManager />;
 
-const JobFormTab = () => (
-  <div className="space-y-4">
-    <div className="space-y-2">
-      <Label>Form Fields</Label>
-      <div className="space-y-2">
-        <div className="flex items-center justify-between p-3 border rounded-md">
-          <div className="flex items-center gap-2">
-            <span className="h-4 w-4 rounded-full border"></span>
-            <span>Name</span>
-          </div>
-          <Button variant="ghost" size="sm">Edit</Button>
-        </div>
-        <div className="flex items-center justify-between p-3 border rounded-md">
-          <div className="flex items-center gap-2">
-            <span className="h-4 w-4 rounded-full border"></span>
-            <span>Email</span>
-          </div>
-          <Button variant="ghost" size="sm">Edit</Button>
-        </div>
-        <Button variant="outline" className="w-full mt-2">+ Add Field</Button>
-      </div>
-    </div>
-  </div>
-);
+const JobFormTab = () => <JobOpeningsManager />;
 
 export default function DesignFormsWebsitePage() {
   const [activeTab, setActiveTab] = useState("website-builder");
