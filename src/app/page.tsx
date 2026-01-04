@@ -1,3 +1,11 @@
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'Orbit Booking – Service Booking Software for Cleaning & Home Services',
+  description: 'Orbit Booking is an all-in-one booking and CRM platform for cleaning and home service businesses. Automate scheduling, reminders, and payments.',
+  keywords: 'service booking software, cleaning business booking system, home service scheduling app, online booking for cleaners, Orbit Booking',
+};
+
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
