@@ -53,7 +53,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       // Get businesses where user is owner (simplified for current schema)
       const { data: ownerBusinesses, error: ownerError } = await supabase
         .from('businesses')
-        .select('id, name, plan, is_active')
+        .select('id, name, plan')
         .eq('owner_id', user.id);
 
       // For now, only handle owner businesses (team functionality can be added later)
@@ -108,7 +108,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       const allBusinesses: Business[] = (ownerBusinesses || []).map(b => ({ 
         ...b, 
         role: 'owner' as const,
-        is_active: b.is_active ?? true // Default to true if null
+        is_active: true // Default to true for backward compatibility
       }));
 
       setBusinesses(allBusinesses);

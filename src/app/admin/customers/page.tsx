@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
+import { useBusiness } from "@/contexts/BusinessContext";
 import { 
   Search, 
   Download,
@@ -110,6 +111,7 @@ const Customers = () => {
   const { toast } = useToast();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { currentBusiness } = useBusiness();
   const [searchTerm, setSearchTerm] = useState("");
   const [customers, setCustomers] = useState<Customer[]>(defaultCustomers);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -132,15 +134,53 @@ const Customers = () => {
   });
 
   useEffect(() => {
-  fetchCustomers();
-}, []);
+    fetchCustomers();
+  }, []);
 
-async function fetchCustomers() {
-  const { data, error } = await supabase.from('customers').select('*').order('join_date', { ascending: false });
-  if (!error && data) {
-    setCustomers(data);
+  async function fetchCustomers() {
+    const { data, error } = await supabase
+      .from('customers')
+      .select('*')
+      .order('join_date', { ascending: false });
+      
+    if (error) {
+      console.error('Error fetching customers:', error);
+      // If table doesn't exist, show mock data and inform user
+      if (error.message.includes('relation') || error.message.includes('does not exist')) {
+        console.log('Customers table not found, using mock data');
+        toast({
+          title: "Database Setup Required",
+          description: "Please run the SQL script to create the customers table.",
+          variant: "destructive"
+        });
+        setCustomers(defaultCustomers);
+        return;
+      }
+      
+      // Handle RLS policy errors
+      if (error.message.includes('row-level security policy')) {
+        toast({
+          title: "Permission Error",
+          description: "You don't have permission to access customers. Check RLS policies.",
+          variant: "destructive"
+        });
+        setCustomers([]);
+        return;
+      }
+      
+      toast({
+        title: "Error",
+        description: `Failed to fetch customers: ${error.message}`,
+        variant: "destructive"
+      });
+      setCustomers([]);
+      return;
+    }
+    
+    if (data) {
+      setCustomers(data);
+    }
   }
-}
 
 
   // Open modal if query parameter is present
@@ -216,6 +256,7 @@ async function fetchCustomers() {
 
   const { error } = await supabase.from('customers').insert([newEntry]);
   if (error) {
+    console.error('Error adding customer:', error);
     toast({
       title: "Error",
       description: `Failed to add customer: ${error.message}`,

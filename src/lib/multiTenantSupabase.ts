@@ -43,11 +43,17 @@ export class MultiTenantHelper {
     return query.eq('business_id', bizId);
   }
 
-  // Filter businesses by ownership or team membership
+  // Add business filter to leads query
+  static filterLeads(query: any, businessId?: string) {
+    const bizId = businessId || this.currentBusinessId;
+    if (!bizId) return query;
+    
+    return query.eq('business_id', bizId);
+  }
+
+  // Filter businesses by ownership only (MVP setup)
   static filterBusinesses(query: any, userId: string) {
-    return query.or(`owner_id.eq.${userId},id.in.(
-      SELECT business_id FROM tenant_users WHERE user_id = ${userId}
-    )`);
+    return query.eq('owner_id', userId);
   }
 
   // Auto-add business_id to insert data
@@ -93,6 +99,20 @@ export function createTenantQuery(supabase: SupabaseClient, businessId: string) 
         MultiTenantHelper.filterProfiles(supabase.from('profiles').update(data)),
       delete: () => 
         MultiTenantHelper.filterProfiles(supabase.from('profiles').delete()),
+    },
+
+    // Leads with business filtering
+    leads: {
+      select: (columns?: string) => 
+        MultiTenantHelper.filterLeads(supabase.from('leads').select(columns)),
+      insert: (data: any) => 
+        MultiTenantHelper.filterLeads(supabase.from('leads').insert(
+          MultiTenantHelper.addBusinessId(data, businessId)
+        )),
+      update: (data: any) => 
+        MultiTenantHelper.filterLeads(supabase.from('leads').update(data)),
+      delete: () => 
+        MultiTenantHelper.filterLeads(supabase.from('leads').delete()),
     },
 
     // Businesses filtered by user access

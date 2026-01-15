@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -37,7 +38,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Send,
-  UserPlus
+  UserPlus,
+  Calendar,
+  Users,
+  FileText,
+  Archive,
+  History
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
@@ -61,6 +67,8 @@ interface Booking {
   payment_method?: string;
   notes?: string;
   assignedProvider?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 // Mock providers data
@@ -81,6 +89,8 @@ const getStatusBadge = (status: string) => {
     pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400",
     completed: "bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400",
     cancelled: "bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400",
+    draft: "bg-gray-100 text-gray-700 dark:bg-gray-900/20 dark:text-gray-400",
+    quote: "bg-purple-100 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400",
   };
 
   const icons = {
@@ -88,6 +98,8 @@ const getStatusBadge = (status: string) => {
     pending: Clock,
     completed: CheckCircle2,
     cancelled: XCircle,
+    draft: FileText,
+    quote: FileText,
   };
 
   const Icon = icons[status as keyof typeof icons] || AlertCircle;
@@ -126,6 +138,18 @@ const getStatusTone = (status: string) => {
         dark: "dark:bg-yellow-900/60",
         chip: "linear-gradient(135deg, #fde68a 0%, #f59e42 100%)",
       };
+    case "draft":
+      return {
+        light: "bg-gray-50",
+        dark: "dark:bg-gray-900/60",
+        chip: "linear-gradient(135deg, #9ca3af 0%, #6b7280 100%)",
+      };
+    case "quote":
+      return {
+        light: "bg-purple-50",
+        dark: "dark:bg-purple-900/60",
+        chip: "linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%)",
+      };
     default:
       return {
         light: "bg-muted",
@@ -140,6 +164,7 @@ export default function BookingsPage() {
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [activeTab, setActiveTab] = useState("all");
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
@@ -147,6 +172,16 @@ export default function BookingsPage() {
   const [showProviderDialog, setShowProviderDialog] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
   const [viewMode, setViewMode] = useState<"list" | "calendar">("calendar");
+
+  // Auto-set view mode based on active tab
+  useEffect(() => {
+    const tabsNeedingListView = ['today', 'unassigned', 'draft', 'cancelled', 'history'];
+    if (tabsNeedingListView.includes(activeTab)) {
+      setViewMode("list");
+    } else {
+      setViewMode("calendar");
+    }
+  }, [activeTab]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const { toast } = useToast();
 
@@ -169,16 +204,76 @@ export default function BookingsPage() {
   // No localStorage sync needed; bookings are live from Supabase.
 
 
-  const filteredBookings = bookings.filter((booking) => {
-    const matchesSearch = 
-      booking.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      booking.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      booking.service.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesStatus = statusFilter === "all" || booking.status === statusFilter;
-    
-    return matchesSearch && matchesStatus;
-  });
+  // Tab filtering functions
+  const getTodayBookings = () => {
+    const today = new Date().toISOString().split('T')[0];
+    return bookings.filter(booking => booking.date === today);
+  };
+
+  const getUpcomingBookings = () => {
+    const today = new Date().toISOString().split('T')[0];
+    return bookings.filter(booking => 
+      booking.date > today && 
+      ['confirmed', 'pending'].includes(booking.status)
+    );
+  };
+
+  const getUnassignedBookings = () => {
+    return bookings.filter(booking => 
+      !booking.assignedProvider && 
+      ['confirmed', 'pending'].includes(booking.status)
+    );
+  };
+
+  const getDraftQuoteBookings = () => {
+    return bookings.filter(booking => 
+      ['draft', 'quote'].includes(booking.status)
+    );
+  };
+
+  const getCancelledBookings = () => {
+    return bookings.filter(booking => booking.status === 'cancelled');
+  };
+
+  const getHistoryBookings = () => {
+    const today = new Date().toISOString().split('T')[0];
+    return bookings.filter(booking => 
+      booking.date < today || booking.status === 'completed'
+    );
+  };
+
+  const getTabBookings = (tab: string) => {
+    switch (tab) {
+      case 'today':
+        return getTodayBookings();
+      case 'upcoming':
+        return getUpcomingBookings();
+      case 'unassigned':
+        return getUnassignedBookings();
+      case 'draft':
+        return getDraftQuoteBookings();
+      case 'cancelled':
+        return getCancelledBookings();
+      case 'history':
+        return getHistoryBookings();
+      default:
+        return bookings;
+    }
+  };
+
+  const filteredBookings = useMemo(() => {
+    const tabBookings = getTabBookings(activeTab);
+    return tabBookings.filter((booking) => {
+      const matchesSearch = 
+        booking.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        booking.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        booking.service.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      const matchesStatus = statusFilter === "all" || booking.status === statusFilter;
+      
+      return matchesSearch && matchesStatus;
+    });
+  }, [bookings, activeTab, searchTerm, statusFilter]);
 
   const handleViewDetails = (booking: Booking) => {
     setSelectedBooking(booking);
@@ -280,7 +375,6 @@ toast({
 
   return (
     <div className="space-y-6">
-
       {/* Header Actions */}
       <div className="flex flex-col sm:flex-row gap-4 justify-between">
         <div className="flex-1 flex gap-3">
@@ -304,37 +398,41 @@ toast({
               <SelectItem value="confirmed" className="text-foreground hover:bg-accent">Confirmed</SelectItem>
               <SelectItem value="completed" className="text-foreground hover:bg-accent">Completed</SelectItem>
               <SelectItem value="cancelled" className="text-foreground hover:bg-accent">Cancelled</SelectItem>
+              <SelectItem value="draft" className="text-foreground hover:bg-accent">Draft</SelectItem>
+              <SelectItem value="quote" className="text-foreground hover:bg-accent">Quote</SelectItem>
             </SelectContent>
           </Select>
-          {/* View Toggle Buttons */}
-          <div className="flex gap-2">
-            <Button
-              variant={viewMode === "calendar" ? "default" : "outline"}
-              size="icon"
-              onClick={() => setViewMode("calendar")}
-              className={cn(
-                viewMode === "calendar" 
-                  ? "bg-primary text-primary-foreground hover:bg-primary/90" 
-                  : "bg-background text-foreground hover:bg-accent hover:text-accent-foreground"
-              )}
-              title="Calendar View"
-            >
-              <CalendarIcon className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={viewMode === "list" ? "default" : "outline"}
-              size="icon"
-              onClick={() => setViewMode("list")}
-              className={cn(
-                viewMode === "list" 
-                  ? "bg-primary text-primary-foreground hover:bg-primary/90" 
-                  : "bg-background text-foreground hover:bg-accent hover:text-accent-foreground"
-              )}
-              title="List View"
-            >
-              <List className="h-4 w-4" />
-            </Button>
-          </div>
+          {/* View Toggle Buttons - Only show for tabs that benefit from calendar view */}
+          {(['all', 'upcoming'].includes(activeTab)) && (
+            <div className="flex gap-2">
+              <Button
+                variant={viewMode === "calendar" ? "default" : "outline"}
+                size="icon"
+                onClick={() => setViewMode("calendar")}
+                className={cn(
+                  viewMode === "calendar" 
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90" 
+                    : "bg-background text-foreground hover:bg-accent hover:text-accent-foreground"
+                )}
+                title="Calendar View"
+              >
+                <CalendarIcon className="h-4 w-4" />
+              </Button>
+              <Button
+                variant={viewMode === "list" ? "default" : "outline"}
+                size="icon"
+                onClick={() => setViewMode("list")}
+                className={cn(
+                  viewMode === "list" 
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90" 
+                    : "bg-background text-foreground hover:bg-accent hover:text-accent-foreground"
+                )}
+                title="List View"
+              >
+                <List className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
         </div>
         <div className="flex gap-3">
           <Button 
@@ -354,12 +452,116 @@ toast({
         </div>
       </div>
 
+      {/* Tabs Navigation */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <TabsList className="grid w-full grid-cols-7 bg-muted/50">
+          <TabsTrigger value="all" className="flex items-center gap-2">
+            <List className="h-4 w-4" />
+            All
+          </TabsTrigger>
+          <TabsTrigger value="today" className="flex items-center gap-2">
+            <Calendar className="h-4 w-4" />
+            Today
+          </TabsTrigger>
+          <TabsTrigger value="upcoming" className="flex items-center gap-2">
+            <CalendarIcon className="h-4 w-4" />
+            Upcoming
+          </TabsTrigger>
+          <TabsTrigger value="unassigned" className="flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            Unassigned
+          </TabsTrigger>
+          <TabsTrigger value="draft" className="flex items-center gap-2">
+            <FileText className="h-4 w-4" />
+            Draft/Quote
+          </TabsTrigger>
+          <TabsTrigger value="cancelled" className="flex items-center gap-2">
+            <XCircle className="h-4 w-4" />
+            Cancelled
+          </TabsTrigger>
+          <TabsTrigger value="history" className="flex items-center gap-2">
+            <History className="h-4 w-4" />
+            History
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Tab Contents */}
+        <TabsContent value={activeTab} className="space-y-4">
+          {/* Tab Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+            <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/20 dark:to-blue-900/20">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-blue-600 dark:text-blue-400">Today</p>
+                    <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{getTodayBookings().length}</p>
+                  </div>
+                  <Calendar className="h-8 w-8 text-blue-500" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950/20 dark:to-green-900/20">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-green-600 dark:text-green-400">Upcoming</p>
+                    <p className="text-2xl font-bold text-green-700 dark:text-green-300">{getUpcomingBookings().length}</p>
+                  </div>
+                  <CalendarIcon className="h-8 w-8 text-green-500" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-950/20 dark:to-orange-900/20">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-orange-600 dark:text-orange-400">Unassigned</p>
+                    <p className="text-2xl font-bold text-orange-700 dark:text-orange-300">{getUnassignedBookings().length}</p>
+                  </div>
+                  <Users className="h-8 w-8 text-orange-500" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950/20 dark:to-purple-900/20">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-purple-600 dark:text-purple-400">Draft/Quote</p>
+                    <p className="text-2xl font-bold text-purple-700 dark:text-purple-300">{getDraftQuoteBookings().length}</p>
+                  </div>
+                  <FileText className="h-8 w-8 text-purple-500" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="bg-gradient-to-br from-red-50 to-red-100 dark:from-red-950/20 dark:to-red-900/20">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-red-600 dark:text-red-400">Cancelled</p>
+                    <p className="text-2xl font-bold text-red-700 dark:text-red-300">{getCancelledBookings().length}</p>
+                  </div>
+                  <XCircle className="h-8 w-8 text-red-500" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-950/20 dark:to-gray-900/20">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">History</p>
+                    <p className="text-2xl font-bold text-gray-700 dark:text-gray-300">{getHistoryBookings().length}</p>
+                  </div>
+                  <History className="h-8 w-8 text-gray-500" />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
       {/* List View */}
       {viewMode === "list" && (
         <Card>
         <CardHeader>
-          <CardTitle>All Bookings ({filteredBookings.length})</CardTitle>
+          <CardTitle>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} Bookings ({filteredBookings.length})</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -551,7 +753,8 @@ toast({
           </CardContent>
         </Card>
       )}
-
+        </TabsContent>
+      </Tabs>
 
       {/* Booking Details Dialog */}
       <Dialog open={showDetails} onOpenChange={setShowDetails}>

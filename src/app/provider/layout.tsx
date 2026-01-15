@@ -50,15 +50,18 @@ export default function ProviderLayout({
           return;
         }
 
-        // Get provider name from profile
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('full_name')
-          .eq('id', session.user.id)
-          .single();
+        // Get provider name from user metadata and validate role
+        const userRole = session.user.user_metadata?.role || 'owner';
+        if (session.user.user_metadata?.full_name) {
+          setProviderName(session.user.user_metadata.full_name);
+        }
 
-        if (profile?.full_name) {
-          setProviderName(profile.full_name);
+        // Check if user is a provider
+        if (userRole !== 'provider') {
+          console.log('User is not a provider, redirecting to appropriate dashboard');
+          const redirectPath = userRole === 'owner' ? '/admin/dashboard' : '/auth/onboarding';
+          router.push(redirectPath);
+          return;
         }
       } catch (error) {
         console.error('Auth check error:', error);

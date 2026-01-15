@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Search, Download, ChevronDown, Plus, X, Trash2, Columns } from 'lucide-react';
+import { Search, Download, ChevronDown, Plus, X, Trash2, Edit, Loader2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,8 +13,13 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { format } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
-
-type LeadStatus = 'new' | 'contacted' | 'qualified' | 'lost';
+import { useLeads } from '@/hooks/useLeads';
+import { Lead, LeadStatus } from '@/hooks/useLeads';
+import { useBusiness } from '@/contexts/BusinessContext';
+import { supabase } from '@/lib/supabaseClient';
+import { Modal } from '@/components/ui/modal';
+import { LeadForm } from '@/components/leads/LeadForm';
+import { Skeleton } from '@/components/ui/skeleton';
 
 type Column = {
   id: string;
@@ -23,91 +28,38 @@ type Column = {
   type: 'text' | 'date' | 'tags' | 'status';
 };
 
-type Lead = {
-  id: string;
-  name: string;
-  phone: string;
-  email: string;
-  createdAt: Date;
-  tags: string[];
-  status: LeadStatus;
-  [key: string]: any; // For dynamic columns
-};
-
-const mockLeads: Lead[] = [
-  {
-    id: '1',
-    name: 'John Doe',
-    phone: '(123) 456-7890',
-    email: 'john@example.com',
-    createdAt: new Date('2023-11-28'),
-    tags: ['Premium', 'VIP'],
-    status: 'new',
-  },
-  {
-    id: '2',
-    name: 'Jane Smith',
-    phone: '(234) 567-8901',
-    email: 'jane@example.com',
-    createdAt: new Date('2023-11-27'),
-    tags: ['Standard'],
-    status: 'contacted',
-  },
-  {
-    id: '3',
-    name: 'Bob Johnson',
-    phone: '(345) 678-9012',
-    email: 'bob@example.com',
-    createdAt: new Date('2023-11-26'),
-    tags: ['VIP'],
-    status: 'qualified'
-  }
-];
-
-const STORAGE_KEY = 'excel_leads';
-const COLUMNS_KEY = 'excel_columns';
-
 const defaultColumns: Column[] = [
   { id: 'name', header: 'Name', accessor: 'name', type: 'text' },
   { id: 'phone', header: 'Phone', accessor: 'phone', type: 'text' },
   { id: 'email', header: 'Email', accessor: 'email', type: 'text' },
-  { id: 'createdAt', header: 'Created At', accessor: 'createdAt', type: 'date' },
+  { id: 'created_at', header: 'Created At', accessor: 'created_at', type: 'date' },
   { id: 'tags', header: 'Tags', accessor: 'tags', type: 'tags' },
   { id: 'status', header: 'Status', accessor: 'status', type: 'status' },
 ];
 
+// Static columns - no dynamic column management
+const columns = defaultColumns;
+
 export default function LeadsPage() {
+  const { leads, loading, error, createLead, deleteLead, updateLead, refetch, addTag, updateTag, removeTag } = useLeads();
+  const { businesses, currentBusiness, loading: businessLoading, switchBusiness } = useBusiness();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [tagFilter, setTagFilter] = useState<string>('all');
   const [leadStatusFilter, setLeadStatusFilter] = useState<string>('all');
-  const [leads, setLeads] = useState<Lead[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      return saved ? JSON.parse(saved).map((lead: any) => ({
-        ...lead,
-        createdAt: new Date(lead.createdAt)
-      })) : mockLeads;
-    }
-    return mockLeads;
-  });
   
-  const [columns, setColumns] = useState<Column[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(COLUMNS_KEY);
-      return saved ? JSON.parse(saved) : defaultColumns;
-    }
-    return defaultColumns;
-  });
+  // Modal states
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingLead, setEditingLead] = useState<Lead | null>(null);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [loadingStates, setLoadingStates] = useState<Record<string, boolean>>({});
   
-  const [newColumnName, setNewColumnName] = useState('');
-  const [isAddingColumn, setIsAddingColumn] = useState(false);
-  const [editingTag, setEditingTag] = useState<{leadId: string; tagIndex: number | null; value: string} | null>(null);
-  const [showTagInputs, setShowTagInputs] = useState<{[key: string]: boolean}>({});
-  const [newTagInputs, setNewTagInputs] = useState<{[key: string]: string}>({});
   const [customStatuses, setCustomStatuses] = useState<LeadStatus[]>([]);
   const [newStatus, setNewStatus] = useState('');
   const [showStatusInput, setShowStatusInput] = useState(false);
+  const [creatingBusiness, setCreatingBusiness] = useState(false);
+  const [newBusinessName, setNewBusinessName] = useState('');
 
   // Load custom statuses from localStorage on component mount
   useEffect(() => {
@@ -119,72 +71,89 @@ export default function LeadsPage() {
     }
   }, []);
 
-  // Save to localStorage whenever leads, columns, or customStatuses change
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(leads));
-      localStorage.setItem(COLUMNS_KEY, JSON.stringify(columns));
-      localStorage.setItem('customStatuses', JSON.stringify(customStatuses));
+  // Remove localStorage useEffect since we're using API now
+
+  const updateLeadField = async (leadId: string, field: string, value: any) => {
+    setLoadingStates(prev => ({ ...prev, [leadId]: true }));
+    try {
+      await updateLead(leadId, { [field]: value });
+    } catch (err) {
+      console.error('Failed to update lead field:', err);
+    } finally {
+      setLoadingStates(prev => ({ ...prev, [leadId]: false }));
     }
-  }, [leads, columns, customStatuses]);
-
-  const updateLeadField = (leadId: string, field: string, value: any) => {
-    setLeads(leads.map(lead => 
-      lead.id === leadId ? { ...lead, [field]: value } : lead
-    ));
   };
 
-  const handleAddTag = (leadId: string) => {
-    const newTag = newTagInputs[leadId]?.trim();
-    if (!newTag) return;
+  // Modal handlers
+  const handleAddLead = async (leadData: any) => {
+    setModalLoading(true);
+    try {
+      await createLead(leadData);
+      setIsAddModalOpen(false);
+    } catch (err) {
+      console.error('Failed to create lead:', err);
+    } finally {
+      setModalLoading(false);
+    }
+  };
 
-    setLeads(leads.map(lead => {
-      if (lead.id === leadId) {
-        const updatedTags = [...(lead.tags || []), newTag];
-        return { ...lead, tags: updatedTags };
+  const handleEditLead = async (leadData: any) => {
+    if (!editingLead) return;
+    
+    setModalLoading(true);
+    try {
+      await updateLead(editingLead.id, leadData);
+      setIsEditModalOpen(false);
+      setEditingLead(null);
+    } catch (err) {
+      console.error('Failed to update lead:', err);
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const handleDeleteLead = async (leadId: string) => {
+    if (confirm('Are you sure you want to delete this lead?')) {
+      setLoadingStates(prev => ({ ...prev, [leadId]: true }));
+      try {
+        await deleteLead(leadId);
+      } catch (err) {
+        console.error('Failed to delete lead:', err);
+      } finally {
+        setLoadingStates(prev => ({ ...prev, [leadId]: false }));
       }
-      return lead;
-    }));
-
-    // Clear the input and hide it
-    setNewTagInputs(prev => ({
-      ...prev,
-      [leadId]: ''
-    }));
-    setShowTagInputs(prev => ({
-      ...prev,
-      [leadId]: false
-    }));
+    }
   };
 
-  const toggleTagInput = (leadId: string) => {
-    setShowTagInputs(prev => ({
-      ...prev,
-      [leadId]: !prev[leadId]
-    }));
+  const openEditModal = (lead: Lead) => {
+    setEditingLead(lead);
+    setIsEditModalOpen(true);
   };
 
-  const handleUpdateTag = (leadId: string, tagIndex: number, newValue: string) => {
-    setLeads(leads.map(lead => {
-      if (lead.id === leadId) {
-        const updatedTags = [...lead.tags];
-        updatedTags[tagIndex] = newValue;
-        return { ...lead, tags: updatedTags };
-      }
-      return lead;
-    }));
-    setEditingTag(null);
+  const handleAddTag = async (leadId: string, newTag: string) => {
+    if (!newTag.trim()) return;
+
+    try {
+      await addTag(leadId, newTag.trim());
+    } catch (err) {
+      console.error('Failed to add tag:', err);
+    }
   };
 
-  const handleRemoveTag = (leadId: string, tagIndex: number) => {
-    setLeads(leads.map(lead => {
-      if (lead.id === leadId) {
-        const updatedTags = [...lead.tags];
-        updatedTags.splice(tagIndex, 1);
-        return { ...lead, tags: updatedTags };
-      }
-      return lead;
-    }));
+  const handleUpdateTag = async (leadId: string, tagIndex: number, newValue: string) => {
+    try {
+      await updateTag(leadId, tagIndex, newValue);
+    } catch (err) {
+      console.error('Failed to update tag:', err);
+    }
+  };
+
+  const handleRemoveTag = async (leadId: string, tagIndex: number) => {
+    try {
+      await removeTag(leadId, tagIndex);
+    } catch (err) {
+      console.error('Failed to remove tag:', err);
+    }
   };
 
   const updateLeadStatus = (leadId: string, status: LeadStatus) => {
@@ -200,6 +169,44 @@ export default function LeadsPage() {
     }
   };
 
+  const createBusiness = async () => {
+    if (!newBusinessName.trim()) return;
+    
+    setCreatingBusiness(true);
+    try {
+      // Get current session token
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        console.error('No authentication token available');
+        return;
+      }
+
+      const response = await fetch('/api/businesses', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ 
+          name: newBusinessName.trim(),
+          category: 'general'
+        }),
+      });
+
+      if (response.ok) {
+        setNewBusinessName('');
+        window.location.reload(); // Reload to refresh business context
+      } else {
+        const error = await response.json();
+        console.error('Failed to create business:', error);
+      }
+    } catch (err) {
+      console.error('Failed to create business:', err);
+    } finally {
+      setCreatingBusiness(false);
+    }
+  };
+
   const removeStatus = (statusToRemove: LeadStatus) => {
     // Don't allow removing the 'new' status as it's our fallback
     if (statusToRemove === 'new') {
@@ -212,19 +219,21 @@ export default function LeadsPage() {
     }
     
     // Update any leads with the removed status to 'new'
-    setLeads(leads.map(lead => 
-      lead.status === statusToRemove ? { ...lead, status: 'new' } : lead
-    ));
+    // This would require updating all leads with that status
+    // For now, we'll just remove it from the custom statuses list
+    leads.forEach(lead => {
+      if (lead.status === statusToRemove) {
+        updateLeadField(lead.id, 'status', 'new');
+      }
+    });
   };
 
   const allStatuses = useMemo(() => {
-    const defaultStatuses = ['new'] as LeadStatus[];
-    const additionalDefaultStatuses = ['contacted', 'qualified', 'lost'] as LeadStatus[];
+    const defaultStatuses = ['new', 'contacted', 'qualified', 'lost'] as LeadStatus[];
     
     // Combine default statuses with custom ones, removing any duplicates
     return Array.from(new Set([
       ...defaultStatuses,
-      ...additionalDefaultStatuses.filter(s => !customStatuses.includes(s)),
       ...customStatuses
     ] as LeadStatus[]));
   }, [customStatuses]);
@@ -267,7 +276,7 @@ export default function LeadsPage() {
           `"${lead.name}"`,
           `"${lead.phone}"`,
           `"${lead.email}"`,
-          `"${format(lead.createdAt, 'yyyy-MM-dd')}"`,
+          `"${format(new Date(lead.created_at), 'yyyy-MM-dd')}"`,
           `"${lead.tags.join(', ')}"`,
           `"${lead.status}"`
         ].join(',')
@@ -284,57 +293,121 @@ export default function LeadsPage() {
     document.body.removeChild(link);
   };
 
-  const addNewColumn = () => {
-    if (!newColumnName.trim()) return;
-    const newColumn = {
-      id: newColumnName.toLowerCase().replace(/\s+/g, '_'),
-      header: newColumnName,
-      accessor: newColumnName.toLowerCase().replace(/\s+/g, '_'),
-      type: 'text' as const
-    };
-    
-    setColumns([...columns, newColumn]);
-    setNewColumnName('');
-    setIsAddingColumn(false);
-    
-    // Add the new column to all leads
-    setLeads(leads.map(lead => ({
-      ...lead,
-      [newColumn.accessor]: ''
-    })));
-  };
 
-  const removeColumn = (columnId: string) => {
-    if (['name', 'email', 'phone', 'createdAt', 'tags', 'status'].includes(columnId)) {
-      return; // Prevent removing default columns
-    }
-    setColumns(columns.filter(col => col.id !== columnId));
-  };
-
-  const addNewRow = () => {
-    const newLead: Lead = {
-      id: uuidv4(),
-      name: '',
-      phone: '',
-      email: '',
-      createdAt: new Date(),
-      tags: [],
-      status: 'new',
-    };
-    
-    // Initialize all custom columns with empty values
-    columns.forEach(col => {
-      if (!['name', 'email', 'phone', 'createdAt', 'tags', 'status'].includes(col.id)) {
-        newLead[col.id] = '';
-      }
-    });
-    
-    setLeads([newLead, ...leads]);
-  };
-
+  
   return (
     <div className="p-6">
-      <div className="flex flex-col gap-4 mb-6">
+      {businessLoading ? (
+        <div className="flex items-center justify-center py-8">
+          <div className="text-gray-400">Loading business information...</div>
+        </div>
+      ) : !currentBusiness ? (
+        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-6 mb-6">
+          <div className="text-yellow-300 mb-4">
+            <h3 className="text-lg font-semibold mb-2">No Business Selected</h3>
+            <p className="text-sm opacity-90">
+              {businesses.length === 0 
+                ? "You need to create a business first to manage leads."
+                : "Please select a business to view and manage leads."
+              }
+            </p>
+          </div>
+          {businesses.length === 0 ? (
+            <div className="mt-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <Input
+                  type="text"
+                  placeholder="Enter business name..."
+                  value={newBusinessName}
+                  onChange={(e) => setNewBusinessName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && createBusiness()}
+                  className="flex-1"
+                />
+                <Button 
+                  onClick={createBusiness}
+                  disabled={!newBusinessName.trim() || creatingBusiness}
+                  className="bg-cyan-500 hover:bg-cyan-600 text-white"
+                >
+                  {creatingBusiness ? 'Creating...' : 'Create Business'}
+                </Button>
+              </div>
+              <p className="text-xs text-yellow-200/70">
+                Create your first business to start managing leads
+              </p>
+            </div>
+          ) : (
+            <div className="mt-4">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button className="bg-cyan-500 hover:bg-cyan-600 text-white">
+                    Select Business
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  {businesses.map((business) => (
+                    <DropdownMenuItem
+                      key={business.id}
+                      onClick={() => switchBusiness(business.id)}
+                    >
+                      {business.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          {loading && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-center py-8">
+                <div className="flex items-center gap-2 text-gray-400">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Loading leads...</span>
+                </div>
+              </div>
+              
+              {/* Table skeleton */}
+              <div className="glass-card border-cyan-500/20 rounded-lg overflow-hidden">
+                <div className="glass px-6 py-3 border-b border-cyan-500/20">
+                  <Skeleton className="h-4 w-20 bg-cyan-500/20" />
+                </div>
+                <div className="overflow-x-auto">
+                  <div className="min-w-full">
+                    {/* Header skeleton */}
+                    <div className="bg-white/5 border-b border-cyan-500/20">
+                      <div className="grid grid-cols-6 gap-4 px-6 py-3">
+                        {Array.from({ length: 6 }).map((_, i) => (
+                          <Skeleton key={i} className="h-4 bg-cyan-500/20" />
+                        ))}
+                      </div>
+                    </div>
+                    {/* Row skeletons */}
+                    {Array.from({ length: 5 }).map((_, rowIndex) => (
+                      <div key={rowIndex} className={`${rowIndex % 2 === 0 ? 'bg-white/5' : 'bg-white/10'} border-b border-cyan-500/10`}>
+                        <div className="grid grid-cols-6 gap-4 px-6 py-3">
+                          {Array.from({ length: 6 }).map((_, colIndex) => (
+                            <Skeleton key={colIndex} className="h-4 bg-gray-600/20" />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-6">
+              <div className="text-red-400">{error}</div>
+            </div>
+          )}
+          
+          {!loading && !error && (
+        <>
+          <div className="flex flex-col gap-4 mb-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="flex-1 flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full">
             <div className="relative w-full sm:w-96">
@@ -378,9 +451,9 @@ export default function LeadsPage() {
           </div>
           
           <div className="flex items-center gap-2 w-full sm:w-auto">
-            <Button onClick={addNewRow} className="flex items-center gap-2 text-white">
+            <Button onClick={() => setIsAddModalOpen(true)} className="flex items-center gap-2 text-white">
               <Plus className="h-4 w-4" />
-              Add Row
+              Add Lead
             </Button>
             
             <Button onClick={exportToCSV} variant="outline" className="ml-2 text-white">
@@ -393,39 +466,7 @@ export default function LeadsPage() {
 
       <div className="glass-card border-cyan-500/20 rounded-lg overflow-hidden">
         <div className="glass px-6 py-3 border-b border-cyan-500/20">
-          <div className="flex justify-between items-center">
-            <h3 className="text-sm font-medium text-cyan-300">Leads</h3>
-            <div className="flex items-center gap-2">
-              {isAddingColumn && (
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="text"
-                    placeholder="Column name"
-                    value={newColumnName}
-                    onChange={(e) => setNewColumnName(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && addNewColumn()}
-                    className="h-8 text-sm w-48"
-                  />
-                  <Button 
-                    onClick={addNewColumn} 
-                    disabled={!newColumnName.trim()}
-                    className="h-8 px-3 text-sm text-white"
-                  >
-                    Add
-                  </Button>
-                </div>
-              )}
-              <Button 
-                variant="outline" 
-                size="sm"
-                className="flex items-center gap-1 h-8 text-white"
-                onClick={() => setIsAddingColumn(!isAddingColumn)}
-              >
-                <Columns className="h-3.5 w-3.5" />
-                <span>{isAddingColumn ? 'Cancel' : 'Add Column'}</span>
-              </Button>
-            </div>
-          </div>
+          <h3 className="text-sm font-medium text-cyan-300">Leads</h3>
         </div>
         <div className="overflow-x-auto">
           <Table className="min-w-full">
@@ -434,20 +475,9 @@ export default function LeadsPage() {
                 {columns.map((column) => (
                   <TableHead 
                     key={column.id}
-                    className="text-xs font-medium text-cyan-400 uppercase tracking-wider relative group"
+                    className="text-xs font-medium text-cyan-400 uppercase tracking-wider"
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-cyan-300">{column.header}</span>
-                      {!['name', 'email', 'phone', 'createdAt', 'tags', 'status'].includes(column.id) && (
-                        <button 
-                          onClick={() => removeColumn(column.id)}
-                          className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-pink-400 ml-2"
-                          title="Remove column"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      )}
-                    </div>
+                    <span className="font-bold text-cyan-300">{column.header}</span>
                   </TableHead>
                 ))}
                 <TableHead className="w-10">
@@ -486,7 +516,10 @@ export default function LeadsPage() {
                                             : 'bg-purple-500/20 text-purple-300 border-purple-500/30 hover:bg-purple-500/30'
                                   }`}
                                 >
-                                  {String(value).charAt(0).toUpperCase() + String(value).slice(1)}
+                                  {loadingStates[lead.id] ? (
+                                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                  ) : null}
+                                  <span>{String(value).charAt(0).toUpperCase() + String(value).slice(1)}</span>
                                   <ChevronDown className="ml-1 h-3 w-3" />
                                 </div>
                               </DropdownMenuTrigger>
@@ -558,126 +591,77 @@ export default function LeadsPage() {
                               </DropdownMenuContent>
                             </DropdownMenu>
                           ) : column.type === 'tags' ? (
-                            <div className="grid grid-cols-2 gap-1 w-full max-w-[200px] min-h-[32px]">
+                            <div className="flex flex-wrap gap-1">
                               {(Array.isArray(value) ? value : []).map((tag: string, tagIndex: number) => (
-                                editingTag?.leadId === lead.id && editingTag.tagIndex === tagIndex ? (
-                                  <input
-                                    key={tagIndex}
-                                    type="text"
-                                    className="text-xs px-2 py-0.5 rounded border border-cyan-500/30 bg-white/5 text-gray-200 focus:ring-1 focus:ring-cyan-500 focus:outline-none w-24"
-                                    value={editingTag.value}
-                                    onChange={(e) => setEditingTag({...editingTag, value: e.target.value})}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') {
-                                        handleUpdateTag(lead.id, tagIndex, editingTag.value);
-                                      } else if (e.key === 'Escape') {
-                                        setEditingTag(null);
-                                      }
-                                    }}
-                                    onBlur={() => handleUpdateTag(lead.id, tagIndex, editingTag.value)}
-                                    autoFocus
-                                  />
-                                ) : (
-                                  <div 
-                                    key={`${lead.id}-${tagIndex}`}
-                                    className="flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 group truncate"
-                                  >
-                                    <span 
-                                      className="cursor-text"
-                                      onClick={() => setEditingTag({leadId: lead.id, tagIndex, value: tag})}
-                                    >
-                                      {tag}
-                                    </span>
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleRemoveTag(lead.id, tagIndex);
-                                      }}
-                                      className="opacity-0 group-hover:opacity-100 text-cyan-400 hover:text-pink-400 ml-1"
-                                      title="Remove tag"
-                                    >
-                                      <X className="h-3 w-3" />
-                                    </button>
-                                  </div>
-                                )
-                              ))}
-                              {showTagInputs[lead.id] ? (
-                                <div className="col-span-2 flex items-center gap-1">
-                                  <input
-                                    type="text"
-                                    className="text-xs px-2 py-0.5 rounded border border-dashed border-cyan-500/30 bg-white/5 text-gray-200 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/30 focus:outline-none w-24"
-                                    placeholder="Add tag"
-                                    value={newTagInputs[lead.id] || ''}
-                                    onChange={(e) => setNewTagInputs(prev => ({
-                                      ...prev,
-                                      [lead.id]: e.target.value
-                                    }))}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') {
-                                        handleAddTag(lead.id);
-                                      } else if (e.key === 'Escape') {
-                                        toggleTagInput(lead.id);
-                                      }
-                                    }}
-                                    onBlur={() => {
-                                      if ((newTagInputs[lead.id] || '').trim()) {
-                                        handleAddTag(lead.id);
-                                      } else {
-                                        toggleTagInput(lead.id);
-                                      }
-                                    }}
-                                    onClick={(e) => e.stopPropagation()}
-                                    autoFocus
-                                  />
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleTagInput(lead.id);
-                                  }}
-                                  className="flex items-center justify-center w-5 h-5 rounded-full border border-dashed border-cyan-500/30 text-gray-400 hover:border-cyan-500 hover:text-cyan-400"
-                                  title="Add tag"
+                                <span 
+                                  key={`${lead.id}-${tagIndex}`}
+                                  className="px-2 py-1 text-xs rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
                                 >
-                                  <Plus className="h-3 w-3" />
-                                </button>
-                              )}
+                                  {tag}
+                                </span>
+                              ))}
                             </div>
                           ) : column.type === 'date' ? (
                             <div className="whitespace-nowrap">
                               {value ? format(new Date(value), 'MMM d, yyyy') : ''}
                             </div>
                           ) : (
-                            <input
-                              type="text"
-                              className="w-full p-1 border border-transparent bg-transparent text-gray-200 rounded hover:border-cyan-500/30 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/30 focus:outline-none"
-                              value={value || ''}
-                              onChange={(e) => updateLeadField(lead.id, column.accessor, e.target.value)}
-                              onClick={(e) => e.stopPropagation()}
-                            />
+                            <div className="flex items-center">
+                              <input
+                                type={column.accessor === 'email' ? 'email' : column.accessor === 'phone' ? 'tel' : 'text'}
+                                className="w-full px-3 py-2 bg-white/10 border border-cyan-500/20 rounded-lg text-gray-200 placeholder-gray-400 focus:outline-none focus:border-cyan-500/40 focus:bg-white/15 transition-all duration-200 text-sm"
+                                value={value || ''}
+                                readOnly
+                                placeholder={`Enter ${column.header.toLowerCase()}`}
+                              />
+                            </div>
                           )}
                         </TableCell>
                       );
                     })}
                     <TableCell className="px-2 py-3">
-                      <button
-                        onClick={() => {
-                          if (confirm('Are you sure you want to delete this row?')) {
-                            setLeads(leads.filter(l => l.id !== lead.id));
-                          }
-                        }}
-                        className="text-gray-400 hover:text-pink-400"
-                        title="Delete row"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => openEditModal(lead)}
+                          className="p-1 hover:bg-gray-100 rounded relative text-gray-400 hover:text-cyan-400"
+                          title="Edit lead"
+                          disabled={loadingStates[lead.id]}
+                        >
+                          {loadingStates[lead.id] ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Edit className="h-4 w-4" />
+                          )}
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            if (confirm('Are you sure you want to delete this row?')) {
+                              try {
+                                handleDeleteLead(lead.id);
+                              } catch (err) {
+                                console.error('Failed to delete lead:', err);
+                              }
+                            }
+                          }}
+                          className="p-1 hover:bg-gray-100 rounded relative text-gray-400 hover:text-pink-400"
+                          title="Delete row"
+                          disabled={loadingStates[lead.id]}
+                        >
+                          {loadingStates[lead.id] ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))
               ) : (
                 <TableRow>
                   <TableCell colSpan={columns.length + 1} className="px-6 py-8 text-center text-sm text-gray-400">
-                    No leads found. Click "Add Row" to create a new one.
+                    No leads found. Click "Add Lead" to create a new one.
                   </TableCell>
                 </TableRow>
               )}
@@ -685,6 +669,43 @@ export default function LeadsPage() {
           </Table>
         </div>
       </div>
+        </>
+          )}
+        </>
+      )}
+      
+      {/* Add Lead Modal */}
+      <Modal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        title="Add New Lead"
+      >
+        <LeadForm
+          onSubmit={handleAddLead}
+          onCancel={() => setIsAddModalOpen(false)}
+          loading={modalLoading}
+        />
+      </Modal>
+      
+      {/* Edit Lead Modal */}
+      <Modal
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          setEditingLead(null);
+        }}
+        title="Edit Lead"
+      >
+        <LeadForm
+          lead={editingLead || undefined}
+          onSubmit={handleEditLead}
+          onCancel={() => {
+            setIsEditModalOpen(false);
+            setEditingLead(null);
+          }}
+          loading={modalLoading}
+        />
+      </Modal>
     </div>
   );
 }

@@ -58,15 +58,19 @@ export default function LoginPage() {
       }
 
       if (data.user) {
-        // Check if user has completed onboarding by looking for profile
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('full_name, business_id, role')
-          .eq('id', data.user.id)
-          .single();
+        // Get user role from metadata
+        const userRole = data.user.user_metadata?.role || 'owner'; // Default to owner for backward compatibility
+        
+        // Check if user has completed onboarding by looking for their business
+        const { data: business, error: businessError } = await supabase
+          .from('businesses')
+          .select('id, name, is_active')
+          .eq('owner_id', data.user.id)
+          .maybeSingle();
 
-        // If no profile exists, user hasn't completed onboarding
-        if (!profile) {
+        // If no business exists (business is null), user hasn't completed onboarding
+        if (!business) {
+          console.log('No business found, redirecting to onboarding');
           toast({
             title: "Welcome!",
             description: "Please complete your business setup to continue.",
@@ -77,16 +81,14 @@ export default function LoginPage() {
           return;
         }
 
-        // Get business details
-        const { data: business, error: businessError } = await supabase
-          .from('businesses')
-          .select('id, name, is_active')
-          .eq('id', profile.business_id)
-          .single();
+        // If there's a business error but we have business data, continue with login
+        if (businessError) {
+          console.warn('Business query warning:', businessError);
+        }
 
         toast({
           title: "Login Successful!",
-          description: `Welcome back${profile?.full_name ? ', ' + profile.full_name : ''}!`,
+          description: `Welcome back${data.user.user_metadata?.full_name ? ', ' + data.user.user_metadata.full_name : ''}!`,
         });
 
         // Set business context if available
@@ -94,9 +96,10 @@ export default function LoginPage() {
           localStorage.setItem('currentBusinessId', business.id);
         }
 
-        // User has completed onboarding, go to dashboard
+        // Redirect based on user role
+        const redirectPath = userRole === 'provider' ? '/provider/dashboard' : '/admin/dashboard';
         setTimeout(() => {
-          router.push("/admin/dashboard");
+          router.push(redirectPath);
         }, 500);
       }
       

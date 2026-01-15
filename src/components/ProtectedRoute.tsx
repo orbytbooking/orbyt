@@ -23,15 +23,30 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
           return;
         }
 
-        // Check if user has completed onboarding
-        const { data: profile } = await supabase
-          .from('profiles')
+        // Check if user has completed onboarding by looking for their business
+        const { data: business, error: businessError } = await supabase
+          .from('businesses')
           .select('id')
-          .eq('id', session.user.id)
-          .single();
+          .eq('owner_id', session.user.id)
+          .maybeSingle();
 
-        if (!profile) {
+        // If no business exists (business is null), user hasn't completed onboarding
+        if (!business) {
           router.push("/auth/onboarding");
+          setIsAuthenticated(false);
+          return;
+        }
+
+        // If there's a business error but we have business data, continue
+        if (businessError) {
+          console.warn('Business query warning in ProtectedRoute:', businessError);
+        }
+
+        // Check if user is an owner (admin access)
+        const userRole = session.user.user_metadata?.role || 'owner';
+        if (userRole !== 'owner') {
+          console.log('User is not an owner, redirecting to provider dashboard');
+          router.push("/provider/dashboard");
           setIsAuthenticated(false);
           return;
         }
