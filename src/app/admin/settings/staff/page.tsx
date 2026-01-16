@@ -9,6 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Plus, Search, Pencil, Trash2, UserPlus } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { Badge } from '@/components/ui/badge';
+import { useBusiness } from '@/contexts/BusinessContext';
+import { useTenantQueries } from '@/lib/multiTenantSupabase';
 
 type StaffMember = {
   id: string;
@@ -37,6 +39,10 @@ const StaffManagement = () => {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [currentStaff, setCurrentStaff] = useState<StaffMember | null>(null);
+  
+  // Business context and tenant queries
+  const { currentBusiness } = useBusiness();
+  const tenantQueries = currentBusiness ? useTenantQueries(currentBusiness.id) : null;
   const [formData, setFormData] = useState<{
     firstName: string;
     lastName: string;
@@ -64,45 +70,46 @@ const StaffManagement = () => {
   });
 
 
-  // Load staff data (in a real app, this would be an API call)
+  // Load staff data from database
   useEffect(() => {
-    // Simulate API call
     const fetchStaff = async () => {
+      if (!currentBusiness || !tenantQueries) {
+        setIsLoading(false);
+        return;
+      }
+
       try {
-        // In a real app, you would fetch this from your API
-        const mockStaff: StaffMember[] = [
-          {
-            id: '1',
-            firstName: 'John',
-            lastName: 'Doe',
-            email: 'john@example.com',
-            role: 'admin',
-            gender: 'male',
-            phone: '+1 (555) 123-4567',
-            alternatePhone: '',
-            address: '123 Main St, Anytown, USA',
-            apartment: 'Apt 4B',
-            sendInvitation: false,
-            status: 'active',
-            lastActive: '2023-11-28T10:30:00Z',
-          },
-          {
-            id: '2',
-            firstName: 'Jane',
-            lastName: 'Smith',
-            email: 'jane@example.com',
-            role: 'manager',
-            gender: 'female',
-            phone: '+1 (555) 987-6543',
-            alternatePhone: '+1 (555) 555-1234',
-            address: '456 Oak Ave, Somewhere, USA',
-            apartment: '',
-            sendInvitation: true,
-            status: 'active',
-            lastActive: '2023-11-28T09:15:00Z',
-          },
-        ];
-        setStaff(mockStaff);
+        const { data: staffData, error } = await tenantQueries.staff.select('*');
+        
+        if (error) {
+          console.error('Error fetching staff:', error);
+          toast({
+            title: 'Error',
+            description: 'Failed to load staff members.',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        // Convert snake_case from database to camelCase for frontend
+        const formattedStaff: StaffMember[] = (staffData || []).map((member: any) => ({
+          id: member.id,
+          firstName: member.first_name,
+          lastName: member.last_name,
+          email: member.email,
+          role: member.role,
+          gender: member.gender || '',
+          phone: member.phone || '',
+          alternatePhone: member.alternate_phone || '',
+          address: member.address || '',
+          apartment: member.apartment || '',
+          sendInvitation: member.send_invitation,
+          image: member.image,
+          status: member.status,
+          lastActive: member.last_active,
+        }));
+
+        setStaff(formattedStaff);
       } catch (error) {
         console.error('Error fetching staff:', error);
         toast({
@@ -116,7 +123,7 @@ const StaffManagement = () => {
     };
 
     fetchStaff();
-  }, [toast]);
+  }, [currentBusiness, tenantQueries, toast]);
 
   const filteredStaff = staff.filter(
     (member) =>
@@ -153,53 +160,100 @@ const StaffManagement = () => {
     }
   };
 
-  const handleAddStaff = (e: React.FormEvent) => {
+  const handleAddStaff = async (e: React.FormEvent) => {
     e.preventDefault();
-    // In a real app, you would make an API call here
-    const newStaff: StaffMember = {
-      id: Math.random().toString(36).substr(2, 9),
-      firstName: formData.firstName,
-      lastName: formData.lastName,
-      name: `${formData.firstName} ${formData.lastName}`,
-      email: formData.email,
-      role: formData.role as StaffMember['role'],
-      gender: formData.gender as StaffMember['gender'],
-      phone: formData.phone,
-      alternatePhone: formData.alternatePhone,
-      address: formData.address,
-      apartment: formData.apartment,
-      sendInvitation: formData.sendInvitation,
-      image: formData.image,
-      status: 'active',
-      lastActive: new Date().toISOString(),
-    };
-
-    setStaff([...staff, newStaff]);
-    setFormData({
-      firstName: '',
-      lastName: '',
-      email: '',
-      role: 'staff',
-      gender: '',
-      phone: '',
-      alternatePhone: '',
-      address: '',
-      apartment: '',
-      sendInvitation: true,
-      image: undefined
-    });
-    setIsAddDialogOpen(false);
     
-    toast({
-      title: 'Success',
-      description: 'Staff member added successfully!',
-    });
+    if (!currentBusiness || !tenantQueries) {
+      toast({
+        title: 'Error',
+        description: 'Business context not available.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      // Convert camelCase to snake_case for database
+      const staffData = {
+        first_name: formData.firstName,
+        last_name: formData.lastName,
+        email: formData.email,
+        role: formData.role,
+        gender: formData.gender || null,
+        phone: formData.phone,
+        alternate_phone: formData.alternatePhone,
+        address: formData.address,
+        apartment: formData.apartment,
+        send_invitation: formData.sendInvitation,
+        image: formData.image,
+        status: 'active',
+        last_active: new Date().toISOString(),
+      };
+
+      const { data, error } = await tenantQueries.staff.insert(staffData).select();
+      
+      if (error) {
+        console.error('Error adding staff:', error);
+        toast({
+          title: 'Error',
+          description: error.message || 'Failed to add staff member.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Convert back to camelCase for frontend state
+      const newStaff: StaffMember = {
+        id: data[0].id,
+        firstName: data[0].first_name,
+        lastName: data[0].last_name,
+        email: data[0].email,
+        role: data[0].role,
+        gender: data[0].gender || '',
+        phone: data[0].phone || '',
+        alternatePhone: data[0].alternate_phone || '',
+        address: data[0].address || '',
+        apartment: data[0].apartment || '',
+        sendInvitation: data[0].send_invitation,
+        image: data[0].image,
+        status: data[0].status,
+        lastActive: data[0].last_active,
+      };
+
+      setStaff([...staff, newStaff]);
+      setFormData({
+        firstName: '',
+        lastName: '',
+        email: '',
+        role: 'staff',
+        gender: '',
+        phone: '',
+        alternatePhone: '',
+        address: '',
+        apartment: '',
+        sendInvitation: true,
+        image: undefined
+      });
+      setIsAddDialogOpen(false);
+      
+      toast({
+        title: 'Success',
+        description: 'Staff member added successfully!',
+      });
+    } catch (error) {
+      console.error('Error adding staff:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to add staff member.',
+        variant: 'destructive',
+      });
+    }
   };
 
   // Handle edit staff submission
-  const handleEditStaff = (e: React.FormEvent) => {
+  const handleEditStaff = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentStaff) return;
+    if (!currentStaff || !currentBusiness || !tenantQueries) return;
 
     // Validate required fields
     if (!formData.firstName || !formData.lastName || !formData.email || !formData.role) {
@@ -211,74 +265,141 @@ const StaffManagement = () => {
       return;
     }
 
-    // Update staff member
-    const updatedStaffList = staff.map((member) =>
-      member.id === currentStaff.id
-        ? {
-            ...member,
-            firstName: formData.firstName,
-            lastName: formData.lastName,
-            email: formData.email,
-            role: formData.role,
-            gender: formData.gender,
-            phone: formData.phone,
-            alternatePhone: formData.alternatePhone,
-            address: formData.address,
-            apartment: formData.apartment,
-            sendInvitation: formData.sendInvitation,
-            image: formData.image || member.image,
-            name: `${formData.firstName} ${formData.lastName}`,
-            status: member.status,
-            lastActive: member.lastActive,
-          }
-        : member
-    );
+    try {
+      // Convert camelCase to snake_case for database
+      const updateData = {
+        first_name: formData.firstName,
+        last_name: formData.lastName,
+        email: formData.email,
+        role: formData.role,
+        gender: formData.gender || null,
+        phone: formData.phone,
+        alternate_phone: formData.alternatePhone,
+        address: formData.address,
+        apartment: formData.apartment,
+        send_invitation: formData.sendInvitation,
+        image: formData.image || currentStaff.image,
+      };
 
-    setStaff(updatedStaffList);
-    setIsEditDialogOpen(false);
-    setCurrentStaff(null);
-    
-    // Reset form
-    setFormData({
-      firstName: '',
-      lastName: '',
-      email: '',
-      role: 'staff',
-      gender: '',
-      phone: '',
-      alternatePhone: '',
-      address: '',
-      apartment: '',
-      sendInvitation: true,
-      image: undefined
-    });
-    
-    const successMessage = `${formData.firstName} ${formData.lastName}'s details have been updated.`;
-    
-    toast({
-      title: 'Success',
-      description: successMessage,
-    });
-  };
+      const { data, error } = await tenantQueries.staff
+        .update(updateData)
+        .eq('id', currentStaff.id)
+        .select();
+      
+      if (error) {
+        console.error('Error updating staff:', error);
+        toast({
+          title: 'Error',
+          description: error.message || 'Failed to update staff member.',
+          variant: 'destructive',
+        });
+        return;
+      }
 
-  const handleDeleteStaff = (id: string) => {
-    if (window.confirm('Are you sure you want to delete this staff member?')) {
-      // In a real app, you would make an API call here
-      const updatedStaff = staff.filter((member) => member.id !== id);
-      setStaff(updatedStaff);
+      // Update local state with returned data
+      const updatedStaffList = staff.map((member) =>
+        member.id === currentStaff.id
+          ? {
+              ...member,
+              firstName: data[0].first_name,
+              lastName: data[0].last_name,
+              email: data[0].email,
+              role: data[0].role,
+              gender: data[0].gender || '',
+              phone: data[0].phone || '',
+              alternatePhone: data[0].alternate_phone || '',
+              address: data[0].address || '',
+              apartment: data[0].apartment || '',
+              sendInvitation: data[0].send_invitation,
+              image: data[0].image,
+              status: data[0].status,
+              lastActive: data[0].last_active,
+            }
+          : member
+      );
+
+      setStaff(updatedStaffList);
+      setIsEditDialogOpen(false);
+      setCurrentStaff(null);
+      
+      // Reset form
+      setFormData({
+        firstName: '',
+        lastName: '',
+        email: '',
+        role: 'staff',
+        gender: '',
+        phone: '',
+        alternatePhone: '',
+        address: '',
+        apartment: '',
+        sendInvitation: true,
+        image: undefined
+      });
+      
+      const successMessage = `${formData.firstName} ${formData.lastName}'s details have been updated.`;
       
       toast({
         title: 'Success',
-        description: 'Staff member deleted successfully!',
+        description: successMessage,
       });
+    } catch (error) {
+      console.error('Error updating staff:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to update staff member.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDeleteStaff = async (id: string) => {
+    if (!currentBusiness || !tenantQueries) {
+      toast({
+        title: 'Error',
+        description: 'Business context not available.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (window.confirm('Are you sure you want to delete this staff member?')) {
+      try {
+        const { error } = await tenantQueries.staff.delete().eq('id', id);
+        
+        if (error) {
+          console.error('Error deleting staff:', error);
+          toast({
+            title: 'Error',
+            description: error.message || 'Failed to delete staff member.',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        const updatedStaff = staff.filter((member) => member.id !== id);
+        setStaff(updatedStaff);
+        
+        toast({
+          title: 'Success',
+          description: 'Staff member deleted successfully!',
+        });
+      } catch (error) {
+        console.error('Error deleting staff:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to delete staff member.',
+          variant: 'destructive',
+        });
+      }
     }
   };
 
   const openEditDialog = (member: StaffMember) => {
     setCurrentStaff(member);
     setFormData({
-      firstName: member.firstName || (member.name ? member.name.split(' ')[0] : ''),
-      lastName: member.lastName || (member.name ? member.name.split(' ').slice(1).join(' ') : ''),
+      firstName: member.firstName,
+      lastName: member.lastName,
       email: member.email,
       role: member.role,
       gender: member.gender || '',
@@ -651,7 +772,7 @@ const StaffManagement = () => {
             <CardHeader className="sticky top-0 bg-background z-10 border-b p-4">
               <CardTitle className="text-lg">Edit Staff Member</CardTitle>
               <CardDescription className="text-sm">
-                Update the details for {currentStaff.name}.
+                Update the details for {currentStaff.firstName} {currentStaff.lastName}.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex-1 overflow-y-auto p-4">

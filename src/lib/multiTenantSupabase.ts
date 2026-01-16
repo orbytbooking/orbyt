@@ -51,6 +51,14 @@ export class MultiTenantHelper {
     return query.eq('business_id', bizId);
   }
 
+  // Add business filter to staff query
+  static filterStaff(query: any, businessId?: string) {
+    const bizId = businessId || this.currentBusinessId;
+    if (!bizId) return query;
+    
+    return query.eq('business_id', bizId);
+  }
+
   // Filter businesses by ownership only (MVP setup)
   static filterBusinesses(query: any, userId: string) {
     return query.eq('owner_id', userId);
@@ -113,6 +121,20 @@ export function createTenantQuery(supabase: SupabaseClient, businessId: string) 
         MultiTenantHelper.filterLeads(supabase.from('leads').update(data)),
       delete: () => 
         MultiTenantHelper.filterLeads(supabase.from('leads').delete()),
+    },
+
+    // Staff with business filtering
+    staff: {
+      select: (columns?: string) => 
+        MultiTenantHelper.filterStaff(supabase.from('staff').select(columns)),
+      insert: (data: any) => 
+        MultiTenantHelper.filterStaff(supabase.from('staff').insert(
+          MultiTenantHelper.addBusinessId(data, businessId)
+        )),
+      update: (data: any) => 
+        MultiTenantHelper.filterStaff(supabase.from('staff').update(data)),
+      delete: () => 
+        MultiTenantHelper.filterStaff(supabase.from('staff').delete()),
     },
 
     // Businesses filtered by user access
