@@ -64,13 +64,22 @@ export async function POST(request: Request) {
   try {
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // Get user session
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    // Get auth token from header
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'Unauthorized - No token' }, { status: 401 });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    
+    // Verify user session with token
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      console.error('Auth error:', authError);
+      return NextResponse.json({ error: 'Unauthorized - Invalid token' }, { status: 401 });
     }
 
     // Get business context from headers
@@ -83,7 +92,7 @@ export async function POST(request: Request) {
     const { data: businessAccess, error: accessError } = await supabase
       .from('businesses')
       .select('id, owner_id')
-      .or(`owner_id.eq.${user.id},id.in.(SELECT business_id FROM tenant_users WHERE user_id = ${user.id} AND is_active = true AND role IN ('owner', 'admin'))`)
+      .eq('owner_id', user.id)
       .eq('id', businessId)
       .single();
 
@@ -94,16 +103,31 @@ export async function POST(request: Request) {
     // Parse request body
     const bookingData = await request.json();
 
-    // Set business context and create booking
-    MultiTenantHelper.setBusinessContext(businessId);
-    
-    const { data: booking, error: bookingError } = MultiTenantHelper.filterBookings(
-      supabase.from('bookings').insert(
-        MultiTenantHelper.addBusinessId(bookingData, businessId)
-      )
+    // Map payment method to valid database values
+    let paymentMethod = 'cash'; // default
+    if (bookingData.payment_method) {
+      const method = bookingData.payment_method.toLowerCase();
+      if (method === 'cash') {
+        paymentMethod = 'cash';
+      } else if (method.includes('card') || method.includes('bank') || method === 'credit card') {
+        paymentMethod = 'online';
+      }
+    }
+
+    // Add business_id and ensure total_price and payment_method are set
+    const bookingWithBusiness = {
+      ...bookingData,
+      business_id: businessId,
+      total_price: bookingData.amount || 0, // Use amount or default to 0
+      payment_method: paymentMethod, // Use mapped valid value
+    };
+
+    // Insert booking directly
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .insert(bookingWithBusiness)
       .select()
-      .single()
-    );
+      .single();
 
     if (bookingError) {
       return NextResponse.json({ error: bookingError.message }, { status: 500 });

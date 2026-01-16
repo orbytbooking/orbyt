@@ -10,10 +10,7 @@ CREATE TABLE IF NOT EXISTS businesses (
   plan TEXT NOT NULL DEFAULT 'starter',
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  
-  -- Enable Row Level Security (RLS)
-  ENABLE ROW LEVEL SECURITY
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Create indexes for better performance
@@ -22,8 +19,11 @@ CREATE INDEX IF NOT EXISTS idx_businesses_category ON businesses(category);
 CREATE INDEX IF NOT EXISTS idx_businesses_plan ON businesses(plan);
 CREATE INDEX IF NOT EXISTS idx_businesses_is_active ON businesses(is_active);
 
+-- Enable RLS on businesses table
+ALTER TABLE businesses ENABLE ROW LEVEL SECURITY;
+
 -- RLS Policies
--- Allow users to see their own businesses
+-- Allow users to see their own businesses (no restrictions for visibility)
 CREATE POLICY "Users can view their own businesses" ON businesses
   FOR SELECT USING (owner_id = auth.uid());
 

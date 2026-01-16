@@ -11,7 +11,6 @@ import Image from 'next/image';
 
 const steps = [
   { title: 'Personal Info', icon: <FiUser className="w-5 h-5" /> },
-  { title: 'Role Selection', icon: <FiUser className="w-5 h-5" /> },
   { title: 'Business Info', icon: <FaBusinessTime className="w-5 h-5" /> },
   { title: 'Industry', icon: <GiCommercialAirplane className="w-5 h-5" /> },
   { title: 'Plan Selection', icon: <FaClipboardList className="w-5 h-5" /> },
@@ -30,7 +29,6 @@ export default function Onboarding() {
     fullName: '',
     email: '',
     phone: '',
-    role: 'owner', // Add role field with default
     businessName: '',
     businessAddress: '',
     businessCategory: '',
@@ -164,7 +162,7 @@ export default function Onboarding() {
           signup_stage: 'completed',
           business_id: businessData.id,
           full_name: form.fullName,
-          role: form.role // Save user role
+          role: 'owner' // Always set as business owner
         }
       });
       
@@ -180,9 +178,8 @@ export default function Onboarding() {
       console.log('Onboarding completed successfully, redirecting to dashboard');
       
       // Success - account is now fully created in database
-      // Redirect based on user role
-      const redirectPath = form.role === 'provider' ? '/provider/dashboard' : '/admin/dashboard';
-      router.push(redirectPath);
+      // Always redirect business owners to admin dashboard
+      router.push('/admin/dashboard');
       
     } catch (err: any) {
       console.error('Onboarding error:', err);
@@ -279,113 +276,7 @@ export default function Onboarding() {
           </div>
         );
 
-      case 1: // Role Selection
-        return (
-          <div className="space-y-6">
-            <motion.div 
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="space-y-1"
-            >
-              <h3 className="text-xl font-semibold text-gray-900">Select Your Role</h3>
-              <p className="text-gray-500 text-sm">Choose how you'll be using the platform.</p>
-            </motion.div>
-            
-            <motion.div 
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="space-y-4"
-            >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.3 }}
-                  onClick={() => setForm({...form, role: 'owner'})}
-                  className={`relative p-6 rounded-xl border-2 cursor-pointer transition-all duration-200 ${
-                    form.role === 'owner' 
-                      ? 'border-blue-500 bg-blue-50 shadow-md' 
-                      : 'border-gray-200 hover:border-gray-300 hover:shadow-sm bg-white'
-                  }`}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <div className="flex items-start space-x-4">
-                    <div className="p-3 rounded-full bg-blue-100 text-blue-600">
-                      <FaCrown className="w-6 h-6" />
-                    </div>
-                    <div className="flex-1">
-                      <h4 className={`font-semibold text-lg ${
-                        form.role === 'owner' ? 'text-blue-700' : 'text-gray-900'
-                      }`}>
-                        Business Owner
-                      </h4>
-                      <p className="text-sm text-gray-500 mt-1">
-                        Full access to manage your business, team, and all operations
-                      </p>
-                      <ul className="mt-3 space-y-1 text-sm text-gray-600">
-                        <li>• Manage bookings and customers</li>
-                        <li>• View analytics and reports</li>
-                        <li>• Add and manage providers</li>
-                        <li>• Full business settings</li>
-                      </ul>
-                    </div>
-                    {form.role === 'owner' && (
-                      <div className="flex-shrink-0">
-                        <FiCheck className="w-6 h-6 text-blue-500" />
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.4 }}
-                  onClick={() => setForm({...form, role: 'provider'})}
-                  className={`relative p-6 rounded-xl border-2 cursor-pointer transition-all duration-200 ${
-                    form.role === 'provider' 
-                      ? 'border-blue-500 bg-blue-50 shadow-md' 
-                      : 'border-gray-200 hover:border-gray-300 hover:shadow-sm bg-white'
-                  }`}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <div className="flex items-start space-x-4">
-                    <div className="p-3 rounded-full bg-green-100 text-green-600">
-                      <FiUser className="w-6 h-6" />
-                    </div>
-                    <div className="flex-1">
-                      <h4 className={`font-semibold text-lg ${
-                        form.role === 'provider' ? 'text-blue-700' : 'text-gray-900'
-                      }`}>
-                        Service Provider
-                      </h4>
-                      <p className="text-sm text-gray-500 mt-1">
-                        Access to manage your schedule, bookings, and earnings
-                      </p>
-                      <ul className="mt-3 space-y-1 text-gray-600">
-                        <li>• View your assigned bookings</li>
-                        <li>• Manage your availability</li>
-                        <li>• Track your earnings</li>
-                        <li>• Update your profile</li>
-                      </ul>
-                    </div>
-                    {form.role === 'provider' && (
-                      <div className="flex-shrink-0">
-                        <FiCheck className="w-6 h-6 text-blue-500" />
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-              </div>
-            </motion.div>
-          </div>
-        );
-
-      case 2: // Business Info
+      case 1: // Business Info
         return (
           <div className="space-y-6">
             <motion.div 
@@ -444,7 +335,7 @@ export default function Onboarding() {
           </div>
         );
 
-      case 3: // Industry Selection
+      case 2: // Industry Selection
         return (
           <div className="space-y-6">
             <motion.div 
@@ -566,7 +457,7 @@ export default function Onboarding() {
           </div>
         );
 
-      case 4: // Plan Selection
+      case 3: // Plan Selection
         return (
           <div className="space-y-6">
             <motion.div 
@@ -698,7 +589,7 @@ export default function Onboarding() {
           </div>
         );
 
-      case 5: // Review
+      case 4: // Review
         return (
           <div className="space-y-6 max-h-screen overflow-y-auto px-2">
             <motion.div 

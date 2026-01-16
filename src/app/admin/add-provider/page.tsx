@@ -10,8 +10,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/components/ui/use-toast";
 import { ArrowLeft, Users, User } from "lucide-react";
+import { supabase } from "@/lib/supabaseClient";
 
 type ProviderType = "individual" | "team";
+type ProviderStatus = "active" | "inactive" | "suspended";
 
 interface ProviderForm {
   type: ProviderType;
@@ -21,7 +23,7 @@ interface ProviderForm {
   aptNo: string;
   email: string;
   phone: string;
-  sendTextMessage: boolean;
+  sendEmailNotification: boolean;
 }
 
 const createEmptyProviderForm = (): ProviderForm => ({
@@ -32,7 +34,7 @@ const createEmptyProviderForm = (): ProviderForm => ({
   aptNo: "",
   email: "",
   phone: "",
-  sendTextMessage: false,
+  sendEmailNotification: false,
 });
 
 export default function AddProviderPage() {
@@ -40,6 +42,7 @@ export default function AddProviderPage() {
   const { toast } = useToast();
   const [step, setStep] = useState<"selection" | "form">("selection");
   const [provider, setProvider] = useState<ProviderForm>(createEmptyProviderForm());
+  const [loading, setLoading] = useState(false);
 
   const handleTypeSelection = (type: ProviderType) => {
     setProvider({ ...provider, type });
@@ -58,7 +61,7 @@ export default function AddProviderPage() {
     router.push("/admin/providers");
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     // Validate required fields
     if (!provider.firstName || !provider.lastName || !provider.email || !provider.phone || !provider.address) {
       toast({
@@ -69,14 +72,61 @@ export default function AddProviderPage() {
       return;
     }
 
-    // Here you would typically save to your backend/database
-    // For now, we'll just show a success message and redirect
-    toast({
-      title: "Provider Added",
-      description: `${provider.firstName} ${provider.lastName} has been added successfully.`,
-    });
+    setLoading(true);
+    
+    try {
+      // Get current business ID from localStorage
+      const currentBusinessId = localStorage.getItem('currentBusinessId');
+      if (!currentBusinessId) {
+        toast({
+          title: "Configuration Error",
+          description: "No business context found. Please select a business first.",
+          variant: "destructive",
+        });
+        return;
+      }
 
-    router.push("/admin/providers");
+      // Call API route to create provider
+      const response = await fetch('/api/admin/providers', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          firstName: provider.firstName,
+          lastName: provider.lastName,
+          email: provider.email,
+          phone: provider.phone,
+          address: provider.address,
+          type: provider.type,
+          sendEmailNotification: provider.sendEmailNotification,
+          businessId: currentBusinessId
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to create provider');
+      }
+
+      toast({
+        title: "Provider Account Created",
+        description: `${provider.firstName} ${provider.lastName} has been added successfully. Temporary password: ${result.tempPassword}`,
+      });
+
+      router.push("/admin/providers");
+      
+    } catch (error: any) {
+      console.error('Provider creation error:', error);
+      toast({
+        title: "Creation Failed",
+        description: error.message || "An error occurred while creating the provider account.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (step === "selection") {
@@ -131,7 +181,7 @@ export default function AddProviderPage() {
             </CardHeader>
             <CardContent className="text-center">
               <p className="text-muted-foreground">
-                Add a team or company that provides cleaning services
+                Add a team of service providers who work together
               </p>
             </CardContent>
           </Card>
@@ -247,15 +297,15 @@ export default function AddProviderPage() {
             </div>
           </div>
 
-          {/* Text Message Checkbox */}
+          {/* Email Notification Checkbox */}
           <div className="flex items-center space-x-2">
             <Checkbox
-              id="sendTextMessage"
-              checked={provider.sendTextMessage}
-              onCheckedChange={(checked) => setProvider({ ...provider, sendTextMessage: !!checked })}
+              id="sendEmailNotification"
+              checked={provider.sendEmailNotification}
+              onCheckedChange={(checked) => setProvider({ ...provider, sendEmailNotification: !!checked })}
             />
-            <Label htmlFor="sendTextMessage" className="text-sm">
-              Send text message notifications
+            <Label htmlFor="sendEmailNotification" className="text-sm">
+              Send email notifications
             </Label>
           </div>
 
@@ -263,10 +313,20 @@ export default function AddProviderPage() {
           <div className="flex flex-col sm:flex-row gap-3 pt-4">
             <Button
               onClick={handleSubmit}
+              disabled={loading}
               className="text-white flex-1"
               style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)' }}
             >
-              Add Provider
+              {loading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Creating...
+                </>
+              ) : (
+                <>
+                  Add Provider
+                </>
+              )}
             </Button>
             <Button
               variant="outline"
@@ -280,4 +340,4 @@ export default function AddProviderPage() {
       </Card>
     </div>
   );
-}
+};

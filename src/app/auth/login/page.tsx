@@ -62,15 +62,17 @@ export default function LoginPage() {
         const userRole = data.user.user_metadata?.role || 'owner'; // Default to owner for backward compatibility
         
         // Check if user has completed onboarding by looking for their business
+        // For providers, they don't need a business to access their dashboard
         const { data: business, error: businessError } = await supabase
           .from('businesses')
           .select('id, name, is_active')
           .eq('owner_id', data.user.id)
           .maybeSingle();
 
-        // If no business exists (business is null), user hasn't completed onboarding
-        if (!business) {
-          console.log('No business found, redirecting to onboarding');
+        // If no business exists for providers, that's okay - they can still access their dashboard
+        // Only redirect to onboarding if user is an owner (admin) without a business
+        if (!business && userRole === 'owner') {
+          console.log('No business found for owner, redirecting to onboarding');
           toast({
             title: "Welcome!",
             description: "Please complete your business setup to continue.",
@@ -81,7 +83,7 @@ export default function LoginPage() {
           return;
         }
 
-        // If there's a business error but we have business data, continue with login
+        // For providers, always allow access to their dashboard
         if (businessError) {
           console.warn('Business query warning:', businessError);
         }

@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChevronLeft, ChevronRight as ChevronRightIcon, Calendar as CalendarIcon, Search as SearchIcon, Mail, Phone, Star, User as UserIcon, UserMinus, ShieldBan, ShieldCheck, BellOff, BellRing, X, Upload, File, Download, Trash2, FileText, Image as ImageIcon, FileVideo, FileAudio } from "lucide-react";
+import { supabase } from "@/lib/supabaseClient";
 
 const PROVIDERS_STORAGE_KEY = "adminProviders";
 const BOOKINGS_STORAGE_KEY = "adminBookings";
@@ -28,14 +29,21 @@ type ProviderStatus = "active" | "inactive" | "suspended";
 
 type Provider = {
   id: string;
-  name: string;
+  user_id: string;
+  first_name: string;
+  last_name: string;
   email: string;
   phone: string;
+  address: string;
   specialization: string;
   rating: number;
-  completedJobs: number;
+  completed_jobs: number;
   status: ProviderStatus;
-  joinedDate: string;
+  provider_type: string;
+  send_email_notification: boolean;
+  created_at: string;
+  updated_at: string;
+  name?: string; // Optional computed property for compatibility
 };
 
 type ScheduleSlot = {
@@ -61,13 +69,42 @@ export default function ProviderProfilePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [provider, setProvider] = useState<Provider | null>(null);
-  const [buttonStates, setButtonStates] = useState({
-    isActive: true,
-    isBlocked: false,
-    isSubscribed: true
-  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("dashboard");
-  const id = params?.id;
+  const [id, setId] = useState<string | null>(null);
+  const [showPasswordFields, setShowPasswordFields] = useState(false);
+  const [passwordData, setPasswordData] = useState({
+    newPassword: '',
+    confirmPassword: ''
+  });
+  
+  // Password strength indicator
+  const getPasswordStrength = (password: string) => {
+    if (!password) return { strength: 0, color: 'bg-gray-200', text: '' };
+    
+    let strength = 0;
+    if (password.length >= 6) strength++;
+    if (password.length >= 10) strength++;
+    if (/[A-Z]/.test(password)) strength++;
+    if (/[0-9]/.test(password)) strength++;
+    if (/[^A-Za-z0-9]/.test(password)) strength++;
+    
+    const strengthConfig = [
+      { color: 'bg-gray-200', text: '' },
+      { color: 'bg-red-500', text: 'Weak' },
+      { color: 'bg-orange-500', text: 'Fair' },
+      { color: 'bg-yellow-500', text: 'Good' },
+      { color: 'bg-blue-500', text: 'Strong' },
+      { color: 'bg-green-500', text: 'Very Strong' }
+    ];
+    
+    return {
+      strength,
+      color: strengthConfig[strength].color,
+      text: strengthConfig[strength].text
+    };
+  };
   const { toast } = useToast();
 
   // Notification settings state
@@ -86,6 +123,13 @@ export default function ProviderProfilePage() {
       [key]: !prev[key]
     }));
   };
+
+  // Set ID from params when available
+  useEffect(() => {
+    if (params?.id) {
+      setId(params.id);
+    }
+  }, [params]);
 
   // Check for tab query parameter on mount
   useEffect(() => {
@@ -151,45 +195,37 @@ export default function ProviderProfilePage() {
   const [isProviderStripeConnectEnabled, setIsProviderStripeConnectEnabled] = useState(false);
 
   useEffect(() => {
-    if (!id || typeof window === "undefined") return;
-    try {
-      const stored = localStorage.getItem(PROVIDERS_STORAGE_KEY);
-      if (stored) {
-        const list: Provider[] = JSON.parse(stored);
-        const found = list.find((p) => String(p.id) === String(id));
-        if (found) setProvider(found);
+    const fetchProvider = async () => {
+      if (!id) return;
+      
+      setLoading(true);
+      try {
+        const response = await fetch(`/api/admin/providers/${id}`);
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to fetch provider');
+        }
+
+        const providerWithName = {
+          ...result.provider,
+          name: `${result.provider.first_name} ${result.provider.last_name}`
+        };
+        setProvider(providerWithName);
+      } catch (error) {
+        console.error('Error fetching provider:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load provider data.",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
       }
-      const storedBookings = localStorage.getItem(BOOKINGS_STORAGE_KEY);
-      if (storedBookings) {
-        setAllBookings(JSON.parse(storedBookings) as Booking[]);
-      }
-      // load provider settings
-      const settingsRaw = localStorage.getItem(PROVIDER_SETTINGS_KEY);
-      if (settingsRaw && typeof id === 'string') {
-        const map = JSON.parse(settingsRaw) as Record<string, ProviderSettings>;
-        const s = map[id];
-        if (s) setSettings({ ...settings, ...s });
-      }
-      // load avatar
-      const avatarsRaw = localStorage.getItem(PROVIDER_AVATARS_KEY);
-      if (avatarsRaw && typeof id === 'string') {
-        const amap = JSON.parse(avatarsRaw) as Record<string, string>;
-        if (amap[id]) setAvatarUrl(amap[id]);
-      }
-      // load schedule slots
-      const schedulesRaw = localStorage.getItem(PROVIDER_SCHEDULES_KEY);
-      if (schedulesRaw && typeof id === 'string') {
-        const smap = JSON.parse(schedulesRaw) as Record<string, ScheduleSlot[]>;
-        if (smap[id]) setScheduleSlots(smap[id]);
-      }
-      // load files
-      const filesRaw = localStorage.getItem(PROVIDER_FILES_KEY);
-      if (filesRaw && typeof id === 'string') {
-        const fmap = JSON.parse(filesRaw) as Record<string, ProviderFile[]>;
-        if (fmap[id]) setProviderFiles(fmap[id]);
-      }
-    } catch {}
-  }, [id]);
+    };
+
+    fetchProvider();
+  }, [id, toast]);
 
   const persistSettings = (next: Partial<ProviderSettings>) => {
     if (!id || typeof id !== 'string') return;
@@ -204,9 +240,8 @@ export default function ProviderProfilePage() {
   };
 
   const initials = useMemo(() => {
-    if (!provider?.name) return "?";
-    const parts = provider.name.split(" ");
-    return parts.slice(0, 2).map((p) => p[0]?.toUpperCase()).join("");
+    if (!provider?.first_name || !provider?.last_name) return "?";
+    return `${provider.first_name[0]?.toUpperCase()}${provider.last_name[0]?.toUpperCase()}`;
   }, [provider]);
 
   const handleAvatarChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
@@ -429,7 +464,7 @@ export default function ProviderProfilePage() {
     return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
   };
 
-  if (!provider) {
+  if (loading || !provider) {
     return (
       <div className="space-y-4">
         <div className="text-sm text-muted-foreground">Loading provider...</div>
@@ -493,65 +528,49 @@ export default function ProviderProfilePage() {
                   <Button
                     variant="outline"
                     size="icon"
-                    className={`h-10 w-10 rounded-full ${buttonStates.isActive ? 'bg-slate-200 hover:bg-slate-300' : 'bg-green-100 hover:bg-green-200'} text-slate-800 dark:bg-slate-800/60 dark:text-slate-200`}
-                    title={buttonStates.isActive ? 'Deactivate' : 'Activate'}
-                    onClick={() => setButtonStates(prev => ({
-                      ...prev,
-                      isActive: !prev.isActive,
-                      status: !prev.isActive ? 'active' : 'inactive' as ProviderStatus
-                    }))}
+                    className={`h-10 w-10 rounded-full ${provider?.status === 'active' ? 'bg-green-100 hover:bg-green-200' : 'bg-slate-200 hover:bg-slate-300'} text-slate-800 dark:bg-slate-800/60 dark:text-slate-200`}
+                    title={provider?.status === 'active' ? 'Deactivate' : 'Activate'}
+                    onClick={async () => {
+                      if (!provider) return;
+                      const newStatus = provider.status === 'active' ? 'inactive' : 'active';
+                      try {
+                        const response = await fetch(`/api/admin/providers/${provider.id}`, {
+                          method: 'PUT',
+                          headers: {
+                            'Content-Type': 'application/json',
+                          },
+                          body: JSON.stringify({
+                            ...provider,
+                            status: newStatus
+                          }),
+                        });
+                        
+                        if (response.ok) {
+                          setProvider({ ...provider, status: newStatus });
+                          toast({
+                            title: newStatus === 'active' ? "Provider Activated" : "Provider Deactivated",
+                            description: `${provider.name} has been ${newStatus === 'active' ? 'activated' : 'deactivated'}.`,
+                          });
+                        } else {
+                          throw new Error('Failed to update status');
+                        }
+                      } catch (error) {
+                        toast({
+                          title: "Error",
+                          description: "Failed to update provider status.",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
                   >
-                    {buttonStates.isActive ? (
+                    {provider?.status === 'active' ? (
                       <UserMinus className="h-5 w-5" />
                     ) : (
                       <UserIcon className="h-5 w-5" />
                     )}
                   </Button>
                   <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs bg-gray-800 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    {buttonStates.isActive ? 'Deactivate' : 'Activate'}
-                  </div>
-                </div>
-                <div className="relative group">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className={`h-10 w-10 rounded-full ${buttonStates.isBlocked ? 'bg-red-100 hover:bg-red-200' : 'bg-amber-100 hover:bg-amber-200'} text-amber-800 dark:bg-amber-900/20 dark:text-amber-300`}
-                    title={buttonStates.isBlocked ? 'Unblock Access' : 'Block Access'}
-                    onClick={() => setButtonStates(prev => ({
-                      ...prev,
-                      isBlocked: !prev.isBlocked,
-                      status: !prev.isBlocked ? 'suspended' : 'active' as ProviderStatus
-                    }))}
-                  >
-                    {buttonStates.isBlocked ? (
-                      <ShieldCheck className="h-5 w-5" />
-                    ) : (
-                      <ShieldBan className="h-5 w-5" />
-                    )}
-                  </Button>
-                  <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs bg-gray-800 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    {buttonStates.isBlocked ? 'Unblock Access' : 'Block Access'}
-                  </div>
-                </div>
-                <div className="relative group">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className={`h-10 w-10 rounded-full ${!buttonStates.isSubscribed ? 'bg-blue-100 hover:bg-blue-200' : 'bg-slate-200 hover:bg-slate-300'} text-slate-800 dark:bg-slate-800/60 dark:text-slate-200`}
-                    title={buttonStates.isSubscribed ? 'Unsubscribe' : 'Subscribe'}
-                    onClick={() => setButtonStates(prev => ({
-                      ...prev,
-                      isSubscribed: !prev.isSubscribed
-                    }))}
-                  >
-                    {buttonStates.isSubscribed ? (
-                      <BellOff className="h-5 w-5" />
-                    ) : (
-                      <BellRing className="h-5 w-5" />
-                    )}
-                  </Button>
-                  <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs bg-gray-800 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    {buttonStates.isSubscribed ? 'Unsubscribe' : 'Subscribe'}
+                    {provider?.status === 'active' ? 'Deactivate' : 'Activate'}
                   </div>
                 </div>
               </div>
@@ -752,7 +771,7 @@ export default function ProviderProfilePage() {
                   <Label>Name</Label>
                   <Input 
                     value={provider.name} 
-                    onChange={(e) => setProvider({...provider, name: e.target.value})}
+                    onChange={(e) => setProvider({...provider, first_name: e.target.value.split(' ')[0] || '', last_name: e.target.value.split(' ').slice(1).join(' ') || ''})}
                   />
                 </div>
                 <div>
@@ -778,35 +797,171 @@ export default function ProviderProfilePage() {
                 </div>
                 <div>
                   <Label>Completed Jobs</Label>
-                  <Input value={String(provider.completedJobs)} disabled />
+                  <Input value={String(provider.completed_jobs)} disabled />
                 </div>
                 <div>
                   <Label>Status</Label>
                   <Input value={provider.status} readOnly />
                 </div>
               </div>
+
+              {/* Password Section */}
+              <div className="border-t pt-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-medium">Password Management</h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowPasswordFields(!showPasswordFields)}
+                  >
+                    {showPasswordFields ? 'Hide' : 'Change'} Password
+                  </Button>
+                </div>
+                
+                {showPasswordFields && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label>New Password</Label>
+                      <Input
+                        type="password"
+                        value={passwordData.newPassword}
+                        onChange={(e) => setPasswordData({...passwordData, newPassword: e.target.value})}
+                        placeholder="Enter new password"
+                      />
+                      {passwordData.newPassword && (
+                        <div className="mt-2">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 bg-gray-200 rounded-full h-2">
+                              <div 
+                                className={`h-2 rounded-full transition-all duration-300 ${getPasswordStrength(passwordData.newPassword).color}`}
+                                style={{ width: `${(getPasswordStrength(passwordData.newPassword).strength / 5) * 100}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              {getPasswordStrength(passwordData.newPassword).text}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <Label>Confirm Password</Label>
+                      <Input
+                        type="password"
+                        value={passwordData.confirmPassword}
+                        onChange={(e) => setPasswordData({...passwordData, confirmPassword: e.target.value})}
+                        placeholder="Confirm new password"
+                      />
+                      {passwordData.confirmPassword && passwordData.newPassword && (
+                        <div className="mt-2 text-xs">
+                          {passwordData.newPassword === passwordData.confirmPassword ? (
+                            <span className="text-green-600">✓ Passwords match</span>
+                          ) : (
+                            <span className="text-red-600">✗ Passwords do not match</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
               <div className="flex items-center justify-end pt-2 mt-2 border-t">
                 <Button
                   className="text-white"
-                  onClick={() => {
-                    try {
-                      const stored = localStorage.getItem(PROVIDERS_STORAGE_KEY);
-                      if (stored) {
-                        const list: Provider[] = JSON.parse(stored);
-                        const index = list.findIndex((p) => String(p.id) === String(id));
-                        if (index !== -1) {
-                          list[index] = provider;
-                          localStorage.setItem(PROVIDERS_STORAGE_KEY, JSON.stringify(list));
-                        }
+                  onClick={async () => {
+                    if (!provider) return;
+                    
+                    // Validate password if fields are shown
+                    if (showPasswordFields) {
+                      if (!passwordData.newPassword) {
+                        toast({
+                          title: "Validation Error",
+                          description: "Please enter a new password.",
+                          variant: "destructive",
+                        });
+                        return;
                       }
-                      toast({ title: "Changes saved", description: "Provider profile updated successfully." });
+                      
+                      if (passwordData.newPassword.length < 6) {
+                        toast({
+                          title: "Validation Error", 
+                          description: "Password must be at least 6 characters long.",
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+                      
+                      if (passwordData.newPassword !== passwordData.confirmPassword) {
+                        toast({
+                          title: "Validation Error",
+                          description: "Passwords do not match.",
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+                    }
+                    
+                    setSaving(true);
+                    try {
+                      // Prepare update data
+                      const updateData: any = {
+                        first_name: provider.first_name,
+                        last_name: provider.last_name,
+                        email: provider.email,
+                        phone: provider.phone,
+                        address: provider.address,
+                        specialization: provider.specialization,
+                        status: provider.status,
+                        provider_type: provider.provider_type,
+                        send_email_notification: provider.send_email_notification,
+                        user_id: provider.user_id
+                      };
+
+                      // Add password if it's being updated
+                      if (showPasswordFields && passwordData.newPassword) {
+                        updateData.password = passwordData.newPassword;
+                      }
+
+                      const response = await fetch(`/api/admin/providers/${provider.id}`, {
+                        method: 'PUT',
+                        headers: {
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(updateData),
+                      });
+                      
+                      if (response.ok) {
+                        const result = await response.json();
+                        toast({ 
+                          title: "Changes saved", 
+                          description: result.message || "Provider profile updated successfully." 
+                        });
+                        
+                        // Reset password fields
+                        if (showPasswordFields) {
+                          setPasswordData({ newPassword: '', confirmPassword: '' });
+                          setShowPasswordFields(false);
+                        }
+                      } else {
+                        throw new Error('Failed to save changes');
+                      }
                     } catch (error) {
                       toast({ title: "Error", description: "Failed to save changes.", variant: "destructive" });
+                    } finally {
+                      setSaving(false);
                     }
                   }}
+                  disabled={saving}
                   style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)' }}
                 >
-                  Save Changes
+                  {saving ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    'Save Changes'
+                  )}
                 </Button>
               </div>
             </CardContent>
@@ -943,8 +1098,8 @@ export default function ProviderProfilePage() {
                   <DialogTitle>{editingSlot ? 'Edit Time Slot' : 'Manage Provider Schedule'}</DialogTitle>
                   <DialogDescription>
                     {editingSlot 
-                      ? `Edit the time slot for ${provider?.name}.`
-                      : `Set available time slots for ${provider?.name}. These will appear on the calendar.`
+                      ? `Edit the time slot for ${provider.name}.`
+                      : `Set available time slots for ${provider.name}. These will appear on the calendar.`
                     }
                   </DialogDescription>
                 </DialogHeader>

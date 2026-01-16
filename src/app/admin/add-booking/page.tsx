@@ -214,10 +214,17 @@ const handleAddBooking = async (status: string = 'pending') => {
       return;
     }
 
-    // Insert booking with business_id
-    const { error } = await supabase.from('bookings').insert([
-      {
-        business_id: business.id,
+    // Insert booking using the API endpoint
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    const response = await fetch('/api/bookings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-business-id': business.id,
+        'Authorization': `Bearer ${session?.access_token || ''}`,
+      },
+      body: JSON.stringify({
         customer_name: customerName,
         customer_email: customerEmail,
         customer_phone: customerPhone,
@@ -229,14 +236,16 @@ const handleAddBooking = async (status: string = 'pending') => {
         amount: discountedCost,
         payment_method: newBooking.paymentMethod || null,
         notes: newBooking.notes,
-      }
-    ]);
+      }),
+    });
 
-    if (error) {
-      console.error('Booking insertion error:', error);
+    const result = await response.json();
+
+    if (!response.ok) {
+      console.error('Booking insertion error:', result);
       toast({
         title: 'Error',
-        description: `Failed to add booking: ${error.message}`,
+        description: `Failed to add booking: ${result.error || 'Unknown error'}`,
         variant: 'destructive',
       });
       return;

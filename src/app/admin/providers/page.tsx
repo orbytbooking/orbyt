@@ -23,6 +23,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useToast } from "@/components/ui/use-toast";
+import { supabase } from "@/lib/supabaseClient";
 import {
   UserCog,
   Search,
@@ -35,7 +37,6 @@ import {
   XCircle,
   Clock,
 } from "lucide-react";
-import { useToast } from "@/components/ui/use-toast";
 
 const PROVIDERS_STORAGE_KEY = "adminProviders";
 
@@ -141,29 +142,89 @@ const getStatusBadge = (status: string) => {
 const ProvidersPage = () => {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
-  const [providers, setProviders] = useState<Provider[]>(defaultProviders);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const stored = localStorage.getItem(PROVIDERS_STORAGE_KEY);
-    if (stored) {
+    const fetchProviders = async () => {
       try {
-        const parsed = JSON.parse(stored) as Provider[];
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setProviders(parsed);
+        // Get current business ID from database
+        const { data: businessData, error: businessError } = await supabase
+          .from('businesses')
+          .select('id')
+          .single();
+
+        if (businessError) {
+          console.error('Error fetching business ID:', businessError);
+          toast({
+            title: "Error",
+            description: "Failed to load business ID.",
+            variant: "destructive",
+          });
+          setLoading(false);
+          return;
+        }
+
+        const currentBusinessId = businessData.id;
+
+        console.log('Fetching providers from database for business:', currentBusinessId);
+
+        // Fetch providers from database (no localStorage fallback)
+        const { data: providersData, error } = await supabase
+          .from('service_providers')
+          .select(`
+            id,
+            user_id,
+            first_name,
+            last_name,
+            email,
+            phone,
+            specialization,
+            rating,
+            completed_jobs,
+            status,
+            provider_type,
+            created_at
+          `)
+          .eq('business_id', currentBusinessId)
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          console.error('Error fetching providers:', error);
+          toast({
+            title: "Error",
+            description: "Failed to load providers from database.",
+            variant: "destructive",
+          });
+          setProviders([]); // Empty array on error
+        } else {
+          // Transform database data to match Provider interface
+          const transformedProviders: Provider[] = providersData.map(p => ({
+            id: p.id,
+            name: `${p.first_name} ${p.last_name}`,
+            email: p.email,
+            phone: p.phone || '+1 (555) 000-0000',
+            specialization: p.specialization || 'General Services',
+            rating: parseFloat(p.rating) || 0,
+            completedJobs: p.completed_jobs || 0,
+            status: p.status as ProviderStatus,
+            joinedDate: p.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+          }));
+          
+          setProviders(transformedProviders);
+          console.log('Successfully loaded providers from database:', transformedProviders.length);
         }
       } catch (error) {
-        console.error("Failed to parse stored providers", error);
+        console.error('Unexpected error:', error);
+        setProviders([]); // Empty array on error
+      } finally {
+        setLoading(false);
       }
-    }
-  }, []);
+    };
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem(PROVIDERS_STORAGE_KEY, JSON.stringify(providers));
-  }, [providers]);
+    fetchProviders();
+  }, [toast]);
 
   const filteredProviders = providers.filter(
     (provider) =>
@@ -260,20 +321,26 @@ const ProvidersPage = () => {
           </div>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Contact</TableHead>
-                <TableHead>Specialization</TableHead>
-                <TableHead>Rating</TableHead>
-                <TableHead>Completed Jobs</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredProviders.map((provider) => (
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
+              <span className="ml-2 text-white/70">Loading providers...</span>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Contact</TableHead>
+                  <TableHead>Specialization</TableHead>
+                  <TableHead>Rating</TableHead>
+                  <TableHead>Completed Jobs</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredProviders.map((provider) => (
                 <TableRow key={provider.id}>
                   <TableCell>
                     <div className="flex items-center gap-2">
@@ -364,6 +431,7 @@ const ProvidersPage = () => {
               ))}
             </TableBody>
           </Table>
+          )}
         </CardContent>
       </Card>
 
