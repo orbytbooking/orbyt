@@ -60,14 +60,45 @@ export default function LoginPage() {
       if (data.user) {
         // Get user role from metadata
         const userRole = data.user.user_metadata?.role || 'owner'; // Default to owner for backward compatibility
-        console.log('User role:', userRole, 'User ID:', data.user.id);
         
+        // Check if user has completed onboarding by looking for their business
+        // For providers, they don't need a business to access their dashboard
+        const { data: business, error: businessError } = await supabase
+          .from('businesses')
+          .select('id, name, is_active')
+          .eq('owner_id', data.user.id)
+          .maybeSingle();
+
+        // If no business exists for providers, that's okay - they can still access their dashboard
+        // Only redirect to onboarding if user is an owner (admin) without a business
+        if (!business && userRole === 'owner') {
+          console.log('No business found for owner, redirecting to onboarding');
+          toast({
+            title: "Welcome!",
+            description: "Please complete your business setup to continue.",
+          });
+          setTimeout(() => {
+            router.push("/auth/onboarding");
+          }, 500);
+          return;
+        }
+
+        // For providers, always allow access to their dashboard
+        if (businessError) {
+          console.warn('Business query warning:', businessError);
+        }
+
         toast({
           title: "Login Successful!",
           description: `Welcome back${data.user.user_metadata?.full_name ? ', ' + data.user.user_metadata.full_name : ''}!`,
         });
 
-        // Redirect based on user role - no business check needed for login
+        // Set business context if available
+        if (business?.id) {
+          localStorage.setItem('currentBusinessId', business.id);
+        }
+
+        // Redirect based on user role
         const redirectPath = userRole === 'provider' ? '/provider/dashboard' : '/admin/dashboard';
         setTimeout(() => {
           router.push(redirectPath);

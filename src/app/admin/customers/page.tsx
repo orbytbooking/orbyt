@@ -23,7 +23,6 @@ import {
   Download,
   Eye,
   Pencil,
-  Trash2,
   Mail,
   Phone,
   MapPin,
@@ -40,6 +39,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+const CUSTOMERS_STORAGE_KEY = "adminCustomers";
 
 // Mock data fallback
 const defaultCustomers = [
@@ -135,19 +135,12 @@ const Customers = () => {
 
   useEffect(() => {
     fetchCustomers();
-  }, [currentBusiness?.id]);
+  }, []);
 
   async function fetchCustomers() {
-    if (!currentBusiness?.id) {
-      console.log('No business context, using mock data');
-      setCustomers(defaultCustomers);
-      return;
-    }
-
     const { data, error } = await supabase
       .from('customers')
       .select('*')
-      .eq('business_id', currentBusiness.id)
       .order('join_date', { ascending: false });
       
     if (error) {
@@ -157,7 +150,7 @@ const Customers = () => {
         console.log('Customers table not found, using mock data');
         toast({
           title: "Database Setup Required",
-          description: "Please run SQL script to create customers table.",
+          description: "Please run the SQL script to create the customers table.",
           variant: "destructive"
         });
         setCustomers(defaultCustomers);
@@ -185,21 +178,7 @@ const Customers = () => {
     }
     
     if (data) {
-      // Transform database data to match expected format
-      const transformedData = data.map(customer => ({
-        id: customer.id,
-        name: customer.name,
-        email: customer.email,
-        phone: customer.phone || '',
-        address: customer.address || '',
-        joinDate: customer.join_date ? new Date(customer.join_date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
-        totalBookings: customer.total_bookings || 0,
-        totalSpent: customer.total_spent ? `$${customer.total_spent.toFixed(2)}` : '$0',
-        status: customer.status || 'active',
-        lastBooking: customer.last_booking ? new Date(customer.last_booking).toISOString().slice(0, 10) : null
-      }));
-      console.log('Transformed customer data:', transformedData);
-      setCustomers(transformedData);
+      setCustomers(data);
     }
   }
 
@@ -211,7 +190,11 @@ const Customers = () => {
     }
   }, [searchParams]);
 
-  
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(CUSTOMERS_STORAGE_KEY, JSON.stringify(customers));
+  }, [customers]);
+
   const filteredCustomers = customers.filter((customer) => {
     const matchesSearch = 
       customer.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -239,45 +222,11 @@ const Customers = () => {
     setShowEditCustomer(true);
   };
 
-  const handleSaveEdit = async () => {
-    if (!currentBusiness?.id) {
-      toast({
-        title: "Error",
-        description: "No business context found. Please select a business first.",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    const updateData = {
-      name: editCustomer.name,
-      email: editCustomer.email,
-      phone: editCustomer.phone,
-      address: editCustomer.address,
-      status: editCustomer.status
-    };
-
-    const { error } = await supabase
-      .from('customers')
-      .update(updateData)
-      .eq('business_id', currentBusiness.id)
-      .eq('id', editCustomer.id);
-
-    if (error) {
-      console.error('Error updating customer:', error);
-      toast({
-        title: "Error",
-        description: `Failed to update customer: ${error.message}`,
-        variant: "destructive"
-      });
-      return;
-    }
-
-    // Update local state
+  const handleSaveEdit = () => {
     setCustomers((prev) =>
       prev.map((c) =>
         c.id === editCustomer.id
-          ? { ...c, ...updateData }
+          ? { ...c, name: editCustomer.name, email: editCustomer.email, phone: editCustomer.phone, address: editCustomer.address, status: editCustomer.status }
           : c
       )
     );
@@ -290,60 +239,10 @@ const Customers = () => {
     setShowEditCustomer(false);
   };
 
-  const handleDeleteCustomer = async (customer: Customer) => {
-    if (!currentBusiness?.id) {
-      toast({
-        title: "Error",
-        description: "No business context found. Please select a business first.",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    const confirmDelete = window.confirm(
-      `Are you sure you want to delete ${customer.name}? This action cannot be undone.`
-    );
-
-    if (!confirmDelete) return;
-
-    const { error } = await supabase
-      .from('customers')
-      .delete()
-      .eq('business_id', currentBusiness.id)
-      .eq('id', customer.id);
-
-    if (error) {
-      console.error('Error deleting customer:', error);
-      toast({
-        title: "Error",
-        description: `Failed to delete customer: ${error.message}`,
-        variant: "destructive"
-      });
-      return;
-    }
-
-    // Remove from local state
-    setCustomers((prev) => prev.filter((c) => c.id !== customer.id));
-
-    toast({
-      title: "Customer Deleted",
-      description: `${customer.name} has been deleted successfully.`,
-    });
-  };
-
   const handleAddCustomer = async () => {
-  if (!currentBusiness?.id) {
-    toast({
-      title: "Error",
-      description: "No business context found. Please select a business first.",
-      variant: "destructive"
-    });
-    return;
-  }
-
   const now = new Date();
   const newEntry = {
-    business_id: currentBusiness.id,
+    id: `CUST${Date.now()}`,
     name: newCustomer.name,
     email: newCustomer.email,
     phone: newCustomer.phone,
@@ -531,14 +430,6 @@ const Customers = () => {
                         onClick={() => handleOpenEdit(customer)}
                       >
                         <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteCustomer(customer)}
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                      >
-                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </td>
                   </tr>
