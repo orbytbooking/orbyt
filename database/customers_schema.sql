@@ -60,7 +60,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger for updated_at
+-- Drop existing trigger if it exists, then create new one
+DROP TRIGGER IF EXISTS trigger_update_customers_updated_at ON customers;
 CREATE TRIGGER trigger_update_customers_updated_at
   BEFORE UPDATE ON customers
   FOR EACH ROW
@@ -95,16 +96,19 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Triggers to update customer metrics
+DROP TRIGGER IF EXISTS trigger_update_customer_metrics_on_insert ON bookings;
 CREATE TRIGGER trigger_update_customer_metrics_on_insert
   AFTER INSERT ON bookings
   FOR EACH ROW
   EXECUTE FUNCTION update_customer_metrics();
 
+DROP TRIGGER IF EXISTS trigger_update_customer_metrics_on_update ON bookings;
 CREATE TRIGGER trigger_update_customer_metrics_on_update
   AFTER UPDATE ON bookings
   FOR EACH ROW
   EXECUTE FUNCTION update_customer_metrics();
 
+DROP TRIGGER IF EXISTS trigger_update_customer_metrics_on_delete ON bookings;
 CREATE TRIGGER trigger_update_customer_metrics_on_delete
   AFTER DELETE ON bookings
   FOR EACH ROW

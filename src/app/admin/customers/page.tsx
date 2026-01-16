@@ -134,13 +134,21 @@ const Customers = () => {
   });
 
   useEffect(() => {
+    setCustomers([]); // Clear old data when business changes
+    if (!currentBusiness?.id) return;
     fetchCustomers();
-  }, []);
+  }, [currentBusiness?.id]); // Add dependency on business ID
 
   async function fetchCustomers() {
+    if (!currentBusiness?.id) {
+      console.log('Waiting for business context...');
+      return;
+    }
+    
     const { data, error } = await supabase
       .from('customers')
       .select('*')
+      .eq('business_id', currentBusiness?.id)  // Add manual filtering like providers
       .order('join_date', { ascending: false });
       
     if (error) {
@@ -242,7 +250,7 @@ const Customers = () => {
   const handleAddCustomer = async () => {
   const now = new Date();
   const newEntry = {
-    id: `CUST${Date.now()}`,
+    // Remove id field to let database generate UUID
     name: newCustomer.name,
     email: newCustomer.email,
     phone: newCustomer.phone,
@@ -251,7 +259,8 @@ const Customers = () => {
     total_bookings: 0,
     total_spent: 0,
     status: "active",
-    last_booking: null
+    last_booking: null,
+    business_id: currentBusiness?.id // Add business_id for manual filtering
   };
 
   const { error } = await supabase.from('customers').insert([newEntry]);

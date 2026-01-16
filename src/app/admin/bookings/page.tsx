@@ -49,6 +49,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 
 import { supabase } from "@/lib/supabaseClient";
+import { useBusiness } from "@/contexts/BusinessContext";
 import { SendScheduleDialog } from "@/components/admin/SendScheduleDialog";
 
 // Bookings are now loaded from Supabase only.
@@ -186,12 +187,18 @@ export default function BookingsPage() {
   }, [activeTab]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const { toast } = useToast();
+  const { currentBusiness } = useBusiness();
 
 
   useEffect(() => {
     async function fetchBookings() {
+      if (!currentBusiness?.id) {
+        console.log('Waiting for business context...');
+        return;
+      }
+      
       setLoading(true);
-      const { data, error } = await supabase.from('bookings').select('*').order('date', { ascending: false });
+      const { data, error } = await supabase.from('bookings').select('*').eq('business_id', currentBusiness?.id).order('date', { ascending: false });
       if (error) {
         console.error('Failed to fetch bookings from Supabase', error);
         setBookings([]);
@@ -201,7 +208,7 @@ export default function BookingsPage() {
       setLoading(false);
     }
     fetchBookings();
-  }, []);
+  }, [currentBusiness?.id]); // Add dependency on business ID
 
   // No localStorage sync needed; bookings are live from Supabase.
 

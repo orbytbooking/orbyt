@@ -117,7 +117,7 @@ export async function POST(request: Request) {
     // Add business_id and ensure total_price and payment_method are set
     const bookingWithBusiness = {
       ...bookingData,
-      business_id: businessId,
+      business_id: businessId, // Restore business_id for manual filtering
       total_price: bookingData.amount || 0, // Use amount or default to 0
       payment_method: paymentMethod, // Use mapped valid value
     };
