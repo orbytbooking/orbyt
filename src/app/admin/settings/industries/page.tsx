@@ -8,10 +8,22 @@ import { Textarea } from "@/components/ui/textarea";
 import { Save, Factory, CheckCircle2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEffect, useMemo, useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function IndustriesSettingsPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [customIndustry, setCustomIndustry] = useState({ name: "", description: "" });
+  const [industryToRemove, setIndustryToRemove] = useState<string | null>(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   const allIndustries = useMemo(
     () => [
@@ -63,6 +75,24 @@ export default function IndustriesSettingsPage() {
     setSelected(next);
     localStorage.setItem("industries", JSON.stringify(next));
     setCustomIndustry({ name: "", description: "" });
+  };
+
+  const handleRemoveClick = (name: string) => {
+    setIndustryToRemove(name);
+    setIsDialogOpen(true);
+  };
+
+  const confirmRemove = () => {
+    if (industryToRemove) {
+      toggle(industryToRemove);
+      setIndustryToRemove(null);
+      setIsDialogOpen(false);
+    }
+  };
+
+  const cancelRemove = () => {
+    setIndustryToRemove(null);
+    setIsDialogOpen(false);
   };
 
   return (
@@ -144,7 +174,7 @@ export default function IndustriesSettingsPage() {
                     <div key={name} className="flex items-center justify-between rounded-lg border border-border px-4 py-2">
                       <span className="text-sm">{name}</span>
                       <div className="flex gap-2">
-                        <Button variant="destructive" size="sm" onClick={() => toggle(name)}>
+                        <Button variant="destructive" size="sm" onClick={() => handleRemoveClick(name)}>
                           Remove
                         </Button>
                       </div>
@@ -156,6 +186,23 @@ export default function IndustriesSettingsPage() {
           </Tabs>
         </CardContent>
       </Card>
+
+      <AlertDialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Industry</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove "{industryToRemove}" from your industries list? This action can be undone by adding the industry again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={cancelRemove}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmRemove} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
