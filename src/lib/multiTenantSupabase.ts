@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { supabase } from './supabaseClient';
 
 // Simple multi-tenancy helper functions
 export class MultiTenantHelper {
@@ -155,10 +156,9 @@ export function createTenantQuery(supabase: SupabaseClient, businessId: string) 
 
 // Hook for using tenant queries in React components
 export function useTenantQueries(businessId: string) {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  if (!supabase) {
+    throw new Error('Supabase client is not available. Make sure environment variables are set correctly.');
+  }
   
   return createTenantQuery(supabase, businessId);
 }

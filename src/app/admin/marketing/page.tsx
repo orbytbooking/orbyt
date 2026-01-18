@@ -155,6 +155,7 @@ export default function MarketingPage() {
       setCoupons((prev) => [
         {
           id: data[0].id,
+          name: data[0].name || '',
           code: data[0].code,
           description: data[0].description,
           discount: data[0].discount_type === 'percentage' ? `${data[0].discount_value}%` : `$${data[0].discount_value}`,

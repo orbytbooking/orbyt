@@ -5,6 +5,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import AdminLayout from "@/layouts/AdminLayout";
 import { Providers } from "@/app/providers";
 import { LogoProvider } from "@/contexts/LogoContext";
+import { BusinessProvider } from "@/contexts/BusinessContext";
 
 export default function AdminLayoutWrapper({
   children,
@@ -24,22 +25,26 @@ export default function AdminLayoutWrapper({
   if (isWebsiteBuilder) {
     return (
       <Providers>
-        <ProtectedRoute>
-          {children}
-        </ProtectedRoute>
+        <BusinessProvider>
+          <ProtectedRoute>
+            {children}
+          </ProtectedRoute>
+        </BusinessProvider>
       </Providers>
     );
   }
 
   return (
     <Providers>
-      <LogoProvider>
-        <ProtectedRoute>
-          <AdminLayout>
-            {children}
-          </AdminLayout>
-        </ProtectedRoute>
-      </LogoProvider>
+      <BusinessProvider>
+        <LogoProvider>
+          <ProtectedRoute>
+            <AdminLayout>
+              {children}
+            </AdminLayout>
+          </ProtectedRoute>
+        </LogoProvider>
+      </BusinessProvider>
     </Providers>
   );
 }

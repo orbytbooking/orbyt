@@ -195,7 +195,7 @@ export default function SuperAdminLogin() {
         {/* Footer Links */}
         <div className="mt-8 text-center animate-fade-in animation-delay-1000">
           <p className="text-slate-400 text-sm">
-            <Link href="/admin/login" className="text-purple-400 hover:text-purple-300 transition-colors duration-300">
+            <Link href="/auth/login" className="text-purple-400 hover:text-purple-300 transition-colors duration-300">
               Business Admin Login
             </Link>
             {' • '}

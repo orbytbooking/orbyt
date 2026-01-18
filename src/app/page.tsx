@@ -1,39 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import dynamic from 'next/dynamic';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ChevronDown, HelpCircle, MessageSquare, LifeBuoy, BookOpen, User, Zap } from 'lucide-react';
-
-// Dynamically import components that cause hydration issues
-const SupportDropdown = dynamic(() => import('@/components/ui/DropdownMenuClient').then(mod => ({ default: mod.SupportDropdown })), { 
-  ssr: false 
-});
-
-const AccordionClient = dynamic(() => import('@/components/ui/AccordionClient').then(mod => ({ 
-  default: mod.Accordion 
-})), { 
-  ssr: false 
-});
-
-const AccordionItemClient = dynamic(() => import('@/components/ui/AccordionClient').then(mod => ({ 
-  default: mod.AccordionItem 
-})), { 
-  ssr: false 
-});
-
-const AccordionTriggerClient = dynamic(() => import('@/components/ui/AccordionClient').then(mod => ({ 
-  default: mod.AccordionTrigger 
-})), { 
-  ssr: false 
-});
-
-const AccordionContentClient = dynamic(() => import('@/components/ui/AccordionClient').then(mod => ({ 
-  default: mod.AccordionContent 
-})), { 
-  ssr: false 
-});
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
 type Testimonial = {
   quote: string;
@@ -48,7 +19,7 @@ export default function Home() {
   
   const testimonials: Testimonial[] = [
     {
-      quote: "Orbyt Booking has completely transformed how we manage appointments. Our no-show rate dropped by 80% after implementing their reminder system.",
+      quote: "Orbit Booking has completely transformed how we manage appointments. Our no-show rate dropped by 80% after implementing their reminder system.",
       author: "Sarah Johnson",
       role: "Owner, Sparkling Clean",
       rating: 5,
@@ -76,14 +47,14 @@ export default function Home() {
       avatar: "🧑‍💼"
     },
     {
-      quote: "We've seen a 40% increase in bookings since switching to Orbyt. The mobile experience is fantastic!",
+      quote: "We've seen a 40% increase in bookings since switching to Orbit. The mobile experience is fantastic!",
       author: "Lisa Wong",
       role: "CEO, Crystal Clear Services",
       rating: 5,
       avatar: "👩‍🎓"
     },
     {
-      quote: "Integrating Orbyt with our existing tools was seamless. It just works!",
+      quote: "Integrating Orbit with our existing tools was seamless. It just works!",
       author: "Robert Taylor",
       role: "CTO, Pristine Pro",
       rating: 5,
@@ -118,12 +89,12 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <img
               src="/images/orbit.png"
-              alt="Orbyt Booking logo"
+              alt="Orbit Booking logo"
               className="h-9 w-9"
             />
             <div className="flex flex-col">
               <span className="text-base font-bold text-slate-900 tracking-wide">
-                Orbyt Booking
+                Orbit Booking
               </span>
             </div>
           </div>
@@ -134,7 +105,55 @@ export default function Home() {
             <a href="#pricing" className="hover:text-primary transition-colors">
               Pricing
             </a>
-            <SupportDropdown />
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button className="flex items-center text-sm font-medium text-black hover:text-primary transition-colors">
+                  Support
+                  <ChevronDown className="ml-1 h-4 w-4" />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content className="min-w-[220px] bg-white rounded-md p-2 shadow-lg border border-gray-200 z-50" sideOffset={10} align="end">
+                  <Link href="/help-center">
+                    <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer hover:bg-gray-50 hover:text-primary">
+                      <HelpCircle className="mr-2 h-4 w-4" />
+                      <span>Help Center</span>
+                    </DropdownMenu.Item>
+                  </Link>
+                  <Link href="/help-center/faqs">
+                    <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer hover:bg-gray-50 hover:text-primary">
+                      <MessageSquare className="mr-2 h-4 w-4" />
+                      <span>FAQs</span>
+                    </DropdownMenu.Item>
+                  </Link>
+                  <Link href="/contact-support">
+                    <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer hover:bg-gray-50 hover:text-primary">
+                      <LifeBuoy className="mr-2 h-4 w-4" />
+                      <span>Contact Support</span>
+                    </DropdownMenu.Item>
+                  </Link>
+                  <Link href="/help-center/tutorials">
+                    <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer hover:bg-gray-50 hover:text-primary">
+                      <BookOpen className="mr-2 h-4 w-4" />
+                      <span>Tutorials</span>
+                    </DropdownMenu.Item>
+                  </Link>
+                  <Link href="/help-center/account">
+                    <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer hover:bg-gray-50 hover:text-primary">
+                      <User className="mr-2 h-4 w-4" />
+                      <span>Account Support</span>
+                    </DropdownMenu.Item>
+                  </Link>
+                  <Link href="/help-center/feature-requests">
+                    <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer hover:bg-gray-50 hover:text-primary">
+                      <Zap className="mr-2 h-4 w-4" />
+                      <span>Request a Feature</span>
+                    </DropdownMenu.Item>
+                  </Link>
+                  <DropdownMenu.Arrow className="fill-white" />
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -149,12 +168,6 @@ export default function Home() {
             >
               Log In
             </a>
-            <a
-              href="/auth/signup"
-              className="inline-flex items-center justify-center rounded-md bg-cyan-600 px-4 py-2 text-xs font-semibold text-white shadow hover:bg-cyan-700 transition-colors ml-2"
-            >
-              Sign Up
-            </a>
           </div>
         </div>
       </header>
@@ -163,13 +176,13 @@ export default function Home() {
         <div className="container mx-auto grid gap-12 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] items-center">
           <div className="space-y-6">
             <p className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-200">
-              Orbyt Booking • For Service Businesses
+              Orbit Booking • For Service Businesses
             </p>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight font-space-grotesk">
               The <span className="text-primary">perfect platform</span> to make your service business <span className="text-primary">work smarter for you</span>.
             </h1>
             <p className="text-base sm:text-lg text-slate-200 max-w-xl font-sans">
-              Orbyt Booking gives cleaners and local service businesses a modern booking experience with built-in online scheduling, automated reminders, and payments.
+              Orbit Booking gives cleaners and local service businesses a modern booking experience with built-in online scheduling, automated reminders, and payments.
             </p>
             <div className="flex flex-col sm:flex-row gap-4">
               <a
@@ -177,12 +190,6 @@ export default function Home() {
                 className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors"
               >
                 Start free trial
-              </a>
-              <a
-                href="/auth/signup"
-                className="inline-flex items-center justify-center rounded-md bg-cyan-600 px-6 py-3 text-sm font-semibold text-white shadow-lg hover:bg-cyan-700 transition-colors"
-              >
-                Sign Up
               </a>
             </div>
             <div className="flex flex-wrap gap-6 pt-4 text-xs text-slate-300">
@@ -639,49 +646,49 @@ export default function Home() {
             <p className="text-sm text-muted-foreground text-center mb-6">
               Scroll through the plans below to see a detailed breakdown of features and how they help your business.
             </p>
-            <AccordionClient type="single" collapsible className="w-full">
-              <AccordionItemClient value="starter">
-                <AccordionTriggerClient className="text-left">
+            <Accordion type="single" collapsible className="w-full">
+              <AccordionItem value="starter">
+                <AccordionTrigger className="text-left">
                   Starter – solo operators and small teams just getting started.
-                </AccordionTriggerClient>
-                <AccordionContentClient>
+                </AccordionTrigger>
+                <AccordionContent>
                   <ul className="space-y-2 text-sm text-muted-foreground">
                     <li><span className="font-medium text-foreground">Core scheduling &amp; calendar:</span> Accept bookings online 24/7 and see everything in a simple calendar view.</li>
                     <li><span className="font-medium text-foreground">Unlimited bookings:</span> Take as many appointments as you want with no extra per‑booking fees.</li>
                     <li><span className="font-medium text-foreground">Email reminders:</span> Reduce no‑shows with automatic confirmation and reminder emails.</li>
                     <li><span className="font-medium text-foreground">Basic customer profiles:</span> Keep track of client details and service history in one place.</li>
                   </ul>
-                </AccordionContentClient>
-              </AccordionItemClient>
+                </AccordionContent>
+              </AccordionItem>
 
-              <AccordionItemClient value="growth">
-                <AccordionTriggerClient className="text-left">
+              <AccordionItem value="growth">
+                <AccordionTrigger className="text-left">
                   Growth – growing teams that need advanced automation and greater control.
-                </AccordionTriggerClient>
-                <AccordionContentClient>
+                </AccordionTrigger>
+                <AccordionContent>
                   <ul className="space-y-2 text-sm text-muted-foreground">
                     <li><span className="font-medium text-foreground">Advanced scheduling &amp; routing:</span> Assign jobs to the right team members and optimize routes.</li>
                     <li><span className="font-medium text-foreground">Team management:</span> Add multiple staff, manage availability, and see who is booked where.</li>
                     <li><span className="font-medium text-foreground">Email &amp; chat support:</span> Get faster help from our support team as you scale.</li>
-                    <li><span className="font-medium text-foreground">Custom branding:</span> Match Orbyt Booking to your brand with your logo and colors.</li>
+                    <li><span className="font-medium text-foreground">Custom branding:</span> Match Orbit Booking to your brand with your logo and colors.</li>
                   </ul>
-                </AccordionContentClient>
-              </AccordionItemClient>
+                </AccordionContent>
+              </AccordionItem>
 
-              <AccordionItemClient value="pro">
-                <AccordionTriggerClient className="text-left">
+              <AccordionItem value="pro">
+                <AccordionTrigger className="text-left">
                   Pro – established businesses that want full access to all features.
-                </AccordionTriggerClient>
-                <AccordionContentClient>
+                </AccordionTrigger>
+                <AccordionContent>
                   <ul className="space-y-2 text-sm text-muted-foreground">
                     <li><span className="font-medium text-foreground">Everything in Growth:</span> Includes all features from the Starter and Growth plans.</li>
                     <li><span className="font-medium text-foreground">Priority support:</span> Skip the line with priority response times from our team.</li>
-                    <li><span className="font-medium text-foreground">API access:</span> Connect Orbyt Booking to your other tools and internal systems.</li>
+                    <li><span className="font-medium text-foreground">API access:</span> Connect Orbit Booking to your other tools and internal systems.</li>
                     <li><span className="font-medium text-foreground">Advanced reporting:</span> Deeper insights into revenue, team performance, and customer behavior.</li>
                   </ul>
-                </AccordionContentClient>
-              </AccordionItemClient>
-            </AccordionClient>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </div>
           
           {/* Plan comparison table */}
@@ -763,7 +770,7 @@ export default function Home() {
       <section className="bg-gradient-to-r from-primary/5 to-accent/5 py-16 px-4">
         <div className="container mx-auto max-w-4xl text-center">
           <h2 className="text-3xl md:text-4xl font-bold mb-4">Ready to get started?</h2>
-          <p className="text-lg text-muted-foreground mb-8">Join thousands of businesses that trust Orbyt Booking. Try it for free today!</p>
+          <p className="text-lg text-muted-foreground mb-8">Join thousands of businesses that trust Orbit Booking. Try it for free today!</p>
           
           <div className="flex flex-col sm:flex-row gap-3 max-w-lg mx-auto">
             <input
@@ -833,8 +840,8 @@ export default function Home() {
           <div className="grid md:grid-cols-2 gap-8 mb-8">
             <div>
               <div className="flex items-center gap-3 mb-4">
-                <img src="/images/orbit.png" alt="Orbyt Booking" className="h-12 w-12" />
-                <h3 className="text-2xl font-bold">Orbyt Booking</h3>
+                <img src="/images/orbit.png" alt="Orbit Booking" className="h-12 w-12" />
+                <h3 className="text-2xl font-bold">Orbit Booking</h3>
               </div>
               <p className="text-navy-foreground/80 mb-4 text-sm">
               Modern booking for cleaners and local service businesses.
@@ -861,7 +868,7 @@ export default function Home() {
           </div>
           <div className="pt-8 border-t border-white/10">
             <p className="text-center text-sm text-navy-foreground/60">
-              &copy; {new Date().getFullYear()} Orbyt Booking. All rights reserved.
+              &copy; {new Date().getFullYear()} Orbit Booking. All rights reserved.
             </p>
           </div>
         </div>

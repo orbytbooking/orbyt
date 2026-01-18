@@ -53,7 +53,6 @@ export default function EditCouponPage() {
   const [selectedLocations, setSelectedLocations] = useState<string[]>(['Illinois']);
   const [selectedServices, setSelectedServices] = useState<string[]>(['Deep Clean', 'Basic Cleaning', 'Move In/Out Clean', 'Construction Clean Up', 'Hourly Deep Clean', 'Hourly Basic Clean']);
   const [discountUnit, setDiscountUnit] = useState<'amount' | 'percent'>('amount');
-  const [providerDiscountEnabled, setProviderDiscountEnabled] = useState(false);
   const [industries, setIndustries] = useState<string[]>(['Home Cleaning']);
   const [activeIndustry, setActiveIndustry] = useState<string>('');
   const [industryEnabled, setIndustryEnabled] = useState<Record<string, boolean>>({});
@@ -249,7 +248,7 @@ export default function EditCouponPage() {
             </div>
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <Checkbox id="active" checked={form.active} onCheckedChange={(v) => setForm((s) => ({ ...s, active: !!v }))} />
+                <Switch id="active" checked={form.active} onCheckedChange={(v) => setForm((s) => ({ ...s, active: !!v }))} />
                 <Label htmlFor="active" className="font-normal">Make this coupon active</Label>
               </div>
               <div className="flex items-center gap-3">
@@ -379,19 +378,6 @@ export default function EditCouponPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm font-medium">Discount for service providers</div>
-                    <div className="flex flex-col items-end gap-2">
-                      <Switch checked={providerDiscountEnabled} onCheckedChange={(v) => setProviderDiscountEnabled(!!v)} />
-                      <span className={`px-2 py-0.5 rounded-full text-xs ${providerDiscountEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                        {providerDiscountEnabled ? 'Enabled' : 'Disabled'}
-                      </span>
-                    </div>
-                  </div>
-                  {/* Future provider discount fields can go here; will be disabled when toggle is off */}
-                  <div className={`${providerDiscountEnabled ? '' : 'opacity-50 pointer-events-none'}`} aria-disabled={!providerDiscountEnabled} />
                 </div>
               </div>
             </TabsContent>
