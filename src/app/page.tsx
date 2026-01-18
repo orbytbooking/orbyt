@@ -601,7 +601,7 @@ export default function Home() {
               <h3 className="text-lg font-semibold mb-2">Pro</h3>
               <p className="text-muted-foreground text-sm mb-6">For established businesses that want everything unlocked</p>
               <div className="mb-6">
-                <span className="text-3xl font-bold">$99</span>
+                <span className="text-3xl font-bold">$110</span>
                 <span className="text-muted-foreground">/month</span>
               </div>
               <ul className="space-y-3 mb-8 text-sm min-h-[200px]">
