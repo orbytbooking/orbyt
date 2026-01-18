@@ -24,6 +24,7 @@ export default function IndustryFormServiceCategoryPage() {
   };
   
   const storageKey = useMemo(() => `service_categories_${industry}`, [industry]);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
   
   useEffect(() => {
@@ -34,11 +35,14 @@ export default function IndustryFormServiceCategoryPage() {
     } catch {
       setCategories([]);
     }
+    setIsInitialLoad(false);
   }, [storageKey]);
 
   useEffect(() => {
-    localStorage.setItem(storageKey, JSON.stringify(categories));
-  }, [categories, storageKey]);
+    if (!isInitialLoad) {
+      localStorage.setItem(storageKey, JSON.stringify(categories));
+    }
+  }, [categories, storageKey, isInitialLoad]);
 
   // Keep table in sync if localStorage changes
   useEffect(() => {
@@ -50,14 +54,24 @@ export default function IndustryFormServiceCategoryPage() {
         } catch {}
       }
     };
+    
+    // Listen for custom events from the new/edit page
+    const customHandler = (e: CustomEvent) => {
+      if (e.type === 'serviceCategoriesUpdated' && e.detail?.storageKey === storageKey) {
+        try {
+          const arr = e.detail.categories;
+          if (Array.isArray(arr)) setCategories(arr);
+        } catch {}
+      }
+    };
+    
     window.addEventListener('storage', handler);
-    const interval = setInterval(() => {
-      try {
-        const arr = JSON.parse(localStorage.getItem(storageKey) || '[]');
-        if (Array.isArray(arr)) setCategories(arr);
-      } catch {}
-    }, 800);
-    return () => { window.removeEventListener('storage', handler); clearInterval(interval); };
+    window.addEventListener('serviceCategoriesUpdated', customHandler as EventListener);
+    
+    return () => {
+      window.removeEventListener('storage', handler);
+      window.removeEventListener('serviceCategoriesUpdated', customHandler as EventListener);
+    };
   }, [storageKey]);
 
   const remove = (id: number) => {

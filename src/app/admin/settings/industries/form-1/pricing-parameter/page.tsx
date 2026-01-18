@@ -40,6 +40,7 @@ export default function IndustryFormPricingParameterPage() {
 
   const [allRows, setAllRows] = useState<Record<string, PricingRow[]>>({});
   const [variables, setVariables] = useState<PricingVariable[]>([]);
+  const [excludeParameters, setExcludeParameters] = useState<any[]>([]);
 
   const defaultVariables: PricingVariable[] = [
     { id: "sq-ft", name: "Sq Ft", category: "Sq Ft", description: "Square footage tiers", isActive: true },
@@ -81,14 +82,35 @@ export default function IndustryFormPricingParameterPage() {
     }
   }, [allRows, industry]);
 
+  useEffect(() => {
+    // Load exclude parameters
+    try {
+      const excludeDataKey = `excludeParameters_${industry}`;
+      const storedExcludeParams = JSON.parse(localStorage.getItem(excludeDataKey) || "[]");
+      if (Array.isArray(storedExcludeParams)) {
+        setExcludeParameters(storedExcludeParams);
+      }
+    } catch (e) {
+      console.error("Error loading exclude parameters:", e);
+    }
+  }, [industry]);
+
   // Keep table in sync if localStorage changes
   useEffect(() => {
     const allDataKey = `pricingParamsAll_${industry}`;
+    const excludeDataKey = `excludeParameters_${industry}`;
     const interval = setInterval(() => {
       try {
         const storedData = JSON.parse(localStorage.getItem(allDataKey) || "{}");
         if (storedData && typeof storedData === "object") {
           setAllRows(storedData);
+        }
+      } catch {}
+      
+      try {
+        const storedExcludeParams = JSON.parse(localStorage.getItem(excludeDataKey) || "[]");
+        if (Array.isArray(storedExcludeParams)) {
+          setExcludeParameters(storedExcludeParams);
         }
       } catch {}
     }, 800);
@@ -171,37 +193,183 @@ export default function IndustryFormPricingParameterPage() {
           <CardDescription>Manage pricing parameters for {industry}.</CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="space-y-8">
+            {/* Get all unique categories that have parameters */}
+            {Object.keys(allRows)
+              .filter(category => allRows[category] && allRows[category].length > 0)
+              .map(category => {
+                const rows = allRows[category] || [];
+                return (
+                  <div key={category}>
+                    <h3 className="text-lg font-semibold mb-4">{category}</h3>
+                    
+                    <div className="overflow-x-auto rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Price</TableHead>
+                            <TableHead>Time</TableHead>
+                            <TableHead>Display</TableHead>
+                            <TableHead>Service Category</TableHead>
+                            <TableHead>Frequency</TableHead>
+                            <TableHead>Default</TableHead>
+                            <TableHead className="text-right">Action</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {rows.map((r) => (
+                            <TableRow key={`${category}-${r.id}`}>
+                              <TableCell className="font-medium">{r.name}</TableCell>
+                              <TableCell>${r.price.toFixed(2)}</TableCell>
+                              <TableCell>{r.time}</TableCell>
+                              <TableCell className="text-xs">
+                                {r.display ? (
+                                  <div className="whitespace-pre-line">
+                                    {r.display.split(', ').join('\n')}
+                                  </div>
+                                ) : "-"}
+                              </TableCell>
+                              <TableCell>
+                                {r.serviceCategory ? (
+                                  <div className="whitespace-pre-line">
+                                    {r.serviceCategory.split(', ').join('\n')}
+                                  </div>
+                                ) : "-"}
+                              </TableCell>
+                              <TableCell>
+                                {r.frequency ? (
+                                  <div className="whitespace-pre-line">
+                                    {r.frequency.split(', ').join('\n')}
+                                  </div>
+                                ) : "-"}
+                              </TableCell>
+                              <TableCell>{r.isDefault ? "Yes" : "No"}</TableCell>
+                              <TableCell className="text-right">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground">
+                                      Options <ChevronDown className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem
+                                      onClick={() => router.push(`/admin/settings/industries/form-1/pricing-parameter/new?industry=${encodeURIComponent(industry)}&editId=${r.id}&category=${encodeURIComponent(category)}`)}
+                                    >
+                                      Edit
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => move(category, r.id, -1)}>
+                                      Move Up
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => move(category, r.id, 1)}>
+                                      Move Down
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onClick={() => remove(category, r.id)}
+                                      className="text-red-600"
+                                    >
+                                      Delete
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                );
+              })}
+            
+            {Object.keys(allRows).length === 0 && (
+              <div className="text-center py-8">
+                <p className="text-sm text-muted-foreground">
+                  No pricing parameters added yet. Click "Add New" to add parameters.
+                </p>
+              </div>
+            )}
+            
+            {Object.keys(allRows).length > 0 && Object.keys(allRows).every(category => !allRows[category] || allRows[category].length === 0) && (
+              <div className="text-center py-8">
+                <p className="text-sm text-muted-foreground">
+                  No pricing parameters added yet. Click "Add New" to add parameters.
+                </p>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Exclude Parameters Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex justify-between items-center">
+            <div>
+              <CardTitle>Exclude Parameters</CardTitle>
+              <CardDescription>Manage exclude parameters for {industry}.</CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button 
+                variant="outline" 
+                onClick={() => router.push(`/admin/settings/industries/form-1/pricing-parameter/exclude-parameters/new?industry=${encodeURIComponent(industry)}`)}
+              >
+                Add New
+              </Button>
+              <Button variant="default" onClick={updatePriority}>
+                Update priority
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
           <div className="overflow-x-auto rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Variable</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Price</TableHead>
                   <TableHead>Time</TableHead>
                   <TableHead>Display</TableHead>
-                  <TableHead>Default</TableHead>
+                  <TableHead>Service Category</TableHead>
+                  <TableHead>Frequency</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {getAllRows().length === 0 && (
+                {excludeParameters.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
-                      No data. Click Add New or Manage variable.
+                      No exclude parameters configured. Click "Add New" to add parameters.
                     </TableCell>
                   </TableRow>
-                )}
-                {variables.map((variable) => {
-                  const rows = allRows[variable.category] || [];
-                  return rows.map((r) => (
-                    <TableRow key={`${variable.category}-${r.id}`}>
-                      <TableCell className="font-medium">{variable.name}</TableCell>
-                      <TableCell>{r.name}</TableCell>
-                      <TableCell>${r.price.toFixed(2)}</TableCell>
-                      <TableCell>{r.time}</TableCell>
-                      <TableCell className="text-xs">{r.display}</TableCell>
-                      <TableCell>{r.isDefault ? "Yes" : "No"}</TableCell>
+                ) : (
+                  excludeParameters.map((param) => (
+                    <TableRow key={param.id}>
+                      <TableCell className="font-medium">{param.name}</TableCell>
+                      <TableCell>${param.price ? param.price.toFixed(2) : "-"}</TableCell>
+                      <TableCell>{param.time || "-"}</TableCell>
+                      <TableCell className="text-xs">
+                                {param.display ? (
+                                  <div className="whitespace-pre-line">
+                                    {param.display.split(', ').join('\n')}
+                                  </div>
+                                ) : "-"}
+                              </TableCell>
+                      <TableCell>
+                                {param.serviceCategory ? (
+                                  <div className="whitespace-pre-line">
+                                    {param.serviceCategory.split(', ').join('\n')}
+                                  </div>
+                                ) : "-"}
+                              </TableCell>
+                      <TableCell>
+                                {param.frequency ? (
+                                  <div className="whitespace-pre-line">
+                                    {param.frequency.split(', ').join('\n')}
+                                  </div>
+                                ) : "-"}
+                              </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -211,18 +379,16 @@ export default function IndustryFormPricingParameterPage() {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem
-                              onClick={() => router.push(`/admin/settings/industries/form-1/pricing-parameter/new?industry=${encodeURIComponent(industry)}&editId=${r.id}&category=${encodeURIComponent(variable.category)}`)}
+                              onClick={() => router.push(`/admin/settings/industries/form-1/pricing-parameter/exclude-parameters/new?industry=${encodeURIComponent(industry)}&editId=${param.id}`)}
                             >
                               Edit
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => move(variable.category, r.id, -1)}>
-                              Move Up
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => move(variable.category, r.id, 1)}>
-                              Move Down
-                            </DropdownMenuItem>
                             <DropdownMenuItem
-                              onClick={() => remove(variable.category, r.id)}
+                              onClick={() => {
+                                const updated = excludeParameters.filter(p => p.id !== param.id);
+                                setExcludeParameters(updated);
+                                localStorage.setItem(`excludeParameters_${industry}`, JSON.stringify(updated));
+                              }}
                               className="text-red-600"
                             >
                               Delete
@@ -231,8 +397,8 @@ export default function IndustryFormPricingParameterPage() {
                         </DropdownMenu>
                       </TableCell>
                     </TableRow>
-                  ));
-                })}
+                  ))
+                )}
               </TableBody>
             </Table>
           </div>

@@ -45,6 +45,11 @@ export default function FrequencyNewPage() {
   };
   const storageKey = useMemo(() => `frequencies_${industry}`, [industry]);
   const [rows, setRows] = useState<Row[]>([]);
+  
+  // Dynamic data states
+  const [pricingVariables, setPricingVariables] = useState<any[]>([]);
+  const [excludeParameters, setExcludeParameters] = useState<any[]>([]);
+  const [extras, setExtras] = useState<any[]>([]);
 
   const [form, setForm] = useState({
     name: "",
@@ -77,7 +82,6 @@ export default function FrequencyNewPage() {
   // Load data for dependencies
   const [industries, setIndustries] = useState<string[]>([]);
   const [serviceCategories, setServiceCategories] = useState<Array<{ id: number; name: string }>>([]);
-  const [extras, setExtras] = useState<Array<{ id: number; name: string }>>([]);
   
   const bathroomOptions = ["1", "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5", "5.5", "6", "6.5", "7", "7.5"];
   const sqftOptions = [
@@ -86,7 +90,6 @@ export default function FrequencyNewPage() {
     "3300 - 3699 Sq Ft", "3700 - 3999", "4000+"
   ];
   const bedroomOptions = ["0", "1", "2", "3", "4", "5"];
-  const excludeParameterOptions = ["Bedroom", "Full Bathroom", "Half Bathroom", "Kitchen", "Living Room"];
   const serviceChecklistOptions = ["Basic Clean Checklist", "Deep Clean Checklist", "Construction Clean Checklist", "Move In/Out Clean Checklist"];
 
   useEffect(() => {
@@ -133,6 +136,32 @@ export default function FrequencyNewPage() {
       const storedExtras = JSON.parse(localStorage.getItem(extrasKey) || "[]");
       if (Array.isArray(storedExtras)) {
         setExtras(storedExtras.map((e: any) => ({ id: e.id, name: e.name })));
+      }
+    } catch {
+      // ignore
+    }
+  }, [industry]);
+
+  // Load pricing variables from localStorage
+  useEffect(() => {
+    try {
+      const variablesKey = `pricingVariables_${industry}`;
+      const storedVariables = JSON.parse(localStorage.getItem(variablesKey) || "[]");
+      if (Array.isArray(storedVariables)) {
+        setPricingVariables(storedVariables);
+      }
+    } catch {
+      // ignore
+    }
+  }, [industry]);
+
+  // Load exclude parameters from localStorage
+  useEffect(() => {
+    try {
+      const excludeParamsKey = `excludeParameters_${industry}`;
+      const storedExcludeParams = JSON.parse(localStorage.getItem(excludeParamsKey) || "[]");
+      if (Array.isArray(storedExcludeParams)) {
+        setExcludeParameters(storedExcludeParams);
       }
     } catch {
       // ignore
@@ -442,116 +471,79 @@ export default function FrequencyNewPage() {
                     </p>
                   </div>
 
-                  {/* Bathrooms */}
-                  <div className="space-y-2">
-                    <Label className="text-sm font-semibold">Bathrooms</Label>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Checkbox
-                        id="select-all-bathrooms"
-                        checked={form.bathroomVariables.length === bathroomOptions.length}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setForm(p => ({ ...p, bathroomVariables: [...bathroomOptions] }));
-                          } else {
-                            setForm(p => ({ ...p, bathroomVariables: [] }));
-                          }
-                        }}
-                      />
-                      <Label htmlFor="select-all-bathrooms" className="text-sm cursor-pointer">Select All</Label>
+                  {pricingVariables.length === 0 ? (
+                    <p className="text-sm text-muted-foreground italic">
+                      No pricing variables added yet. Add pricing variables from the Pricing section.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Checkbox
+                          id="select-all-variables"
+                          checked={form.bathroomVariables.length + form.sqftVariables.length + form.bedroomVariables.length === pricingVariables.length && pricingVariables.length > 0}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setForm(p => ({ 
+                                ...p, 
+                                bathroomVariables: pricingVariables.filter(v => v.category === "Bathroom").map(v => v.name),
+                                sqftVariables: pricingVariables.filter(v => v.category === "Sq Ft").map(v => v.name),
+                                bedroomVariables: pricingVariables.filter(v => v.category === "Bedroom").map(v => v.name)
+                              }));
+                            } else {
+                              setForm(p => ({ ...p, bathroomVariables: [], sqftVariables: [], bedroomVariables: [] }));
+                            }
+                          }}
+                        />
+                        <Label htmlFor="select-all-variables" className="text-sm cursor-pointer">Select All</Label>
+                      </div>
+                      
+                      {/* Group variables by category */}
+                      {['Bathroom', 'Sq Ft', 'Bedroom'].map(category => {
+                        const categoryVariables = pricingVariables.filter(v => v.category === category);
+                        if (categoryVariables.length === 0) return null;
+                        
+                        return (
+                          <div key={category} className="space-y-2">
+                            <Label className="text-sm font-semibold">{category}</Label>
+                            <div className="grid grid-cols-4 gap-2">
+                              {categoryVariables.map((variable) => (
+                                <div key={variable.id} className="flex items-center gap-2">
+                                  <Checkbox
+                                    id={`variable-${variable.id}`}
+                                    checked={
+                                      category === 'Bathroom' ? form.bathroomVariables.includes(variable.name) :
+                                      category === 'Sq Ft' ? form.sqftVariables.includes(variable.name) :
+                                      form.bedroomVariables.includes(variable.name)
+                                    }
+                                    onCheckedChange={(checked) => {
+                                      if (checked) {
+                                        if (category === 'Bathroom') {
+                                          setForm(p => ({ ...p, bathroomVariables: [...p.bathroomVariables, variable.name] }));
+                                        } else if (category === 'Sq Ft') {
+                                          setForm(p => ({ ...p, sqftVariables: [...p.sqftVariables, variable.name] }));
+                                        } else {
+                                          setForm(p => ({ ...p, bedroomVariables: [...p.bedroomVariables, variable.name] }));
+                                        }
+                                      } else {
+                                        if (category === 'Bathroom') {
+                                          setForm(p => ({ ...p, bathroomVariables: p.bathroomVariables.filter(v => v !== variable.name) }));
+                                        } else if (category === 'Sq Ft') {
+                                          setForm(p => ({ ...p, sqftVariables: p.sqftVariables.filter(v => v !== variable.name) }));
+                                        } else {
+                                          setForm(p => ({ ...p, bedroomVariables: p.bedroomVariables.filter(v => v !== variable.name) }));
+                                        }
+                                      }
+                                    }}
+                                  />
+                                  <Label htmlFor={`variable-${variable.id}`} className="text-sm cursor-pointer">{variable.name}</Label>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                    <div className="grid grid-cols-4 gap-2">
-                      {bathroomOptions.map((opt) => (
-                        <div key={opt} className="flex items-center gap-2">
-                          <Checkbox
-                            id={`bathroom-${opt}`}
-                            checked={form.bathroomVariables.includes(opt)}
-                            onCheckedChange={(checked) => {
-                              if (checked) {
-                                setForm(p => ({ ...p, bathroomVariables: [...p.bathroomVariables, opt] }));
-                              } else {
-                                setForm(p => ({ ...p, bathroomVariables: p.bathroomVariables.filter(v => v !== opt) }));
-                              }
-                            }}
-                          />
-                          <Label htmlFor={`bathroom-${opt}`} className="text-sm cursor-pointer">{opt}</Label>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Sq Ft */}
-                  <div className="space-y-2">
-                    <Label className="text-sm font-semibold">Sq Ft</Label>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Checkbox
-                        id="select-all-sqft"
-                        checked={form.sqftVariables.length === sqftOptions.length}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setForm(p => ({ ...p, sqftVariables: [...sqftOptions] }));
-                          } else {
-                            setForm(p => ({ ...p, sqftVariables: [] }));
-                          }
-                        }}
-                      />
-                      <Label htmlFor="select-all-sqft" className="text-sm cursor-pointer">Select All</Label>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {sqftOptions.map((opt) => (
-                        <div key={opt} className="flex items-center gap-2">
-                          <Checkbox
-                            id={`sqft-${opt}`}
-                            checked={form.sqftVariables.includes(opt)}
-                            onCheckedChange={(checked) => {
-                              if (checked) {
-                                setForm(p => ({ ...p, sqftVariables: [...p.sqftVariables, opt] }));
-                              } else {
-                                setForm(p => ({ ...p, sqftVariables: p.sqftVariables.filter(v => v !== opt) }));
-                              }
-                            }}
-                          />
-                          <Label htmlFor={`sqft-${opt}`} className="text-sm cursor-pointer">{opt}</Label>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Bedrooms */}
-                  <div className="space-y-2">
-                    <Label className="text-sm font-semibold">Bedrooms</Label>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Checkbox
-                        id="select-all-bedrooms"
-                        checked={form.bedroomVariables.length === bedroomOptions.length}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setForm(p => ({ ...p, bedroomVariables: [...bedroomOptions] }));
-                          } else {
-                            setForm(p => ({ ...p, bedroomVariables: [] }));
-                          }
-                        }}
-                      />
-                      <Label htmlFor="select-all-bedrooms" className="text-sm cursor-pointer">Select All</Label>
-                    </div>
-                    <div className="grid grid-cols-6 gap-2">
-                      {bedroomOptions.map((opt) => (
-                        <div key={opt} className="flex items-center gap-2">
-                          <Checkbox
-                            id={`bedroom-${opt}`}
-                            checked={form.bedroomVariables.includes(opt)}
-                            onCheckedChange={(checked) => {
-                              if (checked) {
-                                setForm(p => ({ ...p, bedroomVariables: [...p.bedroomVariables, opt] }));
-                              } else {
-                                setForm(p => ({ ...p, bedroomVariables: p.bedroomVariables.filter(v => v !== opt) }));
-                              }
-                            }}
-                          />
-                          <Label htmlFor={`bedroom-${opt}`} className="text-sm cursor-pointer">{opt}</Label>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                  )}
                 </div>
 
                 {/* Exclude Parameters */}
@@ -564,10 +556,10 @@ export default function FrequencyNewPage() {
                     <div className="flex items-center gap-2">
                       <Checkbox
                         id="select-all-exclude"
-                        checked={form.excludeParameters.length === excludeParameterOptions.length}
+                        checked={form.excludeParameters.length === excludeParameters.length && excludeParameters.length > 0}
                         onCheckedChange={(checked) => {
                           if (checked) {
-                            setForm(p => ({ ...p, excludeParameters: [...excludeParameterOptions] }));
+                            setForm(p => ({ ...p, excludeParameters: excludeParameters.map(param => param.name) }));
                           } else {
                             setForm(p => ({ ...p, excludeParameters: [] }));
                           }
@@ -575,20 +567,20 @@ export default function FrequencyNewPage() {
                       />
                       <Label htmlFor="select-all-exclude" className="text-sm font-medium cursor-pointer">Select All</Label>
                     </div>
-                    {excludeParameterOptions.map((opt) => (
-                      <div key={opt} className="flex items-center gap-2">
+                    {excludeParameters.map((param) => (
+                      <div key={param.id} className="flex items-center gap-2">
                         <Checkbox
-                          id={`exclude-${opt}`}
-                          checked={form.excludeParameters.includes(opt)}
+                          id={`exclude-${param.id}`}
+                          checked={form.excludeParameters.includes(param.name)}
                           onCheckedChange={(checked) => {
                             if (checked) {
-                              setForm(p => ({ ...p, excludeParameters: [...p.excludeParameters, opt] }));
+                              setForm(p => ({ ...p, excludeParameters: [...p.excludeParameters, param.name] }));
                             } else {
-                              setForm(p => ({ ...p, excludeParameters: p.excludeParameters.filter(e => e !== opt) }));
+                              setForm(p => ({ ...p, excludeParameters: p.excludeParameters.filter(e => e !== param.name) }));
                             }
                           }}
                         />
-                        <Label htmlFor={`exclude-${opt}`} className="text-sm cursor-pointer">{opt}</Label>
+                        <Label htmlFor={`exclude-${param.id}`} className="text-sm cursor-pointer">{param.name}</Label>
                       </div>
                     ))}
                   </div>

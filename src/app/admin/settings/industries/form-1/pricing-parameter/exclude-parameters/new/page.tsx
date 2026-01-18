@@ -9,94 +9,70 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-type PricingRow = {
+type ExcludeParameterRow = {
   id: number;
   name: string;
+  description: string;
+  display: "Customer Frontend, Backend & Admin" | "Customer Backend & Admin" | "Admin Only";
   price: number;
   time: string;
-  display: "Customer Frontend, Backend & Admin" | "Customer Backend & Admin" | "Admin Only";
-  serviceCategory: string;
-  serviceCategory2: string;
   frequency: string;
-  variableCategory: string;
-  description: string;
-  isDefault: boolean;
+  serviceCategory: string;
+  variableCategories: string;
   showBasedOnFrequency: boolean;
   showBasedOnServiceCategory: boolean;
-  showBasedOnServiceCategory2: boolean;
+  showBasedOnVariables: boolean;
   excludedExtras: number[];
   excludedServices: number[];
   excludedProviders?: string[];
 };
 
-type PricingVariable = {
-  id: string;
-  name: string;
-  category: string;
-  description: string;
-  isActive: boolean;
-};
-
-export default function PricingParameterNewPage() {
+export default function ExcludeParameterNewPage() {
   const params = useSearchParams();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
   const editId = params.get("editId") ? Number(params.get("editId")) : null;
-  const editCategory = params.get("category") || "";
 
-  const [allRows, setAllRows] = useState<Record<string, PricingRow[]>>({});
-  const [variables, setVariables] = useState<PricingVariable[]>([]);
+  const [allRows, setAllRows] = useState<ExcludeParameterRow[]>([]);
   const [extras, setExtras] = useState<Array<{id: number; name: string}>>([]);
   const [services, setServices] = useState<Array<{id: number; name: string}>>([]);
   const [providers, setProviders] = useState<Array<{ id: string; name: string }>>([]);
-  const [serviceCategories, setServiceCategories] = useState<Array<{ id: number; name: string }>>([]);
   const [frequencies, setFrequencies] = useState<Array<{ id: number; name: string }>>([]);
+  const [variables, setVariables] = useState<Array<{ id: string; name: string; category: string }>>([]);
 
   const [form, setForm] = useState({
-    variableCategory: "",
     name: "",
     description: "",
     display: "Customer Frontend, Backend & Admin" as "Customer Frontend, Backend & Admin" | "Customer Backend & Admin" | "Admin Only",
     price: "0",
     hours: "0",
     minutes: "0",
-    isDefault: false,
     showBasedOnFrequency: false,
-    showBasedOnServiceCategory: false,
-    showBasedOnServiceCategory2: false,
+    showBasedOnServiceCategory: true,
+    showBasedOnVariables: false,
     excludedExtras: [] as number[],
     excludedServices: [] as number[],
     excludedProviders: [] as string[],
-    serviceCategory: [] as string[],
-    serviceCategory2: [] as string[],
     frequency: [] as string[],
+    serviceCategory: [] as string[],
+    variableCategories: [] as string[],
   });
 
-  const allDataKey = useMemo(() => `pricingParamsAll_${industry}`, [industry]);
-  const variablesKey = useMemo(() => `pricingVariables_${industry}`, [industry]);
+  const allDataKey = useMemo(() => `excludeParameters_${industry}`, [industry]);
   const extrasKey = useMemo(() => `extras_${industry}`, [industry]);
   const servicesKey = useMemo(() => `service_categories_${industry}`, [industry]);
 
   useEffect(() => {
-    // Load variables
+    // Load all exclude parameters data
     try {
-      const storedVars = JSON.parse(localStorage.getItem(variablesKey) || "[]");
-      if (Array.isArray(storedVars)) setVariables(storedVars);
-    } catch (e) {
-      console.error("Error loading variables:", e);
-    }
-
-    // Load all pricing data
-    try {
-      const storedData = JSON.parse(localStorage.getItem(allDataKey) || "{}");
-      if (storedData && typeof storedData === "object") {
+      const storedData = JSON.parse(localStorage.getItem(allDataKey) || "[]");
+      if (Array.isArray(storedData)) {
         setAllRows(storedData);
       }
     } catch (e) {
-      console.error("Error loading pricing data:", e);
+      console.error("Error loading exclude parameters data:", e);
     }
 
     // Load extras
@@ -114,23 +90,9 @@ export default function PricingParameterNewPage() {
       const storedServices = JSON.parse(localStorage.getItem(servicesKey) || "[]");
       if (Array.isArray(storedServices)) {
         setServices(storedServices.map((s: any) => ({ id: s.id, name: s.name })));
-        setServiceCategories(storedServices.map((s: any) => ({ id: s.id, name: s.name })));
-        console.log("Loaded service categories:", storedServices);
       }
     } catch (e) {
       console.error("Error loading services:", e);
-    }
-
-    // Load frequencies
-    try {
-      const frequenciesKey = `frequencies_${industry}`;
-      const storedFrequencies = JSON.parse(localStorage.getItem(frequenciesKey) || "[]");
-      if (Array.isArray(storedFrequencies)) {
-        setFrequencies(storedFrequencies.map((f: any) => ({ id: f.id, name: f.name })));
-        console.log("Loaded frequencies:", storedFrequencies);
-      }
-    } catch (e) {
-      console.error("Error loading frequencies:", e);
     }
 
     // Load providers
@@ -142,11 +104,44 @@ export default function PricingParameterNewPage() {
     } catch (e) {
       console.error("Error loading providers:", e);
     }
-  }, [allDataKey, variablesKey, extrasKey, servicesKey, industry]);
+
+    // Load frequencies
+    try {
+      const frequenciesKey = `frequencies_${industry}`;
+      const storedFrequencies = JSON.parse(localStorage.getItem(frequenciesKey) || "[]");
+      if (Array.isArray(storedFrequencies)) {
+        setFrequencies(storedFrequencies.map((f: any) => ({ id: f.id, name: f.name })));
+      }
+    } catch (e) {
+      console.error("Error loading frequencies:", e);
+    }
+
+    // Load variables (pricing parameters)
+    try {
+      const allDataKey = `pricingParamsAll_${industry}`;
+      const storedData = JSON.parse(localStorage.getItem(allDataKey) || "{}");
+      if (storedData && typeof storedData === "object") {
+        const allVariables: Array<{ id: string; name: string; category: string }> = [];
+        Object.keys(storedData).forEach(category => {
+          const rows = storedData[category] || [];
+          rows.forEach((row: any) => {
+            allVariables.push({
+              id: `${category}-${row.id}`,
+              name: row.name,
+              category: category
+            });
+          });
+        });
+        setVariables(allVariables);
+      }
+    } catch (e) {
+      console.error("Error loading variables:", e);
+    }
+  }, [allDataKey, extrasKey, servicesKey, industry]);
 
   useEffect(() => {
-    if (editId && editCategory && allRows[editCategory]) {
-      const existing = allRows[editCategory].find(r => r.id === editId);
+    if (editId && allRows.length > 0) {
+      const existing = allRows.find(r => r.id === editId);
       if (existing) {
         const [hours, minutes] = existing.time.split(" ").reduce((acc, part) => {
           if (part.includes("Hr")) acc[0] = part.replace("Hr", "").trim();
@@ -155,115 +150,82 @@ export default function PricingParameterNewPage() {
         }, ["0", "0"]);
 
         setForm({
-          variableCategory: existing.variableCategory,
           name: existing.name,
           description: existing.description || "",
           display: existing.display,
           price: String(existing.price ?? 0),
           hours: hours || "0",
           minutes: minutes || "0",
-          isDefault: existing.isDefault || false,
-          showBasedOnFrequency: typeof existing.showBasedOnFrequency === "boolean" ? existing.showBasedOnFrequency : false,
-          showBasedOnServiceCategory: typeof existing.showBasedOnServiceCategory === "boolean" ? existing.showBasedOnServiceCategory : false,
-          showBasedOnServiceCategory2: typeof existing.showBasedOnServiceCategory2 === "boolean" ? existing.showBasedOnServiceCategory2 : false,
+          showBasedOnFrequency: existing.showBasedOnFrequency,
+          showBasedOnServiceCategory: existing.showBasedOnServiceCategory,
+          showBasedOnVariables: existing.showBasedOnVariables,
           excludedExtras: existing.excludedExtras || [],
           excludedServices: existing.excludedServices || [],
           excludedProviders: existing.excludedProviders || [],
-          serviceCategory: Array.isArray(existing.serviceCategory) ? existing.serviceCategory : [],
-          serviceCategory2: Array.isArray(existing.serviceCategory2) ? existing.serviceCategory2 : [],
-          frequency: Array.isArray(existing.frequency) ? existing.frequency : [],
+          frequency: existing.frequency ? existing.frequency.split(", ") : [],
+          serviceCategory: existing.serviceCategory ? existing.serviceCategory.split(", ") : [],
+          variableCategories: existing.variableCategories ? existing.variableCategories.split(", ") : [],
         });
       }
     }
-  }, [editId, editCategory, allRows]);
+  }, [editId, allRows]);
 
   const save = () => {
-    if (!form.variableCategory || !form.name.trim()) return;
-
-    console.log("Saving form data:", {
-      serviceCategory: form.serviceCategory,
-      frequency: form.frequency,
-      showBasedOnServiceCategory: form.showBasedOnServiceCategory,
-      showBasedOnFrequency: form.showBasedOnFrequency
-    });
-
-    // Check for duplicate names within the same category
-    const categoryRows = allRows[form.variableCategory] || [];
-    const existingName = categoryRows.find(r => 
-      r.name.toLowerCase().trim() === form.name.toLowerCase().trim() && 
-      r.id !== editId
-    );
-    
-    if (existingName) {
-      alert(`A parameter with the name "${form.name.trim()}" already exists in the ${form.variableCategory} category. Please use a different name.`);
-      return;
-    }
+    if (!form.name.trim()) return;
 
     const price = Number(form.price) || 0;
     const hours = Number(form.hours) || 0;
     const minutes = Number(form.minutes) || 0;
     const timeString = `${hours > 0 ? `${hours} Hr` : ""}${minutes > 0 ? ` ${minutes} Min` : ""}`.trim() || "0";
 
-    // Auto-set service category and frequency based on form state
-    const serviceCategoryValue = form.showBasedOnServiceCategory ? form.serviceCategory.join(", ") : "";
-    const serviceCategory2Value = form.showBasedOnServiceCategory2 ? form.serviceCategory2.join(", ") : "";
+    // Auto-set frequency, service category, and variable categories based on form state
     const frequencyValue = form.showBasedOnFrequency ? form.frequency.join(", ") : "";
+    const serviceCategoryValue = form.showBasedOnServiceCategory ? form.serviceCategory.join(", ") : "";
+    const variableCategoriesValue = form.showBasedOnVariables ? form.variableCategories.join(", ") : "";
 
-    if (editId && editCategory) {
+    if (editId) {
       // Update existing
-      const updated = allRows[editCategory].map(r => r.id === editId ? {
+      const updated = allRows.map(r => r.id === editId ? {
         ...r,
         name: form.name.trim(),
+        description: form.description,
+        display: form.display,
         price,
         time: timeString,
-        display: form.display,
-        description: form.description,
-        isDefault: form.isDefault,
         frequency: frequencyValue,
         serviceCategory: serviceCategoryValue,
-        serviceCategory2: serviceCategory2Value,
+        variableCategories: variableCategoriesValue,
         showBasedOnFrequency: form.showBasedOnFrequency,
         showBasedOnServiceCategory: form.showBasedOnServiceCategory,
-        showBasedOnServiceCategory2: form.showBasedOnServiceCategory2,
+        showBasedOnVariables: form.showBasedOnVariables,
         excludedExtras: form.excludedExtras,
         excludedServices: form.excludedServices,
         excludedProviders: form.excludedProviders,
       } : r);
       
-      const newAllRows = {
-        ...allRows,
-        [editCategory]: updated,
-      };
-      localStorage.setItem(allDataKey, JSON.stringify(newAllRows));
+      localStorage.setItem(allDataKey, JSON.stringify(updated));
     } else {
       // Create new
-      const currentRows = allRows[form.variableCategory] || [];
-      const maxId = currentRows.reduce((max, r) => (r.id > max ? r.id : max), 0);
-      const newRow: PricingRow = {
+      const maxId = allRows.reduce((max, r) => (r.id > max ? r.id : max), 0);
+      const newRow: ExcludeParameterRow = {
         id: maxId + 1,
         name: form.name.trim(),
+        description: form.description,
+        display: form.display,
         price,
         time: timeString,
-        display: form.display,
-        serviceCategory: serviceCategoryValue,
-        serviceCategory2: serviceCategory2Value,
         frequency: frequencyValue,
-        variableCategory: form.variableCategory,
-        description: form.description,
-        isDefault: form.isDefault,
+        serviceCategory: serviceCategoryValue,
+        variableCategories: variableCategoriesValue,
         showBasedOnFrequency: form.showBasedOnFrequency,
         showBasedOnServiceCategory: form.showBasedOnServiceCategory,
-        showBasedOnServiceCategory2: form.showBasedOnServiceCategory2,
+        showBasedOnVariables: form.showBasedOnVariables,
         excludedExtras: form.excludedExtras,
         excludedServices: form.excludedServices,
         excludedProviders: form.excludedProviders,
       };
 
-      const newAllRows = {
-        ...allRows,
-        [form.variableCategory]: [...currentRows, newRow],
-      };
-      localStorage.setItem(allDataKey, JSON.stringify(newAllRows));
+      localStorage.setItem(allDataKey, JSON.stringify([...allRows, newRow]));
     }
 
     router.push(`/admin/settings/industries/form-1/pricing-parameter?industry=${encodeURIComponent(industry)}`);
@@ -273,8 +235,8 @@ export default function PricingParameterNewPage() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>{editId ? "Edit Pricing Parameter" : "Add Pricing Parameter"}</CardTitle>
-          <CardDescription>Configure pricing parameter for {industry}.</CardDescription>
+          <CardTitle>{editId ? "Edit Exclude Parameter" : "Add Exclude Parameter"}</CardTitle>
+          <CardDescription>Configure exclude parameter for {industry}.</CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="details" className="w-full">
@@ -287,26 +249,12 @@ export default function PricingParameterNewPage() {
             {/* DETAILS TAB */}
             <TabsContent value="details" className="mt-4 space-y-5">
               <div className="space-y-2">
-                <Label htmlFor="variable-category">Variable Category</Label>
-                <Input
-                  id="variable-category"
-                  value={form.variableCategory}
-                  onChange={(e) => setForm(p => ({ ...p, variableCategory: e.target.value }))}
-                  placeholder="e.g., Sq Ft, Bedroom, Bathroom, Kitchen, Living Room"
-                  disabled={!!editId}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Enter the variable category this parameter belongs to. You can type any category name.
-                </p>
-              </div>
-
-              <div className="space-y-2">
                 <Label htmlFor="name">Name</Label>
                 <Input
                   id="name"
                   value={form.name}
                   onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))}
-                  placeholder="e.g., 1 - 1249 Sq Ft"
+                  placeholder="e.g., Pets, Smoking, Deep Cleaning"
                 />
               </div>
 
@@ -319,25 +267,6 @@ export default function PricingParameterNewPage() {
                   onChange={(e) => setForm(p => ({ ...p, description: e.target.value }))}
                   placeholder="Add Description"
                 />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Display</Label>
-                <RadioGroup
-                  value={form.display}
-                  onValueChange={(v: typeof form.display) => setForm(p => ({ ...p, display: v }))}
-                  className="grid gap-2"
-                >
-                  <label className="flex items-center gap-2 text-sm">
-                    <RadioGroupItem value="Customer Frontend, Backend & Admin" /> Customer Frontend, Backend & Admin
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <RadioGroupItem value="Customer Backend & Admin" /> Customer Backend & Admin
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <RadioGroupItem value="Admin Only" /> Admin Only
-                  </label>
-                </RadioGroup>
               </div>
 
               <div className="space-y-2">
@@ -381,13 +310,23 @@ export default function PricingParameterNewPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="default-tier"
-                  checked={form.isDefault}
-                  onCheckedChange={(v) => setForm(p => ({ ...p, isDefault: !!v }))}
-                />
-                <Label htmlFor="default-tier" className="text-sm">Set as Default</Label>
+              <div className="space-y-2">
+                <Label>Display</Label>
+                <RadioGroup
+                  value={form.display}
+                  onValueChange={(v: typeof form.display) => setForm(p => ({ ...p, display: v }))}
+                  className="grid gap-2"
+                >
+                  <label className="flex items-center gap-2 text-sm">
+                    <RadioGroupItem value="Customer Frontend, Backend & Admin" /> Customer Frontend, Backend & Admin
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <RadioGroupItem value="Customer Backend & Admin" /> Customer Backend & Admin
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <RadioGroupItem value="Admin Only" /> Admin Only
+                  </label>
+                </RadioGroup>
               </div>
             </TabsContent>
 
@@ -395,7 +334,7 @@ export default function PricingParameterNewPage() {
             <TabsContent value="dependencies" className="mt-4 space-y-6">
               <div className="space-y-4">
                 <div className="space-y-3">
-                  <Label className="text-base font-semibold">Should the variables show based on the frequency?</Label>
+                  <Label className="text-base font-semibold">Should the exclusion parameter show based on the frequency?</Label>
                   <RadioGroup
                     value={form.showBasedOnFrequency ? "yes" : "no"}
                     onValueChange={(v) => setForm(p => ({ ...p, showBasedOnFrequency: v === "yes" }))}
@@ -451,7 +390,7 @@ export default function PricingParameterNewPage() {
                 )}
 
                 <div className="space-y-3">
-                  <Label className="text-base font-semibold">Should the variables show based on the service category?</Label>
+                  <Label className="text-base font-semibold">Should the exclusion parameter show based on the service category?</Label>
                   <RadioGroup
                     value={form.showBasedOnServiceCategory ? "yes" : "no"}
                     onValueChange={(v) => setForm(p => ({ ...p, showBasedOnServiceCategory: v === "yes" }))}
@@ -473,10 +412,10 @@ export default function PricingParameterNewPage() {
                       <div className="flex items-center gap-2 mb-2">
                         <Checkbox
                           id="select-all-service-categories"
-                          checked={form.serviceCategory.length === serviceCategories.length && serviceCategories.length > 0}
+                          checked={form.serviceCategory.length === services.length && services.length > 0}
                           onCheckedChange={(checked) => {
                             if (checked) {
-                              setForm(p => ({ ...p, serviceCategory: serviceCategories.map(c => c.name) }));
+                              setForm(p => ({ ...p, serviceCategory: services.map(s => s.name) }));
                             } else {
                               setForm(p => ({ ...p, serviceCategory: [] }));
                             }
@@ -485,20 +424,20 @@ export default function PricingParameterNewPage() {
                         <Label htmlFor="select-all-service-categories" className="text-sm font-medium cursor-pointer">Select All</Label>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
-                        {serviceCategories.map((category) => (
-                          <div key={category.id} className="flex items-center gap-2">
+                        {services.map((service) => (
+                          <div key={service.id} className="flex items-center gap-2">
                             <Checkbox
-                              id={`service-category-${category.id}`}
-                              checked={form.serviceCategory.includes(category.name)}
+                              id={`service-category-${service.id}`}
+                              checked={form.serviceCategory.includes(service.name)}
                               onCheckedChange={(checked) => {
                                 if (checked) {
-                                  setForm(p => ({ ...p, serviceCategory: [...p.serviceCategory, category.name] }));
+                                  setForm(p => ({ ...p, serviceCategory: [...p.serviceCategory, service.name] }));
                                 } else {
-                                  setForm(p => ({ ...p, serviceCategory: p.serviceCategory.filter(c => c !== category.name) }));
+                                  setForm(p => ({ ...p, serviceCategory: p.serviceCategory.filter(s => s !== service.name) }));
                                 }
                               }}
                             />
-                            <Label htmlFor={`service-category-${category.id}`} className="text-sm cursor-pointer">{category.name}</Label>
+                            <Label htmlFor={`service-category-${service.id}`} className="text-sm cursor-pointer">{service.name}</Label>
                           </div>
                         ))}
                       </div>
@@ -506,105 +445,89 @@ export default function PricingParameterNewPage() {
                   </div>
                 )}
 
-                
-
                 <div className="space-y-3">
-                  <Label className="text-base font-semibold">Exclude Parameters</Label>
-
-                  {/* Extras Section */}
-                  <div className="space-y-2">
-                    <Label className="text-sm font-medium">Extras</Label>
-                    {extras.length === 0 ? (
-                      <p className="text-sm text-muted-foreground pl-4">No extras available</p>
-                    ) : (
-                      <div className="border rounded-md p-4 space-y-2">
-                        <div className="flex items-center space-x-2 pb-2 border-b">
-                          <Checkbox
-                            id="select-all-extras"
-                            checked={form.excludedExtras.length === extras.length}
-                            onCheckedChange={(checked) => {
-                              if (checked) {
-                                setForm(p => ({ ...p, excludedExtras: extras.map(e => e.id) }));
-                              } else {
-                                setForm(p => ({ ...p, excludedExtras: [] }));
-                              }
-                            }}
-                          />
-                          <label htmlFor="select-all-extras" className="text-sm font-medium cursor-pointer">
-                            Select All
-                          </label>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-                          {extras.map((extra) => (
-                            <div key={extra.id} className="flex items-center space-x-2">
-                              <Checkbox
-                                id={`extra-${extra.id}`}
-                                checked={form.excludedExtras.includes(extra.id)}
-                                onCheckedChange={(checked) => {
-                                  if (checked) {
-                                    setForm(p => ({ ...p, excludedExtras: [...p.excludedExtras, extra.id] }));
-                                  } else {
-                                    setForm(p => ({ ...p, excludedExtras: p.excludedExtras.filter(id => id !== extra.id) }));
-                                  }
-                                }}
-                              />
-                              <label htmlFor={`extra-${extra.id}`} className="text-sm cursor-pointer">
-                                {extra.name}
-                              </label>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Service Checklist Section */}
-                  <div className="space-y-2">
-                    <Label className="text-sm font-medium">Service Checklist</Label>
-                    {services.length === 0 ? (
-                      <p className="text-sm text-muted-foreground pl-4">No services available</p>
-                    ) : (
-                      <div className="border rounded-md p-4 space-y-2">
-                        <div className="flex items-center space-x-2 pb-2 border-b">
-                          <Checkbox
-                            id="select-all-services"
-                            checked={form.excludedServices.length === services.length}
-                            onCheckedChange={(checked) => {
-                              if (checked) {
-                                setForm(p => ({ ...p, excludedServices: services.map(s => s.id) }));
-                              } else {
-                                setForm(p => ({ ...p, excludedServices: [] }));
-                              }
-                            }}
-                          />
-                          <label htmlFor="select-all-services" className="text-sm font-medium cursor-pointer">
-                            Select All
-                          </label>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-                          {services.map((service) => (
-                            <div key={service.id} className="flex items-center space-x-2">
-                              <Checkbox
-                                id={`service-${service.id}`}
-                                checked={form.excludedServices.includes(service.id)}
-                                onCheckedChange={(checked) => {
-                                  if (checked) {
-                                    setForm(p => ({ ...p, excludedServices: [...p.excludedServices, service.id] }));
-                                  } else {
-                                    setForm(p => ({ ...p, excludedServices: p.excludedServices.filter(id => id !== service.id) }));
-                                  }
-                                }}
-                              />
-                              <label htmlFor={`service-${service.id}`} className="text-sm cursor-pointer">
-                                {service.name}
-                              </label>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <Label className="text-base font-semibold">Should the exclusion parameter show based on the variables?</Label>
+                  <RadioGroup
+                    value={form.showBasedOnVariables ? "yes" : "no"}
+                    onValueChange={(v) => setForm(p => ({ ...p, showBasedOnVariables: v === "yes" }))}
+                    className="grid gap-2 pl-4"
+                  >
+                    <label className="flex items-center gap-2 text-sm">
+                      <RadioGroupItem value="yes" /> Yes
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <RadioGroupItem value="no" /> No
+                    </label>
+                  </RadioGroup>
                 </div>
+
+                {form.showBasedOnVariables && (
+                  <div className="space-y-2">
+                    <Label htmlFor="variable-categories">Variable</Label>
+                    <div className="space-y-2">
+                      {/* Group variables by category */}
+                      {Array.from(new Set(variables.map(v => v.category))).map(category => {
+                        const categoryVariables = variables.filter(v => v.category === category);
+                        const allCategoryVariablesSelected = categoryVariables.every(v => form.variableCategories.includes(v.name));
+                        
+                        return (
+                          <div key={category} className="border rounded-md p-3 space-y-2">
+                            {/* Category header with select all */}
+                            <div className="flex items-center gap-2">
+                              <Checkbox
+                                id={`category-all-${category}`}
+                                checked={allCategoryVariablesSelected}
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    // Add all variables from this category
+                                    const newVariableCategories = [...form.variableCategories];
+                                    categoryVariables.forEach(v => {
+                                      if (!newVariableCategories.includes(v.name)) {
+                                        newVariableCategories.push(v.name);
+                                      }
+                                    });
+                                    setForm(p => ({ ...p, variableCategories: newVariableCategories }));
+                                  } else {
+                                    // Remove all variables from this category
+                                    setForm(p => ({ 
+                                      ...p, 
+                                      variableCategories: p.variableCategories.filter(vc => 
+                                        !categoryVariables.some(v => v.name === vc)
+                                      )
+                                    }));
+                                  }
+                                }}
+                              />
+                              <Label htmlFor={`category-all-${category}`} className="text-sm font-medium cursor-pointer">
+                                {category}
+                              </Label>
+                            </div>
+                            
+                            {/* Individual variables in this category */}
+                            <div className="grid grid-cols-10 gap-2 pl-6">
+                              {categoryVariables.map(variable => (
+                                <div key={variable.id} className="flex items-center gap-2">
+                                  <Checkbox
+                                    id={`variable-${variable.id}`}
+                                    checked={form.variableCategories.includes(variable.name)}
+                                    onCheckedChange={(checked) => {
+                                      if (checked) {
+                                        setForm(p => ({ ...p, variableCategories: [...p.variableCategories, variable.name] }));
+                                      } else {
+                                        setForm(p => ({ ...p, variableCategories: p.variableCategories.filter(v => v !== variable.name) }));
+                                      }
+                                    }}
+                                  />
+                                  <Label htmlFor={`variable-${variable.id}`} className="text-sm cursor-pointer">{variable.name}</Label>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             </TabsContent>
 
@@ -612,7 +535,7 @@ export default function PricingParameterNewPage() {
             <TabsContent value="providers" className="mt-4 space-y-6">
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Check the providers you want to exclude from this pricing parameter.
+                  Check the providers you want to exclude from this exclude parameter.
                 </p>
                 
                 {providers.length === 0 ? (
@@ -669,7 +592,7 @@ export default function PricingParameterNewPage() {
             </Button>
             <Button
               onClick={save}
-              disabled={!form.variableCategory || !form.name.trim()}
+              disabled={!form.name.trim()}
               className="text-white"
               style={{ background: "linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)" }}
             >
