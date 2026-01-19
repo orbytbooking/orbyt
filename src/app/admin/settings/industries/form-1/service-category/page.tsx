@@ -21,6 +21,22 @@ export default function IndustryFormServiceCategoryPage() {
     description?: string;
     color?: string;
     icon?: string;
+    display?: string;
+    serviceCategoryFrequency?: boolean;
+    selectedFrequencies?: string[];
+    extras?: string[];
+    extrasConfig?: {
+      tip: {
+        enabled: boolean;
+        saveTo: 'all' | 'booking' | 'service';
+        display: 'customer_frontend_backend_admin' | 'customer_backend_admin' | 'admin_only';
+      };
+      parking: {
+        enabled: boolean;
+        saveTo: 'all' | 'booking' | 'service';
+        display: 'customer_frontend_backend_admin' | 'customer_backend_admin' | 'admin_only';
+      };
+    };
   };
   
   const storageKey = useMemo(() => `service_categories_${industry}`, [industry]);
@@ -123,7 +139,9 @@ export default function IndustryFormServiceCategoryPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
-                  <TableHead>Description</TableHead>
+                  <TableHead>Display</TableHead>
+                  <TableHead>Frequency</TableHead>
+                  <TableHead>Extras</TableHead>
                   <TableHead>ID</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
@@ -131,13 +149,32 @@ export default function IndustryFormServiceCategoryPage() {
               <TableBody>
                 {categories.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center text-sm text-muted-foreground">No data. Click Add New to create a category.</TableCell>
+                    <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">No data. Click Add New to create a category.</TableCell>
                   </TableRow>
                 )}
                 {categories.map((category) => (
                   <TableRow key={category.id}>
                     <TableCell className="font-medium">{category.name}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{category.description || "-"}</TableCell>
+                    <TableCell className="text-sm">
+                      {category.display === "customer_frontend_backend_admin" && "Customer frontend, backend & admin"}
+                      {category.display === "customer_backend_admin" && "Customer backend & admin"}
+                      {category.display === "admin_only" && "Admin only"}
+                      {!category.display && "-"}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {category.serviceCategoryFrequency && category.selectedFrequencies && category.selectedFrequencies.length > 0
+                        ? category.selectedFrequencies.join(", ")
+                        : "-"
+                      }
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {(() => {
+                        const enabledExtras = [];
+                        if (category.extrasConfig?.tip?.enabled) enabledExtras.push("Tip");
+                        if (category.extrasConfig?.parking?.enabled) enabledExtras.push("Parking");
+                        return enabledExtras.length > 0 ? enabledExtras.join(", ") : "-";
+                      })()}
+                    </TableCell>
                     <TableCell>{category.id}</TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>

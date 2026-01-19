@@ -44,6 +44,17 @@ import { useLogo } from "@/contexts/LogoContext";
 import defaultLogo from "@/assets/orbit.png";
 import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
 import { supabase } from "@/lib/supabaseClient";
+import { useBusiness } from "@/contexts/BusinessContext";
+
+interface Industry {
+  id: string;
+  name: string;
+  description: string | null;
+  business_id: string;
+  is_custom: boolean;
+  created_at: string;
+  updated_at: string;
+}
 
 const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -62,7 +73,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   const isMarketingPath = pathname?.startsWith("/admin/marketing") ?? false;
   const isStaffPath = pathname?.startsWith("/admin/settings/staff") ?? false;
   const [marketingOpen, setMarketingOpen] = useState(isMarketingPath);
-  const [industries, setIndustries] = useState<string[]>([]);
+  const [industries, setIndustries] = useState<Industry[]>([]);
   const [notifications, setNotifications] = useState<
     { id: string; title: string; description: string; read?: boolean }[]
   >([
@@ -75,6 +86,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   const deleteNotification = (id: string) => setNotifications(prev => prev.filter(n => n.id !== id));
   const clearAllNotifications = () => setNotifications([]);
   const [openIndustryMenus, setOpenIndustryMenus] = useState<Record<string, boolean>>({});
+  const { currentBusiness } = useBusiness();
 
   // Get admin email and theme from localStorage on client-side only
   useEffect(() => {
@@ -82,13 +94,32 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
     setAdminEmail(email);
     const savedTheme = localStorage.getItem("adminTheme") as 'light' | 'dark' || 'dark';
     setTheme(savedTheme);
-    try {
-      const stored = JSON.parse(localStorage.getItem("industries") || "[]");
-      if (Array.isArray(stored)) setIndustries(stored);
-    } catch {
-      // ignore
-    }
   }, []);
+
+  // Fetch industries from API when business changes
+  useEffect(() => {
+    if (currentBusiness) {
+      fetchIndustries();
+    }
+  }, [currentBusiness]);
+
+  const fetchIndustries = async () => {
+    if (!currentBusiness) return;
+    
+    try {
+      const response = await fetch(`/api/industries?business_id=${currentBusiness.id}`);
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to fetch industries');
+      }
+      
+      setIndustries(data.industries || []);
+    } catch (error) {
+      console.error('Error fetching industries:', error);
+      setIndustries([]);
+    }
+  };
 
   useEffect(() => {
     setSettingsOpen(isSettingsPath);
@@ -105,27 +136,6 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     setIndustriesOpen(isIndustriesPath);
   }, [isIndustriesPath]);
-
-  // keep industries state in sync with localStorage changes made on Industries page
-  useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === 'industries') {
-        try {
-          const v = JSON.parse(e.newValue || '[]');
-          if (Array.isArray(v)) setIndustries(v);
-        } catch {}
-      }
-    };
-    window.addEventListener('storage', onStorage);
-    const interval = setInterval(() => {
-      // poll as well because same-tab updates won't fire 'storage'
-      try {
-        const v = JSON.parse(localStorage.getItem('industries') || '[]');
-        if (Array.isArray(v)) setIndustries(v);
-      } catch {}
-    }, 1000);
-    return () => { window.removeEventListener('storage', onStorage); clearInterval(interval); };
-  }, []);
 
   const menuItems = [
     { 
@@ -212,17 +222,17 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
           path: "/admin/settings/industries",
           children: [
             { label: 'Add Industries', path: '/admin/settings/industries' },
-            ...(industries || []).map((name) => ({
-              label: name,
-              path: `/admin/settings/industries/form-1?industry=${encodeURIComponent(name)}`,
+            ...(industries || []).map((industry) => ({
+              label: industry.name,
+              path: `/admin/settings/industries/form-1?industry=${encodeURIComponent(industry.name)}`,
               children: [
                 { 
                   label: 'Form 1', 
-                  path: `/admin/settings/industries/form-1?industry=${encodeURIComponent(name)}`
+                  path: `/admin/settings/industries/form-1?industry=${encodeURIComponent(industry.name)}`
                 },
                 { 
                   label: 'Settings', 
-                  path: `/admin/settings/industries/settings?industry=${encodeURIComponent(name)}`
+                  path: `/admin/settings/industries/settings?industry=${encodeURIComponent(industry.name)}`
                 }
               ],
             })),

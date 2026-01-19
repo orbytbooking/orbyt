@@ -22,6 +22,12 @@ type Extra = {
   exemptFromDiscount: boolean;
   description?: string;
   serviceChecklists?: string[];
+  showBasedOnFrequency?: boolean;
+  frequencyOptions?: string[];
+  showBasedOnServiceCategory?: boolean;
+  serviceCategoryOptions?: string[];
+  showBasedOnVariables?: boolean;
+  variableOptions?: string[];
 };
 
 export default function ExtraNewPage() {
@@ -43,10 +49,14 @@ export default function ExtraNewPage() {
     display: "frontend-backend-admin" as Extra["display"],
     qtyBased: false,
     exemptFromDiscount: false,
+    maximum: "",
     // Dependencies
     showBasedOnFrequency: false,
+    frequencyOptions: [] as string[],
     showBasedOnServiceCategory: false,
+    serviceCategoryOptions: [] as string[],
     showBasedOnVariables: false,
+    variableOptions: [] as string[],
     serviceChecklists: [] as string[],
     // Providers
     excludedProviders: [] as string[],
@@ -54,6 +64,11 @@ export default function ExtraNewPage() {
 
   // Fetch providers from localStorage
   const [providers, setProviders] = useState<Array<{ id: string; name: string }>>([]);
+  
+  // Load available frequencies, service categories, and variables
+  const [availableFrequencies, setAvailableFrequencies] = useState<string[]>([]);
+  const [availableServiceCategories, setAvailableServiceCategories] = useState<string[]>([]);
+  const [availableVariables, setAvailableVariables] = useState<{ [key: string]: string[] }>({});
 
   useEffect(() => {
     try {
@@ -68,6 +83,61 @@ export default function ExtraNewPage() {
       const storedProviders = JSON.parse(localStorage.getItem("adminProviders") || "[]");
       if (Array.isArray(storedProviders)) {
         setProviders(storedProviders.map((p: any) => ({ id: p.id, name: p.name })));
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Load frequencies from localStorage
+  useEffect(() => {
+    try {
+      const pricingDataKey = `pricingParamsAll_${industry}`;
+      const storedPricingData = JSON.parse(localStorage.getItem(pricingDataKey) || "null");
+      
+      if (storedPricingData && typeof storedPricingData === "object") {
+        const allFrequencies: string[] = [];
+        Object.values(storedPricingData).forEach((rows: any[]) => {
+          rows.forEach((row: any) => {
+            if (row.frequency && typeof row.frequency === "string") {
+              const rowFrequencies = row.frequency.split(',').map((f: string) => f.trim());
+              allFrequencies.push(...rowFrequencies);
+            }
+          });
+        });
+        
+        const uniqueFrequencies = [...new Set(allFrequencies)];
+        setAvailableFrequencies(uniqueFrequencies);
+      } else {
+        const defaultFrequencies = ["Daily", "Weekly", "Monthly", "One-time"];
+        setAvailableFrequencies(defaultFrequencies);
+      }
+    } catch {
+      const defaultFrequencies = ["Daily", "Weekly", "Monthly", "One-time"];
+      setAvailableFrequencies(defaultFrequencies);
+    }
+  }, [industry]);
+
+  // Load service categories from localStorage
+  useEffect(() => {
+    try {
+      const serviceCategoriesKey = `service_categories_${industry}`;
+      const storedCategories = JSON.parse(localStorage.getItem(serviceCategoriesKey) || "[]");
+      if (Array.isArray(storedCategories)) {
+        const categoryNames = storedCategories.map((cat: any) => cat.name).filter(Boolean);
+        setAvailableServiceCategories(categoryNames);
+      }
+    } catch {
+      // ignore
+    }
+  }, [industry]);
+
+  // Load variables from localStorage
+  useEffect(() => {
+    try {
+      const storedVariables = JSON.parse(localStorage.getItem("pricingParameters") || "{}");
+      if (storedVariables && typeof storedVariables === "object") {
+        setAvailableVariables(storedVariables);
       }
     } catch {
       // ignore
@@ -90,9 +160,13 @@ export default function ExtraNewPage() {
           display: existing.display,
           qtyBased: existing.qtyBased,
           exemptFromDiscount: existing.exemptFromDiscount ?? false,
+          maximum: "",
           showBasedOnFrequency: false,
+          frequencyOptions: existing.frequencyOptions || [],
           showBasedOnServiceCategory: false,
+          serviceCategoryOptions: existing.serviceCategoryOptions || [],
           showBasedOnVariables: false,
+          variableOptions: existing.variableOptions || [],
           serviceChecklists: existing.serviceChecklists || [],
           excludedProviders: [],
         });
@@ -119,6 +193,12 @@ export default function ExtraNewPage() {
         exemptFromDiscount: form.exemptFromDiscount,
         description: form.description,
         serviceChecklists: form.serviceChecklists,
+        showBasedOnFrequency: form.showBasedOnFrequency,
+        frequencyOptions: form.frequencyOptions,
+        showBasedOnServiceCategory: form.showBasedOnServiceCategory,
+        serviceCategoryOptions: form.serviceCategoryOptions,
+        showBasedOnVariables: form.showBasedOnVariables,
+        variableOptions: form.variableOptions,
       } : r);
       localStorage.setItem(storageKey, JSON.stringify(updated));
     } else {
@@ -134,6 +214,12 @@ export default function ExtraNewPage() {
         exemptFromDiscount: form.exemptFromDiscount,
         description: form.description,
         serviceChecklists: form.serviceChecklists,
+        showBasedOnFrequency: form.showBasedOnFrequency,
+        frequencyOptions: form.frequencyOptions,
+        showBasedOnServiceCategory: form.showBasedOnServiceCategory,
+        serviceCategoryOptions: form.serviceCategoryOptions,
+        showBasedOnVariables: form.showBasedOnVariables,
+        variableOptions: form.variableOptions,
       };
       localStorage.setItem(storageKey, JSON.stringify([...extras, newExtra]));
     }
@@ -223,6 +309,19 @@ export default function ExtraNewPage() {
                 </RadioGroup>
               </div>
 
+              {form.qtyBased && (
+                <div className="space-y-2">
+                  <Label htmlFor="maximum">Maximum</Label>
+                  <Input 
+                    id="maximum" 
+                    type="number" 
+                    value={form.maximum} 
+                    onChange={(e) => setForm(p => ({ ...p, maximum: e.target.value }))} 
+                    placeholder="Number"
+                  />
+                </div>
+              )}
+
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="extra-price">Price</Label>
@@ -291,6 +390,50 @@ export default function ExtraNewPage() {
                       <RadioGroupItem value="no" /> No
                     </label>
                   </RadioGroup>
+                  
+                  {form.showBasedOnFrequency && (
+                    <div className="ml-6 mt-3 space-y-2">
+                      <Label className="text-sm">Select frequency options</Label>
+                      <div className="space-y-2">
+                        {availableFrequencies.length === 0 ? (
+                          <p className="text-xs text-muted-foreground italic">No frequencies available. Add frequencies from the pricing parameters section.</p>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-2">
+                              <Checkbox
+                                id="select-all-frequencies"
+                                checked={form.frequencyOptions.length === availableFrequencies.length && availableFrequencies.length > 0}
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    setForm(p => ({ ...p, frequencyOptions: [...availableFrequencies] }));
+                                  } else {
+                                    setForm(p => ({ ...p, frequencyOptions: [] }));
+                                  }
+                                }}
+                              />
+                              <Label htmlFor="select-all-frequencies" className="text-sm font-medium cursor-pointer">Select All</Label>
+                            </div>
+                            {availableFrequencies.map((frequency) => (
+                              <div key={frequency} className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`frequency-${frequency}`}
+                                  checked={form.frequencyOptions.includes(frequency)}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setForm(p => ({ ...p, frequencyOptions: [...p.frequencyOptions, frequency] }));
+                                    } else {
+                                      setForm(p => ({ ...p, frequencyOptions: p.frequencyOptions.filter(f => f !== frequency) }));
+                                    }
+                                  }}
+                                />
+                                <Label htmlFor={`frequency-${frequency}`} className="text-sm font-normal cursor-pointer">{frequency}</Label>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -307,6 +450,50 @@ export default function ExtraNewPage() {
                       <RadioGroupItem value="no" /> No
                     </label>
                   </RadioGroup>
+                  
+                  {form.showBasedOnServiceCategory && (
+                    <div className="ml-6 mt-3 space-y-2">
+                      <Label className="text-sm">Select service category options</Label>
+                      <div className="space-y-2">
+                        {availableServiceCategories.length === 0 ? (
+                          <p className="text-xs text-muted-foreground italic">No service categories available. Add service categories from the service category section.</p>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-2">
+                              <Checkbox
+                                id="select-all-service-categories"
+                                checked={form.serviceCategoryOptions.length === availableServiceCategories.length && availableServiceCategories.length > 0}
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    setForm(p => ({ ...p, serviceCategoryOptions: [...availableServiceCategories] }));
+                                  } else {
+                                    setForm(p => ({ ...p, serviceCategoryOptions: [] }));
+                                  }
+                                }}
+                              />
+                              <Label htmlFor="select-all-service-categories" className="text-sm font-medium cursor-pointer">Select All</Label>
+                            </div>
+                            {availableServiceCategories.map((category) => (
+                              <div key={category} className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`service-category-${category}`}
+                                  checked={form.serviceCategoryOptions.includes(category)}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setForm(p => ({ ...p, serviceCategoryOptions: [...p.serviceCategoryOptions, category] }));
+                                    } else {
+                                      setForm(p => ({ ...p, serviceCategoryOptions: p.serviceCategoryOptions.filter(c => c !== category) }));
+                                    }
+                                  }}
+                                />
+                                <Label htmlFor={`service-category-${category}`} className="text-sm font-normal cursor-pointer">{category}</Label>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -323,6 +510,50 @@ export default function ExtraNewPage() {
                       <RadioGroupItem value="no" /> No
                     </label>
                   </RadioGroup>
+                  
+                  {form.showBasedOnVariables && (
+                    <div className="ml-6 mt-3 space-y-2">
+                      <Label className="text-sm">Select variable options</Label>
+                      <div className="space-y-2">
+                        {Object.keys(availableVariables).length === 0 ? (
+                          <p className="text-xs text-muted-foreground italic">No variables available. Add variables from the pricing parameters section.</p>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-2">
+                              <Checkbox
+                                id="select-all-variables"
+                                checked={form.variableOptions.length === Object.keys(availableVariables).length && Object.keys(availableVariables).length > 0}
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    setForm(p => ({ ...p, variableOptions: Object.keys(availableVariables) }));
+                                  } else {
+                                    setForm(p => ({ ...p, variableOptions: [] }));
+                                  }
+                                }}
+                              />
+                              <Label htmlFor="select-all-variables" className="text-sm font-medium cursor-pointer">Select All</Label>
+                            </div>
+                            {Object.keys(availableVariables).map((variable) => (
+                              <div key={variable} className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`variable-${variable}`}
+                                  checked={form.variableOptions.includes(variable)}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setForm(p => ({ ...p, variableOptions: [...p.variableOptions, variable] }));
+                                    } else {
+                                      setForm(p => ({ ...p, variableOptions: p.variableOptions.filter(v => v !== variable) }));
+                                    }
+                                  }}
+                                />
+                                <Label htmlFor={`variable-${variable}`} className="text-sm font-normal cursor-pointer">{variable}</Label>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-3">
