@@ -21,6 +21,12 @@ export async function POST(request: NextRequest) {
     console.log('=== ACCEPTING INVITATION ===');
     console.log('Invitation ID:', invitationId);
 
+    // Set context settings for RLS policies
+    await supabase.rpc('set_config', {
+      config_name: 'app.current_invitation_token',
+      config_value: invitationId
+    });
+
     // Get invitation data using service role to bypass RLS
     const { data: invitation, error } = await supabase
       .from('provider_invitations')
