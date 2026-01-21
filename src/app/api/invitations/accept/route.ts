@@ -5,7 +5,7 @@ export async function POST(request: NextRequest) {
   try {
     // Temporarily hardcode service role key to bypass environment variable issue
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://aezwtsnvttquqkzjhoak.supabase.co';
-    const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFlend0c252dHRxdXFrempob2FrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NzYxNzcwMiwiZXhwIjoyMDgzMTkzNzAyfQ.MW8hx4BcMKDG3-fxNcIrmcbdu2xIfYjIxIunqPmN3D0';
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFlend0c252dHRxdXFrempob2FrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NzYxNzcwMiwiZXhwIjoyMDgzMTkzNzAyfQ.MW8hx4BcMKDG3-fxNcIrmcbdu2xIfYjIxIunqPmN3D0';
 
     console.log('=== ENVIRONMENT DEBUG ===');
     console.log('Supabase URL:', supabaseUrl);
@@ -48,6 +48,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Invitation not found', details: error },
         { status: 404 }
+      );
+    }
+
+    // Check if invitation has expired
+    const expiresAt = new Date(invitation.expires_at);
+    const now = new Date();
+    
+    console.log('Expiration check:');
+    console.log('- Expires at:', expiresAt);
+    console.log('- Current time:', now);
+    console.log('- Is expired:', expiresAt < now);
+    
+    if (expiresAt < now) {
+      return NextResponse.json(
+        { error: 'Invitation has expired' },
+        { status: 410 }
       );
     }
 
