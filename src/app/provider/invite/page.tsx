@@ -76,13 +76,7 @@ function ProviderInviteContent() {
       }
 
       // Set invitation data with business name
-      setInvitationData({
-        ...data.invitation,
-        businesses: {
-          name: businessData.name
-        }
-      });
-      
+      setInvitationData(data.invitation);
       setInvitationValid(true);
       
     } catch (error) {

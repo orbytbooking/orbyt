@@ -68,9 +68,29 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Get business data using service role to bypass RLS
+    const { data: businessData, error: businessError } = await supabase
+      .from('businesses')
+      .select('name')
+      .eq('id', invitation.business_id)
+      .single();
+
+    if (businessError) {
+      console.error('Business fetch error:', businessError);
+      return NextResponse.json(
+        { error: 'Business not found', details: businessError },
+        { status: 404 }
+      );
+    }
+
     return NextResponse.json({ 
       valid: true, 
-      invitation 
+      invitation: {
+        ...invitation,
+        business: {
+          name: businessData.name
+        }
+      }
     });
 
   } catch (error) {
