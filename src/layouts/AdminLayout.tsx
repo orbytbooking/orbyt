@@ -96,30 +96,32 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
     setTheme(savedTheme);
   }, []);
 
-  // Fetch industries from API when business changes
   useEffect(() => {
     if (currentBusiness) {
       fetchIndustries();
     }
   }, [currentBusiness]);
 
-  const fetchIndustries = async () => {
-    if (!currentBusiness) return;
-    
-    try {
-      const response = await fetch(`/api/industries?business_id=${currentBusiness.id}`);
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch industries');
-      }
-      
-      setIndustries(data.industries || []);
-    } catch (error) {
-      console.error('Error fetching industries:', error);
-      setIndustries([]);
+ const fetchIndustries = async () => {
+  if (!currentBusiness) return;
+
+  try {
+    const response = await fetch(
+      `/api/industries?business_id=${currentBusiness.id}`
+    );
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to fetch industries");
     }
-  };
+
+    setIndustries(data.industries || []);
+  } catch (error) {
+    console.error("Error fetching industries:", error);
+    setIndustries([]);
+  }
+};
+
 
   useEffect(() => {
     setSettingsOpen(isSettingsPath);

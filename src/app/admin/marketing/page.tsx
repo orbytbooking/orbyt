@@ -8,11 +8,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Search, PlusCircle, Mail, Send, Users, Eye, Edit, Trash2 } from 'lucide-react';
 import { useEffect, useState } from "react";
 import { DailyDiscountsForm } from "@/components/admin/marketing/DailyDiscountsForm";
+import { GiftCardInstances } from "@/components/admin/marketing/GiftCardInstances";
+import { SendGiftCard } from "@/components/admin/marketing/SendGiftCard";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
-import { supabase } from '@/lib/supabaseClient';
+import { supabase, supabaseAdmin } from '@/lib/supabaseClient';
 import { useBusiness } from '@/contexts/BusinessContext';
 import Link from "next/link";
 
@@ -28,9 +31,31 @@ type Coupon = {
 type GiftCard = {
   id: string;
   name: string;
+  description?: string;
   code: string;
   amount: number;
   active: boolean;
+  expires_in_months: number;
+  auto_generate_codes: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+type GiftCardInstance = {
+  id: string;
+  gift_card_id: string;
+  unique_code: string;
+  original_amount: number;
+  current_balance: number;
+  purchaser_id?: string;
+  recipient_id?: string;
+  purchaser_email?: string;
+  recipient_email?: string;
+  purchase_date: string;
+  expires_at: string;
+  status: 'active' | 'expired' | 'fully_redeemed' | 'cancelled';
+  message?: string;
+  gift_card?: GiftCard;
 };
 
 type ScriptCategory = 'Cold Calling' | 'Follow-up' | 'SMS';
@@ -78,7 +103,26 @@ export default function MarketingPage() {
   const [couponTab, setCouponTab] = useState('active');
   const [searchTerm, setSearchTerm] = useState('');
   const [giftCards, setGiftCards] = useState<GiftCard[]>([]);
-  const [newGiftCard, setNewGiftCard] = useState({ name: '', code: '', amount: '' });
+  const [newGiftCard, setNewGiftCard] = useState({ 
+    name: '', 
+    code: '', 
+    amount: '', 
+    description: '',
+    expires_in_months: '',
+    auto_generate_codes: true 
+  });
+
+  // Reset function for gift card form
+  const resetGiftCardForm = () => {
+    setNewGiftCard({ 
+      name: '', 
+      code: '', 
+      amount: '', 
+      description: '',
+      expires_in_months: '',
+      auto_generate_codes: true 
+    });
+  };
   const [scripts, setScripts] = useState<Script[]>([]);
   const [newScript, setNewScript] = useState<{ title: string; category: ScriptCategory; content: string }>({
     title: '',
@@ -103,7 +147,10 @@ export default function MarketingPage() {
   useEffect(() => {
     if (!currentBusiness?.id) return;
     const fetchCoupons = async () => {
-      const { data, error } = await supabase
+      const client = supabaseAdmin || supabase;
+      if (!client) return;
+      
+      const { data, error } = await client
         .from('marketing_coupons')
         .select('*')
         .eq('business_id', currentBusiness.id)
@@ -122,6 +169,28 @@ export default function MarketingPage() {
       }
     };
     fetchCoupons();
+  }, [currentBusiness]);
+
+  // Load gift cards from API (server-side with service role key)
+  useEffect(() => {
+    if (!currentBusiness?.id) return;
+    const fetchGiftCards = async () => {
+      try {
+        const response = await fetch(`/api/marketing/gift-cards?business_id=${currentBusiness.id}`);
+        const result = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to fetch gift cards');
+        }
+        
+        if (result.data) {
+          setGiftCards(result.data);
+        }
+      } catch (error: any) {
+        console.error('Error fetching gift cards:', error);
+      }
+    };
+    fetchGiftCards();
   }, [currentBusiness]);
 
   const handleTabChange = (value: string) => {
@@ -177,7 +246,18 @@ export default function MarketingPage() {
     const coupon = coupons.find(c => c.id === id);
     if (!coupon) return;
     if (!confirm(`Are you sure you want to delete coupon "${coupon.code}"?`)) return;
-    const { error } = await supabase
+    
+    // For DELETE operations, we need the admin client to bypass RLS
+    if (!supabaseAdmin) {
+      toast({
+        title: 'Configuration Error',
+        description: 'Service role key not configured. Please contact your administrator.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    const { error } = await supabaseAdmin
       .from('marketing_coupons')
       .delete()
       .eq('id', id)
@@ -192,43 +272,133 @@ export default function MarketingPage() {
   };
 
 
-  const saveGiftCards = (next: GiftCard[]) => {
-    setGiftCards(next);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(GIFT_CARDS_KEY, JSON.stringify(next));
-    }
-  };
-
-  const handleAddGiftCard = () => {
+  const handleAddGiftCard = async () => {
     const amountNumber = Number(newGiftCard.amount);
-    if (!newGiftCard.name || !newGiftCard.code || isNaN(amountNumber) || amountNumber <= 0) {
+    const expiresMonths = Number(newGiftCard.expires_in_months) || 12;
+    
+    if (!newGiftCard.name || !newGiftCard.code || isNaN(amountNumber) || amountNumber <= 0 || !currentBusiness?.id) {
+      toast({
+        title: 'Error',
+        description: 'Please fill in all required fields with valid values',
+        variant: 'destructive',
+      });
       return;
     }
 
-    const next: GiftCard[] = [
-      {
-        id: `GC-${Date.now()}`,
-        name: newGiftCard.name.trim(),
-        code: newGiftCard.code.trim().toUpperCase(),
-        amount: amountNumber,
-        active: true,
-      },
-      ...giftCards,
-    ];
-    saveGiftCards(next);
-    setNewGiftCard({ name: '', code: '', amount: '' });
+    try {
+      const response = await fetch('/api/marketing/gift-cards', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          business_id: currentBusiness.id,
+          name: newGiftCard.name.trim(),
+          code: newGiftCard.code.trim().toUpperCase(),
+          description: newGiftCard.description.trim(),
+          amount: amountNumber,
+          expires_in_months: expiresMonths,
+          auto_generate_codes: newGiftCard.auto_generate_codes,
+          active: true,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to create gift card');
+      }
+
+      if (result.data) {
+        setGiftCards((prev) => [result.data, ...prev]);
+        resetGiftCardForm();
+        toast({
+          title: 'Gift Card Created',
+          description: `Gift card "${result.data.name}" has been created successfully.`,
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to create gift card',
+        variant: 'destructive',
+      });
+    }
   };
 
-  const toggleGiftCardActive = (id: string) => {
-    const next = giftCards.map((gc) =>
-      gc.id === id ? { ...gc, active: !gc.active } : gc
-    );
-    saveGiftCards(next);
+  const toggleGiftCardActive = async (id: string) => {
+    const card = giftCards.find(gc => gc.id === id);
+    if (!card || !currentBusiness?.id) return;
+
+    try {
+      const response = await fetch('/api/marketing/gift-cards', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: id,
+          business_id: currentBusiness.id,
+          active: !card.active,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to update gift card');
+      }
+
+      setGiftCards((prev) =>
+        prev.map((gc) =>
+          gc.id === id ? { ...gc, active: !gc.active } : gc
+        )
+      );
+
+      toast({
+        title: 'Gift Card Updated',
+        description: `Gift card "${card.name}" has been ${!card.active ? 'activated' : 'deactivated'}.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update gift card',
+        variant: 'destructive',
+      });
+    }
   };
 
-  const deleteGiftCard = (id: string) => {
-    const next = giftCards.filter((gc) => gc.id !== id);
-    saveGiftCards(next);
+  const deleteGiftCard = async (id: string) => {
+    const card = giftCards.find(gc => gc.id === id);
+    if (!card || !currentBusiness?.id) return;
+
+    if (!confirm(`Are you sure you want to delete gift card "${card.name}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/marketing/gift-cards?id=${id}&business_id=${currentBusiness.id}`, {
+        method: 'DELETE',
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to delete gift card');
+      }
+
+      setGiftCards((prev) => prev.filter((gc) => gc.id !== id));
+      toast({
+        title: 'Gift Card Deleted',
+        description: `Gift card "${card.name}" has been deleted.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete gift card',
+        variant: 'destructive',
+      });
+    }
   };
 
   const saveScripts = (next: Script[]) => {
@@ -418,7 +588,9 @@ Premier Pro Cleaners`);
         <TabsList>
           <TabsTrigger value="coupons">Coupons</TabsTrigger>
           <TabsTrigger value="daily-discounts">Daily Discounts</TabsTrigger>
-          <TabsTrigger value="gift-cards">Gift Cards</TabsTrigger>
+          <TabsTrigger value="gift-cards">Gift Card Templates</TabsTrigger>
+          <TabsTrigger value="send-gift-card">Send Gift Card</TabsTrigger>
+          <TabsTrigger value="gift-card-instances">Gift Card Instances</TabsTrigger>
           <TabsTrigger value="scripts">Scripts</TabsTrigger>
           <TabsTrigger value="email-campaigns">Email Campaigns</TabsTrigger>
         </TabsList>
@@ -574,6 +746,14 @@ Premier Pro Cleaners`);
           <DailyDiscountsForm />
         </TabsContent>
         
+        <TabsContent value="send-gift-card">
+          <SendGiftCard />
+        </TabsContent>
+        
+        <TabsContent value="gift-card-instances">
+          <GiftCardInstances />
+        </TabsContent>
+        
         <TabsContent value="gift-cards">
           <Card>
             <CardHeader>
@@ -584,7 +764,7 @@ Premier Pro Cleaners`);
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Create gift card form */}
-              <div className="grid gap-3 md:grid-cols-[2fr_2fr_1fr_auto]">
+              <div className="grid gap-3 md:grid-cols-[2fr_2fr_1fr_1fr_auto]">
                 <Input
                   placeholder="Gift card name (e.g. New customer gift)"
                   value={newGiftCard.name}
@@ -601,11 +781,38 @@ Premier Pro Cleaners`);
                   placeholder="Amount"
                   value={newGiftCard.amount}
                   onChange={(e) => setNewGiftCard((prev) => ({ ...prev, amount: e.target.value }))}
+                  className="md:col-span-1"
+                />
+                <Input
+                  type="number"
+                  min={1}
+                  max={60}
+                  placeholder="Expires (months)"
+                  value={newGiftCard.expires_in_months}
+                  onChange={(e) => setNewGiftCard((prev) => ({ ...prev, expires_in_months: e.target.value }))}
+                  className="md:col-span-1"
                 />
                 <Button onClick={handleAddGiftCard} className="whitespace-nowrap">
                   <PlusCircle className="h-4 w-4 mr-1" />
                   Add
                 </Button>
+              </div>
+              
+              {/* Additional gift card options */}
+              <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                <Input
+                  placeholder="Description (optional)"
+                  value={newGiftCard.description}
+                  onChange={(e) => setNewGiftCard((prev) => ({ ...prev, description: e.target.value }))}
+                />
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="auto-generate"
+                    checked={newGiftCard.auto_generate_codes}
+                    onCheckedChange={(checked) => setNewGiftCard((prev) => ({ ...prev, auto_generate_codes: checked }))}
+                  />
+                  <Label htmlFor="auto-generate" className="text-sm">Auto-generate unique codes</Label>
+                </div>
               </div>
 
               {/* Gift cards table */}
@@ -616,17 +823,43 @@ Premier Pro Cleaners`);
                       <TableHead>Name</TableHead>
                       <TableHead>Code</TableHead>
                       <TableHead>Amount</TableHead>
+                      <TableHead>Expires</TableHead>
+                      <TableHead>Auto Codes</TableHead>
                       <TableHead>Status</TableHead>
-                          <TableHead className="w-[140px]" />
+                      <TableHead className="w-[140px]" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {giftCards.length > 0 ? (
                       giftCards.map((card) => (
                         <TableRow key={card.id}>
-                          <TableCell className="font-medium">{card.name}</TableCell>
-                          <TableCell>{card.code}</TableCell>
+                          <TableCell className="font-medium">
+                            <div>
+                              <div>{card.name}</div>
+                              {card.description && (
+                                <div className="text-sm text-muted-foreground">{card.description}</div>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div>
+                              <div className="font-mono text-sm">{card.code}</div>
+                              {card.auto_generate_codes && (
+                                <div className="text-xs text-muted-foreground">Auto-generates</div>
+                              )}
+                            </div>
+                          </TableCell>
                           <TableCell>${card.amount.toFixed(2)}</TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              {card.expires_in_months} month{card.expires_in_months !== 1 ? 's' : ''}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              {card.auto_generate_codes ? 'Yes' : 'No'}
+                            </div>
+                          </TableCell>
                           <TableCell>
                             <span
                               className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -659,7 +892,7 @@ Premier Pro Cleaners`);
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
+                        <TableCell colSpan={7} className="h-20 text-center text-muted-foreground">
                           No gift cards yet. Create your first one above.
                         </TableCell>
                       </TableRow>

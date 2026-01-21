@@ -43,6 +43,11 @@ export default function ProviderLayout({
 
   useEffect(() => {
     const checkAuth = async () => {
+      // Skip auth check for invite page
+      if (pathname === "/provider/invite") {
+        return;
+      }
+
       try {
         const { data: { session } } = await supabase.auth.getSession();
         
@@ -74,6 +79,11 @@ export default function ProviderLayout({
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      // Skip auth redirect for invite page
+      if (pathname === "/provider/invite") {
+        return;
+      }
+      
       if (!session) {
         router.push("/auth/login");
       }
@@ -99,7 +109,14 @@ export default function ProviderLayout({
 
   return (
     <Providers>
-      <div className="min-h-screen bg-background">
+      {pathname === "/provider/invite" ? (
+        // For invite page, render without sidebar
+        <div className="min-h-screen bg-background">
+          {children}
+        </div>
+      ) : (
+        // For all other provider pages, render with full layout
+        <div className="min-h-screen bg-background">
         {/* Mobile menu button */}
         <div className="lg:hidden fixed top-4 left-4 z-50">
           <Button
@@ -189,6 +206,7 @@ export default function ProviderLayout({
           </div>
         </main>
       </div>
+      )}
     </Providers>
   );
 }

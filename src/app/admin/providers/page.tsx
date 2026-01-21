@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/lib/supabaseClient";
+import { useBusiness } from "@/contexts/BusinessContext";
 import {
   UserCog,
   Search,
@@ -145,28 +146,17 @@ const ProvidersPage = () => {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+  const { currentBusiness, loading: businessLoading } = useBusiness();
 
   useEffect(() => {
     const fetchProviders = async () => {
       try {
-        // Get current business ID from database
-        const { data: businessData, error: businessError } = await supabase
-          .from('businesses')
-          .select('id')
-          .single();
-
-        if (businessError) {
-          console.error('Error fetching business ID:', businessError);
-          toast({
-            title: "Error",
-            description: "Failed to load business ID.",
-            variant: "destructive",
-          });
-          setLoading(false);
+        // Wait for business context to load
+        if (businessLoading || !currentBusiness) {
           return;
         }
 
-        const currentBusinessId = businessData.id;
+        const currentBusinessId = currentBusiness.id;
 
         console.log('Fetching providers from database for business:', currentBusinessId);
 
@@ -224,7 +214,7 @@ const ProvidersPage = () => {
     };
 
     fetchProviders();
-  }, [toast]);
+  }, [toast, businessLoading, currentBusiness]);
 
   const filteredProviders = providers.filter(
     (provider) =>
@@ -321,7 +311,7 @@ const ProvidersPage = () => {
           </div>
         </CardHeader>
         <CardContent>
-          {loading ? (
+          {loading || businessLoading ? (
             <div className="flex items-center justify-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
               <span className="ml-2 text-white/70">Loading providers...</span>
