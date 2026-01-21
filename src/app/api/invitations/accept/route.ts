@@ -14,6 +14,40 @@ export async function POST(request: NextRequest) {
     console.log('=== ACCEPTING INVITATION ===');
     console.log('Invitation ID:', invitationId);
 
+    // Get invitation data using service role to bypass RLS
+    const { data: invitation, error } = await supabase
+      .from('provider_invitations')
+      .select('id, email, expires_at, business_id')
+      .eq('id', invitationId)
+      .single();
+
+    console.log('Database query result:');
+    console.log('- Error:', error);
+    console.log('- Invitation data:', invitation);
+    console.log('- Invitation found:', !!invitation);
+    console.log('- Invitation ID:', invitation?.id);
+    console.log('- Invitation email:', invitation?.email);
+    console.log('- Invitation expires at:', invitation?.expires_at);
+    console.log('- Invitation business ID:', invitation?.business_id);
+
+    // Get business data using service role to bypass RLS
+    const { data: businessData, error: businessError } = await supabase
+      .from('businesses')
+      .select('name')
+      .eq('id', invitation.business_id)
+      .single();
+
+    if (businessError) {
+      console.error('Business fetch error:', businessError);
+      return NextResponse.json(
+        { error: 'Business not found', details: businessError },
+        { status: 404 }
+      );
+    }
+
+    console.log('- Business data:', businessData);
+    console.log('- Business name:', businessData?.name);
+
     // Create auth user first
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
@@ -28,6 +62,12 @@ export async function POST(request: NextRequest) {
           specialization: 'General Services',
           phone: phone,
           address: address,
+          // Set user metadata to track invitation acceptance
+          user_metadata: {
+            invitation_id: invitationId,
+            invited_by: invitationData?.invited_by || null,
+            accepted_invitation_at: new Date().toISOString()
+          }
         }
       }
     });
