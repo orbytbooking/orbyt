@@ -55,27 +55,23 @@ export async function POST(request: NextRequest) {
     console.log('- Business data:', businessData);
     console.log('- Business name:', businessData?.name);
 
-    // Create auth user first
-    const { data: authData, error: authError } = await supabase.auth.signUp({
+    // Create auth user using admin API
+    console.log('Creating auth user...');
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email,
       password,
-      options: {
-        data: {
-          full_name: `${firstName} ${lastName}`,
-          role: 'provider',
-          provider_type: providerType,
-          invitation_id: invitationId,
-          business_id: businessId,
-          specialization: 'General Services',
-          phone: phone,
-          address: address,
-          // Set user metadata to track invitation acceptance
-          user_metadata: {
-            invitation_id: invitationId,
-            invited_by: invitation?.invited_by || null,
-            accepted_invitation_at: new Date().toISOString()
-          }
-        }
+      email_confirm: true,
+      user_metadata: {
+        full_name: `${firstName} ${lastName}`,
+        role: 'provider',
+        provider_type: providerType,
+        invitation_id: invitationId,
+        business_id: businessId,
+        specialization: 'General Services',
+        phone: phone,
+        address: address,
+        invited_by: invitation?.invited_by || null,
+        accepted_invitation_at: new Date().toISOString()
       }
     });
 
@@ -86,6 +82,8 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+
+    console.log('Auth user created successfully:', authData.user?.id);
 
     // Create provider record
     const { error: providerError } = await supabase
@@ -113,6 +111,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log('Provider record created successfully');
+
     // Update invitation status using service role to bypass RLS
     const { error: updateError } = await supabase
       .from('provider_invitations')
@@ -129,6 +129,8 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+
+    console.log('Invitation updated successfully');
 
     return NextResponse.json({
       success: true,
