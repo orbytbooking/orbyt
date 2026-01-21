@@ -13,8 +13,18 @@ export async function GET(request: NextRequest) {
     const email = searchParams.get('email');
 
     console.log('=== INVITATION VALIDATION DEBUG ===');
+    console.log('Request URL:', request.url);
     console.log('Token:', token);
     console.log('Email:', email);
+    console.log('Headers:', Object.fromEntries(request.headers));
+    console.log('Environment check:');
+    console.log('- NEXT_PUBLIC_SUPABASE_URL:', process.env.NEXT_PUBLIC_SUPABASE_URL ? 'SET' : 'NOT SET');
+    console.log('- SUPABASE_SERVICE_ROLE_KEY:', process.env.SUPABASE_SERVICE_ROLE_KEY ? 'SET' : 'NOT SET');
+    console.log('- SUPABASE_SERVICE_ROLE_KEY length:', process.env.SUPABASE_SERVICE_ROLE_KEY?.length || 0);
+    console.log('- SUPABASE_SERVICE_ROLE_KEY starts with eyJ:', process.env.SUPABASE_SERVICE_ROLE_KEY?.startsWith('eyJ'));
+    console.log('- SUPABASE_SERVICE_ROLE_KEY available:', !!process.env.SUPABASE_SERVICE_ROLE_KEY);
+    console.log('- supabaseAdmin available:', !!supabaseAdmin);
+    console.log('Starting database query...');
 
     if (!token || !email) {
       return NextResponse.json(
@@ -33,8 +43,12 @@ export async function GET(request: NextRequest) {
       .single();
 
     console.log('Database query result:');
-    console.log('Error:', error);
-    console.log('Invitation:', invitation);
+    console.log('- Error:', error);
+    console.log('- Invitation data:', invitation);
+    console.log('- Invitation found:', !!invitation);
+    console.log('- Invitation ID:', invitation?.id);
+    console.log('- Invitation email:', invitation?.email);
+    console.log('- Invitation expires at:', invitation?.expires_at);
 
     if (error) {
       console.error('Invitation validation error:', error);
@@ -57,9 +71,9 @@ export async function GET(request: NextRequest) {
     const now = new Date();
     
     console.log('Expiration check:');
-    console.log('Expires at:', expiresAt);
-    console.log('Current time:', now);
-    console.log('Is expired:', expiresAt < now);
+    console.log('- Expires at:', expiresAt);
+    console.log('- Current time:', now);
+    console.log('- Is expired:', expiresAt < now);
     
     if (expiresAt < now) {
       return NextResponse.json(
