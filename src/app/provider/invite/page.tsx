@@ -9,11 +9,18 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { ArrowLeft, Eye, EyeOff, CheckCircle2, AlertCircle, Mail } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { createClient } from '@supabase/supabase-js';
 
 function ProviderInviteContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
+  
+  // Service role client for bypassing RLS during invitation update
+  const supabaseAdmin = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
   
   const [token, setToken] = useState("");
   const [email, setEmail] = useState("");
@@ -197,8 +204,8 @@ function ProviderInviteContent() {
         return;
       }
 
-      // Update invitation status
-      await supabase
+      // Update invitation status using service role to bypass RLS
+      await supabaseAdmin
         .from('provider_invitations')
         .update({
           status: 'accepted',
