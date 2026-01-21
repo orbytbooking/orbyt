@@ -6,7 +6,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/components/ui/use-toast";
 import { ArrowLeft, Users, User } from "lucide-react";
@@ -17,22 +16,22 @@ type ProviderStatus = "active" | "inactive" | "suspended";
 
 interface ProviderForm {
   type: ProviderType;
+  status: ProviderStatus;
   firstName: string;
   lastName: string;
   email: string;
   phone: string;
   address: string;
-  sendEmailNotification: boolean;
 }
 
 const createEmptyProviderForm = (): ProviderForm => ({
   type: "individual",
+  status: "active",
   firstName: "",
   lastName: "",
   email: "",
   phone: "",
   address: "",
-  sendEmailNotification: false,
 });
 
 export default function AddProviderPage() {
@@ -97,7 +96,6 @@ export default function AddProviderPage() {
           phone: provider.phone,
           address: provider.address,
           type: provider.type,
-          sendEmailNotification: provider.sendEmailNotification,
           businessId: currentBusinessId
         }),
       });
@@ -284,16 +282,18 @@ export default function AddProviderPage() {
             </div>
           </div>
 
-          {/* Email Notification Checkbox */}
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="sendEmailNotification"
-              checked={provider.sendEmailNotification}
-              onCheckedChange={(checked) => setProvider({ ...provider, sendEmailNotification: !!checked })}
-            />
-            <Label htmlFor="sendEmailNotification" className="text-sm">
-              Send email notifications
-            </Label>
+          {/* Email Notification Message */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <div className="flex items-center space-x-2">
+              <div className="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
+                <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <span className="text-sm text-blue-700">
+                Email invitation will be sent automatically to the provider
+              </span>
+            </div>
           </div>
 
           {/* Action Buttons */}

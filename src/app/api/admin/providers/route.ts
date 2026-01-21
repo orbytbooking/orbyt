@@ -41,7 +41,6 @@ export async function POST(request: NextRequest) {
       phone,
       address,
       type,
-      sendEmailNotification,
       businessId
     } = body;
 
@@ -163,23 +162,21 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ Invitation created successfully:', invitationData.id);
 
-    // Send invitation email
-    if (sendEmailNotification) {
-      const emailService = new EmailService();
-      const emailSent = await emailService.sendProviderInvitation({
-        email,
-        firstName,
-        lastName,
-        businessName: businessData.name,
-        invitationToken,
-        tempPassword
-      });
+    // Send invitation email (always sent automatically)
+    const emailService = new EmailService();
+    const emailSent = await emailService.sendProviderInvitation({
+      email,
+      firstName,
+      lastName,
+      businessName: businessData.name,
+      invitationToken,
+      tempPassword
+    });
 
-      if (!emailSent) {
-        console.warn('⚠️ Email notification failed, but invitation was created');
-      } else {
-        console.log('✅ Invitation email sent successfully');
-      }
+    if (!emailSent) {
+      console.warn('⚠️ Email notification failed, but invitation was created');
+    } else {
+      console.log('✅ Invitation email sent successfully');
     }
 
     return NextResponse.json({
@@ -187,7 +184,7 @@ export async function POST(request: NextRequest) {
       invitation: invitationData,
       message: 'Provider invitation sent successfully',
       invitationUrl: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/provider/invite?token=${invitationToken}&email=${encodeURIComponent(email)}`,
-      emailSent: sendEmailNotification
+      emailSent: true
     });
 
   } catch (error: any) {
