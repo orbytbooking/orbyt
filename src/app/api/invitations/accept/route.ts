@@ -55,41 +55,82 @@ export async function POST(request: NextRequest) {
     console.log('- Business data:', businessData);
     console.log('- Business name:', businessData?.name);
 
-    // Create auth user using admin API
+    // Create auth user using regular signUp with bypass
     console.log('Creating auth user...');
-    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: {
-        full_name: `${firstName} ${lastName}`,
-        role: 'provider',
-        provider_type: providerType,
-        invitation_id: invitationId,
-        business_id: businessId,
-        specialization: 'General Services',
-        phone: phone,
-        address: address,
-        invited_by: invitation?.invited_by || null,
-        accepted_invitation_at: new Date().toISOString()
-      }
-    });
+    let finalAuthData: any;
+    
+    try {
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: `${firstName} ${lastName}`,
+            role: 'provider',
+            provider_type: providerType,
+            invitation_id: invitationId,
+            business_id: businessId,
+            specialization: 'General Services',
+            phone: phone,
+            address: address,
+            invited_by: invitation?.invited_by || null,
+            accepted_invitation_at: new Date().toISOString()
+          }
+        }
+      });
 
-    if (authError) {
-      console.error('Auth creation error:', authError);
+      if (authError) {
+        console.error('Auth creation error:', authError);
+        
+        // If it's a duplicate user error, try to get existing user
+        if (authError.message.includes('already registered')) {
+          console.log('User already exists, trying to get existing user...');
+          const { data: existingUser } = await supabase.auth.signInWithPassword({
+            email,
+            password
+          });
+          
+          if (existingUser.user) {
+            console.log('Using existing user:', existingUser.user.id);
+            finalAuthData = existingUser;
+          } else {
+            return NextResponse.json(
+              { error: 'User already exists but sign in failed', details: authError.message },
+              { status: 400 }
+            );
+          }
+        } else {
+          return NextResponse.json(
+            { error: 'Failed to create user account', details: authError.message },
+            { status: 500 }
+          );
+        }
+      } else {
+        finalAuthData = authData;
+      }
+
+      if (!finalAuthData.user) {
+        return NextResponse.json(
+          { error: 'Failed to create user account - no user data returned' },
+          { status: 500 }
+        );
+      }
+
+      console.log('Auth user created/retrieved successfully:', finalAuthData.user.id);
+
+    } catch (signUpError: any) {
+      console.error('Unexpected error during user creation:', signUpError);
       return NextResponse.json(
-        { error: 'Failed to create user account', details: authError.message },
+        { error: 'Unexpected error during user creation', details: signUpError.message },
         { status: 500 }
       );
     }
-
-    console.log('Auth user created successfully:', authData.user?.id);
 
     // Create provider record
     const { error: providerError } = await supabase
       .from('service_providers')
       .insert({
-        user_id: authData.user?.id,
+        user_id: finalAuthData.user?.id,
         business_id: businessId,
         first_name: firstName,
         last_name: lastName,
