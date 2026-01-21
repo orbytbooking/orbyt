@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!
 );
 
 export async function GET(request: NextRequest) {
@@ -19,10 +19,10 @@ export async function GET(request: NextRequest) {
     console.log('Headers:', Object.fromEntries(request.headers));
     console.log('Environment check:');
     console.log('- NEXT_PUBLIC_SUPABASE_URL:', process.env.NEXT_PUBLIC_SUPABASE_URL ? 'SET' : 'NOT SET');
-    console.log('- SUPABASE_SERVICE_ROLE_KEY:', process.env.SUPABASE_SERVICE_ROLE_KEY ? 'SET' : 'NOT SET');
-    console.log('- SUPABASE_SERVICE_ROLE_KEY length:', process.env.SUPABASE_SERVICE_ROLE_KEY?.length || 0);
-    console.log('- SUPABASE_SERVICE_ROLE_KEY starts with eyJ:', process.env.SUPABASE_SERVICE_ROLE_KEY?.startsWith('eyJ'));
-    console.log('- SUPABASE_SERVICE_ROLE_KEY available:', !!process.env.SUPABASE_SERVICE_ROLE_KEY);
+    console.log('- NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY:', process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY ? 'SET' : 'NOT SET');
+    console.log('- NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY length:', process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY?.length || 0);
+    console.log('- NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY starts with eyJ:', process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY?.startsWith('eyJ'));
+    console.log('- NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY available:', !!process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY);
     console.log('- supabase available:', !!supabase);
     console.log('Starting database query...');
 
