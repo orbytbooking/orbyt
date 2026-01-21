@@ -61,9 +61,43 @@ export async function POST(request: NextRequest) {
     console.log('- Business data:', businessData);
     console.log('- Business name:', businessData?.name);
 
-    // Create auth user using regular signUp with bypass
-    console.log('Creating auth user...');
-    let finalAuthData: any;
+    // Create user directly in database first (bypass Supabase auth)
+    console.log('Creating provider record directly...');
+    
+    // Generate a UUID for the user
+    const userId = crypto.randomUUID();
+    
+    // Create provider record first
+    const { error: providerError } = await supabase
+      .from('service_providers')
+      .insert({
+        user_id: userId,
+        business_id: businessId,
+        first_name: firstName,
+        last_name: lastName,
+        email,
+        phone: phone,
+        address: address,
+        specialization: 'General Services',
+        rating: 0,
+        completed_jobs: 0,
+        status: 'active',
+        provider_type: providerType
+      });
+
+    if (providerError) {
+      console.error('Provider record creation error:', providerError);
+      return NextResponse.json(
+        { error: 'Failed to create provider profile', details: providerError.message },
+        { status: 500 }
+      );
+    }
+
+    console.log('Provider record created successfully:', userId);
+
+    // Try to create Supabase auth user (if it fails, we still have the provider record)
+    console.log('Attempting to create Supabase auth user...');
+    let authUserCreated = false;
     
     try {
       const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -86,79 +120,22 @@ export async function POST(request: NextRequest) {
       });
 
       if (authError) {
-        console.error('Auth creation error:', authError);
-        
-        // If it's a duplicate user error, try to get existing user
-        if (authError.message.includes('already registered')) {
-          console.log('User already exists, trying to get existing user...');
-          const { data: existingUser } = await supabase.auth.signInWithPassword({
-            email,
-            password
-          });
-          
-          if (existingUser.user) {
-            console.log('Using existing user:', existingUser.user.id);
-            finalAuthData = existingUser;
-          } else {
-            return NextResponse.json(
-              { error: 'User already exists but sign in failed', details: authError.message },
-              { status: 400 }
-            );
-          }
-        } else {
-          return NextResponse.json(
-            { error: 'Failed to create user account', details: authError.message },
-            { status: 500 }
-          );
-        }
+        console.error('Auth creation failed (but provider was created):', authError);
+        // Don't return error here - we'll continue with provider record only
       } else {
-        finalAuthData = authData;
+        console.log('Auth user created successfully:', authData.user?.id);
+        authUserCreated = true;
+        
+        // Update provider record with the actual auth user ID
+        await supabase
+          .from('service_providers')
+          .update({ user_id: authData.user?.id })
+          .eq('user_id', userId);
       }
-
-      if (!finalAuthData.user) {
-        return NextResponse.json(
-          { error: 'Failed to create user account - no user data returned' },
-          { status: 500 }
-        );
-      }
-
-      console.log('Auth user created/retrieved successfully:', finalAuthData.user.id);
-
-    } catch (signUpError: any) {
-      console.error('Unexpected error during user creation:', signUpError);
-      return NextResponse.json(
-        { error: 'Unexpected error during user creation', details: signUpError.message },
-        { status: 500 }
-      );
+    } catch (authError: any) {
+      console.error('Auth creation exception (but provider was created):', authError);
+      // Continue without auth user
     }
-
-    // Create provider record
-    const { error: providerError } = await supabase
-      .from('service_providers')
-      .insert({
-        user_id: finalAuthData.user?.id,
-        business_id: businessId,
-        first_name: firstName,
-        last_name: lastName,
-        email,
-        phone: phone,
-        address: address,
-        specialization: 'General Services',
-        rating: 0,
-        completed_jobs: 0,
-        status: 'active',
-        provider_type: providerType
-      });
-
-    if (providerError) {
-      console.error('Provider record creation error:', providerError);
-      return NextResponse.json(
-        { error: 'Failed to create provider profile', details: providerError.message },
-        { status: 500 }
-      );
-    }
-
-    console.log('Provider record created successfully');
 
     // Update invitation status using service role to bypass RLS
     const { error: updateError } = await supabase
@@ -181,7 +158,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: 'Invitation accepted successfully'
+      message: authUserCreated 
+        ? 'Invitation accepted successfully - Provider account and login created'
+        : 'Invitation accepted successfully - Provider account created (login setup may be needed)',
+      authUserCreated,
+      providerCreated: true
     });
 
   } catch (error: any) {
