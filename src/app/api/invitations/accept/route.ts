@@ -43,6 +43,14 @@ export async function POST(request: NextRequest) {
     console.log('- Invitation expires at:', invitation?.expires_at);
     console.log('- Invitation business ID:', invitation?.business_id);
 
+    if (error) {
+      console.error('Invitation fetch error:', error);
+      return NextResponse.json(
+        { error: 'Invitation not found', details: error },
+        { status: 404 }
+      );
+    }
+
     // Get business data using service role to bypass RLS
     const { data: businessData, error: businessError } = await supabase
       .from('businesses')
