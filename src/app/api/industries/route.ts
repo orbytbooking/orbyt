@@ -1,5 +1,11 @@
+import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabaseClient';
+
+// Create Supabase client with service role to bypass RLS
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://aezwtsnvttquqkzjhoak.supabase.co';
+const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFlend0c252dHRxdXFrempob2FrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NzYxNzcwMiwiZXhwIjoyMDgzMTkzNzAyfQ.MW8hx4BcMKDG3-fxNcIrmcbdu2xIfYjIxIunqPmN3D0';
+
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // GET - Fetch all industries for a business
 export async function GET(request: NextRequest) {
@@ -11,7 +17,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Business ID is required' }, { status: 400 });
     }
 
-    const { data: industries, error } = await supabaseAdmin
+    const { data: industries, error } = await supabase
       .from('industries')
       .select('*')
       .eq('business_id', businessId)
@@ -43,7 +49,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Name and business_id are required' }, { status: 400 });
     }
 
-    const { data: industry, error } = await supabaseAdmin
+    const { data: industry, error } = await supabase
       .from('industries')
       .insert([
         {
@@ -85,7 +91,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Industry ID is required' }, { status: 400 });
     }
 
-    const { error } = await supabaseAdmin
+    const { error } = await supabase
       .from('industries')
       .delete()
       .eq('id', industryId);
