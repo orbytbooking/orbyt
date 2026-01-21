@@ -300,6 +300,13 @@
     color: #000000 !important;
   }
 
+  /* Override error text to be red in light mode */
+  .light-theme .text-red-700,
+  .light-theme .text-red-600,
+  .light-theme .text-red-500 {
+    color: #dc2626 !important;
+  }
+
   /* Apply glass effect to buttons and inputs */
   .admin-theme button:not([class*="gradient"]):not([style*="background"]),
   .admin-theme input,

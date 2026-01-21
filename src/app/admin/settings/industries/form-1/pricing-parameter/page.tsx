@@ -213,7 +213,6 @@ export default function IndustryFormPricingParameterPage() {
                             <TableHead>Display</TableHead>
                             <TableHead>Service Category</TableHead>
                             <TableHead>Frequency</TableHead>
-                            <TableHead>Default</TableHead>
                             <TableHead className="text-right">Action</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -244,7 +243,6 @@ export default function IndustryFormPricingParameterPage() {
                                   </div>
                                 ) : "-"}
                               </TableCell>
-                              <TableCell>{r.isDefault ? "Yes" : "No"}</TableCell>
                               <TableCell className="text-right">
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>

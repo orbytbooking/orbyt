@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { ChevronDown, Info } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -14,20 +15,21 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 type Extra = {
   id: number;
   name: string;
-  time: number;
+  time: number; // in minutes
   serviceCategory: string;
   price: number;
-  display: "frontend-backend-admin" | "backend-admin" | "admin-only";
+  display: "frontend-backend-admin" | "backend-admin" | "admin-only" | "Both" | "Booking" | "Quote"; // Support legacy values
   qtyBased: boolean;
-  exemptFromDiscount: boolean;
+  exemptFromDiscount?: boolean;
   description?: string;
-  serviceChecklists?: string[];
   showBasedOnFrequency?: boolean;
   frequencyOptions?: string[];
   showBasedOnServiceCategory?: boolean;
   serviceCategoryOptions?: string[];
   showBasedOnVariables?: boolean;
   variableOptions?: string[];
+  pricingStructure?: "manual" | "multiply";
+  manualPrices?: { price: string; timeHours: string; timeMinutes: string }[];
 };
 
 export default function ExtraNewPage() {
@@ -50,6 +52,11 @@ export default function ExtraNewPage() {
     qtyBased: false,
     exemptFromDiscount: false,
     maximum: "",
+    pricingStructure: "manual" as "manual" | "multiply",
+    manualPrices: [] as { price: string; timeHours: string; timeMinutes: string }[],
+    applyToAllBookings: true as boolean,
+    overrideTimePricing: false as boolean,
+    exemptExtraTime: false as boolean,
     // Dependencies
     showBasedOnFrequency: false,
     frequencyOptions: [] as string[],
@@ -57,7 +64,6 @@ export default function ExtraNewPage() {
     serviceCategoryOptions: [] as string[],
     showBasedOnVariables: false,
     variableOptions: [] as string[],
-    serviceChecklists: [] as string[],
     // Providers
     excludedProviders: [] as string[],
   });
@@ -68,7 +74,7 @@ export default function ExtraNewPage() {
   // Load available frequencies, service categories, and variables
   const [availableFrequencies, setAvailableFrequencies] = useState<string[]>([]);
   const [availableServiceCategories, setAvailableServiceCategories] = useState<string[]>([]);
-  const [availableVariables, setAvailableVariables] = useState<{ [key: string]: string[] }>({});
+  const [availableVariables, setAvailableVariables] = useState<{ [key: string]: any[] }>({});
 
   useEffect(() => {
     try {
@@ -135,14 +141,15 @@ export default function ExtraNewPage() {
   // Load variables from localStorage
   useEffect(() => {
     try {
-      const storedVariables = JSON.parse(localStorage.getItem("pricingParameters") || "{}");
-      if (storedVariables && typeof storedVariables === "object") {
-        setAvailableVariables(storedVariables);
+      const allDataKey = `pricingParamsAll_${industry}`;
+      const storedData = JSON.parse(localStorage.getItem(allDataKey) || "{}");
+      if (storedData && typeof storedData === "object") {
+        setAvailableVariables(storedData);
       }
     } catch {
       // ignore
     }
-  }, []);
+  }, [industry]);
 
   useEffect(() => {
     if (editId && extras.length > 0) {
@@ -161,13 +168,17 @@ export default function ExtraNewPage() {
           qtyBased: existing.qtyBased,
           exemptFromDiscount: existing.exemptFromDiscount ?? false,
           maximum: "",
+          pricingStructure: existing.pricingStructure || "manual",
+          manualPrices: existing.manualPrices || [],
+          applyToAllBookings: true,
+          overrideTimePricing: false,
+          exemptExtraTime: false,
           showBasedOnFrequency: false,
           frequencyOptions: existing.frequencyOptions || [],
           showBasedOnServiceCategory: false,
           serviceCategoryOptions: existing.serviceCategoryOptions || [],
           showBasedOnVariables: false,
           variableOptions: existing.variableOptions || [],
-          serviceChecklists: existing.serviceChecklists || [],
           excludedProviders: [],
         });
       }
@@ -185,20 +196,25 @@ export default function ExtraNewPage() {
       const updated = extras.map(r => r.id === editId ? {
         ...r,
         name: form.name.trim(),
-        time,
+        time: form.pricingStructure === "manual" && form.manualPrices.length > 0 
+          ? form.manualPrices.reduce((total, price) => total + (Number(price.timeHours) * 60 + Number(price.timeMinutes)), 0) / form.manualPrices.length
+          : hours * 60 + minutes,
         serviceCategory: form.serviceCategory,
-        price,
+        price: form.pricingStructure === "manual" && form.manualPrices.length > 0
+          ? form.manualPrices.reduce((total, price) => total + Number(price.price), 0) / form.manualPrices.length
+          : price,
         display: form.display,
         qtyBased: form.qtyBased,
         exemptFromDiscount: form.exemptFromDiscount,
         description: form.description,
-        serviceChecklists: form.serviceChecklists,
         showBasedOnFrequency: form.showBasedOnFrequency,
         frequencyOptions: form.frequencyOptions,
         showBasedOnServiceCategory: form.showBasedOnServiceCategory,
         serviceCategoryOptions: form.serviceCategoryOptions,
         showBasedOnVariables: form.showBasedOnVariables,
         variableOptions: form.variableOptions,
+        pricingStructure: form.pricingStructure,
+        manualPrices: form.pricingStructure === "manual" ? form.manualPrices : undefined,
       } : r);
       localStorage.setItem(storageKey, JSON.stringify(updated));
     } else {
@@ -206,20 +222,25 @@ export default function ExtraNewPage() {
       const newExtra: Extra = {
         id: nextId,
         name: form.name.trim(),
-        time,
+        time: form.pricingStructure === "manual" && form.manualPrices.length > 0 
+          ? form.manualPrices.reduce((total, price) => total + (Number(price.timeHours) * 60 + Number(price.timeMinutes)), 0) / form.manualPrices.length
+          : hours * 60 + minutes,
         serviceCategory: form.serviceCategory,
-        price,
+        price: form.pricingStructure === "manual" && form.manualPrices.length > 0
+          ? form.manualPrices.reduce((total, price) => total + Number(price.price), 0) / form.manualPrices.length
+          : price,
         display: form.display,
         qtyBased: form.qtyBased,
         exemptFromDiscount: form.exemptFromDiscount,
         description: form.description,
-        serviceChecklists: form.serviceChecklists,
         showBasedOnFrequency: form.showBasedOnFrequency,
         frequencyOptions: form.frequencyOptions,
         showBasedOnServiceCategory: form.showBasedOnServiceCategory,
         serviceCategoryOptions: form.serviceCategoryOptions,
         showBasedOnVariables: form.showBasedOnVariables,
         variableOptions: form.variableOptions,
+        pricingStructure: form.pricingStructure,
+        manualPrices: form.pricingStructure === "manual" ? form.manualPrices : undefined,
       };
       localStorage.setItem(storageKey, JSON.stringify([...extras, newExtra]));
     }
@@ -284,6 +305,41 @@ export default function ExtraNewPage() {
                 </RadioGroup>
               </div>
 
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Checkbox 
+                    id="override-time-pricing" 
+                    checked={form.overrideTimePricing} 
+                    onCheckedChange={(v) => setForm(p => ({ ...p, overrideTimePricing: !!v }))} 
+                  />
+                  <Label htmlFor="override-time-pricing" className="text-sm">Override time-based pricing parameters and add extra as separate charge?</Label>
+                  <div className="relative group">
+                    <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                      Note: This option will work only in case of hourly service (Pricing parameters time based).
+                    </div>
+                  </div>
+                </div>
+                {form.overrideTimePricing && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Checkbox 
+                        id="exempt-extra-time" 
+                        checked={form.exemptExtraTime} 
+                        onCheckedChange={(v) => setForm(p => ({ ...p, exemptExtraTime: !!v }))} 
+                      />
+                      <Label htmlFor="exempt-extra-time" className="text-sm">Exempt extra's time from hourly service price calculation</Label>
+                      <div className="relative group">
+                        <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                          Check this box to exclude the extra's time from the hourly service price calculation.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="flex items-center gap-2">
                 <Checkbox 
                   id="exempt-discount" 
@@ -310,63 +366,286 @@ export default function ExtraNewPage() {
               </div>
 
               {form.qtyBased && (
-                <div className="space-y-2">
-                  <Label htmlFor="maximum">Maximum</Label>
-                  <Input 
-                    id="maximum" 
-                    type="number" 
-                    value={form.maximum} 
-                    onChange={(e) => setForm(p => ({ ...p, maximum: e.target.value }))} 
-                    placeholder="Number"
-                  />
-                </div>
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="maximum">Maximum</Label>
+                    <Input 
+                      id="maximum" 
+                      type="number" 
+                      value={form.maximum} 
+                      onChange={(e) => {
+                        const newMaximum = e.target.value;
+                        setForm(p => ({ ...p, maximum: newMaximum }));
+                        
+                        // Auto-multiply if multiply structure is selected
+                        if (form.pricingStructure === "multiply" && newMaximum) {
+                          const maxNum = Number(newMaximum) || 1;
+                          const basePrice = Number(form.price) || 0;
+                          const baseTimeHours = Number(form.timeHours) || 0;
+                          const baseTimeMinutes = Number(form.timeMinutes) || 0;
+                          const totalBaseMinutes = baseTimeHours * 60 + baseTimeMinutes;
+                          
+                          const multipliedPrice = basePrice * maxNum;
+                          const multipliedMinutes = totalBaseMinutes * maxNum;
+                          const multipliedHours = Math.floor(multipliedMinutes / 60);
+                          const remainingMinutes = multipliedMinutes % 60;
+                          
+                          setForm(p => ({ 
+                            ...p, 
+                            maximum: newMaximum,
+                            price: String(multipliedPrice),
+                            timeHours: String(multipliedHours),
+                            timeMinutes: String(remainingMinutes)
+                          }));
+                        }
+                        
+                        // Update manual prices array when maximum changes in manual mode
+                        if (form.pricingStructure === "manual") {
+                          const maxNum = Number(newMaximum) || 0;
+                          const currentManualPrices = form.manualPrices || [];
+                          
+                          if (maxNum > currentManualPrices.length) {
+                            // Add new empty entries
+                            const newEntries = Array.from({ length: maxNum - currentManualPrices.length }, () => ({
+                              price: "0",
+                              timeHours: "0",
+                              timeMinutes: "0"
+                            }));
+                            setForm(p => ({ 
+                              ...p, 
+                              maximum: newMaximum,
+                              manualPrices: [...currentManualPrices, ...newEntries]
+                            }));
+                          } else if (maxNum < currentManualPrices.length) {
+                            // Remove excess entries
+                            setForm(p => ({ 
+                              ...p, 
+                              maximum: newMaximum,
+                              manualPrices: currentManualPrices.slice(0, maxNum)
+                            }));
+                          } else {
+                            setForm(p => ({ ...p, maximum: newMaximum }));
+                          }
+                        }
+                      }} 
+                      placeholder="Number"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Manual Or Multiply structure?</Label>
+                    <RadioGroup
+                      value={form.pricingStructure}
+                      onValueChange={(value: "manual" | "multiply") => {
+                        setForm(p => ({ ...p, pricingStructure: value }));
+                        
+                        // If switching to multiply and maximum is set, auto-multiply
+                        if (value === "multiply" && form.maximum) {
+                          const maxNum = Number(form.maximum) || 1;
+                          const basePrice = Number(form.price) || 0;
+                          const baseTimeHours = Number(form.timeHours) || 0;
+                          const baseTimeMinutes = Number(form.timeMinutes) || 0;
+                          const totalBaseMinutes = baseTimeHours * 60 + baseTimeMinutes;
+                          
+                          const multipliedPrice = basePrice * maxNum;
+                          const multipliedMinutes = totalBaseMinutes * maxNum;
+                          const multipliedHours = Math.floor(multipliedMinutes / 60);
+                          const remainingMinutes = multipliedMinutes % 60;
+                          
+                          setForm(p => ({ 
+                            ...p, 
+                            pricingStructure: value,
+                            price: String(multipliedPrice),
+                            timeHours: String(multipliedHours),
+                            timeMinutes: String(remainingMinutes)
+                          }));
+                        }
+                      }}
+                      className="flex gap-4"
+                    >
+                      <label className="flex items-center gap-2 text-sm">
+                        <RadioGroupItem value="multiply" /> Multiply
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <RadioGroupItem value="manual" /> Manual
+                      </label>
+                    </RadioGroup>
+                    {form.pricingStructure === "multiply" && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        The system will automatically multiply the price and time evenly by the maximum number.
+                      </p>
+                    )}
+                  </div>
+                </>
               )}
 
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="extra-price">Price</Label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                    <Input 
-                      id="extra-price" 
-                      type="number" 
-                      step="0.01"
-                      value={form.price} 
-                      onChange={(e) => setForm(p => ({ ...p, price: e.target.value }))} 
-                      placeholder="0.00"
-                      className="pl-7"
-                    />
+                {form.qtyBased && form.pricingStructure === "manual" && Number(form.maximum) > 0 ? (
+                  <div className="space-y-4">
+                    <Label>Price & Time</Label>
+                    {Array.from({ length: Number(form.maximum) }, (_, index) => (
+                      <div key={index} className="space-y-2 p-4 border rounded-lg">
+                        <div className="text-sm font-medium text-muted-foreground mb-3">
+                          Pricing {index + 1}
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex gap-2">
+                            <div className="space-y-2">
+                              <Label htmlFor={`price-${index}`}>Pricing</Label>
+                              <div className="relative w-24">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                <Input 
+                                  id={`price-${index}`}
+                                  type="number" 
+                                  step="0.01"
+                                  min="0"
+                                  value={form.manualPrices[index]?.price || ""}
+                                  onChange={(e) => {
+                                    const newManualPrices = [...(form.manualPrices || [])];
+                                    if (!newManualPrices[index]) {
+                                      newManualPrices[index] = { price: "", timeHours: "", timeMinutes: "" };
+                                    }
+                                    newManualPrices[index].price = e.target.value;
+                                    setForm(p => ({ ...p, manualPrices: newManualPrices }));
+                                  }}
+                                  placeholder=""
+                                  className="pl-7"
+                                />
+                              </div>
+                            </div>
+                            
+                            <div className="space-y-2">
+                              <Label>Time</Label>
+                              <div className="flex gap-1 w-auto">
+                                <div className="w-24">
+                                  <Input 
+                                    id={`hours-${index}`}
+                                    type="number" 
+                                    min="0"
+                                    value={form.manualPrices[index]?.timeHours || ""}
+                                    onChange={(e) => {
+                                      const newManualPrices = [...(form.manualPrices || [])];
+                                      if (!newManualPrices[index]) {
+                                        newManualPrices[index] = { price: "", timeHours: "", timeMinutes: "" };
+                                      }
+                                      newManualPrices[index].timeHours = e.target.value;
+                                      setForm(p => ({ ...p, manualPrices: newManualPrices }));
+                                    }}
+                                    placeholder=""
+                                    className="text-center"
+                                  />
+                                </div>
+                                <div className="flex items-center text-sm text-muted-foreground px-1">hours</div>
+                                <div className="w-24">
+                                  <Input 
+                                    id={`minutes-${index}`}
+                                    type="number" 
+                                    min="0"
+                                    max="59"
+                                    value={form.manualPrices[index]?.timeMinutes || ""}
+                                    onChange={(e) => {
+                                      const newManualPrices = [...(form.manualPrices || [])];
+                                      if (!newManualPrices[index]) {
+                                        newManualPrices[index] = { price: "", timeHours: "", timeMinutes: "" };
+                                      }
+                                      newManualPrices[index].timeMinutes = e.target.value;
+                                      setForm(p => ({ ...p, manualPrices: newManualPrices }));
+                                    }}
+                                    placeholder=""
+                                    className="text-center"
+                                  />
+                                </div>
+                                <div className="flex items-center text-sm text-muted-foreground px-1">minutes</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label>Time</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <Label htmlFor="time-hours" className="text-xs text-muted-foreground">Hours</Label>
-                      <Input 
-                        id="time-hours" 
-                        type="number" 
-                        min="0"
-                        value={form.timeHours} 
-                        onChange={(e) => setForm(p => ({ ...p, timeHours: e.target.value }))} 
-                        placeholder="0"
-                      />
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="extra-price">Price</Label>
+                          <div className="relative w-24">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                            <Input 
+                              id="extra-price" 
+                              type="number" 
+                              step="0.01"
+                              min="0"
+                              value={form.price} 
+                              onChange={(e) => setForm(p => ({ ...p, price: e.target.value }))} 
+                              placeholder=""
+                              className="pl-7"
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <Label>Time</Label>
+                          <div className="flex gap-1 w-auto">
+                            <div className="w-24">
+                              <Input 
+                                id="time-hours" 
+                                type="number" 
+                                min="0"
+                                value={form.timeHours} 
+                                onChange={(e) => setForm(p => ({ ...p, timeHours: e.target.value }))} 
+                                placeholder=""
+                                className="text-center"
+                              />
+                            </div>
+                            <div className="flex items-center text-sm text-muted-foreground px-1">hours</div>
+                            <div className="w-24">
+                              <Input 
+                                id="time-minutes" 
+                                type="number" 
+                                min="0"
+                                max="59"
+                                value={form.timeMinutes} 
+                                onChange={(e) => setForm(p => ({ ...p, timeMinutes: e.target.value }))} 
+                                placeholder=""
+                                className="text-center"
+                              />
+                            </div>
+                            <div className="flex items-center text-sm text-muted-foreground px-1">minutes</div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <Label htmlFor="time-minutes" className="text-xs text-muted-foreground">Minutes</Label>
-                      <Input 
-                        id="time-minutes" 
-                        type="number" 
-                        min="0"
-                        max="59"
-                        value={form.timeMinutes} 
-                        onChange={(e) => setForm(p => ({ ...p, timeMinutes: e.target.value }))} 
-                        placeholder="0"
-                      />
+                  </>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label>Apply to</Label>
+                <RadioGroup
+                  value={form.applyToAllBookings ? "all" : "first"}
+                  onValueChange={(value) => setForm(p => ({ ...p, applyToAllBookings: value === "all" }))}
+                  className="flex gap-4"
+                >
+                  <label className="flex items-center gap-2 text-sm">
+                    <RadioGroupItem value="all" /> Apply to all bookings
+                    <div className="relative group">
+                      <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                        This extra will be applied to all bookings in the service
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <RadioGroupItem value="first" /> Apply only to the first appointment
+                    <div className="relative group">
+                      <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                        This extra will only be applied to the first appointment in the service
+                      </div>
+                    </div>
+                  </label>
+                </RadioGroup>
               </div>
 
             </TabsContent>
@@ -518,80 +797,65 @@ export default function ExtraNewPage() {
                         {Object.keys(availableVariables).length === 0 ? (
                           <p className="text-xs text-muted-foreground italic">No variables available. Add variables from the pricing parameters section.</p>
                         ) : (
-                          <>
-                            <div className="flex items-center gap-2">
-                              <Checkbox
-                                id="select-all-variables"
-                                checked={form.variableOptions.length === Object.keys(availableVariables).length && Object.keys(availableVariables).length > 0}
-                                onCheckedChange={(checked) => {
-                                  if (checked) {
-                                    setForm(p => ({ ...p, variableOptions: Object.keys(availableVariables) }));
-                                  } else {
-                                    setForm(p => ({ ...p, variableOptions: [] }));
-                                  }
-                                }}
-                              />
-                              <Label htmlFor="select-all-variables" className="text-sm font-medium cursor-pointer">Select All</Label>
-                            </div>
-                            {Object.keys(availableVariables).map((variable) => (
-                              <div key={variable} className="flex items-center gap-2">
-                                <Checkbox
-                                  id={`variable-${variable}`}
-                                  checked={form.variableOptions.includes(variable)}
-                                  onCheckedChange={(checked) => {
-                                    if (checked) {
-                                      setForm(p => ({ ...p, variableOptions: [...p.variableOptions, variable] }));
-                                    } else {
-                                      setForm(p => ({ ...p, variableOptions: p.variableOptions.filter(v => v !== variable) }));
-                                    }
-                                  }}
-                                />
-                                <Label htmlFor={`variable-${variable}`} className="text-sm font-normal cursor-pointer">{variable}</Label>
-                              </div>
-                            ))}
-                          </>
+                          <div className="space-y-4">
+                            {/* Group variables by category */}
+                            {['Bathroom', 'Sq Ft', 'Bedroom'].map(category => {
+                              const categoryParams = availableVariables[category] || [];
+                              if (categoryParams.length === 0) return null;
+                              
+                              return (
+                                <div key={category} className="space-y-2">
+                                  <Label className="text-sm font-semibold">{category}</Label>
+                                  <div className="flex items-center gap-2">
+                                    <Checkbox
+                                      id={`select-all-extra-${category.toLowerCase().replace(' ', '-')}`}
+                                      checked={form.variableOptions.filter(v => v.startsWith(`${category}:`)).length === categoryParams.length && categoryParams.length > 0}
+                                      onCheckedChange={(checked) => {
+                                        if (checked) {
+                                          const categoryVariableOptions = categoryParams.map(param => `${category}:${param.name}`);
+                                          setForm(p => ({ 
+                                            ...p, 
+                                            variableOptions: [...p.variableOptions.filter(v => !v.startsWith(`${category}:`)), ...categoryVariableOptions]
+                                          }));
+                                        } else {
+                                          setForm(p => ({ 
+                                            ...p, 
+                                            variableOptions: p.variableOptions.filter(v => !v.startsWith(`${category}:`))
+                                          }));
+                                        }
+                                      }}
+                                    />
+                                    <Label htmlFor={`select-all-extra-${category.toLowerCase().replace(' ', '-')}`} className="text-sm cursor-pointer">Select All</Label>
+                                  </div>
+                                  <div className="grid grid-cols-4 gap-2">
+                                    {categoryParams.map((param) => (
+                                      <div key={param.id} className="flex items-center gap-2">
+                                        <Checkbox
+                                          id={`extra-variable-${param.id}`}
+                                          checked={form.variableOptions.includes(`${category}:${param.name}`)}
+                                          onCheckedChange={(checked) => {
+                                            const variableOption = `${category}:${param.name}`;
+                                            if (checked) {
+                                              setForm(p => ({ ...p, variableOptions: [...p.variableOptions, variableOption] }));
+                                            } else {
+                                              setForm(p => ({ ...p, variableOptions: p.variableOptions.filter(v => v !== variableOption) }));
+                                            }
+                                          }}
+                                        />
+                                        <Label htmlFor={`extra-variable-${param.id}`} className="text-sm cursor-pointer">{param.name}</Label>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
                         )}
                       </div>
                     </div>
                   )}
                 </div>
 
-                <div className="space-y-3">
-                  <Label>Service Checklist</Label>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="select-all-checklists"
-                        checked={form.serviceChecklists.length === 4}
-                        onCheckedChange={(checked) => {
-                          const allChecklists = ["Basic Clean Checklist", "Deep Clean Checklist", "Construction Clean Checklist", "Move In/Out Clean Checklist"];
-                          if (checked) {
-                            setForm(p => ({ ...p, serviceChecklists: allChecklists }));
-                          } else {
-                            setForm(p => ({ ...p, serviceChecklists: [] }));
-                          }
-                        }}
-                      />
-                      <Label htmlFor="select-all-checklists" className="text-sm font-medium cursor-pointer">Select All</Label>
-                    </div>
-                    {["Basic Clean Checklist", "Deep Clean Checklist", "Construction Clean Checklist", "Move In/Out Clean Checklist"].map((checklist) => (
-                      <div key={checklist} className="flex items-center gap-2">
-                        <Checkbox
-                          id={checklist}
-                          checked={form.serviceChecklists.includes(checklist)}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setForm(p => ({ ...p, serviceChecklists: [...p.serviceChecklists, checklist] }));
-                            } else {
-                              setForm(p => ({ ...p, serviceChecklists: p.serviceChecklists.filter(c => c !== checklist) }));
-                            }
-                          }}
-                        />
-                        <Label htmlFor={checklist} className="text-sm font-normal cursor-pointer">{checklist}</Label>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               </div>
             </TabsContent>
 

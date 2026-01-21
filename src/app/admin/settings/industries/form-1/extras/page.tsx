@@ -20,7 +20,12 @@ type Extra = {
   qtyBased: boolean;
   exemptFromDiscount?: boolean;
   description?: string;
-  serviceChecklists?: string[];
+  showBasedOnFrequency?: boolean;
+  frequencyOptions?: string[];
+  showBasedOnServiceCategory?: boolean;
+  serviceCategoryOptions?: string[];
+  showBasedOnVariables?: boolean;
+  variableOptions?: string[];
 };
 
 export default function IndustryFormExtrasPage() {
@@ -133,21 +138,20 @@ export default function IndustryFormExtrasPage() {
           <div className="overflow-x-auto rounded-md border">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Time</TableHead>
-                  <TableHead>Service Category</TableHead>
-                  <TableHead>Price</TableHead>
-                  <TableHead>Display</TableHead>
-                  <TableHead>Qty Based</TableHead>
-                  <TableHead>Exempt Discount</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
-                </TableRow>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Time</TableHead>
+                    <TableHead>Price</TableHead>
+                    <TableHead className="w-[150px]">Service Category</TableHead>
+                    <TableHead>Display</TableHead>
+                    <TableHead>Qty Based</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
+                  </TableRow>
               </TableHeader>
               <TableBody>
                 {extras.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-sm text-muted-foreground">No data. Click Load Sample Data or Add New.</TableCell>
+                    <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">No data. Click Load Sample Data or Add New.</TableCell>
                   </TableRow>
                 )}
                 {extras.map((extra) => {
@@ -166,29 +170,24 @@ export default function IndustryFormExtrasPage() {
                   <TableRow key={extra.id}>
                     <TableCell className="font-medium">{extra.name}</TableCell>
                     <TableCell>{timeDisplay}</TableCell>
-                    <TableCell>
-                      {extra.serviceChecklists && extra.serviceChecklists.length > 0 ? (
+                    <TableCell>${extra.price.toFixed(2)}</TableCell>
+                    <TableCell className="text-xs">
+                      {extra.showBasedOnServiceCategory && extra.serviceCategoryOptions && extra.serviceCategoryOptions.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
-                          {extra.serviceChecklists.map((checklist, idx) => (
+                          {extra.serviceCategoryOptions.map((category, idx) => (
                             <span key={idx} className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                              {checklist}
+                              {category}
                             </span>
                           ))}
                         </div>
                       ) : (
-                        <span className="text-muted-foreground text-sm">-</span>
+                        <span className="text-muted-foreground text-sm">{extra.serviceCategory || '-'}</span>
                       )}
                     </TableCell>
-                    <TableCell>${extra.price.toFixed(2)}</TableCell>
                     <TableCell className="text-xs">{displayLabel}</TableCell>
                     <TableCell className="text-center">
                       <span className={extra.qtyBased ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
                         {extra.qtyBased ? "Yes" : "No"}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <span className={(extra.exemptFromDiscount ?? false) ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>
-                        {(extra.exemptFromDiscount ?? false) ? "✓" : "✗"}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">

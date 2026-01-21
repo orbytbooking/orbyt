@@ -54,6 +54,7 @@ export default function PricingParameterNewPage() {
   const [providers, setProviders] = useState<Array<{ id: string; name: string }>>([]);
   const [serviceCategories, setServiceCategories] = useState<Array<{ id: number; name: string }>>([]);
   const [frequencies, setFrequencies] = useState<Array<{ id: number; name: string }>>([]);
+  const [excludeParameters, setExcludeParameters] = useState<Array<{ id: number; name: string; description: string }>>([]);
 
   const [form, setForm] = useState({
     variableCategory: "",
@@ -70,6 +71,7 @@ export default function PricingParameterNewPage() {
     excludedExtras: [] as number[],
     excludedServices: [] as number[],
     excludedProviders: [] as string[],
+    excludeParameters: [] as number[],
     serviceCategory: [] as string[],
     serviceCategory2: [] as string[],
     frequency: [] as string[],
@@ -142,6 +144,21 @@ export default function PricingParameterNewPage() {
     } catch (e) {
       console.error("Error loading providers:", e);
     }
+
+    // Load exclude parameters
+    try {
+      const excludeDataKey = `excludeParameters_${industry}`;
+      const storedExcludeParams = JSON.parse(localStorage.getItem(excludeDataKey) || "[]");
+      if (Array.isArray(storedExcludeParams)) {
+        setExcludeParameters(storedExcludeParams.map((p: any) => ({ 
+          id: p.id, 
+          name: p.name, 
+          description: p.description || "" 
+        })));
+      }
+    } catch (e) {
+      console.error("Error loading exclude parameters:", e);
+    }
   }, [allDataKey, variablesKey, extrasKey, servicesKey, industry]);
 
   useEffect(() => {
@@ -169,6 +186,7 @@ export default function PricingParameterNewPage() {
           excludedExtras: existing.excludedExtras || [],
           excludedServices: existing.excludedServices || [],
           excludedProviders: existing.excludedProviders || [],
+          excludeParameters: (existing as any).excludeParameters || [],
           serviceCategory: Array.isArray(existing.serviceCategory) ? existing.serviceCategory : [],
           serviceCategory2: Array.isArray(existing.serviceCategory2) ? existing.serviceCategory2 : [],
           frequency: Array.isArray(existing.frequency) ? existing.frequency : [],
@@ -509,7 +527,52 @@ export default function PricingParameterNewPage() {
                 
 
                 <div className="space-y-3">
-                  <Label className="text-base font-semibold">Exclude Parameters</Label>
+                  {/* Exclude Parameters Section */}
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Exclude Parameters</Label>
+                    {excludeParameters.length === 0 ? (
+                      <p className="text-sm text-muted-foreground pl-4">No exclude parameters available</p>
+                    ) : (
+                      <div className="border rounded-md p-4 space-y-2">
+                        <div className="flex items-center space-x-2 pb-2 border-b">
+                          <Checkbox
+                            id="select-all-exclude-parameters"
+                            checked={form.excludeParameters.length === excludeParameters.length}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setForm(p => ({ ...p, excludeParameters: excludeParameters.map(ep => ep.id) }));
+                              } else {
+                                setForm(p => ({ ...p, excludeParameters: [] }));
+                              }
+                            }}
+                          />
+                          <label htmlFor="select-all-exclude-parameters" className="text-sm font-medium cursor-pointer">
+                            Select All
+                          </label>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                          {excludeParameters.map((param) => (
+                            <div key={param.id} className="flex items-center space-x-2">
+                              <Checkbox
+                                id={`exclude-param-${param.id}`}
+                                checked={form.excludeParameters.includes(param.id)}
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    setForm(p => ({ ...p, excludeParameters: [...p.excludeParameters, param.id] }));
+                                  } else {
+                                    setForm(p => ({ ...p, excludeParameters: p.excludeParameters.filter(id => id !== param.id) }));
+                                  }
+                                }}
+                              />
+                              <label htmlFor={`exclude-param-${param.id}`} className="text-sm cursor-pointer">
+                                {param.name}
+                              </label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Extras Section */}
                   <div className="space-y-2">
@@ -558,53 +621,7 @@ export default function PricingParameterNewPage() {
                     )}
                   </div>
 
-                  {/* Service Checklist Section */}
-                  <div className="space-y-2">
-                    <Label className="text-sm font-medium">Service Checklist</Label>
-                    {services.length === 0 ? (
-                      <p className="text-sm text-muted-foreground pl-4">No services available</p>
-                    ) : (
-                      <div className="border rounded-md p-4 space-y-2">
-                        <div className="flex items-center space-x-2 pb-2 border-b">
-                          <Checkbox
-                            id="select-all-services"
-                            checked={form.excludedServices.length === services.length}
-                            onCheckedChange={(checked) => {
-                              if (checked) {
-                                setForm(p => ({ ...p, excludedServices: services.map(s => s.id) }));
-                              } else {
-                                setForm(p => ({ ...p, excludedServices: [] }));
-                              }
-                            }}
-                          />
-                          <label htmlFor="select-all-services" className="text-sm font-medium cursor-pointer">
-                            Select All
-                          </label>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-                          {services.map((service) => (
-                            <div key={service.id} className="flex items-center space-x-2">
-                              <Checkbox
-                                id={`service-${service.id}`}
-                                checked={form.excludedServices.includes(service.id)}
-                                onCheckedChange={(checked) => {
-                                  if (checked) {
-                                    setForm(p => ({ ...p, excludedServices: [...p.excludedServices, service.id] }));
-                                  } else {
-                                    setForm(p => ({ ...p, excludedServices: p.excludedServices.filter(id => id !== service.id) }));
-                                  }
-                                }}
-                              />
-                              <label htmlFor={`service-${service.id}`} className="text-sm cursor-pointer">
-                                {service.name}
-                              </label>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                                  </div>
               </div>
             </TabsContent>
 

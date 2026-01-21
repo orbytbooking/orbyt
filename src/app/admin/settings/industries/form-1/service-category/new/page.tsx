@@ -35,11 +35,13 @@ export default function ServiceCategoryNewPage() {
       smoking: boolean;
       deepCleaning: boolean;
     };
-    extras?: string[];
+    extras?: number[];
     selectedExcludeParameters?: string[];
     display?: string;
     displayServiceLengthCustomer?: string;
     displayServiceLengthProvider?: boolean;
+    canCustomerEditService?: boolean;
+    serviceFeeEnabled?: boolean;
     expeditedCharge?: {
       enabled: boolean;
       amount: string;
@@ -52,6 +54,8 @@ export default function ServiceCategoryNewPage() {
       fee: string;
       currency: string;
       payProvider: boolean;
+      providerFee: string;
+      providerCurrency: string;
       chargeTiming: 'beforeDay' | 'hoursBefore';
       beforeDayTime: string;
       hoursBefore: string;
@@ -89,12 +93,12 @@ export default function ServiceCategoryNewPage() {
     extrasConfig?: {
       tip: {
         enabled: boolean;
-        saveTo: 'all' | 'booking' | 'service';
+        saveTo: 'all' | 'first';
         display: 'customer_frontend_backend_admin' | 'customer_backend_admin' | 'admin_only';
       };
       parking: {
         enabled: boolean;
-        saveTo: 'all' | 'booking' | 'service';
+        saveTo: 'all' | 'first';
         display: 'customer_frontend_backend_admin' | 'customer_backend_admin' | 'admin_only';
       };
     };
@@ -115,11 +119,13 @@ export default function ServiceCategoryNewPage() {
       smoking: false,
       deepCleaning: false
     },
-    extras: [] as string[],
+    extras: [] as number[],
     selectedExcludeParameters: [] as string[],
     display: "customer_frontend_backend_admin",
     displayServiceLengthCustomer: "admin_only",
     displayServiceLengthProvider: false,
+    canCustomerEditService: false,
+    serviceFeeEnabled: false,
     expeditedCharge: {
       enabled: false,
       amount: "",
@@ -132,9 +138,11 @@ export default function ServiceCategoryNewPage() {
       fee: "",
       currency: "$",
       payProvider: false,
+      providerFee: "",
+      providerCurrency: "$",
       chargeTiming: 'beforeDay' as 'beforeDay' | 'hoursBefore',
-      beforeDayTime: "18:00",
-      hoursBefore: "01"
+      beforeDayTime: "",
+      hoursBefore: ""
     },
     hourlyService: {
       enabled: false,
@@ -169,25 +177,39 @@ export default function ServiceCategoryNewPage() {
     extrasConfig: {
       tip: {
         enabled: false,
-        saveTo: 'all' as 'all' | 'booking' | 'service',
+        saveTo: 'all' as 'all' | 'first',
         display: 'customer_frontend_backend_admin' as 'customer_frontend_backend_admin' | 'customer_backend_admin' | 'admin_only'
       },
       parking: {
         enabled: false,
-        saveTo: 'all' as 'all' | 'booking' | 'service',
+        saveTo: 'all' as 'all' | 'first',
         display: 'customer_frontend_backend_admin' as 'customer_frontend_backend_admin' | 'customer_backend_admin' | 'admin_only'
       }
     }
   });
 
   // Fetch pricing parameters and extras from localStorage
-  const [pricingParameters, setPricingParameters] = useState<{ [key: string]: string[] }>({});
-  const [availableExtras, setAvailableExtras] = useState<string[]>([]);
+  const [pricingParameters, setPricingParameters] = useState<{ [key: string]: any[] }>({});
+  const [availableExtras, setAvailableExtras] = useState<Array<{ id: number; name: string }>>([]);
   const [excludeParameters, setExcludeParameters] = useState<any[]>([]);
   const [frequencies, setFrequencies] = useState<string[]>([]);
 
   // Fetch providers from localStorage
   const [providers, setProviders] = useState<Array<{ id: string; name: string }>>([]);
+
+  // Error state for real-time validation
+  const [errors, setErrors] = useState<{
+    cancellationFee?: string;
+    providerFee?: string;
+    beforeDayTime?: string;
+    hoursBefore?: string;
+    expeditedCharge?: string;
+    hourlyService?: string;
+    serviceCategoryPrice?: string;
+    serviceCategoryTime?: string;
+    minimumPrice?: string;
+    overrideProviderPay?: string;
+  }>({});
 
   useEffect(() => {
     try {
@@ -199,26 +221,28 @@ export default function ServiceCategoryNewPage() {
   // Load pricing parameters from localStorage
   useEffect(() => {
     try {
-      const storedParams = JSON.parse(localStorage.getItem("pricingParameters") || "{}");
-      if (storedParams && typeof storedParams === "object") {
-        setPricingParameters(storedParams);
+      const allDataKey = `pricingParamsAll_${industry}`;
+      const storedData = JSON.parse(localStorage.getItem(allDataKey) || "{}");
+      if (storedData && typeof storedData === "object") {
+        setPricingParameters(storedData);
       }
     } catch {
       // ignore
     }
-  }, []);
+  }, [industry]);
 
   // Load extras from localStorage
   useEffect(() => {
     try {
-      const storedExtras = JSON.parse(localStorage.getItem("extras") || "[]");
+      const extrasKey = `extras_${industry}`;
+      const storedExtras = JSON.parse(localStorage.getItem(extrasKey) || "[]");
       if (Array.isArray(storedExtras)) {
-        setAvailableExtras(storedExtras);
+        setAvailableExtras(storedExtras.map((e: any) => ({ id: e.id, name: e.name })));
       }
     } catch {
       // ignore
     }
-  }, []);
+  }, [industry]);
 
   // Load frequencies from localStorage
   useEffect(() => {
@@ -299,6 +323,8 @@ export default function ServiceCategoryNewPage() {
           display: existing.display || "customer_frontend_backend_admin",
           displayServiceLengthCustomer: existing.displayServiceLengthCustomer || "admin_only",
           displayServiceLengthProvider: existing.displayServiceLengthProvider || false,
+          canCustomerEditService: existing.canCustomerEditService || false,
+          serviceFeeEnabled: existing.serviceFeeEnabled || false,
           expeditedCharge: existing.expeditedCharge || {
             enabled: false,
             amount: "",
@@ -311,9 +337,11 @@ export default function ServiceCategoryNewPage() {
             fee: "",
             currency: "$",
             payProvider: false,
+            providerFee: "",
+            providerCurrency: "$",
             chargeTiming: 'beforeDay',
-            beforeDayTime: "18:00",
-            hoursBefore: "01"
+            beforeDayTime: "",
+            hoursBefore: ""
           },
           hourlyService: existing.hourlyService || {
             enabled: false,
@@ -362,8 +390,152 @@ export default function ServiceCategoryNewPage() {
     }
   }, [editId, categories]);
 
+  // Real-time validation functions
+  const validateCancellationFee = (value: string) => {
+    if (form.cancellationFee.enabled && !value.trim()) {
+      setErrors(prev => ({ ...prev, cancellationFee: "Cancellation fee amount is required" }));
+    } else {
+      setErrors(prev => ({ ...prev, cancellationFee: undefined }));
+    }
+  };
+
+  const validateProviderFee = (value: string) => {
+    if (form.cancellationFee.payProvider && !value.trim()) {
+      setErrors(prev => ({ ...prev, providerFee: "Provider fee amount is required" }));
+    } else {
+      setErrors(prev => ({ ...prev, providerFee: undefined }));
+    }
+  };
+
+  const validateBeforeDayTime = (value: string) => {
+    if (form.cancellationFee.enabled && form.cancellationFee.chargeTiming === 'beforeDay' && !value.trim()) {
+      setErrors(prev => ({ ...prev, beforeDayTime: "Time is required" }));
+    } else {
+      setErrors(prev => ({ ...prev, beforeDayTime: undefined }));
+    }
+  };
+
+  const validateHoursBefore = (value: string) => {
+    if (form.cancellationFee.enabled && form.cancellationFee.chargeTiming === 'hoursBefore' && !value.trim()) {
+      setErrors(prev => ({ ...prev, hoursBefore: "Hours is required" }));
+    } else {
+      setErrors(prev => ({ ...prev, hoursBefore: undefined }));
+    }
+  };
+
+  const validateExpeditedCharge = (value: string) => {
+    if (form.expeditedCharge.enabled && !value.trim()) {
+      setErrors(prev => ({ ...prev, expeditedCharge: "Expedited charge amount is required" }));
+    } else {
+      setErrors(prev => ({ ...prev, expeditedCharge: undefined }));
+    }
+  };
+
+  const validateHourlyService = (value: string) => {
+    if (form.hourlyService.enabled && !value.trim()) {
+      setErrors(prev => ({ ...prev, hourlyService: "Hourly service price is required" }));
+    } else {
+      setErrors(prev => ({ ...prev, hourlyService: undefined }));
+    }
+  };
+
+  const validateServiceCategoryPrice = (value: string) => {
+    if (form.serviceCategoryPrice.enabled && !value.trim()) {
+      setErrors(prev => ({ ...prev, serviceCategoryPrice: "Service category price is required" }));
+    } else {
+      setErrors(prev => ({ ...prev, serviceCategoryPrice: undefined }));
+    }
+  };
+
+  const validateServiceCategoryTime = (hours: string, minutes: string) => {
+    if (form.serviceCategoryTime.enabled && !hours.trim() && !minutes.trim()) {
+      setErrors(prev => ({ ...prev, serviceCategoryTime: "Hours or minutes is required" }));
+    } else {
+      setErrors(prev => ({ ...prev, serviceCategoryTime: undefined }));
+    }
+  };
+
+  const validateMinimumPrice = (value: string) => {
+    if (form.minimumPrice.enabled && !value.trim()) {
+      setErrors(prev => ({ ...prev, minimumPrice: "Minimum price is required" }));
+    } else {
+      setErrors(prev => ({ ...prev, minimumPrice: undefined }));
+    }
+  };
+
+  const validateOverrideProviderPay = (value: string) => {
+    if (form.overrideProviderPay.enabled && !value.trim()) {
+      setErrors(prev => ({ ...prev, overrideProviderPay: "Override provider pay amount is required" }));
+    } else {
+      setErrors(prev => ({ ...prev, overrideProviderPay: undefined }));
+    }
+  };
+
   const save = () => {
-    if (!form.name.trim()) return;
+    if (!form.name.trim()) {
+      alert("Service category name is required");
+      return;
+    }
+
+    // Validation for cancellation fee
+    if (form.cancellationFee.enabled && !form.cancellationFee.fee.trim()) {
+      alert("Cancellation fee amount is required when cancellation fee is enabled");
+      return;
+    }
+
+    // Validation for provider fee
+    if (form.cancellationFee.payProvider && !form.cancellationFee.providerFee.trim()) {
+      alert("Provider fee amount is required when paying provider is enabled");
+      return;
+    }
+
+    // Validation for charge timing
+    if (form.cancellationFee.enabled) {
+      if (form.cancellationFee.chargeTiming === 'beforeDay' && !form.cancellationFee.beforeDayTime.trim()) {
+        alert("Time is required when 'If they cancel after' option is selected");
+        return;
+      }
+      if (form.cancellationFee.chargeTiming === 'hoursBefore' && !form.cancellationFee.hoursBefore.trim()) {
+        alert("Hours is required when 'If they cancel' option is selected");
+        return;
+      }
+    }
+
+    // Validation for expedited charge
+    if (form.expeditedCharge.enabled && !form.expeditedCharge.amount.trim()) {
+      alert("Expedited charge amount is required when expedited charge is enabled");
+      return;
+    }
+
+    // Validation for hourly service
+    if (form.hourlyService.enabled && !form.hourlyService.price.trim()) {
+      alert("Hourly service price is required when hourly service is enabled");
+      return;
+    }
+
+    // Validation for service category price
+    if (form.serviceCategoryPrice.enabled && !form.serviceCategoryPrice.price.trim()) {
+      alert("Service category price is required when price is enabled");
+      return;
+    }
+
+    // Validation for service category time
+    if (form.serviceCategoryTime.enabled && (!form.serviceCategoryTime.hours.trim() && !form.serviceCategoryTime.minutes.trim())) {
+      alert("Hours or minutes is required when service time is enabled");
+      return;
+    }
+
+    // Validation for minimum price
+    if (form.minimumPrice.enabled && !form.minimumPrice.price.trim()) {
+      alert("Minimum price is required when minimum price is enabled");
+      return;
+    }
+
+    // Validation for override provider pay
+    if (form.overrideProviderPay.enabled && !form.overrideProviderPay.amount.trim()) {
+      alert("Override provider pay amount is required when override is enabled");
+      return;
+    }
 
     let updatedCategories: ServiceCategory[];
     
@@ -382,6 +554,8 @@ export default function ServiceCategoryNewPage() {
         display: form.display,
         displayServiceLengthCustomer: form.displayServiceLengthCustomer,
         displayServiceLengthProvider: form.displayServiceLengthProvider,
+        canCustomerEditService: form.canCustomerEditService,
+        serviceFeeEnabled: form.serviceFeeEnabled,
         expeditedCharge: form.expeditedCharge,
         cancellationFee: form.cancellationFee,
         hourlyService: form.hourlyService,
@@ -407,9 +581,11 @@ export default function ServiceCategoryNewPage() {
           fee: "",
           currency: "$",
           payProvider: false,
+          providerFee: "",
+          providerCurrency: "$",
           chargeTiming: 'beforeDay' as const,
-          beforeDayTime: "18:00",
-          hoursBefore: "01"
+          beforeDayTime: "",
+          hoursBefore: ""
         },
         hourlyService: c.hourlyService || {
           enabled: false,
@@ -470,6 +646,8 @@ export default function ServiceCategoryNewPage() {
         display: form.display,
         displayServiceLengthCustomer: form.displayServiceLengthCustomer,
         displayServiceLengthProvider: form.displayServiceLengthProvider,
+        canCustomerEditService: form.canCustomerEditService,
+        serviceFeeEnabled: form.serviceFeeEnabled,
         expeditedCharge: form.expeditedCharge,
         cancellationFee: form.cancellationFee,
         hourlyService: form.hourlyService,
@@ -579,16 +757,52 @@ export default function ServiceCategoryNewPage() {
                   <h4 className="text-sm font-medium">Display service length on provider end</h4>
                   <Info className="h-4 w-4 text-muted-foreground" />
                 </div>
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id="display-service-length-provider"
-                    checked={form.displayServiceLengthProvider}
-                    onCheckedChange={(checked) => setForm(p => ({ ...p, displayServiceLengthProvider: checked }))}
-                  />
-                  <Label htmlFor="display-service-length-provider" className="text-sm">
-                    Enable service length display for providers
-                  </Label>
-                </div>
+                <RadioGroup
+                  value={form.displayServiceLengthProvider ? "yes" : "no"}
+                  onValueChange={(value) => setForm(p => ({ ...p, displayServiceLengthProvider: value === "yes" }))}
+                  className="grid gap-2"
+                >
+                  <label className="flex items-center gap-2 text-sm">
+                    <RadioGroupItem value="yes" /> Yes
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <RadioGroupItem value="no" /> No
+                  </label>
+                </RadioGroup>
+              </div>
+
+              {/* Can Customer Edit Service */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium">Can customer edit this service?</h4>
+                <RadioGroup
+                  value={form.canCustomerEditService ? "yes" : "no"}
+                  onValueChange={(value) => setForm(p => ({ ...p, canCustomerEditService: value === "yes" }))}
+                  className="grid gap-2"
+                >
+                  <label className="flex items-center gap-2 text-sm">
+                    <RadioGroupItem value="yes" /> Yes
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <RadioGroupItem value="no" /> No
+                  </label>
+                </RadioGroup>
+              </div>
+
+              {/* Service Fee */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium">Will you charge a service fee for this service category?</h4>
+                <RadioGroup
+                  value={form.serviceFeeEnabled ? "yes" : "no"}
+                  onValueChange={(value) => setForm(p => ({ ...p, serviceFeeEnabled: value === "yes" }))}
+                  className="grid gap-2"
+                >
+                  <label className="flex items-center gap-2 text-sm">
+                    <RadioGroupItem value="yes" /> Yes
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <RadioGroupItem value="no" /> No
+                  </label>
+                </RadioGroup>
               </div>
 
               {/* Expedited Charge */}
@@ -612,35 +826,27 @@ export default function ServiceCategoryNewPage() {
                     <div className="ml-6 space-y-3">
                       <div className="space-y-2">
                         <Label htmlFor="expedited-amount" className="text-sm">Amount</Label>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 items-center">
                           <Input
                             id="expedited-amount"
                             type="number"
                             placeholder="0.00"
                             value={form.expeditedCharge.amount}
-                            onChange={(e) => setForm(p => ({ 
-                              ...p, 
-                              expeditedCharge: { ...p.expeditedCharge, amount: e.target.value }
-                            }))}
-                            className="w-24"
+                            onChange={(e) => {
+                              setForm(p => ({ 
+                                ...p, 
+                                expeditedCharge: { ...p.expeditedCharge, amount: e.target.value }
+                              }));
+                              validateExpeditedCharge(e.target.value);
+                            }}
+                            onBlur={(e) => validateExpeditedCharge(e.target.value)}
+                            className={`w-24 ${errors.expeditedCharge ? 'border-red-500' : ''}`}
                           />
-                          <Select
-                            value={form.expeditedCharge.currency}
-                            onValueChange={(value) => setForm(p => ({ 
-                              ...p, 
-                              expeditedCharge: { ...p.expeditedCharge, currency: value }
-                            }))}
-                          >
-                            <SelectTrigger className="w-16">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="$">$</SelectItem>
-                              <SelectItem value="£">£</SelectItem>
-                              <SelectItem value="€">€</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          <span className="text-sm font-medium">$</span>
                         </div>
+                        {errors.expeditedCharge && (
+                          <p className="text-red-700 dark:text-red-400 text-xs font-semibold">{errors.expeditedCharge}</p>
+                        )}
                       </div>
                       
                       <div className="space-y-2">
@@ -701,17 +907,21 @@ export default function ServiceCategoryNewPage() {
                     {/* Fee Amount */}
                     <div className="space-y-2">
                       <Label htmlFor="cancellation-fee-amount" className="text-sm">Cancellation fee</Label>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 items-center">
                         <Input
                           id="cancellation-fee-amount"
                           type="number"
                           placeholder="50.00"
                           value={form.cancellationFee.fee}
-                          onChange={(e) => setForm(p => ({ 
-                            ...p, 
-                            cancellationFee: { ...p.cancellationFee, fee: e.target.value }
-                          }))}
-                          className="w-24"
+                          onChange={(e) => {
+                            setForm(p => ({ 
+                              ...p, 
+                              cancellationFee: { ...p.cancellationFee, fee: e.target.value }
+                            }));
+                            validateCancellationFee(e.target.value);
+                          }}
+                          onBlur={(e) => validateCancellationFee(e.target.value)}
+                          className={`w-24 ${errors.cancellationFee ? 'border-red-500' : ''}`}
                         />
                         <Select
                           value={form.cancellationFee.currency}
@@ -725,11 +935,13 @@ export default function ServiceCategoryNewPage() {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="$">$</SelectItem>
-                            <SelectItem value="£">£</SelectItem>
-                            <SelectItem value="€">€</SelectItem>
+                            <SelectItem value="%">%</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
+                      {errors.cancellationFee && (
+                        <p className="text-red-700 dark:text-red-400 text-xs font-semibold">{errors.cancellationFee}</p>
+                      )}
                     </div>
 
                     {/* Pay Provider */}
@@ -750,6 +962,48 @@ export default function ServiceCategoryNewPage() {
                       </div>
                     </div>
 
+                    {/* Provider Fee Amount - Only show when payProvider is enabled */}
+                    {form.cancellationFee.payProvider && (
+                      <div className="space-y-2">
+                        <Label htmlFor="provider-fee-amount" className="text-sm">Provider fee amount</Label>
+                        <div className="flex gap-2 items-center">
+                          <Input
+                            id="provider-fee-amount"
+                            type="number"
+                            placeholder="0.00"
+                            value={form.cancellationFee.providerFee}
+                            onChange={(e) => {
+                              setForm(p => ({ 
+                                ...p, 
+                                cancellationFee: { ...p.cancellationFee, providerFee: e.target.value }
+                              }));
+                              validateProviderFee(e.target.value);
+                            }}
+                            onBlur={(e) => validateProviderFee(e.target.value)}
+                            className={`w-24 ${errors.providerFee ? 'border-red-500' : ''}`}
+                          />
+                          <Select
+                            value={form.cancellationFee.providerCurrency}
+                            onValueChange={(value) => setForm(p => ({ 
+                              ...p, 
+                              cancellationFee: { ...p.cancellationFee, providerCurrency: value }
+                            }))}
+                          >
+                            <SelectTrigger className="w-16">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="$">$</SelectItem>
+                              <SelectItem value="%">%</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        {errors.providerFee && (
+                          <p className="text-red-700 dark:text-red-400 text-xs font-semibold">{errors.providerFee}</p>
+                        )}
+                      </div>
+                    )}
+
                     {/* Charge Timing */}
                     <div className="space-y-2">
                       <Label className="text-sm">When will your customers be charged a cancellation fee?</Label>
@@ -767,14 +1021,21 @@ export default function ServiceCategoryNewPage() {
                           <Input
                             type="time"
                             value={form.cancellationFee.beforeDayTime}
-                            onChange={(e) => setForm(p => ({ 
-                              ...p, 
-                              cancellationFee: { ...p.cancellationFee, beforeDayTime: e.target.value }
-                            }))}
-                            className="w-20 h-8"
+                            onChange={(e) => {
+                              setForm(p => ({ 
+                                ...p, 
+                                cancellationFee: { ...p.cancellationFee, beforeDayTime: e.target.value }
+                              }));
+                              validateBeforeDayTime(e.target.value);
+                            }}
+                            onBlur={(e) => validateBeforeDayTime(e.target.value)}
+                            className={`w-32 h-8 ${errors.beforeDayTime ? 'border-red-500' : ''}`}
                           />
                           the day before the job.
                         </label>
+                        {errors.beforeDayTime && (
+                          <p className="text-red-700 dark:text-red-400 text-xs ml-6 font-semibold">{errors.beforeDayTime}</p>
+                        )}
                         <label className="flex items-center gap-2 text-sm">
                           <RadioGroupItem value="hoursBefore" />
                           If they cancel: 
@@ -783,14 +1044,21 @@ export default function ServiceCategoryNewPage() {
                             min="1"
                             max="24"
                             value={form.cancellationFee.hoursBefore}
-                            onChange={(e) => setForm(p => ({ 
-                              ...p, 
-                              cancellationFee: { ...p.cancellationFee, hoursBefore: e.target.value }
-                            }))}
-                            className="w-16 h-8"
+                            onChange={(e) => {
+                              setForm(p => ({ 
+                                ...p, 
+                                cancellationFee: { ...p.cancellationFee, hoursBefore: e.target.value }
+                              }));
+                              validateHoursBefore(e.target.value);
+                            }}
+                            onBlur={(e) => validateHoursBefore(e.target.value)}
+                            className={`w-16 h-8 ${errors.hoursBefore ? 'border-red-500' : ''}`}
                           />
                           Hours before the job.
                         </label>
+                        {errors.hoursBefore && (
+                          <p className="text-red-700 dark:text-red-400 text-xs ml-6 font-semibold">{errors.hoursBefore}</p>
+                        )}
                       </RadioGroup>
                     </div>
                   </div>
@@ -822,13 +1090,20 @@ export default function ServiceCategoryNewPage() {
                         type="number"
                         placeholder="0.00"
                         value={form.serviceCategoryPrice.price}
-                        onChange={(e) => setForm(p => ({
-                          ...p,
-                          serviceCategoryPrice: { ...p.serviceCategoryPrice, price: e.target.value }
-                        }))}
-                        className="w-24"
+                        onChange={(e) => {
+                          setForm(p => ({
+                            ...p,
+                            serviceCategoryPrice: { ...p.serviceCategoryPrice, price: e.target.value }
+                          }));
+                          validateServiceCategoryPrice(e.target.value);
+                        }}
+                        onBlur={(e) => validateServiceCategoryPrice(e.target.value)}
+                        className={`w-24 ${errors.serviceCategoryPrice ? 'border-red-500' : ''}`}
                       />
                     </div>
+                    {errors.serviceCategoryPrice && (
+                      <p className="text-red-500 dark:text-red-400 text-xs font-medium">{errors.serviceCategoryPrice}</p>
+                    )}
                   </div>
                 )}
               </div>
@@ -851,7 +1126,7 @@ export default function ServiceCategoryNewPage() {
                 
                 {form.serviceCategoryTime.enabled && (
                   <div className="ml-6 space-y-2">
-                    <div className="text-xs text-red-600 mb-2">
+                    <div className="text-xs text-red-500 mb-2">
                       Note: This option will not work in case of hourly service (custom time based).
                     </div>
                     <div className="flex gap-2 items-center">
@@ -859,12 +1134,15 @@ export default function ServiceCategoryNewPage() {
                         <Label className="text-xs">Hours</Label>
                         <Select
                           value={form.serviceCategoryTime.hours}
-                          onValueChange={(value) => setForm(p => ({
-                            ...p,
-                            serviceCategoryTime: { ...p.serviceCategoryTime, hours: value }
-                          }))}
+                          onValueChange={(value) => {
+                            setForm(p => ({
+                              ...p,
+                              serviceCategoryTime: { ...p.serviceCategoryTime, hours: value }
+                            }));
+                            validateServiceCategoryTime(value, form.serviceCategoryTime.minutes);
+                          }}
                         >
-                          <SelectTrigger className="w-20">
+                          <SelectTrigger className={`w-20 ${errors.serviceCategoryTime ? 'border-red-500' : ''}`}>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -881,12 +1159,15 @@ export default function ServiceCategoryNewPage() {
                         <Label className="text-xs">Minutes</Label>
                         <Select
                           value={form.serviceCategoryTime.minutes}
-                          onValueChange={(value) => setForm(p => ({
-                            ...p,
-                            serviceCategoryTime: { ...p.serviceCategoryTime, minutes: value }
-                          }))}
+                          onValueChange={(value) => {
+                            setForm(p => ({
+                              ...p,
+                              serviceCategoryTime: { ...p.serviceCategoryTime, minutes: value }
+                            }));
+                            validateServiceCategoryTime(form.serviceCategoryTime.hours, value);
+                          }}
                         >
-                          <SelectTrigger className="w-20">
+                          <SelectTrigger className={`w-20 ${errors.serviceCategoryTime ? 'border-red-500' : ''}`}>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -899,6 +1180,9 @@ export default function ServiceCategoryNewPage() {
                         </Select>
                       </div>
                     </div>
+                    {errors.serviceCategoryTime && (
+                          <p className="text-red-700 dark:text-red-400 text-xs font-semibold">{errors.serviceCategoryTime}</p>
+                        )}
                   </div>
                 )}
               </div>
@@ -953,13 +1237,20 @@ export default function ServiceCategoryNewPage() {
                           type="number"
                           placeholder="0.00"
                           value={form.minimumPrice.price}
-                          onChange={(e) => setForm(p => ({
-                            ...p,
-                            minimumPrice: { ...p.minimumPrice, price: e.target.value }
-                          }))}
-                          className="w-24"
+                          onChange={(e) => {
+                            setForm(p => ({
+                              ...p,
+                              minimumPrice: { ...p.minimumPrice, price: e.target.value }
+                            }));
+                            validateMinimumPrice(e.target.value);
+                          }}
+                          onBlur={(e) => validateMinimumPrice(e.target.value)}
+                          className={`w-24 ${errors.minimumPrice ? 'border-red-500' : ''}`}
                         />
                       </div>
+                      {errors.minimumPrice && (
+                        <p className="text-red-500 dark:text-red-400 text-xs font-medium">{errors.minimumPrice}</p>
+                      )}
                     </div>
 
                     {/* Check Recurring Schedule */}
@@ -1038,13 +1329,20 @@ export default function ServiceCategoryNewPage() {
                         type="number"
                         placeholder="0.00"
                         value={form.overrideProviderPay.amount}
-                        onChange={(e) => setForm(p => ({
-                          ...p,
-                          overrideProviderPay: { ...p.overrideProviderPay, amount: e.target.value }
-                        }))}
-                        className="w-24"
+                        onChange={(e) => {
+                          setForm(p => ({
+                            ...p,
+                            overrideProviderPay: { ...p.overrideProviderPay, amount: e.target.value }
+                          }));
+                          validateOverrideProviderPay(e.target.value);
+                        }}
+                        onBlur={(e) => validateOverrideProviderPay(e.target.value)}
+                        className={`w-24 ${errors.overrideProviderPay ? 'border-red-500' : ''}`}
                       />
                     </div>
+                    {errors.overrideProviderPay && (
+                      <p className="text-red-700 dark:text-red-400 text-xs font-semibold">{errors.overrideProviderPay}</p>
+                    )}
                   </div>
                 )}
               </div>
@@ -1080,35 +1378,27 @@ export default function ServiceCategoryNewPage() {
                         <Info className="h-4 w-4 text-muted-foreground" />
                       </div>
                       <div className="flex gap-2 items-center">
-                        <Select
-                          value={form.hourlyService.currency}
-                          onValueChange={(value) => setForm(p => ({
-                            ...p,
-                            hourlyService: { ...p.hourlyService, currency: value }
-                          }))}
-                        >
-                          <SelectTrigger className="w-16">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="$">$</SelectItem>
-                            <SelectItem value="£">£</SelectItem>
-                            <SelectItem value="€">€</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <span className="text-sm font-medium">$</span>
                         <Input
                           id="hourly-price-amount"
                           type="number"
                           placeholder="50.00"
                           value={form.hourlyService.price}
-                          onChange={(e) => setForm(p => ({
-                            ...p,
-                            hourlyService: { ...p.hourlyService, price: e.target.value }
-                          }))}
-                          className="w-24"
+                          onChange={(e) => {
+                            setForm(p => ({
+                              ...p,
+                              hourlyService: { ...p.hourlyService, price: e.target.value }
+                            }));
+                            validateHourlyService(e.target.value);
+                          }}
+                          onBlur={(e) => validateHourlyService(e.target.value)}
+                          className={`w-24 ${errors.hourlyService ? 'border-red-500' : ''}`}
                         />
-                        <span className="text-sm">/Hr</span>
+                        <span className="text-sm text-muted-foreground">/Hr</span>
                       </div>
+                      {errors.hourlyService && (
+                        <p className="text-red-500 dark:text-red-400 text-xs font-medium">{errors.hourlyService}</p>
+                      )}
                     </div>
 
                     {/* Calculate price based on custom time or pricing parameters time? */}
@@ -1135,27 +1425,29 @@ export default function ServiceCategoryNewPage() {
                     </div>
 
                     {/* Count extras as a separate charge? */}
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Label className="text-sm">Would you like to count extras as a separate charge?</Label>
-                        <Info className="h-4 w-4 text-muted-foreground" />
+                    {form.hourlyService.priceCalculationType === 'customTime' && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Label className="text-sm">Would you like to count extras as a separate charge?</Label>
+                          <Info className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <RadioGroup
+                          value={form.hourlyService.countExtrasSeparately ? "yes" : "no"}
+                          onValueChange={(value) => setForm(p => ({
+                            ...p,
+                            hourlyService: { ...p.hourlyService, countExtrasSeparately: value === "yes" ? true : false }
+                          }))}
+                          className="grid gap-2"
+                        >
+                          <label className="flex items-center gap-2 text-sm">
+                            <RadioGroupItem value="yes" /> Yes
+                          </label>
+                          <label className="flex items-center gap-2 text-sm">
+                            <RadioGroupItem value="no" /> No
+                          </label>
+                        </RadioGroup>
                       </div>
-                      <RadioGroup
-                        value={form.hourlyService.countExtrasSeparately ? "yes" : "no"}
-                        onValueChange={(value) => setForm(p => ({
-                          ...p,
-                          hourlyService: { ...p.hourlyService, countExtrasSeparately: value === "yes" ? true : false }
-                        }))}
-                        className="grid gap-2"
-                      >
-                        <label className="flex items-center gap-2 text-sm">
-                          <RadioGroupItem value="yes" /> Yes
-                        </label>
-                        <label className="flex items-center gap-2 text-sm">
-                          <RadioGroupItem value="no" /> No
-                        </label>
-                      </RadioGroup>
-                    </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1197,7 +1489,7 @@ export default function ServiceCategoryNewPage() {
                             ...p,
                             extrasConfig: {
                               ...p.extrasConfig,
-                              tip: { ...p.extrasConfig.tip, saveTo: value as 'all' | 'booking' | 'service' }
+                              tip: { ...p.extrasConfig.tip, saveTo: value as 'all' | 'first' }
                             }
                           }))}
                         >
@@ -1206,8 +1498,7 @@ export default function ServiceCategoryNewPage() {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="all">All</SelectItem>
-                            <SelectItem value="booking">Booking(s)</SelectItem>
-                            <SelectItem value="service">Service(s)</SelectItem>
+                            <SelectItem value="first">First</SelectItem>
                           </SelectContent>
                         </Select>
                         <p className="text-sm text-muted-foreground">Booking(s)</p>
@@ -1274,7 +1565,7 @@ export default function ServiceCategoryNewPage() {
                             ...p,
                             extrasConfig: {
                               ...p.extrasConfig,
-                              parking: { ...p.extrasConfig.parking, saveTo: value as 'all' | 'booking' | 'service' }
+                              parking: { ...p.extrasConfig.parking, saveTo: value as 'all' | 'first' }
                             }
                           }))}
                         >
@@ -1283,8 +1574,7 @@ export default function ServiceCategoryNewPage() {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="all">All</SelectItem>
-                            <SelectItem value="booking">Booking(s)</SelectItem>
-                            <SelectItem value="service">Service(s)</SelectItem>
+                            <SelectItem value="first">First</SelectItem>
                           </SelectContent>
                         </Select>
                         <p className="text-sm text-muted-foreground">Booking(s)</p>
@@ -1391,78 +1681,88 @@ export default function ServiceCategoryNewPage() {
 
                 {/* Variables */}
                 <div className="space-y-4">
-                  <h4 className="text-sm font-medium">Variables</h4>
+                  <div>
+                    <h4 className="text-sm font-medium">Variables</h4>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Select which variable(s) will display for this service category. Any variables that have not been checked off in this section will not display when this service category is selected on the booking form.
+                    </p>
+                  </div>
                   
-                  {Object.entries(pricingParameters).map(([paramName, options]) => (
-                    <div key={paramName} className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Checkbox
-                          id={`select-all-${paramName}`}
-                          checked={form.variables[paramName]?.length === options.length && options.length > 0}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setForm(p => ({
-                                ...p,
-                                variables: {
-                                  ...p.variables,
-                                  [paramName]: options
-                                }
-                              }));
-                            } else {
-                              setForm(p => ({
-                                ...p,
-                                variables: {
-                                  ...p.variables,
-                                  [paramName]: []
-                                }
-                              }));
-                            }
-                          }}
-                        />
-                        <Label htmlFor={`select-all-${paramName}`} className="text-sm font-medium cursor-pointer">
-                          Select All {paramName.charAt(0).toUpperCase() + paramName.slice(1)}
-                        </Label>
-                      </div>
-                      <div className="ml-6 space-y-2">
-                        {options.map((option, index) => (
-                          <div key={index} className="flex items-center gap-2">
-                            <Checkbox
-                              id={`${paramName}-${index}`}
-                              checked={form.variables[paramName]?.includes(option) || false}
-                              onCheckedChange={(checked) => {
-                                const currentSelections = form.variables[paramName] || [];
-                                if (checked) {
-                                  setForm(p => ({
-                                    ...p,
-                                    variables: {
-                                      ...p.variables,
-                                      [paramName]: [...currentSelections, option]
-                                    }
-                                  }));
-                                } else {
-                                  setForm(p => ({
-                                    ...p,
-                                    variables: {
-                                      ...p.variables,
-                                      [paramName]: currentSelections.filter(item => item !== option)
-                                    }
-                                  }));
-                                }
-                              }}
-                            />
-                            <Label htmlFor={`${paramName}-${index}`} className="text-sm font-normal cursor-pointer">
-                              {option}
-                            </Label>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                  
-                  {Object.keys(pricingParameters).length === 0 && (
+                  {Object.keys(pricingParameters).length === 0 ? (
                     <p className="text-sm text-muted-foreground italic">
                       No pricing parameters added yet. Add pricing parameters from the Pricing section.
                     </p>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* Group variables by category */}
+                      {['Bathroom', 'Sq Ft', 'Bedroom'].map(category => {
+                        const categoryParams = pricingParameters[category] || [];
+                        if (categoryParams.length === 0) return null;
+                        
+                        return (
+                          <div key={category} className="space-y-2">
+                            <h4 className="text-sm font-semibold">{category}</h4>
+                            <div className="flex items-center gap-2">
+                              <Checkbox
+                                id={`select-all-service-${category.toLowerCase().replace(' ', '-')}`}
+                                checked={form.variables[category]?.length === categoryParams.length && categoryParams.length > 0}
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    setForm(p => ({
+                                      ...p,
+                                      variables: {
+                                        ...p.variables,
+                                        [category]: categoryParams.map(param => param.name)
+                                      }
+                                    }));
+                                  } else {
+                                    setForm(p => ({
+                                      ...p,
+                                      variables: {
+                                        ...p.variables,
+                                        [category]: []
+                                      }
+                                    }));
+                                  }
+                                }}
+                              />
+                              <Label htmlFor={`select-all-service-${category.toLowerCase().replace(' ', '-')}`} className="text-sm cursor-pointer">Select All</Label>
+                            </div>
+                            <div className="grid grid-cols-4 gap-2">
+                              {categoryParams.map((param) => (
+                                <div key={param.id} className="flex items-center gap-2">
+                                  <Checkbox
+                                    id={`service-variable-${param.id}`}
+                                    checked={form.variables[category]?.includes(param.name) || false}
+                                    onCheckedChange={(checked) => {
+                                      const currentSelections = form.variables[category] || [];
+                                      if (checked) {
+                                        setForm(p => ({
+                                          ...p,
+                                          variables: {
+                                            ...p.variables,
+                                            [category]: [...currentSelections, param.name]
+                                          }
+                                        }));
+                                      } else {
+                                        setForm(p => ({
+                                          ...p,
+                                          variables: {
+                                            ...p.variables,
+                                            [category]: currentSelections.filter(item => item !== param.name)
+                                          }
+                                        }));
+                                      }
+                                    }}
+                                  />
+                                  <Label htmlFor={`service-variable-${param.id}`} className="text-sm cursor-pointer">{param.name}</Label>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
 
@@ -1521,7 +1821,7 @@ export default function ServiceCategoryNewPage() {
                         checked={form.extras.length === availableExtras.length && availableExtras.length > 0}
                         onCheckedChange={(checked) => {
                           if (checked) {
-                            setForm(p => ({ ...p, extras: availableExtras }));
+                            setForm(p => ({ ...p, extras: availableExtras.map(e => e.id) }));
                           } else {
                             setForm(p => ({ ...p, extras: [] }));
                           }
@@ -1529,21 +1829,21 @@ export default function ServiceCategoryNewPage() {
                       />
                       <Label htmlFor="select-all-extras" className="text-sm font-medium cursor-pointer">Select All</Label>
                     </div>
-                    {availableExtras.map((extra, index) => (
-                      <div key={index} className="flex items-center gap-2 ml-6">
+                    {availableExtras.map((extra) => (
+                      <div key={extra.id} className="flex items-center gap-2 ml-6">
                         <Checkbox
-                          id={`extra-${index}`}
-                          checked={form.extras.includes(extra)}
+                          id={`extra-${extra.id}`}
+                          checked={form.extras.includes(extra.id)}
                           onCheckedChange={(checked) => {
                             if (checked) {
-                              setForm(p => ({ ...p, extras: [...p.extras, extra] }));
+                              setForm(p => ({ ...p, extras: [...p.extras, extra.id] }));
                             } else {
-                              setForm(p => ({ ...p, extras: p.extras.filter(e => e !== extra) }));
+                              setForm(p => ({ ...p, extras: p.extras.filter(e => e !== extra.id) }));
                             }
                           }}
                         />
-                        <Label htmlFor={`extra-${index}`} className="text-sm font-normal cursor-pointer">
-                          {extra}
+                        <Label htmlFor={`extra-${extra.id}`} className="text-sm font-normal cursor-pointer">
+                          {extra.name}
                         </Label>
                       </div>
                     ))}

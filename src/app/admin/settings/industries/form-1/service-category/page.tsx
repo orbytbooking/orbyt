@@ -142,14 +142,13 @@ export default function IndustryFormServiceCategoryPage() {
                   <TableHead>Display</TableHead>
                   <TableHead>Frequency</TableHead>
                   <TableHead>Extras</TableHead>
-                  <TableHead>ID</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {categories.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">No data. Click Add New to create a category.</TableCell>
+                    <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">No data. Click Add New to create a category.</TableCell>
                   </TableRow>
                 )}
                 {categories.map((category) => (
@@ -175,7 +174,6 @@ export default function IndustryFormServiceCategoryPage() {
                         return enabledExtras.length > 0 ? enabledExtras.join(", ") : "-";
                       })()}
                     </TableCell>
-                    <TableCell>{category.id}</TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
