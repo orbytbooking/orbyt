@@ -44,6 +44,7 @@ import { useLogo } from "@/contexts/LogoContext";
 import defaultLogo from "@/assets/orbit.png";
 import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
 import { supabase } from "@/lib/supabaseClient";
+import { useBusiness } from "@/contexts/BusinessContext";
 
 const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -53,6 +54,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   const { config } = useWebsiteConfig();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { currentBusiness } = useBusiness();
   const isSettingsPath = pathname?.startsWith("/admin/settings") ?? false;
   const [settingsOpen, setSettingsOpen] = useState(isSettingsPath);
   const isAccountPath = pathname?.startsWith("/admin/settings/account") ?? false;
@@ -82,13 +84,30 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
     setAdminEmail(email);
     const savedTheme = localStorage.getItem("adminTheme") as 'light' | 'dark' || 'dark';
     setTheme(savedTheme);
-    try {
-      const stored = JSON.parse(localStorage.getItem("industries") || "[]");
-      if (Array.isArray(stored)) setIndustries(stored);
-    } catch {
-      // ignore
-    }
   }, []);
+
+  // Fetch industries from database
+  useEffect(() => {
+    if (currentBusiness) {
+      fetchIndustries();
+    }
+  }, [currentBusiness]);
+
+  const fetchIndustries = async () => {
+    if (!currentBusiness) return;
+    
+    try {
+      const response = await fetch(`/api/industries?business_id=${currentBusiness.id}`);
+      const data = await response.json();
+      
+      if (response.ok) {
+        const industryNames = data.industries?.map((industry: any) => industry.name) || [];
+        setIndustries(industryNames);
+      }
+    } catch (error) {
+      console.error('Error fetching industries:', error);
+    }
+  };
 
   useEffect(() => {
     setSettingsOpen(isSettingsPath);
@@ -105,27 +124,6 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     setIndustriesOpen(isIndustriesPath);
   }, [isIndustriesPath]);
-
-  // keep industries state in sync with localStorage changes made on Industries page
-  useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === 'industries') {
-        try {
-          const v = JSON.parse(e.newValue || '[]');
-          if (Array.isArray(v)) setIndustries(v);
-        } catch {}
-      }
-    };
-    window.addEventListener('storage', onStorage);
-    const interval = setInterval(() => {
-      // poll as well because same-tab updates won't fire 'storage'
-      try {
-        const v = JSON.parse(localStorage.getItem('industries') || '[]');
-        if (Array.isArray(v)) setIndustries(v);
-      } catch {}
-    }, 1000);
-    return () => { window.removeEventListener('storage', onStorage); clearInterval(interval); };
-  }, []);
 
   const menuItems = [
     { 

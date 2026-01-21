@@ -19,10 +19,9 @@ interface ProviderForm {
   type: ProviderType;
   firstName: string;
   lastName: string;
-  address: string;
-  aptNo: string;
   email: string;
   phone: string;
+  address: string;
   sendEmailNotification: boolean;
 }
 
@@ -30,10 +29,9 @@ const createEmptyProviderForm = (): ProviderForm => ({
   type: "individual",
   firstName: "",
   lastName: "",
-  address: "",
-  aptNo: "",
   email: "",
   phone: "",
+  address: "",
   sendEmailNotification: false,
 });
 
@@ -111,8 +109,8 @@ export default function AddProviderPage() {
       }
 
       toast({
-        title: "Provider Account Created",
-        description: `${provider.firstName} ${provider.lastName} has been added successfully. Temporary password: ${result.tempPassword}`,
+        title: "Provider Invitation Sent",
+        description: `${provider.firstName} ${provider.lastName} has been invited successfully. They will receive an email to set up their account.`,
       });
 
       router.push("/admin/providers");
@@ -251,30 +249,19 @@ export default function AddProviderPage() {
             </div>
           </div>
 
-          {/* Address Fields */}
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            <div className="md:col-span-2 space-y-2">
-              <Label htmlFor="address">Address *</Label>
-              <Input
-                id="address"
-                placeholder="Enter street address"
-                value={provider.address}
-                onChange={(e) => setProvider({ ...provider, address: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="aptNo">Apt. No.</Label>
-              <Input
-                id="aptNo"
-                placeholder="Apt/Unit #"
-                value={provider.aptNo}
-                onChange={(e) => setProvider({ ...provider, aptNo: e.target.value })}
-              />
-            </div>
+          {/* Address Field */}
+          <div className="space-y-2">
+            <Label htmlFor="address">Full Address *</Label>
+            <Input
+              id="address"
+              placeholder="Enter complete address (street, city, state, zip, country)"
+              value={provider.address}
+              onChange={(e) => setProvider({ ...provider, address: e.target.value })}
+            />
           </div>
 
           {/* Contact Fields */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email Address *</Label>
               <Input
