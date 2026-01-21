@@ -43,42 +43,30 @@ function ProviderInviteContent() {
     try {
       setLoading(true);
       
-      // First, get the invitation without joining businesses
-      const { data: invitationData, error: invitationError } = await supabase
-        .from('provider_invitations')
-        .select('*')
-        .eq('invitation_token', invitationToken)
-        .eq('email', invitationEmail)
-        .eq('status', 'pending')
-        .single();
+      // Use API endpoint to validate invitation (bypasses RLS)
+      const response = await fetch(`/api/invitations/validate?token=${encodeURIComponent(invitationToken)}&email=${encodeURIComponent(invitationEmail)}`);
+      const data = await response.json();
 
-      if (invitationError) {
-        console.error('Invitation validation error:', invitationError);
+      if (!response.ok) {
+        console.error('Invitation validation error:', data.error);
         setInvitationValid(false);
         return;
       }
 
-      if (!invitationData) {
+      if (!data.valid || !data.invitation) {
         console.error('No invitation found');
         setInvitationValid(false);
         return;
       }
 
-      // Check if invitation has expired
-      const expiresAt = new Date(invitationData.expires_at);
-      const now = new Date();
+      setInvitationData(data.invitation);
+      setInvitationValid(true);
       
-      if (expiresAt < now) {
-        console.error('Invitation expired');
-        setInvitationValid(false);
-        return;
-      }
-
       // Get business name separately
       const { data: businessData, error: businessError } = await supabase
         .from('businesses')
         .select('name')
-        .eq('id', invitationData.business_id)
+        .eq('id', data.invitation.business_id)
         .single();
 
       if (businessError) {
@@ -89,7 +77,7 @@ function ProviderInviteContent() {
 
       // Set invitation data with business name
       setInvitationData({
-        ...invitationData,
+        ...data.invitation,
         businesses: {
           name: businessData.name
         }
