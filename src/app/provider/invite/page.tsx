@@ -62,23 +62,6 @@ function ProviderInviteContent() {
       setInvitationData(data.invitation);
       setInvitationValid(true);
       
-      // Get business name separately
-      const { data: businessData, error: businessError } = await supabase
-        .from('businesses')
-        .select('name')
-        .eq('id', data.invitation.business_id)
-        .single();
-
-      if (businessError) {
-        console.error('Business fetch error:', businessError);
-        setInvitationValid(false);
-        return;
-      }
-
-      // Set invitation data with business name
-      setInvitationData(data.invitation);
-      setInvitationValid(true);
-      
     } catch (error) {
       console.error('Validation error:', error);
       setInvitationValid(false);
@@ -248,7 +231,7 @@ function ProviderInviteContent() {
           </div>
           <CardTitle className="text-cyan-700">Set Up Your Provider Account</CardTitle>
           <p className="text-sm text-gray-600">
-            Welcome to {invitationData?.businesses?.name}!
+            Welcome to {invitationData?.business?.name}!
           </p>
         </CardHeader>
         <CardContent className="space-y-6">
