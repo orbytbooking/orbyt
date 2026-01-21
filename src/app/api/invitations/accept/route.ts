@@ -64,14 +64,11 @@ export async function POST(request: NextRequest) {
     // Create user directly in database first (bypass Supabase auth)
     console.log('Creating provider record directly...');
     
-    // Generate a UUID for the user
-    const userId = crypto.randomUUID();
-    
-    // Create provider record first
-    const { error: providerError } = await supabase
+    // Create provider record first with NULL user_id
+    const { data: providerData, error: providerError } = await supabase
       .from('service_providers')
       .insert({
-        user_id: userId,
+        user_id: null, // Will be updated later if auth user is created
         business_id: businessId,
         first_name: firstName,
         last_name: lastName,
@@ -83,7 +80,9 @@ export async function POST(request: NextRequest) {
         completed_jobs: 0,
         status: 'active',
         provider_type: providerType
-      });
+      })
+      .select('id')
+      .single();
 
     if (providerError) {
       console.error('Provider record creation error:', providerError);
@@ -93,7 +92,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('Provider record created successfully:', userId);
+    console.log('Provider record created successfully:', providerData.id);
+    const providerId = providerData.id;
 
     // Try to create Supabase auth user (if it fails, we still have the provider record)
     console.log('Attempting to create Supabase auth user...');
@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
         await supabase
           .from('service_providers')
           .update({ user_id: authData.user?.id })
-          .eq('user_id', userId);
+          .eq('id', providerId);
       }
     } catch (authError: any) {
       console.error('Auth creation exception (but provider was created):', authError);
