@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     // Get invitation data using service role to bypass RLS
     const { data: invitation, error } = await supabase
       .from('provider_invitations')
-      .select('id, email, expires_at, business_id')
+      .select('id, email, expires_at, business_id, invited_by')
       .eq('id', invitationId)
       .single();
 
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
           // Set user metadata to track invitation acceptance
           user_metadata: {
             invitation_id: invitationId,
-            invited_by: invitationData?.invited_by || null,
+            invited_by: invitation?.invited_by || null,
             accepted_invitation_at: new Date().toISOString()
           }
         }

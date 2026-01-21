@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     console.log('- SUPABASE_SERVICE_ROLE_KEY length:', process.env.SUPABASE_SERVICE_ROLE_KEY?.length || 0);
     console.log('- SUPABASE_SERVICE_ROLE_KEY starts with eyJ:', process.env.SUPABASE_SERVICE_ROLE_KEY?.startsWith('eyJ'));
     console.log('- SUPABASE_SERVICE_ROLE_KEY available:', !!process.env.SUPABASE_SERVICE_ROLE_KEY);
-    console.log('- supabaseAdmin available:', !!supabaseAdmin);
+    console.log('- supabase available:', !!supabase);
     console.log('Starting database query...');
 
     if (!token || !email) {
