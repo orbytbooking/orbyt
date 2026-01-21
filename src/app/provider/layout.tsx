@@ -79,6 +79,11 @@ export default function ProviderLayout({
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      // Skip auth redirect for invite page
+      if (pathname === "/provider/invite") {
+        return;
+      }
+      
       if (!session) {
         router.push("/auth/login");
       }
