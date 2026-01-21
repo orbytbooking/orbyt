@@ -9,18 +9,11 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { ArrowLeft, Eye, EyeOff, CheckCircle2, AlertCircle, Mail } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
-import { createClient } from '@supabase/supabase-js';
 
 function ProviderInviteContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
-  
-  // Service role client for bypassing RLS during invitation update
-  const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
   
   const [token, setToken] = useState("");
   const [email, setEmail] = useState("");
@@ -146,72 +139,30 @@ function ProviderInviteContent() {
     setLoading(true);
     
     try {
-      // Create user account in Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            first_name: invitationData.first_name,
-            last_name: invitationData.last_name,
-            full_name: `${invitationData.first_name} ${invitationData.last_name}`,
-            role: 'provider',
-            provider_type: invitationData.provider_type,
-            invitation_id: invitationData.id,
-            business_id: invitationData.business_id,
-            specialization: 'General Services',
-            phone: invitationData.phone,
-            address: invitationData.address,
-          }
-        }
-      });
-
-      if (authError) {
-        console.error('Auth creation error:', authError);
-        toast({
-          title: "Account Creation Failed",
-          description: authError.message,
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Create provider record
-      const { error: providerError } = await supabase
-        .from('service_providers')
-        .insert({
-          user_id: authData.user?.id,
-          business_id: invitationData.business_id,
-          first_name: invitationData.first_name,
-          last_name: invitationData.last_name,
+      // Call API to accept invitation
+      const response = await fetch('/api/invitations/accept', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          invitationId: invitationData.id,
+          password,
+          firstName: invitationData.first_name,
+          lastName: invitationData.last_name,
           email,
           phone: invitationData.phone,
           address: invitationData.address,
-          specialization: 'General Services',
-          rating: 0,
-          completed_jobs: 0,
-          status: 'active',
-          provider_type: invitationData.provider_type
-        });
-
-      if (providerError) {
-        console.error('Provider record creation error:', providerError);
-        toast({
-          title: "Profile Creation Failed",
-          description: providerError.message,
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Update invitation status using service role to bypass RLS
-      await supabaseAdmin
-        .from('provider_invitations')
-        .update({
-          status: 'accepted',
-          accepted_at: new Date().toISOString()
+          businessId: invitationData.business_id,
+          providerType: invitationData.provider_type
         })
-        .eq('id', invitationData.id);
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to accept invitation');
+      }
 
       setStep("success");
       
@@ -229,7 +180,7 @@ function ProviderInviteContent() {
       console.error('Setup error:', error);
       toast({
         title: "Setup Failed",
-        description: error.message || "An error occurred during account setup.",
+        description: error.message || "An error occurred while setting up your account.",
         variant: "destructive",
       });
     } finally {

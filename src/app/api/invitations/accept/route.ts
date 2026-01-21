@@ -1,0 +1,98 @@
+import { createClient } from '@supabase/supabase-js';
+import { NextRequest, NextResponse } from 'next/server';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { invitationId, password, firstName, lastName, email, phone, address, businessId, providerType } = body;
+
+    console.log('=== ACCEPTING INVITATION ===');
+    console.log('Invitation ID:', invitationId);
+
+    // Create auth user first
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: `${firstName} ${lastName}`,
+          role: 'provider',
+          provider_type: providerType,
+          invitation_id: invitationId,
+          business_id: businessId,
+          specialization: 'General Services',
+          phone: phone,
+          address: address,
+        }
+      }
+    });
+
+    if (authError) {
+      console.error('Auth creation error:', authError);
+      return NextResponse.json(
+        { error: 'Failed to create user account', details: authError.message },
+        { status: 500 }
+      );
+    }
+
+    // Create provider record
+    const { error: providerError } = await supabase
+      .from('service_providers')
+      .insert({
+        user_id: authData.user?.id,
+        business_id: businessId,
+        first_name: firstName,
+        last_name: lastName,
+        email,
+        phone: phone,
+        address: address,
+        specialization: 'General Services',
+        rating: 0,
+        completed_jobs: 0,
+        status: 'active',
+        provider_type: providerType
+      });
+
+    if (providerError) {
+      console.error('Provider record creation error:', providerError);
+      return NextResponse.json(
+        { error: 'Failed to create provider profile', details: providerError.message },
+        { status: 500 }
+      );
+    }
+
+    // Update invitation status using service role to bypass RLS
+    const { error: updateError } = await supabase
+      .from('provider_invitations')
+      .update({
+        status: 'accepted',
+        accepted_at: new Date().toISOString()
+      })
+      .eq('id', invitationId);
+
+    if (updateError) {
+      console.error('Invitation update error:', updateError);
+      return NextResponse.json(
+        { error: 'Failed to accept invitation', details: updateError.message },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Invitation accepted successfully'
+    });
+
+  } catch (error: any) {
+    console.error('Accept invitation error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error', details: error.message },
+      { status: 500 }
+    );
+  }
+}
