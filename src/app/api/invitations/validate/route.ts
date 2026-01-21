@@ -12,6 +12,10 @@ export async function GET(request: NextRequest) {
     const token = searchParams.get('token');
     const email = searchParams.get('email');
 
+    console.log('=== INVITATION VALIDATION DEBUG ===');
+    console.log('Token:', token);
+    console.log('Email:', email);
+
     if (!token || !email) {
       return NextResponse.json(
         { error: 'Token and email are required' },
@@ -28,15 +32,20 @@ export async function GET(request: NextRequest) {
       .eq('status', 'pending')
       .single();
 
+    console.log('Database query result:');
+    console.log('Error:', error);
+    console.log('Invitation:', invitation);
+
     if (error) {
       console.error('Invitation validation error:', error);
       return NextResponse.json(
-        { error: 'Invalid invitation' },
+        { error: 'Invalid invitation', details: error },
         { status: 404 }
       );
     }
 
     if (!invitation) {
+      console.error('No invitation found');
       return NextResponse.json(
         { error: 'Invitation not found' },
         { status: 404 }
@@ -46,6 +55,11 @@ export async function GET(request: NextRequest) {
     // Check if invitation has expired
     const expiresAt = new Date(invitation.expires_at);
     const now = new Date();
+    
+    console.log('Expiration check:');
+    console.log('Expires at:', expiresAt);
+    console.log('Current time:', now);
+    console.log('Is expired:', expiresAt < now);
     
     if (expiresAt < now) {
       return NextResponse.json(
@@ -62,7 +76,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Server error:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', details: error },
       { status: 500 }
     );
   }
