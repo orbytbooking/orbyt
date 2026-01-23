@@ -10,6 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useBusiness } from "@/contexts/BusinessContext";
+import { useToast } from "@/hooks/use-toast";
 
 type ExcludeParameterRow = {
   id: number;
@@ -33,7 +35,11 @@ export default function ExcludeParameterNewPage() {
   const params = useSearchParams();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
-  const editId = params.get("editId") ? Number(params.get("editId")) : null;
+  const industryId = params.get("industryId");
+  const editId = params.get("editId");
+  const { currentBusiness } = useBusiness();
+  const { toast } = useToast();
+  const [saving, setSaving] = useState(false);
 
   const [allRows, setAllRows] = useState<ExcludeParameterRow[]>([]);
   const [extras, setExtras] = useState<Array<{id: number; name: string}>>([]);
@@ -139,96 +145,155 @@ export default function ExcludeParameterNewPage() {
     }
   }, [allDataKey, extrasKey, servicesKey, industry]);
 
+  // Fetch existing exclude parameter data when editing
   useEffect(() => {
-    if (editId && allRows.length > 0) {
-      const existing = allRows.find(r => r.id === editId);
-      if (existing) {
-        const [hours, minutes] = existing.time.split(" ").reduce((acc, part) => {
-          if (part.includes("Hr")) acc[0] = part.replace("Hr", "").trim();
-          if (part.includes("Min")) acc[1] = part.replace("Min", "").trim();
-          return acc;
-        }, ["0", "0"]);
+    if (!editId || !industryId) return;
 
-        setForm({
-          name: existing.name,
-          description: existing.description || "",
-          display: existing.display,
-          price: String(existing.price ?? 0),
-          hours: hours || "0",
-          minutes: minutes || "0",
-          showBasedOnFrequency: existing.showBasedOnFrequency,
-          showBasedOnServiceCategory: existing.showBasedOnServiceCategory,
-          showBasedOnVariables: existing.showBasedOnVariables,
-          excludedExtras: existing.excludedExtras || [],
-          excludedServices: existing.excludedServices || [],
-          excludedProviders: existing.excludedProviders || [],
-          frequency: existing.frequency ? existing.frequency.split(", ") : [],
-          serviceCategory: existing.serviceCategory ? existing.serviceCategory.split(", ") : [],
-          variableCategories: existing.variableCategories ? existing.variableCategories.split(", ") : [],
+    const fetchExistingData = async () => {
+      try {
+        const response = await fetch(`/api/exclude-parameters?industryId=${industryId}`);
+        const data = await response.json();
+        
+        if (data.excludeParameters) {
+          const existing = data.excludeParameters.find((p: any) => p.id === editId);
+          
+          if (existing) {
+            const hours = Math.floor(existing.time_minutes / 60);
+            const minutes = existing.time_minutes % 60;
+
+            setForm({
+              name: existing.name,
+              description: existing.description || "",
+              display: existing.display,
+              price: String(existing.price ?? 0),
+              hours: String(hours),
+              minutes: String(minutes),
+              showBasedOnFrequency: existing.show_based_on_frequency || false,
+              showBasedOnServiceCategory: existing.show_based_on_service_category || false,
+              showBasedOnVariables: false,
+              excludedExtras: [],
+              excludedServices: [],
+              excludedProviders: [],
+              frequency: existing.frequency ? existing.frequency.split(", ") : [],
+              serviceCategory: existing.service_category ? existing.service_category.split(", ") : [],
+              variableCategories: [],
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching exclude parameter for edit:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load exclude parameter data",
+          variant: "destructive",
         });
       }
+    };
+
+    fetchExistingData();
+  }, [editId, industryId]);
+
+  const save = async () => {
+    if (!form.name.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Name is required",
+        variant: "destructive",
+      });
+      return;
     }
-  }, [editId, allRows]);
 
-  const save = () => {
-    if (!form.name.trim()) return;
+    if (!industryId) {
+      toast({
+        title: "Error",
+        description: "Industry ID is missing",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    const price = Number(form.price) || 0;
-    const hours = Number(form.hours) || 0;
-    const minutes = Number(form.minutes) || 0;
-    const timeString = `${hours > 0 ? `${hours} Hr` : ""}${minutes > 0 ? ` ${minutes} Min` : ""}`.trim() || "0";
+    if (!currentBusiness?.id) {
+      toast({
+        title: "Error",
+        description: "Business not found",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    // Auto-set frequency, service category, and variable categories based on form state
-    const frequencyValue = form.showBasedOnFrequency ? form.frequency.join(", ") : "";
-    const serviceCategoryValue = form.showBasedOnServiceCategory ? form.serviceCategory.join(", ") : "";
-    const variableCategoriesValue = form.showBasedOnVariables ? form.variableCategories.join(", ") : "";
+    setSaving(true);
 
-    if (editId) {
-      // Update existing
-      const updated = allRows.map(r => r.id === editId ? {
-        ...r,
+    try {
+      const price = Number(form.price) || 0;
+      const hours = Number(form.hours) || 0;
+      const minutes = Number(form.minutes) || 0;
+      const timeMinutes = (hours * 60) + minutes;
+
+      // Auto-set frequency and service category based on form state
+      const frequencyValue = form.showBasedOnFrequency ? form.frequency.join(", ") : "";
+      const serviceCategoryValue = form.showBasedOnServiceCategory ? form.serviceCategory.join(", ") : "";
+
+      const paramData = {
+        business_id: currentBusiness.id,
+        industry_id: industryId,
         name: form.name.trim(),
-        description: form.description,
-        display: form.display,
+        description: form.description || undefined,
         price,
-        time: timeString,
-        frequency: frequencyValue,
-        serviceCategory: serviceCategoryValue,
-        variableCategories: variableCategoriesValue,
-        showBasedOnFrequency: form.showBasedOnFrequency,
-        showBasedOnServiceCategory: form.showBasedOnServiceCategory,
-        showBasedOnVariables: form.showBasedOnVariables,
-        excludedExtras: form.excludedExtras,
-        excludedServices: form.excludedServices,
-        excludedProviders: form.excludedProviders,
-      } : r);
-      
-      localStorage.setItem(allDataKey, JSON.stringify(updated));
-    } else {
-      // Create new
-      const maxId = allRows.reduce((max, r) => (r.id > max ? r.id : max), 0);
-      const newRow: ExcludeParameterRow = {
-        id: maxId + 1,
-        name: form.name.trim(),
-        description: form.description,
+        time_minutes: timeMinutes,
         display: form.display,
-        price,
-        time: timeString,
-        frequency: frequencyValue,
-        serviceCategory: serviceCategoryValue,
-        variableCategories: variableCategoriesValue,
-        showBasedOnFrequency: form.showBasedOnFrequency,
-        showBasedOnServiceCategory: form.showBasedOnServiceCategory,
-        showBasedOnVariables: form.showBasedOnVariables,
-        excludedExtras: form.excludedExtras,
-        excludedServices: form.excludedServices,
-        excludedProviders: form.excludedProviders,
+        service_category: serviceCategoryValue || undefined,
+        frequency: frequencyValue || undefined,
+        show_based_on_frequency: form.showBasedOnFrequency,
+        show_based_on_service_category: form.showBasedOnServiceCategory,
       };
 
-      localStorage.setItem(allDataKey, JSON.stringify([...allRows, newRow]));
-    }
+      if (editId) {
+        // Update existing
+        const response = await fetch('/api/exclude-parameters', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: editId, ...paramData }),
+        });
 
-    router.push(`/admin/settings/industries/form-1/pricing-parameter?industry=${encodeURIComponent(industry)}`);
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to update exclude parameter');
+        }
+
+        toast({
+          title: "Success",
+          description: "Exclude parameter updated successfully",
+        });
+      } else {
+        // Create new
+        const response = await fetch('/api/exclude-parameters', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(paramData),
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to create exclude parameter');
+        }
+
+        toast({
+          title: "Success",
+          description: "Exclude parameter created successfully",
+        });
+      }
+
+      router.push(`/admin/settings/industries/form-1/pricing-parameter?industry=${encodeURIComponent(industry)}`);
+    } catch (error: any) {
+      console.error('Error saving exclude parameter:', error);
+      toast({
+        title: "Error",
+        description: error.message || 'Failed to save exclude parameter',
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -592,11 +657,11 @@ export default function ExcludeParameterNewPage() {
             </Button>
             <Button
               onClick={save}
-              disabled={!form.name.trim()}
+              disabled={!form.name.trim() || saving}
               className="text-white"
               style={{ background: "linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)" }}
             >
-              {editId ? "Save" : "Create"}
+              {saving ? "Saving..." : (editId ? "Save" : "Create")}
             </Button>
           </div>
         </CardContent>

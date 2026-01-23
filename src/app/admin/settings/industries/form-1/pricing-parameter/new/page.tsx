@@ -11,6 +11,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useBusiness } from "@/contexts/BusinessContext";
+import { useToast } from "@/hooks/use-toast";
 
 type PricingRow = {
   id: number;
@@ -44,8 +46,12 @@ export default function PricingParameterNewPage() {
   const params = useSearchParams();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
-  const editId = params.get("editId") ? Number(params.get("editId")) : null;
+  const industryId = params.get("industryId");
+  const editId = params.get("editId");
   const editCategory = params.get("category") || "";
+  const { currentBusiness } = useBusiness();
+  const { toast } = useToast();
+  const [saving, setSaving] = useState(false);
 
   const [allRows, setAllRows] = useState<Record<string, PricingRow[]>>({});
   const [variables, setVariables] = useState<PricingVariable[]>([]);
@@ -161,130 +167,167 @@ export default function PricingParameterNewPage() {
     }
   }, [allDataKey, variablesKey, extrasKey, servicesKey, industry]);
 
+  // Fetch existing pricing parameter data when editing
   useEffect(() => {
-    if (editId && editCategory && allRows[editCategory]) {
-      const existing = allRows[editCategory].find(r => r.id === editId);
-      if (existing) {
-        const [hours, minutes] = existing.time.split(" ").reduce((acc, part) => {
-          if (part.includes("Hr")) acc[0] = part.replace("Hr", "").trim();
-          if (part.includes("Min")) acc[1] = part.replace("Min", "").trim();
-          return acc;
-        }, ["0", "0"]);
+    if (!editId || !industryId) return;
 
-        setForm({
-          variableCategory: existing.variableCategory,
-          name: existing.name,
-          description: existing.description || "",
-          display: existing.display,
-          price: String(existing.price ?? 0),
-          hours: hours || "0",
-          minutes: minutes || "0",
-          isDefault: existing.isDefault || false,
-          showBasedOnFrequency: typeof existing.showBasedOnFrequency === "boolean" ? existing.showBasedOnFrequency : false,
-          showBasedOnServiceCategory: typeof existing.showBasedOnServiceCategory === "boolean" ? existing.showBasedOnServiceCategory : false,
-          showBasedOnServiceCategory2: typeof existing.showBasedOnServiceCategory2 === "boolean" ? existing.showBasedOnServiceCategory2 : false,
-          excludedExtras: existing.excludedExtras || [],
-          excludedServices: existing.excludedServices || [],
-          excludedProviders: existing.excludedProviders || [],
-          excludeParameters: (existing as any).excludeParameters || [],
-          serviceCategory: Array.isArray(existing.serviceCategory) ? existing.serviceCategory : [],
-          serviceCategory2: Array.isArray(existing.serviceCategory2) ? existing.serviceCategory2 : [],
-          frequency: Array.isArray(existing.frequency) ? existing.frequency : [],
+    const fetchExistingData = async () => {
+      try {
+        const response = await fetch(`/api/pricing-parameters?industryId=${industryId}`);
+        const data = await response.json();
+        
+        if (data.pricingParameters) {
+          const existing = data.pricingParameters.find((p: any) => p.id === editId);
+          
+          if (existing) {
+            const hours = Math.floor(existing.time_minutes / 60);
+            const minutes = existing.time_minutes % 60;
+
+            setForm({
+              variableCategory: existing.variable_category,
+              name: existing.name,
+              description: existing.description || "",
+              display: existing.display,
+              price: String(existing.price ?? 0),
+              hours: String(hours),
+              minutes: String(minutes),
+              isDefault: existing.is_default || false,
+              showBasedOnFrequency: existing.show_based_on_frequency || false,
+              showBasedOnServiceCategory: existing.show_based_on_service_category || false,
+              showBasedOnServiceCategory2: existing.show_based_on_service_category2 || false,
+              excludedExtras: existing.excluded_extras || [],
+              excludedServices: existing.excluded_services || [],
+              excludedProviders: existing.excluded_providers || [],
+              excludeParameters: existing.exclude_parameters || [],
+              serviceCategory: existing.service_category ? existing.service_category.split(", ") : [],
+              serviceCategory2: existing.service_category2 ? existing.service_category2.split(", ") : [],
+              frequency: existing.frequency ? existing.frequency.split(", ") : [],
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching pricing parameter for edit:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load pricing parameter data",
+          variant: "destructive",
         });
       }
-    }
-  }, [editId, editCategory, allRows]);
+    };
 
-  const save = () => {
-    if (!form.variableCategory || !form.name.trim()) return;
+    fetchExistingData();
+  }, [editId, industryId]);
 
-    console.log("Saving form data:", {
-      serviceCategory: form.serviceCategory,
-      frequency: form.frequency,
-      showBasedOnServiceCategory: form.showBasedOnServiceCategory,
-      showBasedOnFrequency: form.showBasedOnFrequency
-    });
-
-    // Check for duplicate names within the same category
-    const categoryRows = allRows[form.variableCategory] || [];
-    const existingName = categoryRows.find(r => 
-      r.name.toLowerCase().trim() === form.name.toLowerCase().trim() && 
-      r.id !== editId
-    );
-    
-    if (existingName) {
-      alert(`A parameter with the name "${form.name.trim()}" already exists in the ${form.variableCategory} category. Please use a different name.`);
+  const save = async () => {
+    if (!form.variableCategory || !form.name.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Variable category and name are required",
+        variant: "destructive",
+      });
       return;
     }
 
-    const price = Number(form.price) || 0;
-    const hours = Number(form.hours) || 0;
-    const minutes = Number(form.minutes) || 0;
-    const timeString = `${hours > 0 ? `${hours} Hr` : ""}${minutes > 0 ? ` ${minutes} Min` : ""}`.trim() || "0";
-
-    // Auto-set service category and frequency based on form state
-    const serviceCategoryValue = form.showBasedOnServiceCategory ? form.serviceCategory.join(", ") : "";
-    const serviceCategory2Value = form.showBasedOnServiceCategory2 ? form.serviceCategory2.join(", ") : "";
-    const frequencyValue = form.showBasedOnFrequency ? form.frequency.join(", ") : "";
-
-    if (editId && editCategory) {
-      // Update existing
-      const updated = allRows[editCategory].map(r => r.id === editId ? {
-        ...r,
-        name: form.name.trim(),
-        price,
-        time: timeString,
-        display: form.display,
-        description: form.description,
-        isDefault: form.isDefault,
-        frequency: frequencyValue,
-        serviceCategory: serviceCategoryValue,
-        serviceCategory2: serviceCategory2Value,
-        showBasedOnFrequency: form.showBasedOnFrequency,
-        showBasedOnServiceCategory: form.showBasedOnServiceCategory,
-        showBasedOnServiceCategory2: form.showBasedOnServiceCategory2,
-        excludedExtras: form.excludedExtras,
-        excludedServices: form.excludedServices,
-        excludedProviders: form.excludedProviders,
-      } : r);
-      
-      const newAllRows = {
-        ...allRows,
-        [editCategory]: updated,
-      };
-      localStorage.setItem(allDataKey, JSON.stringify(newAllRows));
-    } else {
-      // Create new
-      const currentRows = allRows[form.variableCategory] || [];
-      const maxId = currentRows.reduce((max, r) => (r.id > max ? r.id : max), 0);
-      const newRow: PricingRow = {
-        id: maxId + 1,
-        name: form.name.trim(),
-        price,
-        time: timeString,
-        display: form.display,
-        serviceCategory: serviceCategoryValue,
-        serviceCategory2: serviceCategory2Value,
-        frequency: frequencyValue,
-        variableCategory: form.variableCategory,
-        description: form.description,
-        isDefault: form.isDefault,
-        showBasedOnFrequency: form.showBasedOnFrequency,
-        showBasedOnServiceCategory: form.showBasedOnServiceCategory,
-        showBasedOnServiceCategory2: form.showBasedOnServiceCategory2,
-        excludedExtras: form.excludedExtras,
-        excludedServices: form.excludedServices,
-        excludedProviders: form.excludedProviders,
-      };
-
-      const newAllRows = {
-        ...allRows,
-        [form.variableCategory]: [...currentRows, newRow],
-      };
-      localStorage.setItem(allDataKey, JSON.stringify(newAllRows));
+    if (!industryId) {
+      toast({
+        title: "Error",
+        description: "Industry ID is missing",
+        variant: "destructive",
+      });
+      return;
     }
 
-    router.push(`/admin/settings/industries/form-1/pricing-parameter?industry=${encodeURIComponent(industry)}`);
+    if (!currentBusiness?.id) {
+      toast({
+        title: "Error",
+        description: "Business not found",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      const price = Number(form.price) || 0;
+      const hours = Number(form.hours) || 0;
+      const minutes = Number(form.minutes) || 0;
+      const timeMinutes = (hours * 60) + minutes;
+
+      // Auto-set service category and frequency based on form state
+      const serviceCategoryValue = form.showBasedOnServiceCategory ? form.serviceCategory.join(", ") : "";
+      const serviceCategory2Value = form.showBasedOnServiceCategory2 ? form.serviceCategory2.join(", ") : "";
+      const frequencyValue = form.showBasedOnFrequency ? form.frequency.join(", ") : "";
+
+      const paramData = {
+        business_id: currentBusiness.id,
+        industry_id: industryId,
+        name: form.name.trim(),
+        description: form.description || undefined,
+        variable_category: form.variableCategory,
+        price,
+        time_minutes: timeMinutes,
+        display: form.display,
+        service_category: serviceCategoryValue || undefined,
+        service_category2: serviceCategory2Value || undefined,
+        frequency: frequencyValue || undefined,
+        is_default: form.isDefault,
+        show_based_on_frequency: form.showBasedOnFrequency,
+        show_based_on_service_category: form.showBasedOnServiceCategory,
+        show_based_on_service_category2: form.showBasedOnServiceCategory2,
+        excluded_extras: form.excludedExtras.map(String),
+        excluded_services: form.excludedServices.map(String),
+        excluded_providers: form.excludedProviders,
+        exclude_parameters: form.excludeParameters,
+      };
+
+      if (editId) {
+        // Update existing
+        const response = await fetch('/api/pricing-parameters', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: editId, ...paramData }),
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to update pricing parameter');
+        }
+
+        toast({
+          title: "Success",
+          description: "Pricing parameter updated successfully",
+        });
+      } else {
+        // Create new
+        const response = await fetch('/api/pricing-parameters', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(paramData),
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to create pricing parameter');
+        }
+
+        toast({
+          title: "Success",
+          description: "Pricing parameter created successfully",
+        });
+      }
+
+      router.push(`/admin/settings/industries/form-1/pricing-parameter?industry=${encodeURIComponent(industry)}`);
+    } catch (error: any) {
+      console.error('Error saving pricing parameter:', error);
+      toast({
+        title: "Error",
+        description: error.message || 'Failed to save pricing parameter',
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -686,11 +729,11 @@ export default function PricingParameterNewPage() {
             </Button>
             <Button
               onClick={save}
-              disabled={!form.variableCategory || !form.name.trim()}
+              disabled={!form.variableCategory || !form.name.trim() || saving}
               className="text-white"
               style={{ background: "linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)" }}
             >
-              {editId ? "Save" : "Create"}
+              {saving ? "Saving..." : (editId ? "Save" : "Create")}
             </Button>
           </div>
         </CardContent>

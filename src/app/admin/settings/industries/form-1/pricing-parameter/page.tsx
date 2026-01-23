@@ -7,22 +7,25 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ChevronDown } from "lucide-react";
+import { useBusiness } from "@/contexts/BusinessContext";
+import { useToast } from "@/hooks/use-toast";
 
 type PricingRow = {
-  id: number;
+  id: string;
   name: string;
   price: number;
-  time: string;
+  time_minutes: number;
   display: "Customer Frontend, Backend & Admin" | "Customer Backend & Admin" | "Admin Only";
-  serviceCategory: string;
+  service_category: string;
   frequency: string;
-  variableCategory: string;
+  variable_category: string;
   description: string;
-  isDefault: boolean;
-  showBasedOnFrequency: boolean;
-  showBasedOnServiceCategory: boolean;
-  excludedExtras: number[];
-  excludedServices: number[];
+  is_default: boolean;
+  show_based_on_frequency: boolean;
+  show_based_on_service_category: boolean;
+  excluded_extras: string[];
+  excluded_services: string[];
+  sort_order: number;
 };
 
 type PricingVariable = {
@@ -37,85 +40,74 @@ export default function IndustryFormPricingParameterPage() {
   const params = useSearchParams();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
+  const { currentBusiness } = useBusiness();
+  const { toast } = useToast();
 
   const [allRows, setAllRows] = useState<Record<string, PricingRow[]>>({});
   const [variables, setVariables] = useState<PricingVariable[]>([]);
   const [excludeParameters, setExcludeParameters] = useState<any[]>([]);
+  const [industryId, setIndustryId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const defaultVariables: PricingVariable[] = [
-    { id: "sq-ft", name: "Sq Ft", category: "Sq Ft", description: "Square footage tiers", isActive: true },
-    { id: "bedroom", name: "Bedroom", category: "Bedroom", description: "Number of bedrooms", isActive: false },
-    { id: "bathroom", name: "Bathroom", category: "Bathroom", description: "Number of bathrooms", isActive: false },
-  ];
-
+  // Fetch industry ID and data from database
   useEffect(() => {
-    try {
-      const variablesKey = `pricingVariables_${industry}`;
-      const storedVars = JSON.parse(localStorage.getItem(variablesKey) || "null");
-      if (Array.isArray(storedVars) && storedVars.length > 0) {
-        setVariables(storedVars);
-      } else {
-        // Initialize with default variables if none exist
-        setVariables(defaultVariables);
-        localStorage.setItem(variablesKey, JSON.stringify(defaultVariables));
-      }
-    } catch (e) {
-      console.error("Error loading variables:", e);
-      setVariables(defaultVariables);
-    }
+    if (!currentBusiness?.id || !industry) return;
 
-    try {
-      const allDataKey = `pricingParamsAll_${industry}`;
-      const storedData = JSON.parse(localStorage.getItem(allDataKey) || "null");
-      if (storedData && typeof storedData === "object") {
-        setAllRows(storedData);
-      }
-    } catch (e) {
-      console.error("Error loading pricing data:", e);
-    }
-  }, [industry]);
-
-  useEffect(() => {
-    if (Object.keys(allRows).length > 0) {
-      const allDataKey = `pricingParamsAll_${industry}`;
-      localStorage.setItem(allDataKey, JSON.stringify(allRows));
-    }
-  }, [allRows, industry]);
-
-  useEffect(() => {
-    // Load exclude parameters
-    try {
-      const excludeDataKey = `excludeParameters_${industry}`;
-      const storedExcludeParams = JSON.parse(localStorage.getItem(excludeDataKey) || "[]");
-      if (Array.isArray(storedExcludeParams)) {
-        setExcludeParameters(storedExcludeParams);
-      }
-    } catch (e) {
-      console.error("Error loading exclude parameters:", e);
-    }
-  }, [industry]);
-
-  // Keep table in sync if localStorage changes
-  useEffect(() => {
-    const allDataKey = `pricingParamsAll_${industry}`;
-    const excludeDataKey = `excludeParameters_${industry}`;
-    const interval = setInterval(() => {
+    const fetchData = async () => {
       try {
-        const storedData = JSON.parse(localStorage.getItem(allDataKey) || "{}");
-        if (storedData && typeof storedData === "object") {
-          setAllRows(storedData);
+        setLoading(true);
+        
+        // Fetch industry ID
+        const industriesResponse = await fetch(`/api/industries?business_id=${currentBusiness.id}`);
+        const industriesData = await industriesResponse.json();
+        const currentIndustry = industriesData.industries?.find((ind: any) => ind.name === industry);
+        
+        if (!currentIndustry) {
+          console.error('Industry not found');
+          setLoading(false);
+          return;
         }
-      } catch {}
-      
-      try {
-        const storedExcludeParams = JSON.parse(localStorage.getItem(excludeDataKey) || "[]");
-        if (Array.isArray(storedExcludeParams)) {
-          setExcludeParameters(storedExcludeParams);
+
+        setIndustryId(currentIndustry.id);
+
+        // Fetch pricing parameters from database
+        const pricingResponse = await fetch(`/api/pricing-parameters?industryId=${currentIndustry.id}`);
+        const pricingData = await pricingResponse.json();
+        
+        if (pricingData.pricingParameters) {
+          // Group by variable_category
+          const grouped: Record<string, PricingRow[]> = {};
+          pricingData.pricingParameters.forEach((param: any) => {
+            if (!grouped[param.variable_category]) {
+              grouped[param.variable_category] = [];
+            }
+            grouped[param.variable_category].push(param);
+          });
+          setAllRows(grouped);
         }
-      } catch {}
-    }, 800);
-    return () => clearInterval(interval);
-  }, [industry]);
+
+        // Fetch exclude parameters from database
+        const excludeResponse = await fetch(`/api/exclude-parameters?industryId=${currentIndustry.id}`);
+        const excludeData = await excludeResponse.json();
+        
+        if (excludeData.excludeParameters) {
+          setExcludeParameters(excludeData.excludeParameters);
+        }
+
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load pricing parameters",
+          variant: "destructive",
+        });
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [currentBusiness, industry]);
 
   const getAllRows = (): PricingRow[] => {
     const allRowsArray: PricingRow[] = [];
@@ -126,14 +118,36 @@ export default function IndustryFormPricingParameterPage() {
     return allRowsArray;
   };
 
-  const remove = (variableCategory: string, id: number) => {
-    setAllRows((prev) => ({
-      ...prev,
-      [variableCategory]: (prev[variableCategory] || []).filter((r) => r.id !== id),
-    }));
+  const remove = async (variableCategory: string, id: string) => {
+    try {
+      const response = await fetch(`/api/pricing-parameters?id=${id}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete pricing parameter');
+      }
+
+      setAllRows((prev) => ({
+        ...prev,
+        [variableCategory]: (prev[variableCategory] || []).filter((r) => r.id !== id),
+      }));
+
+      toast({
+        title: "Success",
+        description: "Pricing parameter deleted successfully",
+      });
+    } catch (error) {
+      console.error('Error deleting pricing parameter:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete pricing parameter",
+        variant: "destructive",
+      });
+    }
   };
 
-  const move = (variableCategory: string, id: number, dir: -1 | 1) => {
+  const move = async (variableCategory: string, id: string, dir: -1 | 1) => {
     setAllRows((prev) => {
       const rows = prev[variableCategory] || [];
       const idx = rows.findIndex((r) => r.id === id);
@@ -150,12 +164,37 @@ export default function IndustryFormPricingParameterPage() {
     });
   };
 
-  const updatePriority = () => {
+  const updatePriority = async () => {
     try {
-      const allDataKey = `pricingParamsAll_${industry}`;
-      localStorage.setItem(allDataKey, JSON.stringify(allRows));
-    } catch (e) {
-      console.error("Error saving priority:", e);
+      // Update sort order for all pricing parameters
+      const updates: Array<{ id: string; sort_order: number }> = [];
+      Object.values(allRows).forEach((rows) => {
+        rows.forEach((row, index) => {
+          updates.push({ id: row.id, sort_order: index });
+        });
+      });
+
+      const response = await fetch('/api/pricing-parameters/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update priority');
+      }
+
+      toast({
+        title: "Success",
+        description: "Priority updated successfully",
+      });
+    } catch (error) {
+      console.error('Error updating priority:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update priority",
+        variant: "destructive",
+      });
     }
   };
 
@@ -165,7 +204,7 @@ export default function IndustryFormPricingParameterPage() {
         <div className="flex items-center gap-2">
           <Button 
             variant="outline" 
-            onClick={() => router.push(`/admin/settings/industries/form-1/pricing-parameter/new?industry=${encodeURIComponent(industry)}`)}
+            onClick={() => router.push(`/admin/settings/industries/form-1/pricing-parameter/new?industry=${encodeURIComponent(industry)}&industryId=${industryId}`)}
           >
             Add New
           </Button>
@@ -221,7 +260,7 @@ export default function IndustryFormPricingParameterPage() {
                             <TableRow key={`${category}-${r.id}`}>
                               <TableCell className="font-medium">{r.name}</TableCell>
                               <TableCell>${r.price.toFixed(2)}</TableCell>
-                              <TableCell>{r.time}</TableCell>
+                              <TableCell>{r.time_minutes > 0 ? `${Math.floor(r.time_minutes / 60)}Hr ${r.time_minutes % 60}Min` : '0'}</TableCell>
                               <TableCell className="text-xs">
                                 {r.display ? (
                                   <div className="whitespace-pre-line">
@@ -230,9 +269,9 @@ export default function IndustryFormPricingParameterPage() {
                                 ) : "-"}
                               </TableCell>
                               <TableCell>
-                                {r.serviceCategory ? (
+                                {r.service_category ? (
                                   <div className="whitespace-pre-line">
-                                    {r.serviceCategory.split(', ').join('\n')}
+                                    {r.service_category.split(', ').join('\n')}
                                   </div>
                                 ) : "-"}
                               </TableCell>
@@ -252,7 +291,7 @@ export default function IndustryFormPricingParameterPage() {
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end">
                                     <DropdownMenuItem
-                                      onClick={() => router.push(`/admin/settings/industries/form-1/pricing-parameter/new?industry=${encodeURIComponent(industry)}&editId=${r.id}&category=${encodeURIComponent(category)}`)}
+                                      onClick={() => router.push(`/admin/settings/industries/form-1/pricing-parameter/new?industry=${encodeURIComponent(industry)}&industryId=${industryId}&editId=${r.id}&category=${encodeURIComponent(category)}`)}
                                     >
                                       Edit
                                     </DropdownMenuItem>
@@ -310,7 +349,7 @@ export default function IndustryFormPricingParameterPage() {
             <div className="flex items-center gap-2">
               <Button 
                 variant="outline" 
-                onClick={() => router.push(`/admin/settings/industries/form-1/pricing-parameter/exclude-parameters/new?industry=${encodeURIComponent(industry)}`)}
+                onClick={() => router.push(`/admin/settings/industries/form-1/pricing-parameter/exclude-parameters/new?industry=${encodeURIComponent(industry)}&industryId=${industryId}`)}
               >
                 Add New
               </Button>
@@ -346,7 +385,7 @@ export default function IndustryFormPricingParameterPage() {
                     <TableRow key={param.id}>
                       <TableCell className="font-medium">{param.name}</TableCell>
                       <TableCell>${param.price ? param.price.toFixed(2) : "-"}</TableCell>
-                      <TableCell>{param.time || "-"}</TableCell>
+                      <TableCell>{param.time_minutes > 0 ? `${Math.floor(param.time_minutes / 60)}Hr ${param.time_minutes % 60}Min` : '0'}</TableCell>
                       <TableCell className="text-xs">
                                 {param.display ? (
                                   <div className="whitespace-pre-line">
@@ -355,9 +394,9 @@ export default function IndustryFormPricingParameterPage() {
                                 ) : "-"}
                               </TableCell>
                       <TableCell>
-                                {param.serviceCategory ? (
+                                {param.service_category ? (
                                   <div className="whitespace-pre-line">
-                                    {param.serviceCategory.split(', ').join('\n')}
+                                    {param.service_category.split(', ').join('\n')}
                                   </div>
                                 ) : "-"}
                               </TableCell>
@@ -377,15 +416,29 @@ export default function IndustryFormPricingParameterPage() {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem
-                              onClick={() => router.push(`/admin/settings/industries/form-1/pricing-parameter/exclude-parameters/new?industry=${encodeURIComponent(industry)}&editId=${param.id}`)}
+                              onClick={() => router.push(`/admin/settings/industries/form-1/pricing-parameter/exclude-parameters/new?industry=${encodeURIComponent(industry)}&industryId=${industryId}&editId=${param.id}`)}
                             >
                               Edit
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onClick={() => {
-                                const updated = excludeParameters.filter(p => p.id !== param.id);
-                                setExcludeParameters(updated);
-                                localStorage.setItem(`excludeParameters_${industry}`, JSON.stringify(updated));
+                              onClick={async () => {
+                                try {
+                                  const response = await fetch(`/api/exclude-parameters?id=${param.id}`, {
+                                    method: 'DELETE',
+                                  });
+                                  if (!response.ok) throw new Error('Failed to delete');
+                                  setExcludeParameters(excludeParameters.filter(p => p.id !== param.id));
+                                  toast({
+                                    title: "Success",
+                                    description: "Exclude parameter deleted successfully",
+                                  });
+                                } catch (error) {
+                                  toast({
+                                    title: "Error",
+                                    description: "Failed to delete exclude parameter",
+                                    variant: "destructive",
+                                  });
+                                }
                               }}
                               className="text-red-600"
                             >
