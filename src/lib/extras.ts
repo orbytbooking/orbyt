@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabaseClient';
+import { supabase, supabaseAdmin } from '@/lib/supabaseClient';
 
 export interface Extra {
   id: string;
@@ -49,7 +49,8 @@ class ExtrasService {
   private supabase;
 
   constructor() {
-    this.supabase = supabase;
+    // Use admin client for server-side operations, fall back to regular client
+    this.supabase = (typeof window === 'undefined' && supabaseAdmin) ? supabaseAdmin : supabase;
   }
 
   async getExtrasByIndustry(industryId: string): Promise<Extra[]> {

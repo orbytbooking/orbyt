@@ -50,11 +50,17 @@ export async function POST(request: NextRequest) {
     
     console.log('Extra created successfully:', extra);
     return NextResponse.json({ extra }, { status: 201 });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creating extra:', error);
     console.error('Error details:', error instanceof Error ? error.message : 'Unknown error');
+    console.error('Error stack:', error?.stack);
+    console.error('Supabase error:', error?.code, error?.details, error?.hint);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to create extra' },
+      { 
+        error: error instanceof Error ? error.message : 'Failed to create extra',
+        details: error?.details || error?.hint || undefined,
+        code: error?.code || undefined
+      },
       { status: 500 }
     );
   }

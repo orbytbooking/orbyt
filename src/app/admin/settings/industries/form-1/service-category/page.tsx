@@ -8,97 +8,116 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useEffect, useMemo, useState } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { ChevronDown } from "lucide-react";
+import { serviceCategoriesService, ServiceCategory } from "@/lib/serviceCategories";
+import { useBusiness } from "@/contexts/BusinessContext";
 
 export default function IndustryFormServiceCategoryPage() {
   const params = useSearchParams();
   const router = useRouter();
   const { toast } = useToast();
+  const { currentBusiness } = useBusiness();
   const industry = params.get("industry") || "Industry";
+  const industryIdFromUrl = params.get("industryId");
   
-  type ServiceCategory = {
-    id: number;
-    name: string;
-    description?: string;
-    color?: string;
-    icon?: string;
-    display?: string;
-    serviceCategoryFrequency?: boolean;
-    selectedFrequencies?: string[];
-    extras?: string[];
-    extrasConfig?: {
-      tip: {
-        enabled: boolean;
-        saveTo: 'all' | 'booking' | 'service';
-        display: 'customer_frontend_backend_admin' | 'customer_backend_admin' | 'admin_only';
-      };
-      parking: {
-        enabled: boolean;
-        saveTo: 'all' | 'booking' | 'service';
-        display: 'customer_frontend_backend_admin' | 'customer_backend_admin' | 'admin_only';
-      };
-    };
-  };
-  
-  const storageKey = useMemo(() => `service_categories_${industry}`, [industry]);
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [industryId, setIndustryId] = useState<string | null>(industryIdFromUrl);
   
+  // Fetch industryId if not in URL
   useEffect(() => {
+    const fetchIndustryId = async () => {
+      if (!currentBusiness?.id) {
+        console.log('No business ID available yet');
+        return;
+      }
+
+      try {
+        console.log('Fetching industry ID for:', industry);
+        const response = await fetch(`/api/industries?business_id=${currentBusiness.id}`);
+        const data = await response.json();
+        console.log('Industries API response:', data);
+        const currentIndustry = data.industries?.find((ind: any) => ind.name === industry);
+        
+        if (currentIndustry) {
+          console.log('Found industry:', currentIndustry);
+          setIndustryId(currentIndustry.id);
+        } else {
+          console.error('Industry not found:', industry);
+          setLoading(false);
+          toast({
+            title: "Error",
+            description: `Industry "${industry}" not found.`,
+            variant: "destructive",
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching industry ID:', error);
+        setLoading(false);
+        toast({
+          title: "Error",
+          description: "Failed to fetch industry information.",
+          variant: "destructive",
+        });
+      }
+    };
+    
+    if (!industryIdFromUrl && industry && currentBusiness?.id) {
+      fetchIndustryId();
+    } else if (industryIdFromUrl) {
+      console.log('Using industryId from URL:', industryIdFromUrl);
+    }
+  }, [industry, industryIdFromUrl, currentBusiness?.id]);
+
+  useEffect(() => {
+    if (industryId) {
+      console.log('Loading categories for industryId:', industryId);
+      loadCategories();
+    }
+  }, [industryId]);
+
+  const loadCategories = async () => {
+    if (!industryId) {
+      console.log('No industryId available');
+      return;
+    }
+    
     try {
-      const stored = JSON.parse(localStorage.getItem(storageKey) || "null");
-      if (Array.isArray(stored)) setCategories(stored);
-      else setCategories([]);
-    } catch {
-      setCategories([]);
+      setLoading(true);
+      console.log('Fetching service categories for industryId:', industryId);
+      const data = await serviceCategoriesService.getServiceCategoriesByIndustry(industryId);
+      console.log('Service categories loaded:', data);
+      setCategories(data);
+    } catch (error) {
+      console.error('Error loading service categories:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load service categories.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
     }
-    setIsInitialLoad(false);
-  }, [storageKey]);
-
-  useEffect(() => {
-    if (!isInitialLoad) {
-      localStorage.setItem(storageKey, JSON.stringify(categories));
-    }
-  }, [categories, storageKey, isInitialLoad]);
-
-  // Keep table in sync if localStorage changes
-  useEffect(() => {
-    const handler = (e: StorageEvent) => {
-      if (e.key === storageKey) {
-        try {
-          const arr = JSON.parse(e.newValue || '[]');
-          if (Array.isArray(arr)) setCategories(arr);
-        } catch {}
-      }
-    };
-    
-    // Listen for custom events from the new/edit page
-    const customHandler = (e: CustomEvent) => {
-      if (e.type === 'serviceCategoriesUpdated' && e.detail?.storageKey === storageKey) {
-        try {
-          const arr = e.detail.categories;
-          if (Array.isArray(arr)) setCategories(arr);
-        } catch {}
-      }
-    };
-    
-    window.addEventListener('storage', handler);
-    window.addEventListener('serviceCategoriesUpdated', customHandler as EventListener);
-    
-    return () => {
-      window.removeEventListener('storage', handler);
-      window.removeEventListener('serviceCategoriesUpdated', customHandler as EventListener);
-    };
-  }, [storageKey]);
-
-  const remove = (id: number) => {
-    setCategories(prev => prev.filter(r => r.id !== id));
-    toast({
-      title: "Category deleted",
-      description: "The service category has been removed successfully.",
-    });
   };
 
-  const move = (id: number, dir: -1 | 1) => setCategories(prev => {
+  const remove = async (id: string) => {
+    try {
+      await serviceCategoriesService.deleteServiceCategory(id);
+      setCategories(prev => prev.filter(r => r.id !== id));
+      toast({
+        title: "Category deleted",
+        description: "The service category has been removed successfully.",
+      });
+    } catch (error) {
+      console.error('Error deleting category:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete service category.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const move = (id: string, dir: -1 | 1) => setCategories(prev => {
     const idx = prev.findIndex(r => r.id === id);
     if (idx < 0) return prev;
     const j = idx + dir;
@@ -109,21 +128,32 @@ export default function IndustryFormServiceCategoryPage() {
     return copy;
   });
 
-  const updatePriority = () => {
+  const updatePriority = async () => {
     try {
-      localStorage.setItem(storageKey, JSON.stringify(categories));
+      const updates = categories.map((cat, index) => ({
+        id: cat.id,
+        sort_order: index
+      }));
+      await serviceCategoriesService.updateServiceCategoryOrder(updates);
       toast({
         title: "Categories updated",
         description: "Service categories order has been saved.",
       });
-    } catch {}
+    } catch (error) {
+      console.error('Error updating priority:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update categories order.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
     <div className="space-y-6">
       <div className="flex justify-end">
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => router.push(`/admin/settings/industries/form-1/service-category/new?industry=${encodeURIComponent(industry)}`)}>Add New</Button>
+          <Button variant="outline" onClick={() => router.push(`/admin/settings/industries/form-1/service-category/new?industry=${encodeURIComponent(industry)}&industryId=${industryId || ''}`)}>Add New</Button>
           <Button variant="default" onClick={updatePriority}>Update priority</Button>
         </div>
       </div>
@@ -146,12 +176,17 @@ export default function IndustryFormServiceCategoryPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {categories.length === 0 && (
+                {loading && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">Loading...</TableCell>
+                  </TableRow>
+                )}
+                {!loading && categories.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">No data. Click Add New to create a category.</TableCell>
                   </TableRow>
                 )}
-                {categories.map((category) => (
+                {!loading && categories.map((category) => (
                   <TableRow key={category.id}>
                     <TableCell className="font-medium">{category.name}</TableCell>
                     <TableCell className="text-sm">
@@ -161,16 +196,16 @@ export default function IndustryFormServiceCategoryPage() {
                       {!category.display && "-"}
                     </TableCell>
                     <TableCell className="text-sm">
-                      {category.serviceCategoryFrequency && category.selectedFrequencies && category.selectedFrequencies.length > 0
-                        ? category.selectedFrequencies.join(", ")
+                      {category.service_category_frequency && category.selected_frequencies && category.selected_frequencies.length > 0
+                        ? category.selected_frequencies.join(", ")
                         : "-"
                       }
                     </TableCell>
                     <TableCell className="text-sm">
                       {(() => {
                         const enabledExtras = [];
-                        if (category.extrasConfig?.tip?.enabled) enabledExtras.push("Tip");
-                        if (category.extrasConfig?.parking?.enabled) enabledExtras.push("Parking");
+                        if (category.extras_config?.tip?.enabled) enabledExtras.push("Tip");
+                        if (category.extras_config?.parking?.enabled) enabledExtras.push("Parking");
                         return enabledExtras.length > 0 ? enabledExtras.join(", ") : "-";
                       })()}
                     </TableCell>
@@ -180,7 +215,7 @@ export default function IndustryFormServiceCategoryPage() {
                           <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground">Options <ChevronDown className="h-4 w-4" /></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => router.push(`/admin/settings/industries/form-1/service-category/new?industry=${encodeURIComponent(industry)}&editId=${category.id}`)}>Edit</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => router.push(`/admin/settings/industries/form-1/service-category/new?industry=${encodeURIComponent(industry)}&industryId=${industryId || ''}&editId=${category.id}`)}>Edit</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => move(category.id, -1)}>Move Up</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => move(category.id, 1)}>Move Down</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => remove(category.id)} className="text-red-600">Delete</DropdownMenuItem>

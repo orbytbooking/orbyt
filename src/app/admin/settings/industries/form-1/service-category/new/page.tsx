@@ -13,99 +13,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Info } from "lucide-react";
+import { serviceCategoriesService, ServiceCategory } from "@/lib/serviceCategories";
+import { useToast } from "@/components/ui/use-toast";
+import { supabase } from "@/lib/supabaseClient";
 
 export default function ServiceCategoryNewPage() {
   const params = useSearchParams();
   const router = useRouter();
+  const { toast } = useToast();
   const industry = params.get("industry") || "Industry";
-  const editId = params.get("editId") ? Number(params.get("editId")) : null;
+  const industryIdFromUrl = params.get("industryId");
+  const editId = params.get("editId") || null;
 
-  type ServiceCategory = {
-    id: number;
-    name: string;
-    description?: string;
-    color?: string;
-    icon?: string;
-    excludedProviders?: string[];
-    serviceCategoryFrequency?: boolean;
-    selectedFrequencies?: string[];
-    variables?: { [key: string]: string[] };
-    excludeParameters?: {
-      pets: boolean;
-      smoking: boolean;
-      deepCleaning: boolean;
-    };
-    extras?: number[];
-    selectedExcludeParameters?: string[];
-    display?: string;
-    displayServiceLengthCustomer?: string;
-    displayServiceLengthProvider?: boolean;
-    canCustomerEditService?: boolean;
-    serviceFeeEnabled?: boolean;
-    expeditedCharge?: {
-      enabled: boolean;
-      amount: string;
-      displayText: string;
-      currency: string;
-    };
-    cancellationFee?: {
-      enabled: boolean;
-      type: 'single' | 'multiple';
-      fee: string;
-      currency: string;
-      payProvider: boolean;
-      providerFee: string;
-      providerCurrency: string;
-      chargeTiming: 'beforeDay' | 'hoursBefore';
-      beforeDayTime: string;
-      hoursBefore: string;
-    };
-    hourlyService?: {
-      enabled: boolean;
-      price: string;
-      currency: string;
-      priceCalculationType: 'customTime' | 'pricingParametersTime';
-      countExtrasSeparately: boolean;
-    };
-    serviceCategoryPrice?: {
-      enabled: boolean;
-      price: string;
-      currency: string;
-    };
-    serviceCategoryTime?: {
-      enabled: boolean;
-      hours: string;
-      minutes: string;
-    };
-    minimumPrice?: {
-      enabled: boolean;
-      checkAmountType: 'discounted' | 'final';
-      price: string;
-      checkRecurringSchedule: boolean;
-      textToDisplay: boolean;
-      noticeText: string;
-    };
-    overrideProviderPay?: {
-      enabled: boolean;
-      amount: string;
-      currency: string;
-    };
-    extrasConfig?: {
-      tip: {
-        enabled: boolean;
-        saveTo: 'all' | 'first';
-        display: 'customer_frontend_backend_admin' | 'customer_backend_admin' | 'admin_only';
-      };
-      parking: {
-        enabled: boolean;
-        saveTo: 'all' | 'first';
-        display: 'customer_frontend_backend_admin' | 'customer_backend_admin' | 'admin_only';
-      };
-    };
-  };
-  
-  const storageKey = useMemo(() => `service_categories_${industry}`, [industry]);
-  const [categories, setCategories] = useState<ServiceCategory[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [industryId, setIndustryId] = useState<string | null>(industryIdFromUrl);
 
   const [form, setForm] = useState({
     name: "",
@@ -212,11 +133,108 @@ export default function ServiceCategoryNewPage() {
   }>({});
 
   useEffect(() => {
+    if (editId) {
+      loadCategory();
+    }
+  }, [editId]);
+
+  const loadCategory = async () => {
     try {
-      const stored = JSON.parse(localStorage.getItem(storageKey) || "null");
-      if (Array.isArray(stored)) setCategories(stored);
-    } catch {}
-  }, [storageKey]);
+      setLoading(true);
+      const category = await serviceCategoriesService.getServiceCategoryById(editId!);
+      if (category) {
+        setForm({
+          name: category.name,
+          description: category.description || "",
+          excludedProviders: category.excluded_providers || [],
+          serviceCategoryFrequency: category.service_category_frequency || false,
+          selectedFrequencies: category.selected_frequencies || [],
+          variables: category.variables || {},
+          excludeParameters: category.exclude_parameters || {
+            pets: false,
+            smoking: false,
+            deepCleaning: false
+          },
+          extras: category.extras || [],
+          selectedExcludeParameters: category.selected_exclude_parameters || [],
+          display: category.display || "customer_frontend_backend_admin",
+          displayServiceLengthCustomer: category.display_service_length_customer || "admin_only",
+          displayServiceLengthProvider: category.display_service_length_provider || false,
+          canCustomerEditService: category.can_customer_edit_service || false,
+          serviceFeeEnabled: category.service_fee_enabled || false,
+          expeditedCharge: category.expedited_charge || {
+            enabled: false,
+            amount: "",
+            displayText: "",
+            currency: "$"
+          },
+          cancellationFee: category.cancellation_fee || {
+            enabled: false,
+            type: 'single',
+            fee: "",
+            currency: "$",
+            payProvider: false,
+            providerFee: "",
+            providerCurrency: "$",
+            chargeTiming: 'beforeDay',
+            beforeDayTime: "",
+            hoursBefore: ""
+          },
+          hourlyService: category.hourly_service || {
+            enabled: false,
+            price: "",
+            currency: "$",
+            priceCalculationType: 'customTime',
+            countExtrasSeparately: false
+          },
+          serviceCategoryPrice: category.service_category_price || {
+            enabled: false,
+            price: "",
+            currency: "$"
+          },
+          serviceCategoryTime: category.service_category_time || {
+            enabled: false,
+            hours: "0",
+            minutes: "0"
+          },
+          minimumPrice: category.minimum_price || {
+            enabled: false,
+            checkAmountType: 'discounted',
+            price: "",
+            checkRecurringSchedule: false,
+            textToDisplay: false,
+            noticeText: ""
+          },
+          overrideProviderPay: category.override_provider_pay || {
+            enabled: false,
+            amount: "",
+            currency: "$"
+          },
+          extrasConfig: category.extras_config || {
+            tip: {
+              enabled: false,
+              saveTo: 'all',
+              display: 'customer_frontend_backend_admin'
+            },
+            parking: {
+              enabled: false,
+              saveTo: 'all',
+              display: 'customer_frontend_backend_admin'
+            }
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error loading category:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load service category.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Load pricing parameters from localStorage
   useEffect(() => {
@@ -231,18 +249,59 @@ export default function ServiceCategoryNewPage() {
     }
   }, [industry]);
 
-  // Load extras from localStorage
+  // Fetch industryId if not in URL
   useEffect(() => {
-    try {
-      const extrasKey = `extras_${industry}`;
-      const storedExtras = JSON.parse(localStorage.getItem(extrasKey) || "[]");
-      if (Array.isArray(storedExtras)) {
-        setAvailableExtras(storedExtras.map((e: any) => ({ id: e.id, name: e.name })));
+    const fetchIndustryId = async () => {
+      try {
+        const response = await fetch('/api/industries');
+        const data = await response.json();
+        const currentIndustry = data.industries?.find((ind: any) => ind.name === industry);
+        
+        if (currentIndustry) {
+          setIndustryId(currentIndustry.id);
+        }
+      } catch (error) {
+        console.error('Error fetching industry ID:', error);
       }
-    } catch {
-      // ignore
+    };
+    
+    if (!industryIdFromUrl && industry) {
+      fetchIndustryId();
     }
-  }, [industry]);
+  }, [industry, industryIdFromUrl]);
+
+  // Load extras from database
+  useEffect(() => {
+    const fetchExtras = async () => {
+      if (!industryId) return;
+      
+      try {
+        console.log('Fetching extras for industryId:', industryId);
+        const response = await fetch(`/api/extras?industryId=${encodeURIComponent(industryId)}`);
+        console.log('Extras API response status:', response.status);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('Extras API response data:', data);
+          
+          if (data.extras && Array.isArray(data.extras)) {
+            console.log('Setting available extras:', data.extras);
+            setAvailableExtras(data.extras.map((e: any) => ({ id: e.id, name: e.name })));
+          } else {
+            console.log('No extras array in response');
+          }
+        } else {
+          console.error('API response not ok:', response.status, response.statusText);
+        }
+      } catch (error) {
+        console.error('Error fetching extras:', error);
+      }
+    };
+    
+    if (industryId) {
+      fetchExtras();
+    }
+  }, [industryId]);
 
   // Load frequencies from localStorage
   useEffect(() => {
@@ -302,93 +361,6 @@ export default function ServiceCategoryNewPage() {
     }
   }, []);
 
-  useEffect(() => {
-    if (editId && categories.length > 0) {
-      const existing = categories.find(c => c.id === editId);
-      if (existing) {
-        setForm({
-          name: existing.name,
-          description: existing.description || "",
-          excludedProviders: existing.excludedProviders || [],
-          serviceCategoryFrequency: existing.serviceCategoryFrequency || false,
-          selectedFrequencies: existing.selectedFrequencies || [],
-          variables: existing.variables || {},
-          excludeParameters: existing.excludeParameters || {
-            pets: false,
-            smoking: false,
-            deepCleaning: false
-          },
-          extras: existing.extras || [],
-          selectedExcludeParameters: existing.selectedExcludeParameters || [],
-          display: existing.display || "customer_frontend_backend_admin",
-          displayServiceLengthCustomer: existing.displayServiceLengthCustomer || "admin_only",
-          displayServiceLengthProvider: existing.displayServiceLengthProvider || false,
-          canCustomerEditService: existing.canCustomerEditService || false,
-          serviceFeeEnabled: existing.serviceFeeEnabled || false,
-          expeditedCharge: existing.expeditedCharge || {
-            enabled: false,
-            amount: "",
-            displayText: "",
-            currency: "$"
-          },
-          cancellationFee: existing.cancellationFee || {
-            enabled: false,
-            type: 'single',
-            fee: "",
-            currency: "$",
-            payProvider: false,
-            providerFee: "",
-            providerCurrency: "$",
-            chargeTiming: 'beforeDay',
-            beforeDayTime: "",
-            hoursBefore: ""
-          },
-          hourlyService: existing.hourlyService || {
-            enabled: false,
-            price: "",
-            currency: "$",
-            priceCalculationType: 'customTime',
-            countExtrasSeparately: false
-          },
-          serviceCategoryPrice: existing.serviceCategoryPrice || {
-            enabled: false,
-            price: "",
-            currency: "$"
-          },
-          serviceCategoryTime: existing.serviceCategoryTime || {
-            enabled: false,
-            hours: "0",
-            minutes: "0"
-          },
-          minimumPrice: existing.minimumPrice || {
-            enabled: false,
-            checkAmountType: 'discounted',
-            price: "",
-            checkRecurringSchedule: false,
-            textToDisplay: false,
-            noticeText: ""
-          },
-          overrideProviderPay: existing.overrideProviderPay || {
-            enabled: false,
-            amount: "",
-            currency: "$"
-          },
-          extrasConfig: existing.extrasConfig || {
-            tip: {
-              enabled: false,
-              saveTo: 'all',
-              display: 'customer_frontend_backend_admin'
-            },
-            parking: {
-              enabled: false,
-              saveTo: 'all',
-              display: 'customer_frontend_backend_admin'
-            }
-          }
-        });
-      }
-    }
-  }, [editId, categories]);
 
   // Real-time validation functions
   const validateCancellationFee = (value: string) => {
@@ -471,25 +443,22 @@ export default function ServiceCategoryNewPage() {
     }
   };
 
-  const save = () => {
+  const save = async () => {
     if (!form.name.trim()) {
       alert("Service category name is required");
       return;
     }
 
-    // Validation for cancellation fee
     if (form.cancellationFee.enabled && !form.cancellationFee.fee.trim()) {
       alert("Cancellation fee amount is required when cancellation fee is enabled");
       return;
     }
 
-    // Validation for provider fee
     if (form.cancellationFee.payProvider && !form.cancellationFee.providerFee.trim()) {
       alert("Provider fee amount is required when paying provider is enabled");
       return;
     }
 
-    // Validation for charge timing
     if (form.cancellationFee.enabled) {
       if (form.cancellationFee.chargeTiming === 'beforeDay' && !form.cancellationFee.beforeDayTime.trim()) {
         alert("Time is required when 'If they cancel after' option is selected");
@@ -501,174 +470,106 @@ export default function ServiceCategoryNewPage() {
       }
     }
 
-    // Validation for expedited charge
     if (form.expeditedCharge.enabled && !form.expeditedCharge.amount.trim()) {
       alert("Expedited charge amount is required when expedited charge is enabled");
       return;
     }
 
-    // Validation for hourly service
     if (form.hourlyService.enabled && !form.hourlyService.price.trim()) {
       alert("Hourly service price is required when hourly service is enabled");
       return;
     }
 
-    // Validation for service category price
     if (form.serviceCategoryPrice.enabled && !form.serviceCategoryPrice.price.trim()) {
       alert("Service category price is required when price is enabled");
       return;
     }
 
-    // Validation for service category time
     if (form.serviceCategoryTime.enabled && (!form.serviceCategoryTime.hours.trim() && !form.serviceCategoryTime.minutes.trim())) {
       alert("Hours or minutes is required when service time is enabled");
       return;
     }
 
-    // Validation for minimum price
     if (form.minimumPrice.enabled && !form.minimumPrice.price.trim()) {
       alert("Minimum price is required when minimum price is enabled");
       return;
     }
 
-    // Validation for override provider pay
     if (form.overrideProviderPay.enabled && !form.overrideProviderPay.amount.trim()) {
       alert("Override provider pay amount is required when override is enabled");
       return;
     }
 
-    let updatedCategories: ServiceCategory[];
-    
-    if (editId) {
-      updatedCategories = categories.map(c => c.id === editId ? {
-        ...c,
-        name: form.name.trim(),
-        description: form.description,
-        excludedProviders: form.excludedProviders,
-        serviceCategoryFrequency: form.serviceCategoryFrequency,
-        selectedFrequencies: form.selectedFrequencies,
-        variables: form.variables,
-        excludeParameters: form.excludeParameters,
-        extras: form.extras,
-        selectedExcludeParameters: form.selectedExcludeParameters,
-        display: form.display,
-        displayServiceLengthCustomer: form.displayServiceLengthCustomer,
-        displayServiceLengthProvider: form.displayServiceLengthProvider,
-        canCustomerEditService: form.canCustomerEditService,
-        serviceFeeEnabled: form.serviceFeeEnabled,
-        expeditedCharge: form.expeditedCharge,
-        cancellationFee: form.cancellationFee,
-        hourlyService: form.hourlyService,
-        serviceCategoryPrice: form.serviceCategoryPrice,
-        serviceCategoryTime: form.serviceCategoryTime,
-        minimumPrice: form.minimumPrice,
-        overrideProviderPay: form.overrideProviderPay,
-        extrasConfig: form.extrasConfig
-      } : {
-        ...c,
-        display: c.display || "customer_frontend_backend_admin",
-        displayServiceLengthCustomer: c.displayServiceLengthCustomer || "admin_only",
-        displayServiceLengthProvider: c.displayServiceLengthProvider || false,
-        expeditedCharge: c.expeditedCharge || {
-          enabled: false,
-          amount: "",
-          displayText: "",
-          currency: "$"
-        },
-        cancellationFee: c.cancellationFee || {
-          enabled: false,
-          type: 'single' as const,
-          fee: "",
-          currency: "$",
-          payProvider: false,
-          providerFee: "",
-          providerCurrency: "$",
-          chargeTiming: 'beforeDay' as const,
-          beforeDayTime: "",
-          hoursBefore: ""
-        },
-        hourlyService: c.hourlyService || {
-          enabled: false,
-          price: "",
-          currency: "$",
-          priceCalculationType: 'customTime' as const,
-          countExtrasSeparately: false
-        },
-        serviceCategoryPrice: c.serviceCategoryPrice || {
-          enabled: false,
-          price: "",
-          currency: "$"
-        },
-        serviceCategoryTime: c.serviceCategoryTime || {
-          enabled: false,
-          hours: "0",
-          minutes: "0"
-        },
-        minimumPrice: c.minimumPrice || {
-          enabled: false,
-          checkAmountType: 'discounted' as const,
-          price: "",
-          checkRecurringSchedule: false,
-          textToDisplay: false,
-          noticeText: ""
-        },
-        overrideProviderPay: c.overrideProviderPay || {
-          enabled: false,
-          amount: "",
-          currency: "$"
-        },
-        extrasConfig: c.extrasConfig || {
-          tip: {
-            enabled: false,
-            saveTo: 'all' as const,
-            display: 'customer_frontend_backend_admin' as const
-          },
-          parking: {
-            enabled: false,
-            saveTo: 'all' as const,
-            display: 'customer_frontend_backend_admin' as const
-          }
-        }
-      });
-    } else {
-      const nextId = (categories.reduce((m, c) => Math.max(m, c.id), 0) || 0) + 1;
-      const newCategory: ServiceCategory = {
-        id: nextId,
-        name: form.name.trim(),
-        description: form.description,
-        excludedProviders: form.excludedProviders,
-        serviceCategoryFrequency: form.serviceCategoryFrequency,
-        selectedFrequencies: form.selectedFrequencies,
-        variables: form.variables,
-        excludeParameters: form.excludeParameters,
-        extras: form.extras,
-        selectedExcludeParameters: form.selectedExcludeParameters,
-        display: form.display,
-        displayServiceLengthCustomer: form.displayServiceLengthCustomer,
-        displayServiceLengthProvider: form.displayServiceLengthProvider,
-        canCustomerEditService: form.canCustomerEditService,
-        serviceFeeEnabled: form.serviceFeeEnabled,
-        expeditedCharge: form.expeditedCharge,
-        cancellationFee: form.cancellationFee,
-        hourlyService: form.hourlyService,
-        serviceCategoryPrice: form.serviceCategoryPrice,
-        serviceCategoryTime: form.serviceCategoryTime,
-        minimumPrice: form.minimumPrice,
-        overrideProviderPay: form.overrideProviderPay,
-        extrasConfig: form.extrasConfig
-      };
-      updatedCategories = [...categories, newCategory];
-    }
-    
-    // Update localStorage
-    localStorage.setItem(storageKey, JSON.stringify(updatedCategories));
-    
-    // Force update the parent page state by dispatching a custom event
-    window.dispatchEvent(new CustomEvent('serviceCategoriesUpdated', { 
-      detail: { categories: updatedCategories, storageKey } 
-    }));
+    try {
+      setLoading(true);
 
-    router.push(`/admin/settings/industries/form-1/service-category?industry=${encodeURIComponent(industry)}`);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+      
+      const { data: business } = await supabase
+        .from('businesses')
+        .select('id')
+        .eq('owner_id', user.id)
+        .single();
+      
+      if (!business) throw new Error('Business not found');
+
+      if (!industryId) {
+        throw new Error('Industry ID is required');
+      }
+
+      const categoryData = {
+        business_id: business.id,
+        industry_id: industryId,
+        name: form.name.trim(),
+        description: form.description,
+        display: form.display as 'customer_frontend_backend_admin' | 'customer_backend_admin' | 'admin_only',
+        display_service_length_customer: form.displayServiceLengthCustomer as 'customer_frontend_backend_admin' | 'customer_backend_admin' | 'admin_only',
+        display_service_length_provider: form.displayServiceLengthProvider,
+        can_customer_edit_service: form.canCustomerEditService,
+        service_fee_enabled: form.serviceFeeEnabled,
+        service_category_frequency: form.serviceCategoryFrequency,
+        selected_frequencies: form.selectedFrequencies,
+        variables: form.variables,
+        exclude_parameters: form.excludeParameters,
+        selected_exclude_parameters: form.selectedExcludeParameters,
+        extras: form.extras,
+        extras_config: form.extrasConfig,
+        expedited_charge: form.expeditedCharge,
+        cancellation_fee: form.cancellationFee,
+        hourly_service: form.hourlyService,
+        service_category_price: form.serviceCategoryPrice,
+        service_category_time: form.serviceCategoryTime,
+        minimum_price: form.minimumPrice,
+        override_provider_pay: form.overrideProviderPay,
+        excluded_providers: form.excludedProviders
+      };
+
+      if (editId) {
+        await serviceCategoriesService.updateServiceCategory(editId, categoryData);
+        toast({
+          title: "Success",
+          description: "Service category updated successfully.",
+        });
+      } else {
+        await serviceCategoriesService.createServiceCategory(categoryData);
+        toast({
+          title: "Success",
+          description: "Service category created successfully.",
+        });
+      }
+
+      router.push(`/admin/settings/industries/form-1/service-category?industry=${encodeURIComponent(industry)}`);
+    } catch (error) {
+      console.error('Error saving category:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save service category.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
