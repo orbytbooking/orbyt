@@ -10,7 +10,12 @@ console.log('Supabase URL:', supabaseUrl);
 console.log('Service key length:', supabaseServiceKey.length);
 console.log('Service key starts with eyJ:', supabaseServiceKey.startsWith('eyJ'));
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
 
 export async function GET(request: NextRequest) {
   try {

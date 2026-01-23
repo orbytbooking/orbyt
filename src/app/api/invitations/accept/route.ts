@@ -13,7 +13,12 @@ export async function POST(request: NextRequest) {
     console.log('Service key starts with eyJ:', supabaseServiceKey.startsWith('eyJ'));
 
     // Create Supabase client with service role to bypass RLS
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
 
     const body = await request.json();
     const { invitationId, password, firstName, lastName, email, phone, address, businessId, providerType } = body;
