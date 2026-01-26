@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
-import { getAuthenticatedUser, createUnauthorizedResponse } from '@/lib/auth-helpers';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,10 +22,10 @@ const locationSchema = z.object({
 // Get all locations for a business
 export async function GET(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
     
-    if (!user) {
-      return createUnauthorizedResponse('Unauthorized');
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { searchParams } = new URL(request.url);
@@ -57,10 +56,10 @@ export async function GET(request: NextRequest) {
 // Create a new location
 export async function POST(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
     
-    if (!user) {
-      return createUnauthorizedResponse('Unauthorized');
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await request.json();
@@ -91,10 +90,10 @@ export async function POST(request: NextRequest) {
 // Update a location
 export async function PUT(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
     
-    if (!user) {
-      return createUnauthorizedResponse('Unauthorized');
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await request.json();
@@ -133,10 +132,10 @@ export async function PUT(request: NextRequest) {
 // Delete a location
 export async function DELETE(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
     
-    if (!user) {
-      return createUnauthorizedResponse('Unauthorized');
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { searchParams } = new URL(request.url);

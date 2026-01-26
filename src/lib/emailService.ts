@@ -37,10 +37,7 @@ export class EmailService {
       const { email, firstName, lastName, businessName, invitationToken } = data;
       
       // Create invitation URL
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.orbytservice.com';
-      const invitationUrl = `${baseUrl}/provider/invite?token=${invitationToken}&email=${encodeURIComponent(email)}`;
-      
-      console.log('Generated invitation URL:', invitationUrl);
+      const invitationUrl = `${process.env.NEXT_PUBLIC_APP_URL?.replace('http://localhost:3000', 'https://yourdomain.com') || 'https://yourdomain.com'}/provider/invite?token=${invitationToken}&email=${encodeURIComponent(email)}`;
       
       // Email template
       const emailSubject = `You're Invited to Join ${businessName} as a Service Provider`;
@@ -191,7 +188,7 @@ export class EmailService {
               <p>Congratulations! Your provider account with ${businessName} is now ready to use.</p>
               
               <div style="text-align: center;">
-                <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://www.orbytservice.com'}/provider/login" class="button">
+                <a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/provider/login" class="button">
                   Go to Provider Portal
                 </a>
               </div>

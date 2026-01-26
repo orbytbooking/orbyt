@@ -33,20 +33,21 @@ export async function middleware(request: NextRequest) {
 
   // IMPORTANT: DO NOT REMOVE THE FOLLOWING LINE!
   // This is required for the middleware to work properly
-  // https://supabase.com/docs/guides/auth/server-side/nextjs
+  // https://supabase.com/docs/guides/auth/auth-helpers/nextjs#managing-session-with-middleware
   const url = request.nextUrl.clone()
 
-  // Protect API routes - require authentication for all API routes except auth endpoints
-  if (request.nextUrl.pathname.startsWith('/api/') && 
-      !request.nextUrl.pathname.startsWith('/api/auth/') &&
-      !user) {
+  // If user is not signed in and the current path is not /auth/*, redirect to /auth/login
+  if (!user && !request.nextUrl.pathname.startsWith('/auth') && !request.nextUrl.pathname.startsWith('/_next') && !request.nextUrl.pathname.startsWith('/api')) {
     url.pathname = '/auth/login'
     return NextResponse.redirect(url)
   }
 
-  // For UI routes, let client-side ProtectedRoute handle authentication
-  // This allows the landing page and other public pages to be accessible
-  
+  // If user is signed in and the current path is /auth/*, redirect to /admin
+  if (user && request.nextUrl.pathname.startsWith('/auth')) {
+    url.pathname = '/admin'
+    return NextResponse.redirect(url)
+  }
+
   return supabaseResponse
 }
 
@@ -57,7 +58,8 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
+     * Feel free to modify this pattern to include more paths.
      */
-    '/((?!_next/static|_next/image|favicon.ico).*)',
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

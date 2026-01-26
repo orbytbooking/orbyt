@@ -183,7 +183,7 @@ export async function POST(request: NextRequest) {
       success: true,
       invitation: invitationData,
       message: 'Provider invitation sent successfully',
-      invitationUrl: `${process.env.NEXT_PUBLIC_APP_URL || 'https://www.orbytservice.com'}/provider/invite?token=${invitationToken}&email=${encodeURIComponent(email)}`,
+      invitationUrl: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/provider/invite?token=${invitationToken}&email=${encodeURIComponent(email)}`,
       emailSent: true
     });
 

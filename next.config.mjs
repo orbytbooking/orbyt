@@ -28,6 +28,10 @@ const nextConfig = {
         pathname: '/images/**',
       },
     ],
+    // For backward compatibility and local development
+    domains: [
+      'gpalzskadkrfedlwqobq.supabase.co',
+    ],
   },
 }
 
