@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
+import { Textarea } from "@/components/ui/textarea";
 import { 
   User, 
   Mail, 
@@ -31,12 +32,17 @@ import {
   Camera,
   MapPin,
   Calendar,
-  Clock
+  Clock,
+  Loader2
 } from "lucide-react";
 import Link from "next/link";
+import { toast } from "sonner";
+import { useBusiness } from "@/contexts/BusinessContext";
+import { supabase } from "@/lib/supabaseClient";
 
 export default function AdminProfilePage() {
   const router = useRouter();
+  const { currentBusiness } = useBusiness();
   const [adminEmail, setAdminEmail] = useState("");
   const [adminName, setAdminName] = useState("");
   const [adminPhone, setAdminPhone] = useState("");
@@ -46,6 +52,7 @@ export default function AdminProfilePage() {
   const [adminRole, setAdminRole] = useState("admin");
   const [profilePicture, setProfilePicture] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isProfileLoading, setIsProfileLoading] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -55,8 +62,72 @@ export default function AdminProfilePage() {
   const [activeTab, setActiveTab] = useState("profile");
   const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle");
   const [profileCompletion, setProfileCompletion] = useState(0);
+  const [businessInfo, setBusinessInfo] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    address: "",
+    description: ""
+  });
+
+  // Cleanup blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      if (profilePicture && profilePicture.startsWith('blob:')) {
+        URL.revokeObjectURL(profilePicture);
+      }
+    };
+  }, [profilePicture]);
 
   useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Fetch profile data
+        const profileResponse = await fetch('/api/admin/profile');
+        if (profileResponse.ok) {
+          const data = await profileResponse.json();
+          const profile = data.profile;
+          
+          if (profile) {
+            setAdminName(profile.full_name || '');
+            setAdminPhone(profile.phone || '');
+            setAdminRole(profile.role || 'admin');
+            setAdminBio(profile.bio || '');
+            setAdminLocation(profile.location || '');
+            setProfilePicture(profile.profile_picture || '');
+            if (profile.email) {
+              setAdminEmail(profile.email);
+            }
+          }
+        }
+
+        // Fetch business data
+        const businessResponse = await fetch('/api/admin/business');
+        if (businessResponse.ok) {
+          const data = await businessResponse.json();
+          const business = data.business;
+          
+          if (business) {
+            setBusinessInfo({
+              name: business.name || '',
+              email: business.business_email || '',
+              phone: business.business_phone || '',
+              address: business.address || '',
+              description: business.description || ''
+            });
+            setAdminCompany(business.name || '');
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      } finally {
+        setIsProfileLoading(false);
+      }
+    };
+    
+    fetchData();
+    
+    // Minimal localStorage fallback - NO profile picture from localStorage
     const email = localStorage.getItem("adminEmail") || "";
     const name = localStorage.getItem("adminName") || "";
     const phone = localStorage.getItem("adminPhone") || "";
@@ -64,19 +135,18 @@ export default function AdminProfilePage() {
     const location = localStorage.getItem("adminLocation") || "";
     const bio = localStorage.getItem("adminBio") || "";
     const role = localStorage.getItem("adminRole") || "admin";
-    const picture = localStorage.getItem("adminProfilePicture") || "";
     const notifications = localStorage.getItem("emailNotifications") !== "false";
     const pushNotif = localStorage.getItem("pushNotifications") === "true";
     const dark = localStorage.getItem("adminTheme") !== "light";
     
-    setAdminEmail(email);
-    setAdminName(name);
-    setAdminPhone(phone);
-    setAdminCompany(company);
-    setAdminLocation(location);
-    setAdminBio(bio);
-    setAdminRole(role);
-    setProfilePicture(picture);
+    // Only set from localStorage if the field is empty (except profile picture)
+    if (!adminEmail) setAdminEmail(email);
+    if (!adminName) setAdminName(name);
+    if (!adminPhone) setAdminPhone(phone);
+    if (!adminCompany) setAdminCompany(company);
+    if (!adminLocation) setAdminLocation(location);
+    if (!adminBio) setAdminBio(bio);
+    if (adminRole === 'admin') setAdminRole(role); // Only override if still default
     setEmailNotifications(notifications);
     setPushNotifications(pushNotif);
     setDarkMode(dark);
@@ -91,6 +161,29 @@ export default function AdminProfilePage() {
     setIsLoading(true);
     setSaveStatus("idle");
     try {
+      // Update profile in database
+      const profileResponse = await fetch('/api/admin/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          full_name: adminName,
+          phone: adminPhone,
+          business_id: currentBusiness?.id,
+          bio: adminBio,
+          location: adminLocation,
+          profile_picture: profilePicture,
+          role: adminRole,
+        }),
+      });
+      
+      if (!profileResponse.ok) {
+        const errorData = await profileResponse.json().catch(() => ({}));
+        console.error('Profile update API error:', errorData);
+        throw new Error(errorData.error || 'Failed to update profile');
+      }
+      
       localStorage.setItem("adminEmail", adminEmail);
       localStorage.setItem("adminName", adminName);
       localStorage.setItem("adminPhone", adminPhone);
@@ -98,7 +191,7 @@ export default function AdminProfilePage() {
       localStorage.setItem("adminLocation", adminLocation);
       localStorage.setItem("adminBio", adminBio);
       localStorage.setItem("adminRole", adminRole);
-      localStorage.setItem("adminProfilePicture", profilePicture);
+      // NO localStorage for profile picture - only database
       localStorage.setItem("emailNotifications", emailNotifications.toString());
       localStorage.setItem("pushNotifications", pushNotifications.toString());
       localStorage.setItem("adminTheme", darkMode ? "dark" : "light");
@@ -109,6 +202,7 @@ export default function AdminProfilePage() {
       setProfileCompletion(Math.round((completedFields / fields.length) * 100));
       
       setSaveStatus("success");
+      toast.success('Profile updated successfully!');
       setTimeout(() => {
         setIsLoading(false);
         setSaveStatus("idle");
@@ -120,19 +214,105 @@ export default function AdminProfilePage() {
     }
   };
 
-  const handleProfilePictureUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleProfilePictureUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result as string;
-        setProfilePicture(result);
-      };
-      reader.readAsDataURL(file);
+      try {
+        setIsLoading(true);
+        console.log('Starting upload for file:', file.name);
+        
+        // Validate file type
+        if (!file.type.startsWith('image/')) {
+          toast.error('Please select an image file');
+          return;
+        }
+        
+        // Validate file size (max 5MB)
+        const maxSize = 5 * 1024 * 1024; // 5MB
+        if (file.size > maxSize) {
+          toast.error('Image size should not be more than 5MB');
+          return;
+        }
+        
+        // Create a unique file name
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Date.now()}.${fileExt}`;
+        const filePath = `${fileName}`; // Store directly in avatars bucket
+        
+        console.log('Uploading to path:', filePath);
+        
+        // Upload to Supabase Storage
+        const { error: uploadError, data } = await supabase.storage
+          .from('avatars')
+          .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: true
+          });
+        
+        if (uploadError) {
+          console.error('Error uploading image:', uploadError);
+          toast.error('Failed to upload image: ' + uploadError.message);
+          return;
+        }
+        
+        console.log('Upload successful:', data);
+        
+        // Get public URL
+        const { data: { publicUrl } } = supabase.storage
+          .from('avatars')
+          .getPublicUrl(filePath);
+        
+        console.log('Public URL:', publicUrl);
+        
+        // Update state with the public URL
+        setProfilePicture(publicUrl);
+        
+        // NO localStorage - only database storage
+        toast.success('Image uploaded successfully!');
+      } catch (error) {
+        console.error('Error uploading image:', error);
+        toast.error('Failed to upload image');
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
-  const removeProfilePicture = () => {
+  const removeProfilePicture = async () => {
+    if (profilePicture) {
+      // Handle blob URLs (local preview)
+      if (profilePicture.startsWith('blob:')) {
+        URL.revokeObjectURL(profilePicture);
+        toast.success('Image removed successfully!');
+      }
+      // Handle Supabase URLs
+      else if (profilePicture.startsWith('https://')) {
+        try {
+          // Extract file path from URL
+          const url = new URL(profilePicture);
+          const filePath = url.pathname.split('/').pop();
+          
+          if (filePath) {
+            // Delete from Supabase Storage
+            const { error } = await supabase.storage
+              .from('avatars')
+              .remove([`avatars/${filePath}`]);
+            
+            if (error) {
+              console.error('Error deleting image:', error);
+              toast.error('Failed to delete image');
+            } else {
+              toast.success('Image removed successfully!');
+            }
+          }
+        } catch (error) {
+          console.error('Error removing image:', error);
+          toast.error('Failed to remove image');
+        }
+      }
+    }
+    
+    // Clear the state
     setProfilePicture("");
   };
 
@@ -140,14 +320,16 @@ export default function AdminProfilePage() {
     switch (role) {
       case 'owner':
         return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
-      case 'super-admin':
-        return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
       case 'admin':
         return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
       case 'manager':
         return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
       case 'staff':
         return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
+      case 'provider':
+        return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200';
+      case 'customer':
+        return 'bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-200';
       default:
         return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
     }
@@ -157,14 +339,16 @@ export default function AdminProfilePage() {
     switch (role) {
       case 'owner':
         return '👑';
-      case 'super-admin':
-        return '⚡';
       case 'admin':
         return '🛡️';
       case 'manager':
         return '📋';
       case 'staff':
         return '👤';
+      case 'provider':
+        return '🔧';
+      case 'customer':
+        return '👥';
       default:
         return '👤';
     }
@@ -274,7 +458,9 @@ export default function AdminProfilePage() {
                 <CardContent className="space-y-4">
                   <div className="relative group">
                     <Avatar className="h-24 w-24 mx-auto ring-4 ring-blue-500/20">
-                      <AvatarImage src={profilePicture} alt={adminName || adminEmail} />
+                      {profilePicture && (profilePicture.startsWith('https://') || profilePicture.startsWith('blob:')) ? (
+                        <AvatarImage src={profilePicture} alt={adminName || adminEmail} />
+                      ) : null}
                       <AvatarFallback className="text-2xl font-semibold bg-gradient-to-br from-blue-500 to-purple-600 text-white">
                         {(adminName || adminEmail || "A").charAt(0).toUpperCase()}
                       </AvatarFallback>
@@ -422,20 +608,30 @@ export default function AdminProfilePage() {
                       <Shield className="h-4 w-4" />
                       Role
                     </Label>
-                    <select
-                      id="role"
-                      value={adminRole}
-                      onChange={(e) => setAdminRole(e.target.value)}
-                      className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                    >
-                      <option value="owner">Owner</option>
-                      <option value="super-admin">Super Admin</option>
-                      <option value="admin">Admin</option>
-                      <option value="manager">Manager</option>
-                      <option value="staff">Staff</option>
-                    </select>
+                    {adminRole === 'owner' ? (
+                      <div className="w-full p-2 border rounded-md bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+                        👑 Owner - Business Owner (Cannot be changed)
+                      </div>
+                    ) : (
+                      <select
+                        id="role"
+                        value={adminRole}
+                        onChange={(e) => setAdminRole(e.target.value)}
+                        className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                      >
+                        <option value="owner">Owner</option>
+                        <option value="admin">Admin</option>
+                        <option value="manager">Manager</option>
+                        <option value="staff">Staff</option>
+                        <option value="provider">Provider</option>
+                        <option value="customer">Customer</option>
+                      </select>
+                    )}
                     <p className="text-xs text-muted-foreground">
-                      Your role determines your permissions and access level
+                      {adminRole === 'owner' 
+                        ? 'As the business owner, you have full access to all features and settings.'
+                        : 'Your role determines your permissions and access level'
+                      }
                     </p>
                   </div>
 
@@ -453,6 +649,102 @@ export default function AdminProfilePage() {
                       {adminBio.length}/500 characters
                     </p>
                   </div>
+                </CardContent>
+              </Card>
+
+              {/* Business Information Card */}
+              <Card className="lg:col-span-2">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Building className="h-5 w-5" />
+                    Business Information
+                  </CardTitle>
+                  <CardDescription>
+                    Your business details and contact information
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {isProfileLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin" />
+                      <span className="ml-2">Loading business information...</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="business-name">Business Name</Label>
+                          <Input
+                            id="business-name"
+                            value={businessInfo.name}
+                            disabled
+                            className="bg-muted/50"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="business-email">Business Email</Label>
+                          <div className="relative">
+                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                              id="business-email"
+                              type="email"
+                              className="pl-10 bg-muted/50"
+                              value={businessInfo.email}
+                              disabled
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="business-phone">Business Phone</Label>
+                          <div className="relative">
+                            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                              id="business-phone"
+                              className="pl-10 bg-muted/50"
+                              value={businessInfo.phone}
+                              disabled
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="business-address">Business Address</Label>
+                          <div className="relative">
+                            <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                              id="business-address"
+                              className="pl-10 bg-muted/50"
+                              value={businessInfo.address}
+                              disabled
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="business-description">Business Description</Label>
+                        <Textarea
+                          id="business-description"
+                          rows={3}
+                          className="bg-muted/50 resize-none"
+                          value={businessInfo.description}
+                          disabled
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-2 p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                        <Building className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                        <div className="text-sm">
+                          <p className="font-medium text-blue-900 dark:text-blue-100">Business Information</p>
+                          <p className="text-blue-700 dark:text-blue-300">
+                            To update business details, visit the <a href="/admin/settings" className="underline hover:text-blue-800 dark:hover:text-blue-200">Settings page</a>
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             </div>

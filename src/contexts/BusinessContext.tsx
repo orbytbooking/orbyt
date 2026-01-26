@@ -6,9 +6,22 @@ import { useRouter } from 'next/navigation';
 interface Business {
   id: string;
   name: string;
-  role: 'owner' | 'admin' | 'member';
+  address?: string | null;
+  category?: string | null;
   plan: string;
+  subdomain?: string | null;
+  domain?: string | null;
+  created_at: string;
+  updated_at: string;
   is_active: boolean;
+  business_email?: string | null;
+  business_phone?: string | null;
+  city?: string | null;
+  zip_code?: string | null;
+  website?: string | null;
+  description?: string | null;
+  logo_url?: string | null;
+  role: 'owner' | 'admin' | 'member';
 }
 
 interface BusinessContextType {
@@ -53,8 +66,11 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       // Get businesses where user is owner (simplified for current schema)
       const { data: ownerBusinesses, error: ownerError } = await supabase
         .from('businesses')
-        .select('id, name, plan')
-        .eq('owner_id', user.id);
+        .select('*')
+        .eq('owner_id', user.id)
+        .order('created_at', { ascending: false }); // Add ordering to prevent caching
+      
+      console.log('Raw business data from DB:', ownerBusinesses);
 
       // For now, only handle owner businesses (team functionality can be added later)
       if (ownerError) {
@@ -72,7 +88,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
           // Try without is_active column
           const { data: fallbackBusinesses, error: fallbackError } = await supabase
             .from('businesses')
-            .select('id, name, plan')
+            .select('*')
             .eq('owner_id', user.id);
           
           if (fallbackError) {
@@ -80,9 +96,23 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
           }
           
           const allBusinesses: Business[] = (fallbackBusinesses || []).map(b => ({ 
-            ...b, 
-            role: 'owner' as const,
-            is_active: true // Default to true for backward compatibility
+            id: b.id,
+            name: b.name,
+            address: b.address,
+            category: b.category,
+            plan: b.plan || 'starter',
+            subdomain: b.subdomain,
+            domain: b.domain,
+            created_at: b.created_at || new Date().toISOString(),
+            updated_at: b.updated_at || new Date().toISOString(),
+            is_active: b.is_active !== undefined ? b.is_active : true,
+            business_email: b.business_email,
+            business_phone: b.business_phone,
+            city: b.city,
+            zip_code: b.zip_code,
+            website: b.website,
+            description: b.description,
+            role: 'owner' as const
           }));
           
           setBusinesses(allBusinesses);
@@ -105,13 +135,23 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       }
 
       // Format businesses
-      const allBusinesses: Business[] = (ownerBusinesses || []).map(b => ({ 
-        ...b, 
-        role: 'owner' as const,
-        is_active: true // Default to true for backward compatibility
-      }));
+      const allBusinesses: Business[] = (ownerBusinesses || []).map(b => {
+        console.log('Mapping business:', b);
+        // Direct assignment to preserve all data
+        const mapped: Business = {
+          ...b,
+          role: 'owner' as const,
+          plan: b.plan || 'starter',
+          created_at: b.created_at || new Date().toISOString(),
+          updated_at: b.updated_at || new Date().toISOString(),
+          is_active: b.is_active !== undefined ? b.is_active : true,
+        };
+        console.log('Mapped business:', mapped);
+        return mapped;
+      });
 
       setBusinesses(allBusinesses);
+      console.log('Businesses loaded:', allBusinesses);
 
       // Set current business (first one or stored preference)
       if (typeof window !== 'undefined') {
@@ -163,6 +203,20 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     refreshBusinesses: fetchBusinesses,
     hasPermission
   };
+
+  // Debug: Log context value on every render
+  console.log('BusinessContext value:', {
+    businessesCount: businesses.length,
+    currentBusiness: currentBusiness ? {
+      id: currentBusiness.id,
+      name: currentBusiness.name,
+      business_email: currentBusiness.business_email,
+      business_phone: currentBusiness.business_phone,
+      city: currentBusiness.city,
+      zip_code: currentBusiness.zip_code,
+      description: currentBusiness.description
+    } : null
+  });
 
   return (
     <BusinessContext.Provider value={value}>

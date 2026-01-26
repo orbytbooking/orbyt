@@ -538,15 +538,15 @@ const StaffManagement = () => {
 
       {/* Add Staff Dialog */}
       {isAddDialogOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-xl max-h-[90vh] flex flex-col">
-            <CardHeader className="sticky top-0 bg-background z-10 border-b p-4">
-              <CardTitle className="text-lg">Add New Staff Member</CardTitle>
-              <CardDescription className="text-sm">
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-xl max-h-[90vh] flex flex-col bg-white/80 backdrop-blur-xl border border-white/20 shadow-2xl shadow-black/10 dark:bg-gray-800/80 dark:border-gray-700">
+            <CardHeader className="sticky top-0 bg-white/60 backdrop-blur-xl z-10 border-b border-white/20 p-6 dark:bg-gray-700/60 dark:border-gray-600">
+              <CardTitle className="text-lg font-semibold text-gray-900 dark:!text-white" style={{ color: 'white' }}>Add New Staff Member</CardTitle>
+              <CardDescription className="text-sm text-gray-600 dark:!text-white" style={{ color: 'white' }}>
                 Fill in the details below to add a new staff member.
               </CardDescription>
             </CardHeader>
-            <CardContent className="flex-1 overflow-y-auto p-4">
+            <CardContent className="flex-1 overflow-y-auto p-6 bg-white/40 backdrop-blur-lg dark:bg-gray-700/40">
               <form onSubmit={handleAddStaff} className="space-y-6 w-full">
                 {/* Profile Image */}
                 <div className="flex flex-col items-center">
@@ -557,21 +557,21 @@ const StaffManagement = () => {
                       className="hidden"
                       onChange={handleImageUpload}
                     />
-                    <div className="w-32 h-32 rounded-full bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden">
+                    <div className="w-32 h-32 rounded-full bg-white/30 backdrop-blur-md border-2 border-white/40 shadow-lg flex items-center justify-center overflow-hidden hover:bg-white/40 transition-all duration-300 dark:bg-gray-600/30 dark:border-gray-500/40 dark:hover:bg-gray-600/40">
                       {formData.image ? (
                         <img src={formData.image} alt="Staff" className="w-full h-full object-cover" />
                       ) : (
-                        <Plus className="w-10 h-10 text-gray-400" />
+                        <Plus className="w-10 h-10 text-gray-600 dark:!text-white" style={{ color: 'white' }} />
                       )}
                     </div>
                   </label>
-                  <p className="text-sm text-gray-500 mt-1">Click to upload photo</p>
+                  <p className="text-sm text-gray-500 mt-1 dark:!text-white" style={{ color: 'white' }}>Click to upload photo</p>
                 </div>
 
                 {/* First Name and Last Name */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <Label htmlFor="firstName">First Name</Label>
+                    <Label htmlFor="firstName" className="text-gray-700 font-medium dark:!text-white" style={{ color: 'white' }}>First Name</Label>
                     <Input
                       id="firstName"
                       name="firstName"
@@ -579,10 +579,11 @@ const StaffManagement = () => {
                       onChange={handleInputChange}
                       placeholder="John"
                       required
+                      className="bg-white/50 backdrop-blur-sm border-white/30 focus:bg-white/60 focus:border-white/50 transition-all duration-200 dark:bg-gray-600/50 dark:border-gray-500/30 dark:focus:bg-gray-600/60 dark:focus:border-gray-500/50"
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label htmlFor="lastName">Last Name</Label>
+                    <Label htmlFor="lastName" className="text-gray-700 font-medium dark:!text-white" style={{ color: 'white' }}>Last Name</Label>
                     <Input
                       id="lastName"
                       name="lastName"
@@ -590,15 +591,16 @@ const StaffManagement = () => {
                       onChange={handleInputChange}
                       placeholder="Doe"
                       required
+                      className="bg-white/50 backdrop-blur-sm border-white/30 focus:bg-white/60 focus:border-white/50 transition-all duration-200 dark:bg-gray-600/50 dark:border-gray-500/30 dark:focus:bg-gray-600/60 dark:focus:border-gray-500/50"
                     />
                   </div>
                 </div>
                 
                 {/* Gender */}
                 <div className="space-y-2">
-                  <Label>Gender</Label>
-                  <div className="flex gap-4">
-                    <label className="flex items-center space-x-2">
+                  <Label className="text-gray-700 font-medium dark:!text-white" style={{ color: 'white' }}>Gender</Label>
+                  <div className="flex gap-4 p-3 bg-white/30 backdrop-blur-sm rounded-lg border border-white/20 dark:bg-gray-600/30 dark:border-gray-500/20">
+                    <label className="flex items-center space-x-2 cursor-pointer">
                       <input
                         type="radio"
                         name="gender"
@@ -610,11 +612,11 @@ const StaffManagement = () => {
                             gender: 'male' as const
                           }));
                         }}
-                        className="h-4 w-4 text-primary focus:ring-primary"
+                        className="h-4 w-4 text-primary focus:ring-primary bg-white/50 dark:bg-gray-500/50"
                       />
-                      <span>Male</span>
+                      <span className="text-gray-700 dark:!text-white" style={{ color: 'white' }}>Male</span>
                     </label>
-                    <label className="flex items-center space-x-2">
+                    <label className="flex items-center space-x-2 cursor-pointer">
                       <input
                         type="radio"
                         name="gender"
@@ -626,11 +628,11 @@ const StaffManagement = () => {
                             gender: 'female' as const
                           }));
                         }}
-                        className="h-4 w-4 text-primary focus:ring-primary"
+                        className="h-4 w-4 text-primary focus:ring-primary bg-white/50 dark:bg-gray-500/50"
                       />
-                      <span>Female</span>
+                      <span className="text-gray-700 dark:!text-white" style={{ color: 'white' }}>Female</span>
                     </label>
-                    <label className="flex items-center space-x-2">
+                    <label className="flex items-center space-x-2 cursor-pointer">
                       <input
                         type="radio"
                         name="gender"
@@ -642,16 +644,16 @@ const StaffManagement = () => {
                             gender: 'other' as const
                           }));
                         }}
-                        className="h-4 w-4 text-primary focus:ring-primary"
+                        className="h-4 w-4 text-primary focus:ring-primary bg-white/50 dark:bg-gray-500/50"
                       />
-                      <span>Other</span>
+                      <span className="text-gray-700 dark:!text-white" style={{ color: 'white' }}>Other</span>
                     </label>
                   </div>
                 </div>
                 
                 {/* Email */}
                 <div className="space-y-1">
-                  <Label htmlFor="email">Email Address</Label>
+                  <Label htmlFor="email" className="text-gray-700 font-medium dark:!text-white" style={{ color: 'white' }}>Email Address</Label>
                   <Input
                     id="email"
                     name="email"
@@ -660,20 +662,21 @@ const StaffManagement = () => {
                     onChange={handleInputChange}
                     placeholder="john@example.com"
                     required
+                    className="bg-white/50 backdrop-blur-sm border-white/30 focus:bg-white/60 focus:border-white/50 transition-all duration-200 dark:bg-gray-600/50 dark:border-gray-500/30 dark:focus:bg-gray-600/60 dark:focus:border-gray-500/50"
                   />
                 </div>
                 
                 {/* Send Invitation */}
-                <div className="flex items-center space-x-2 py-2">
+                <div className="flex items-center space-x-3 py-3 px-4 bg-white/30 backdrop-blur-sm rounded-lg border border-white/20 dark:bg-gray-600/30 dark:border-gray-500/20">
                   <input
                     type="checkbox"
                     id="sendInvitation"
                     name="sendInvitation"
                     checked={formData.sendInvitation}
                     onChange={handleInputChange}
-                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    className="h-4 w-4 rounded border-white/30 bg-white/50 text-primary focus:ring-primary dark:border-gray-500/30 dark:bg-gray-500/50"
                   />
-                  <Label htmlFor="sendInvitation" className="text-sm font-medium leading-none">
+                  <Label htmlFor="sendInvitation" className="text-sm font-medium leading-none text-gray-700 cursor-pointer dark:!text-white" style={{ color: 'white' }}>
                     Send invitation email to this staff member
                   </Label>
                 </div>
@@ -681,7 +684,7 @@ const StaffManagement = () => {
                 {/* Phone Numbers */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <Label htmlFor="phone">Phone Number</Label>
+                    <Label htmlFor="phone" className="text-gray-700 font-medium dark:!text-white" style={{ color: 'white' }}>Phone Number</Label>
                     <Input
                       id="phone"
                       name="phone"
@@ -690,10 +693,11 @@ const StaffManagement = () => {
                       onChange={handleInputChange}
                       placeholder="+1 (555) 123-4567"
                       required
+                      className="bg-white/50 backdrop-blur-sm border-white/30 focus:bg-white/60 focus:border-white/50 transition-all duration-200 dark:bg-gray-600/50 dark:border-gray-500/30 dark:focus:bg-gray-600/60 dark:focus:border-gray-500/50"
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label htmlFor="alternatePhone">Alternate Phone</Label>
+                    <Label htmlFor="alternatePhone" className="text-gray-700 font-medium dark:!text-white" style={{ color: 'white' }}>Alternate Phone</Label>
                     <Input
                       id="alternatePhone"
                       name="alternatePhone"
@@ -701,6 +705,7 @@ const StaffManagement = () => {
                       value={formData.alternatePhone}
                       onChange={handleInputChange}
                       placeholder="+1 (555) 987-6543"
+                      className="bg-white/50 backdrop-blur-sm border-white/30 focus:bg-white/60 focus:border-white/50 transition-all duration-200 dark:bg-gray-600/50 dark:border-gray-500/30 dark:focus:bg-gray-600/60 dark:focus:border-gray-500/50"
                     />
                   </div>
                 </div>
@@ -708,39 +713,40 @@ const StaffManagement = () => {
                 {/* Address and Apartment */}
                 <div className="space-y-4">
                   <div className="space-y-1">
-                    <Label htmlFor="address">Address</Label>
+                    <Label htmlFor="address" className="text-gray-700 font-medium dark:!text-white" style={{ color: 'white' }}>Address</Label>
                     <textarea
                       id="address"
                       name="address"
                       value={formData.address}
                       onChange={handleInputChange}
-                      className="flex h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="flex h-20 w-full rounded-md border border-white/30 bg-white/50 backdrop-blur-sm px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 focus:bg-white/60 focus:border-white/50 transition-all duration-200 dark:border-gray-500/30 dark:bg-gray-600/50 dark:focus:bg-gray-600/60 dark:focus:border-gray-500/50"
                       placeholder="123 Main St, City, State, ZIP"
                       required
                     />
                   </div>
                   
                   <div className="w-1/2">
-                    <Label htmlFor="apartment">Apartment/Unit #</Label>
+                    <Label htmlFor="apartment" className="text-gray-700 font-medium dark:!text-white" style={{ color: 'white' }}>Apartment/Unit #</Label>
                     <Input
                       id="apartment"
                       name="apartment"
                       value={formData.apartment}
                       onChange={handleInputChange}
                       placeholder="Apt 4B"
+                      className="bg-white/50 backdrop-blur-sm border-white/30 focus:bg-white/60 focus:border-white/50 transition-all duration-200 dark:bg-gray-600/50 dark:border-gray-500/30 dark:focus:bg-gray-600/60 dark:focus:border-gray-500/50"
                     />
                   </div>
                 </div>
                 
                 {/* Role */}
                   <div className="space-y-1 pt-2">
-                    <Label htmlFor="role">Role</Label>
+                    <Label htmlFor="role" className="text-gray-700 font-medium dark:!text-white" style={{ color: 'white' }}>Role</Label>
                     <select
                       id="role"
                       name="role"
                       value={formData.role}
                       onChange={handleInputChange}
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="flex h-10 w-full rounded-md border border-white/30 bg-white/50 backdrop-blur-sm px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 focus:bg-white/60 focus:border-white/50 transition-all duration-200 dark:border-gray-500/30 dark:bg-gray-600/50 dark:focus:bg-gray-600/60 dark:focus:border-gray-500/50"
                       required
                     >
                       <option value="staff">Staff</option>
@@ -749,15 +755,18 @@ const StaffManagement = () => {
                     </select>
                   </div>
                   
-                  <div className="flex justify-end space-x-3 pt-4">
+                  <div className="flex justify-end space-x-3 pt-6">
                     <Button
                       type="button"
                       variant="outline"
                       onClick={() => setIsAddDialogOpen(false)}
+                      className="bg-white/30 backdrop-blur-sm border-white/30 hover:bg-white/40 transition-all duration-200 dark:bg-gray-600/30 dark:border-gray-500/30 dark:hover:bg-gray-600/40"
                     >
                       Cancel
                     </Button>
-                    <Button type="submit">Add Staff</Button>
+                    <Button type="submit" className="bg-white/20 backdrop-blur-sm border border-white/30 hover:bg-white/30 transition-all duration-200 text-gray-800 font-medium dark:bg-gray-600/20 dark:border-gray-500/30 dark:hover:bg-gray-600/30 dark:text-white">
+                      Add Staff
+                    </Button>
                   </div>
               </form>
             </CardContent>

@@ -16,10 +16,13 @@ import { v4 as uuidv4 } from 'uuid';
 import { useLeads } from '@/hooks/useLeads';
 import { Lead, LeadStatus } from '@/hooks/useLeads';
 import { useBusiness } from '@/contexts/BusinessContext';
+import { useLogo } from '@/contexts/LogoContext';
 import { supabase } from '@/lib/supabaseClient';
 import { Modal } from '@/components/ui/modal';
 import { LeadForm } from '@/components/leads/LeadForm';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Card, CardContent } from '@/components/ui/card';
+import Image from "next/image";
 
 type Column = {
   id: string;
@@ -43,6 +46,7 @@ const columns = defaultColumns;
 export default function LeadsPage() {
   const { leads, loading, error, createLead, deleteLead, updateLead, refetch, addTag, updateTag, removeTag } = useLeads();
   const { businesses, currentBusiness, loading: businessLoading, switchBusiness } = useBusiness();
+  const { logo } = useLogo();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [tagFilter, setTagFilter] = useState<string>('all');
@@ -297,6 +301,37 @@ export default function LeadsPage() {
   
   return (
     <div className="p-6">
+      {/* Business Header */}
+      <Card className="bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border-cyan-500/20 mb-6">
+        <CardContent className="pt-6">
+          <div className="flex items-center gap-4">
+            {logo && !logo.startsWith('blob:') ? (
+              <Image 
+                src={logo} 
+                alt="Business Logo" 
+                width={60} 
+                height={60} 
+                className="rounded-lg object-cover border-2 border-cyan-500/30" 
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-lg bg-cyan-500/20 border-2 border-cyan-500/30 flex items-center justify-center">
+                <span className="text-cyan-400 text-2xl font-bold">
+                  {currentBusiness?.name?.charAt(0) || 'L'}
+                </span>
+              </div>
+            )}
+            <div>
+              <h1 className="text-2xl font-bold text-white mb-1">
+                {currentBusiness?.name || 'Business'} Leads
+              </h1>
+              <p className="text-white/70">
+                Track and manage your sales leads and conversion pipeline
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {businessLoading ? (
         <div className="flex items-center justify-center py-8">
           <div className="text-gray-400">Loading business information...</div>

@@ -125,6 +125,17 @@ export default function CustomerProfilePage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewImage, setPreviewImage] = useState<FileItem | null>(null);
 
+  // Cleanup blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      files.forEach(file => {
+        if (file.url && file.url.startsWith('blob:')) {
+          URL.revokeObjectURL(file.url);
+        }
+      });
+    };
+  }, [files]);
+
   // Notification state variables
   const [emailNotifications, setEmailNotifications] = useState<Record<string, boolean>>({
     "Booking cancellation": true,

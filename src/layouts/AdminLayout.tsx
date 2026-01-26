@@ -311,13 +311,23 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
             {sidebarOpen ? (
               <>
                 <div className="flex items-center gap-3">
-                  <Image 
-                    src={logo || defaultLogo} 
-                    alt="Logo" 
-                    width={44} 
-                    height={44} 
-                    className="rounded object-cover" 
-                  />
+                  {logo && !logo.startsWith('blob:') ? (
+                    <Image 
+                      src={logo} 
+                      alt="Logo" 
+                      width={44} 
+                      height={44} 
+                      className="rounded object-cover" 
+                    />
+                  ) : (
+                    <Image 
+                      src={defaultLogo} 
+                      alt="Logo" 
+                      width={44} 
+                      height={44} 
+                      className="rounded object-cover" 
+                    />
+                  )}
                   <div>
                     <h2 className={`text-sm font-semibold uppercase tracking-wide ${theme === 'dark' ? 'text-cyan-400' : 'text-black'}`} style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
                       {config?.branding?.companyName || 'ORBYT'}
@@ -600,7 +610,13 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                   }`}
                 >
                   <Avatar className="h-8 w-8 flex-shrink-0">
-                    <AvatarImage src={`https://api.dicebear.com/7.x/initials/svg?seed=${adminEmail}`} alt={adminEmail} />
+                    <AvatarImage 
+                      src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(adminEmail)}`} 
+                      alt={adminEmail} 
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
                     <AvatarFallback>{adminEmail.charAt(0).toUpperCase()}</AvatarFallback>
                   </Avatar>
                   {sidebarOpen && (

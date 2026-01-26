@@ -18,6 +18,8 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
 import { useBusiness } from "@/contexts/BusinessContext";
+import { useLogo } from "@/contexts/LogoContext";
+import Image from "next/image";
 import { 
   Search, 
   Download,
@@ -112,6 +114,7 @@ const Customers = () => {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { currentBusiness } = useBusiness();
+  const { logo } = useLogo();
   const [searchTerm, setSearchTerm] = useState("");
   const [customers, setCustomers] = useState<Customer[]>(defaultCustomers);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -298,6 +301,37 @@ const Customers = () => {
 
   return (
     <div className="space-y-6">
+      {/* Business Header */}
+      <Card className="bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border-cyan-500/20">
+        <CardContent className="pt-6">
+          <div className="flex items-center gap-4">
+            {logo && !logo.startsWith('blob:') ? (
+              <Image 
+                src={logo} 
+                alt="Business Logo" 
+                width={60} 
+                height={60} 
+                className="rounded-lg object-cover border-2 border-cyan-500/30" 
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-lg bg-cyan-500/20 border-2 border-cyan-500/30 flex items-center justify-center">
+                <span className="text-cyan-400 text-2xl font-bold">
+                  {currentBusiness?.name?.charAt(0) || 'B'}
+                </span>
+              </div>
+            )}
+            <div>
+              <h1 className="text-2xl font-bold text-white mb-1">
+                {currentBusiness?.name || 'Business'} Customers
+              </h1>
+              <p className="text-white/70">
+                Manage your customer relationships and track interactions
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-3">
         <Card>

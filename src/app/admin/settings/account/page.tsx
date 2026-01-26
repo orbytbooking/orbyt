@@ -31,6 +31,9 @@ import {
   Calendar,
   Clock
 } from "lucide-react";
+import { supabase } from "@/lib/supabaseClient";
+import { useBusiness } from "@/contexts/BusinessContext";
+import { toast } from "sonner";
 
 export default function AccountSettingsPage() {
   const [adminEmail, setAdminEmail] = useState("");
@@ -50,50 +53,106 @@ export default function AccountSettingsPage() {
   const [darkMode, setDarkMode] = useState(true);
   const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle");
   const [profileCompletion, setProfileCompletion] = useState(0);
+  const [isDataLoading, setIsDataLoading] = useState(true);
+  const { currentBusiness } = useBusiness();
+
+  // Cleanup blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      if (profilePicture && profilePicture.startsWith('blob:')) {
+        URL.revokeObjectURL(profilePicture);
+      }
+    };
+  }, [profilePicture]);
 
   useEffect(() => {
-    const email = localStorage.getItem("adminEmail") || "";
-    const name = localStorage.getItem("adminName") || "";
-    const phone = localStorage.getItem("adminPhone") || "";
-    const company = localStorage.getItem("adminCompany") || "";
-    const location = localStorage.getItem("adminLocation") || "";
-    const bio = localStorage.getItem("adminBio") || "";
-    const role = localStorage.getItem("adminRole") || "admin";
-    const picture = localStorage.getItem("adminProfilePicture") || "";
-    const notifications = localStorage.getItem("emailNotifications") !== "false";
-    const pushNotif = localStorage.getItem("pushNotifications") === "true";
-    const dark = localStorage.getItem("adminTheme") !== "light";
+    const fetchProfileData = async () => {
+      try {
+        setIsDataLoading(true);
+        
+        // Get user data from auth
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          setAdminEmail(user.email || '');
+        }
+        
+        // Get profile data from database
+        const response = await fetch('/api/admin/profile');
+        if (response.ok) {
+          const data = await response.json();
+          const profile = data.profile;
+          
+          if (profile) {
+            setAdminName(profile.full_name || '');
+            setAdminPhone(profile.phone || '');
+            setAdminRole(profile.role || 'admin');
+            setProfilePicture(profile.profile_picture || '');
+            setAdminBio(profile.bio || '');
+            setAdminLocation(profile.location || '');
+          }
+        }
+        
+        // Get business data
+        if (currentBusiness) {
+          setAdminCompany(currentBusiness.name || '');
+        }
+        
+        // Load preferences from localStorage (these are UI preferences, not data)
+        const notifications = localStorage.getItem("emailNotifications") !== "false";
+        const pushNotif = localStorage.getItem("pushNotifications") === "true";
+        const dark = localStorage.getItem("adminTheme") !== "light";
+        
+        setEmailNotifications(notifications);
+        setPushNotifications(pushNotif);
+        setDarkMode(dark);
+        
+      } catch (error) {
+        console.error('Error fetching profile data:', error);
+        toast.error('Failed to load profile data');
+      } finally {
+        setIsDataLoading(false);
+      }
+    };
     
-    setAdminEmail(email);
-    setAdminName(name);
-    setAdminPhone(phone);
-    setAdminCompany(company);
-    setAdminLocation(location);
-    setAdminBio(bio);
-    setAdminRole(role);
-    setProfilePicture(picture);
-    setEmailNotifications(notifications);
-    setPushNotifications(pushNotif);
-    setDarkMode(dark);
-    
-    // Calculate profile completion
-    const fields = [email, name, phone, company, location, bio, role];
-    const completedFields = fields.filter(field => field && field.trim() !== "").length;
-    setProfileCompletion(Math.round((completedFields / fields.length) * 100));
-  }, []);
+    fetchProfileData();
+  }, [currentBusiness]);
+
+  // Watch for business data changes and update form
+  useEffect(() => {
+    if (currentBusiness) {
+      console.log('Business data changed:', currentBusiness);
+      setAdminCompany(currentBusiness.name || '');
+    }
+  }, [currentBusiness]);
 
   const handleSave = async () => {
     setIsLoading(true);
     setSaveStatus("idle");
     try {
-      localStorage.setItem("adminEmail", adminEmail);
-      localStorage.setItem("adminName", adminName);
-      localStorage.setItem("adminPhone", adminPhone);
-      localStorage.setItem("adminCompany", adminCompany);
-      localStorage.setItem("adminLocation", adminLocation);
-      localStorage.setItem("adminBio", adminBio);
-      localStorage.setItem("adminRole", adminRole);
-      localStorage.setItem("adminProfilePicture", profilePicture);
+      // Update profile in database
+      const profileResponse = await fetch('/api/admin/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          full_name: adminName,
+          phone: adminPhone,
+          business_id: currentBusiness?.id,
+          bio: adminBio,
+          location: adminLocation,
+          profile_picture: profilePicture,
+          role: adminRole,
+        }),
+      });
+      
+      if (!profileResponse.ok) {
+        const errorData = await profileResponse.json().catch(() => ({}));
+        console.error('Profile update API error:', errorData);
+        throw new Error(errorData.error || 'Failed to update profile');
+      }
+      
+      // Save UI preferences to localStorage
       localStorage.setItem("emailNotifications", emailNotifications.toString());
       localStorage.setItem("pushNotifications", pushNotifications.toString());
       localStorage.setItem("adminTheme", darkMode ? "dark" : "light");
@@ -104,6 +163,7 @@ export default function AccountSettingsPage() {
       setProfileCompletion(Math.round((completedFields / fields.length) * 100));
       
       setSaveStatus("success");
+      toast.success('Profile updated successfully!');
       setTimeout(() => {
         setIsLoading(false);
         setSaveStatus("idle");
@@ -111,19 +171,75 @@ export default function AccountSettingsPage() {
     } catch (error) {
       console.error("Error saving profile:", error);
       setSaveStatus("error");
+      toast.error('Failed to save profile');
       setIsLoading(false);
     }
   };
 
-  const handleProfilePictureUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleProfilePictureUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result as string;
-        setProfilePicture(result);
-      };
-      reader.readAsDataURL(file);
+      try {
+        setIsLoading(true);
+        
+        // Get current authenticated user
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        
+        if (authError || !user) {
+          toast.error('You must be logged in to upload a profile picture');
+          return;
+        }
+        
+        // Validate file type
+        if (!file.type.startsWith('image/')) {
+          toast.error('Please select an image file');
+          return;
+        }
+        
+        // Validate file size (max 5MB)
+        const maxSize = 5 * 1024 * 1024; // 5MB
+        if (file.size > maxSize) {
+          toast.error('Image size should not be more than 5MB');
+          return;
+        }
+        
+        // Create FormData for file upload
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('userId', user.id); // Use actual user ID
+        
+        // Upload to server
+        const response = await fetch('/api/admin/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to upload image');
+        }
+        
+        const { url } = await response.json();
+        setProfilePicture(url);
+        
+        toast.success('Profile picture uploaded successfully!');
+      } catch (error) {
+        console.error('Error uploading profile picture:', error);
+        toast.error('Failed to upload profile picture');
+        
+        // Fallback to local preview using blob URL
+        const blobUrl = URL.createObjectURL(file);
+        setProfilePicture(blobUrl);
+        
+        // Clean up the blob URL after 10 minutes to prevent memory leaks
+        setTimeout(() => {
+          URL.revokeObjectURL(blobUrl);
+        }, 10 * 60 * 1000);
+        
+        toast.info('Showing local preview. Upload failed, but you can still see the image.');
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -141,6 +257,10 @@ export default function AccountSettingsPage() {
         return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
       case 'staff':
         return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
+      case 'provider':
+        return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200';
+      case 'customer':
+        return 'bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-200';
       default:
         return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
     }
@@ -156,6 +276,10 @@ export default function AccountSettingsPage() {
         return '📋';
       case 'staff':
         return '👤';
+      case 'provider':
+        return '🔧';
+      case 'customer':
+        return '👥';
       default:
         return '👤';
     }
@@ -210,7 +334,13 @@ export default function AccountSettingsPage() {
         </TabsContent>
 
         <TabsContent value="profile" className="pt-6">
-          <div className="space-y-6">
+          {isDataLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+              <span className="ml-2 text-muted-foreground">Loading profile data...</span>
+            </div>
+          ) : (
+            <div className="space-y-6">
             {/* Profile Completion */}
             <Card className="border-l-4 border-l-blue-500">
               <CardContent className="pt-6">
@@ -245,7 +375,17 @@ export default function AccountSettingsPage() {
                 <CardContent className="space-y-4">
                   <div className="relative group">
                     <Avatar className="h-24 w-24 mx-auto ring-4 ring-blue-500/20">
-                      <AvatarImage src={profilePicture} alt={adminName || adminEmail} />
+                      {profilePicture && (profilePicture.startsWith('https://') || profilePicture.startsWith('blob:')) ? (
+                        <AvatarImage 
+                          src={profilePicture} 
+                          alt={adminName || adminEmail}
+                          onError={(e) => {
+                            console.error('AvatarImage failed to load:', profilePicture);
+                            // Force fallback by removing the src
+                            e.currentTarget.src = '';
+                          }}
+                        />
+                      ) : null}
                       <AvatarFallback className="text-2xl font-semibold bg-gradient-to-br from-blue-500 to-purple-600 text-white">
                         {(adminName || adminEmail || "A").charAt(0).toUpperCase()}
                       </AvatarFallback>
@@ -393,19 +533,30 @@ export default function AccountSettingsPage() {
                       <Shield className="h-4 w-4" />
                       Role
                     </Label>
-                    <select
-                      id="role"
-                      value={adminRole}
-                      onChange={(e) => setAdminRole(e.target.value)}
-                      className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                    >
-                      <option value="owner">Owner</option>
-                      <option value="admin">Admin</option>
-                      <option value="manager">Manager</option>
-                      <option value="staff">Staff</option>
-                    </select>
+                    {adminRole === 'owner' ? (
+                      <div className="w-full p-2 border rounded-md bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+                        👑 Owner - Business Owner (Cannot be changed)
+                      </div>
+                    ) : (
+                      <select
+                        id="role"
+                        value={adminRole}
+                        onChange={(e) => setAdminRole(e.target.value)}
+                        className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                      >
+                        <option value="owner">Owner</option>
+                        <option value="admin">Admin</option>
+                        <option value="manager">Manager</option>
+                        <option value="staff">Staff</option>
+                        <option value="provider">Provider</option>
+                        <option value="customer">Customer</option>
+                      </select>
+                    )}
                     <p className="text-xs text-muted-foreground">
-                      Your role determines your permissions and access level
+                      {adminRole === 'owner' 
+                        ? 'As the business owner, you have full access to all features and settings.'
+                        : 'Your role determines your permissions and access level'
+                      }
                     </p>
                   </div>
 
@@ -560,7 +711,8 @@ export default function AccountSettingsPage() {
                 </Button>
               </div>
             </div>
-          </div>
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="earn-rewards" className="pt-6">

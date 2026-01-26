@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,17 +18,20 @@ import {
   Bell,
   Shield,
   ExternalLink,
-  LayoutTemplate
+  LayoutTemplate,
+  Loader2
 } from "lucide-react";
 
 export default function SettingsPage() {
   const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [companyInfo, setCompanyInfo] = useState({
-    name: "Premier Pro Cleaners",
-    email: "info@premierprocleaners.com",
-    phone: "+1 234 567 890",
-    address: "Chicago, Illinois, USA",
-    description: "Professional cleaning services for homes and businesses"
+    name: "",
+    email: "",
+    phone: "",
+    address: "",
+    description: ""
   });
 
   const [notifications, setNotifications] = useState({
@@ -39,12 +42,81 @@ export default function SettingsPage() {
     pushNotifications: true
   });
 
+  // Fetch business data on component mount
+  useEffect(() => {
+    const fetchBusinessData = async () => {
+      try {
+        const response = await fetch('/api/admin/business');
+        if (response.ok) {
+          const data = await response.json();
+          const business = data.business;
+          
+          if (business) {
+            setCompanyInfo({
+              name: business.name || "",
+              email: business.business_email || "",
+              phone: business.business_phone || "",
+              address: business.address || "",
+              description: business.description || ""
+            });
+          }
+        } else {
+          console.error('Failed to fetch business data');
+          toast({
+            title: "Error",
+            description: "Failed to load business information",
+            variant: "destructive"
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching business data:', error);
+        toast({
+          title: "Error", 
+          description: "Failed to load business information",
+          variant: "destructive"
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
 
-  const handleSaveCompanyInfo = () => {
-    toast({
-      title: "Settings Saved",
-      description: "Company information has been updated successfully.",
-    });
+    fetchBusinessData();
+  }, [toast]);
+
+  const handleSaveCompanyInfo = async () => {
+    setIsSaving(true);
+    try {
+      const response = await fetch('/api/admin/business', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(companyInfo),
+      });
+      
+      if (response.ok) {
+        toast({
+          title: "Settings Saved",
+          description: "Company information has been updated successfully.",
+        });
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        toast({
+          title: "Error",
+          description: errorData.error || "Failed to save company information",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      console.error('Error saving company info:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save company information",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleSaveNotifications = () => {
@@ -126,71 +198,99 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="company-name">Company Name</Label>
-              <Input
-                id="company-name"
-                value={companyInfo.name}
-                onChange={(e) => setCompanyInfo({...companyInfo, name: e.target.value})}
-              />
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin" />
+              <span className="ml-2">Loading company information...</span>
             </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="company-name">Company Name</Label>
+                  <Input
+                    id="company-name"
+                    value={companyInfo.name}
+                    onChange={(e) => setCompanyInfo({...companyInfo, name: e.target.value})}
+                    disabled={isSaving}
+                  />
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="company-email">Email Address</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="company-email"
-                  type="email"
-                  className="pl-10"
-                  value={companyInfo.email}
-                  onChange={(e) => setCompanyInfo({...companyInfo, email: e.target.value})}
+                <div className="space-y-2">
+                  <Label htmlFor="company-email">Email Address</Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="company-email"
+                      type="email"
+                      className="pl-10"
+                      value={companyInfo.email}
+                      onChange={(e) => setCompanyInfo({...companyInfo, email: e.target.value})}
+                      disabled={isSaving}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="company-phone">Phone Number</Label>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="company-phone"
+                      className="pl-10"
+                      value={companyInfo.phone}
+                      onChange={(e) => setCompanyInfo({...companyInfo, phone: e.target.value})}
+                      disabled={isSaving}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="company-address">Address</Label>
+                  <div className="relative">
+                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="company-address"
+                      className="pl-10"
+                      value={companyInfo.address}
+                      onChange={(e) => setCompanyInfo({...companyInfo, address: e.target.value})}
+                      disabled={isSaving}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2 mt-4">
+                <Label htmlFor="company-description">Description</Label>
+                <Textarea
+                  id="company-description"
+                  rows={3}
+                  value={companyInfo.description}
+                  onChange={(e) => setCompanyInfo({...companyInfo, description: e.target.value})}
+                  disabled={isSaving}
                 />
               </div>
+
+              <Button 
+                onClick={handleSaveCompanyInfo} 
+                className="mt-4" 
+                style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Changes
+                  </>
+                )}
+              </Button>
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="company-phone">Phone Number</Label>
-              <div className="relative">
-                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="company-phone"
-                  className="pl-10"
-                  value={companyInfo.phone}
-                  onChange={(e) => setCompanyInfo({...companyInfo, phone: e.target.value})}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="company-address">Address</Label>
-              <div className="relative">
-                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="company-address"
-                  className="pl-10"
-                  value={companyInfo.address}
-                  onChange={(e) => setCompanyInfo({...companyInfo, address: e.target.value})}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-2 mt-4">
-            <Label htmlFor="company-description">Description</Label>
-            <Textarea
-              id="company-description"
-              rows={3}
-              value={companyInfo.description}
-              onChange={(e) => setCompanyInfo({...companyInfo, description: e.target.value})}
-            />
-          </div>
-
-          <Button onClick={handleSaveCompanyInfo} className="mt-4" style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}>
-            <Save className="h-4 w-4 mr-2" />
-            Save Changes
-          </Button>
+          )}
         </CardContent>
       </Card>
 

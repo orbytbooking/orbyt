@@ -55,6 +55,17 @@ const ProviderDrive = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
+
+  // Cleanup blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      files.forEach(file => {
+        if (file.url && file.url.startsWith('blob:')) {
+          URL.revokeObjectURL(file.url);
+        }
+      });
+    };
+  }, [files]);
   const [isCreateFolderDialogOpen, setIsCreateFolderDialogOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);

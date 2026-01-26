@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Save, Building2 } from "lucide-react";
 import { useLogo } from "@/contexts/LogoContext";
 import { toast } from "sonner";
+import { useBusiness } from "@/contexts/BusinessContext";
+import { supabase } from "@/lib/supabaseClient";
 
 export default function YourInfoPage() {
   const { logo: currentLogo, updateLogo } = useLogo();
@@ -16,79 +18,234 @@ export default function YourInfoPage() {
   const [logoPreview, setLogoPreview] = useState(currentLogo || "");
   const [logoError, setLogoError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const [companyName, setCompanyName] = useState("");
+  const [isDataLoading, setIsDataLoading] = useState(true);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { config, updateConfig } = useWebsiteConfig();
+  const { currentBusiness } = useBusiness();
+
+  // Debug: Log initial state
+  console.log('Logo Debug - Initial state:', { currentLogo, logoPreview, currentBusiness: currentBusiness?.logo_url });
+  
+  // Business form state
+  const [businessName, setBusinessName] = useState("");
+  const [businessAddress, setBusinessAddress] = useState("");
+  const [businessEmail, setBusinessEmail] = useState("");
+  const [businessPhone, setBusinessPhone] = useState("");
+  const [businessCity, setBusinessCity] = useState("");
+  const [businessZip, setBusinessZip] = useState("");
+  const [businessWebsite, setBusinessWebsite] = useState("");
+  const [businessDescription, setBusinessDescription] = useState("");
+  const [businessCategory, setBusinessCategory] = useState("");
 
   useEffect(() => {
-    // Initialize company name from config
-    if (config?.branding?.companyName) {
-      setCompanyName(config.branding.companyName);
-    }
+    const fetchBusinessData = async () => {
+      try {
+        setIsDataLoading(true);
+        
+        // Initialize company name from config
+        if (config?.branding?.companyName) {
+          setBusinessName(config.branding.companyName);
+        }
+        
+        // Initialize logo preview if we have a logo but no preview yet
+        if (currentLogo && !logoPreview) {
+          setLogoPreview(currentLogo);
+        }
+        
+        // Get business data from API
+        const response = await fetch('/api/admin/business');
+        if (response.ok) {
+          const data = await response.json();
+          const business = data.business;
+          
+          if (business) {
+            setBusinessName(business.name || '');
+            setBusinessAddress(business.address || '');
+            setBusinessCategory(business.category || '');
+            setBusinessWebsite(business.domain || business.website || '');
+            setBusinessEmail(business.business_email || '');
+            setBusinessPhone(business.business_phone || '');
+            setBusinessCity(business.city || '');
+            setBusinessZip(business.zip_code || '');
+            setBusinessDescription(business.description || '');
+            
+            // Load logo from business data
+            if (business.logo_url) {
+              console.log('Logo Debug - Setting logo from business data:', business.logo_url);
+              setLogoPreview(business.logo_url);
+              updateLogo(business.logo_url);
+            }
+          }
+        } else if (currentBusiness) {
+          // Fallback to business context data
+          setBusinessName(currentBusiness.name || '');
+          setBusinessAddress(currentBusiness.address || '');
+          setBusinessCategory(currentBusiness.category || '');
+          setBusinessWebsite(currentBusiness.domain || currentBusiness.website || '');
+          setBusinessEmail(currentBusiness.business_email || '');
+          setBusinessPhone(currentBusiness.business_phone || '');
+          setBusinessCity(currentBusiness.city || '');
+          setBusinessZip(currentBusiness.zip_code || '');
+          setBusinessDescription(currentBusiness.description || '');
+          
+          // Load logo from business context
+          if (currentBusiness.logo_url) {
+            setLogoPreview(currentBusiness.logo_url);
+            updateLogo(currentBusiness.logo_url);
+          }
+        }
+        
+      } catch (error) {
+        console.error('Error fetching business data:', error);
+        toast.error('Failed to load business data');
+        
+        // Fallback to business context data
+        if (currentBusiness) {
+          setBusinessName(currentBusiness.name || '');
+          setBusinessAddress(currentBusiness.address || '');
+          setBusinessCategory(currentBusiness.category || '');
+          setBusinessWebsite(currentBusiness.domain || currentBusiness.website || '');
+          setBusinessEmail(currentBusiness.business_email || '');
+          setBusinessPhone(currentBusiness.business_phone || '');
+          setBusinessCity(currentBusiness.city || '');
+          setBusinessZip(currentBusiness.zip_code || '');
+          setBusinessDescription(currentBusiness.description || '');
+          
+          // Load logo from business context
+          if (currentBusiness.logo_url) {
+            setLogoPreview(currentBusiness.logo_url);
+            updateLogo(currentBusiness.logo_url);
+          }
+        }
+      } finally {
+        setIsDataLoading(false);
+      }
+    };
     
-    // Initialize logo preview if we have a logo but no preview yet
-    if (currentLogo && !logoPreview) {
-      setLogoPreview(currentLogo);
-    }
-    
+    fetchBusinessData();
+  }, [config, currentLogo, currentBusiness]);
+
+  // Cleanup blob URLs on unmount
+  useEffect(() => {
     return () => {
-      // Only revoke the URL if it's a blob URL
       if (logoPreview && logoPreview.startsWith('blob:')) {
         URL.revokeObjectURL(logoPreview);
       }
     };
-  }, [logoPreview, config, currentLogo]);
+  }, [logoPreview]);
 
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     setLogoError("");
     if (!file) return;
+    
+    // Validate file type
     if (!file.type.startsWith("image/")) {
       setLogoError("Please select a valid image file.");
       setLogoFileName("");
       setLogoPreview("");
       return;
     }
+    
+    // Validate file size (max 5MB)
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    if (file.size > maxSize) {
+      setLogoError("Image size should not be more than 5MB.");
+      setLogoFileName("");
+      setLogoPreview("");
+      return;
+    }
+    
+    // Create preview
     const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      if (img.width > 300 || img.height > 300) {
-        setLogoError("Image must be at most 300x300 pixels.");
-        URL.revokeObjectURL(url);
-        setLogoFileName("");
-        setLogoPreview("");
-      } else {
-        if (logoPreview) URL.revokeObjectURL(logoPreview);
-        setLogoFileName(file.name);
-        setLogoPreview(url);
-      }
-    };
-    img.onerror = () => {
-      setLogoError("Could not load the selected image.");
-      URL.revokeObjectURL(url);
-    };
-    img.src = url;
+    if (logoPreview && logoPreview.startsWith('blob:')) {
+      URL.revokeObjectURL(logoPreview);
+    }
+    setLogoFileName(file.name);
+    setLogoPreview(url);
   };
 
   const handleSave = async () => {
-    if (!companyName.trim()) {
-      toast.error("Please enter a company name");
+    if (!businessName.trim()) {
+      toast.error("Please enter a business name");
       return;
     }
 
     try {
       setIsSaving(true);
       
-      // If there's a logo to save, handle it first
-      if (logoPreview) {
-        // If the logo is a data URL (newly uploaded), convert it to a Blob for upload
-        if (logoPreview.startsWith('data:')) {
-          // In a real app, you would upload the blob to your server here
-          // For now, we'll just use the data URL directly
-          updateLogo(logoPreview);
-        } else {
-          updateLogo(logoPreview);
+      // Update business data in database
+      const businessResponse = await fetch('/api/admin/business', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: businessName.trim(),
+          address: businessAddress.trim(),
+          category: businessCategory.trim(),
+          domain: businessWebsite.trim(),
+          business_email: businessEmail.trim(),
+          business_phone: businessPhone.trim(),
+          city: businessCity.trim(),
+          zip_code: businessZip.trim(),
+          website: businessWebsite.trim(),
+          description: businessDescription.trim(),
+        }),
+      });
+      
+      if (!businessResponse.ok) {
+        throw new Error('Failed to update business information');
+      }
+      
+      // If there's a logo to save, handle it
+      if (logoPreview && (logoPreview.startsWith('data:') || logoPreview.startsWith('blob:'))) {
+        console.log('🎯 Logo Debug: Starting upload process');
+        console.log('🎯 Logo Debug: logoPreview type:', logoPreview.startsWith('data:') ? 'data URL' : 'blob URL');
+        console.log('🎯 Logo Debug: businessId:', currentBusiness?.id);
+        
+        // This is a newly uploaded file, convert to blob and upload
+        try {
+          const response = await fetch(logoPreview);
+          const blob = await response.blob();
+          const file = new File([blob], logoFileName || 'logo.png', { type: blob.type });
+          
+          console.log('🎯 Logo Debug: File created:', file.name, file.size, file.type);
+          
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('businessId', currentBusiness?.id || '');
+          
+          // Get current session
+          const { data: { session } } = await supabase.auth.getSession();
+          
+          console.log('🎯 Logo Debug: Got session:', session ? 'Yes' : 'No');
+          
+          const uploadResponse = await fetch('/api/admin/business/upload-logo', {
+            method: 'POST',
+            body: formData,
+          });
+          
+          const uploadResult = await uploadResponse.json();
+          console.log('🎯 Logo Debug: Upload response:', uploadResult);
+          
+          if (!uploadResponse.ok) {
+            throw new Error(uploadResult.error || 'Failed to upload logo');
+          }
+          
+          // Update logo with the permanent URL from Supabase
+          console.log('🎯 Logo Debug: Setting new logo URL:', uploadResult.logo_url);
+          updateLogo(uploadResult.logo_url);
+          setLogoPreview(uploadResult.logo_url);
+          
+        } catch (uploadError) {
+          console.error('Logo upload error:', uploadError);
+          toast.error('Failed to upload logo');
+          throw uploadError;
         }
+      } else if (logoPreview) {
+        // This is an existing URL, just update it
+        updateLogo(logoPreview);
       }
       
       // Update company name in config
@@ -96,8 +253,8 @@ export default function YourInfoPage() {
         ...config,
         branding: {
           ...config?.branding,
-          companyName: companyName.trim(),
-          // Update the logo URL in the config if we have a new one
+          companyName: businessName.trim(),
+          // Use the final logo URL (after upload) or existing one
           logo: logoPreview || config?.branding?.logo || ''
         }
       };
@@ -105,10 +262,10 @@ export default function YourInfoPage() {
       // Save the config with updated company name and logo
       await updateConfig(updatedConfig);
       
-      toast.success("Settings saved successfully!");
+      toast.success("Business information saved successfully!");
     } catch (error) {
       console.error("Error saving settings:", error);
-      toast.error("Failed to save settings. Please try again.");
+      toast.error("Failed to save business information. Please try again.");
     } finally {
       setIsSaving(false);
     }
@@ -116,7 +273,13 @@ export default function YourInfoPage() {
 
   return (
     <div className="space-y-6">
-      <Card>
+      {isDataLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+          <span className="ml-2 text-muted-foreground">Loading business data...</span>
+        </div>
+      ) : (
+        <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
             <Building2 className="h-5 w-5 text-primary" />
@@ -138,8 +301,8 @@ export default function YourInfoPage() {
                 <Input
                   id="businessName"
                   placeholder="Enter your business name"
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
+                  value={businessName}
+                  onChange={(e) => setBusinessName(e.target.value)}
                   className="w-full"
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -155,7 +318,7 @@ export default function YourInfoPage() {
             <div className="flex items-center gap-4 max-w-2xl">
               {/* Preview */}
               <div className="h-14 w-14 rounded-full border bg-white overflow-hidden flex items-center justify-center">
-                {logoPreview ? (
+                {logoPreview && (logoPreview.startsWith('http') || logoPreview.startsWith('data:')) ? (
                   <img src={logoPreview} alt="Logo preview" className="h-full w-full object-cover" />
                 ) : (
                   <div className="text-[10px] text-muted-foreground">No Logo</div>
@@ -178,7 +341,6 @@ export default function YourInfoPage() {
                 </Button>
               </div>
             </div>
-            <div className="text-xs text-muted-foreground">Image size should not be more than 300px by 300px.</div>
             {logoError && <div className="text-xs text-red-600">{logoError}</div>}
           </div>
 
@@ -189,27 +351,67 @@ export default function YourInfoPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="business-email">Business Email</Label>
-                <Input id="business-email" type="email" placeholder="business@example.com" />
+                <Input 
+                  id="business-email" 
+                  type="email" 
+                  placeholder="business@example.com"
+                  value={businessEmail}
+                  onChange={(e) => setBusinessEmail(e.target.value)}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="business-phone">Business Phone</Label>
-                <Input id="business-phone" placeholder="+1 (555) 000-0000" />
+                <Input 
+                  id="business-phone" 
+                  placeholder="+1 (555) 000-0000"
+                  value={businessPhone}
+                  onChange={(e) => setBusinessPhone(e.target.value)}
+                />
               </div>
               <div className="space-y-2 col-span-2">
                 <Label htmlFor="business-address">Business Address</Label>
-                <Input id="business-address" placeholder="Enter business address" />
+                <Input 
+                  id="business-address" 
+                  placeholder="Enter business address"
+                  value={businessAddress}
+                  onChange={(e) => setBusinessAddress(e.target.value)}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="business-city">City</Label>
-                <Input id="business-city" placeholder="City" />
+                <Input 
+                  id="business-city" 
+                  placeholder="City"
+                  value={businessCity}
+                  onChange={(e) => setBusinessCity(e.target.value)}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="business-zip">ZIP Code</Label>
-                <Input id="business-zip" placeholder="ZIP Code" />
+                <Input 
+                  id="business-zip" 
+                  placeholder="ZIP Code"
+                  value={businessZip}
+                  onChange={(e) => setBusinessZip(e.target.value)}
+                />
               </div>
               <div className="space-y-2 col-span-2">
                 <Label htmlFor="business-website">Website</Label>
-                <Input id="business-website" placeholder="https://yourbusiness.com" />
+                <Input 
+                  id="business-website" 
+                  placeholder="https://yourbusiness.com"
+                  value={businessWebsite}
+                  onChange={(e) => setBusinessWebsite(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2 col-span-2">
+                <Label htmlFor="business-category">Business Category</Label>
+                <Input 
+                  id="business-category" 
+                  placeholder="e.g., Cleaning Services, Consulting, Retail"
+                  value={businessCategory}
+                  onChange={(e) => setBusinessCategory(e.target.value)}
+                />
               </div>
               <div className="space-y-2 col-span-2">
                 <Label htmlFor="business-description">Business Description</Label>
@@ -218,6 +420,8 @@ export default function YourInfoPage() {
                   placeholder="Describe your business services..."
                   className="w-full min-h-[100px] p-3 border rounded-md resize-none"
                   rows={3}
+                  value={businessDescription}
+                  onChange={(e) => setBusinessDescription(e.target.value)}
                 />
               </div>
             </div>
@@ -228,7 +432,7 @@ export default function YourInfoPage() {
             <Button 
               className="mt-6" 
               onClick={handleSave}
-              disabled={isSaving || !logoPreview}
+              disabled={isSaving}
             >
               <Save className="mr-2 h-4 w-4" />
               {isSaving ? 'Saving...' : 'Save changes'}
@@ -236,6 +440,7 @@ export default function YourInfoPage() {
           </div>
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }
