@@ -1,4 +1,4 @@
-# Premier Pro - Multi-tenant Service Business Platform
+# Orbyt - Multi-tenant Service Business Platform
 
 A comprehensive SaaS platform for service-based businesses with multi-tenant architecture, built with Next.js 16, React 19, TypeScript, and Supabase.
 
@@ -7,7 +7,7 @@ A comprehensive SaaS platform for service-based businesses with multi-tenant arc
 ```bash
 # Clone and setup
 git clone <repository-url>
-cd premier-pro
+cd orbyt
 npm install
 
 # Environment setup
@@ -24,7 +24,7 @@ npm run dev
 ## 📁 Project Structure
 
 ```
-premier-pro/
+orbyt/
 ├── src/                    # Application source code
 │   ├── app/               # Next.js App Router
 │   ├── components/        # React components
