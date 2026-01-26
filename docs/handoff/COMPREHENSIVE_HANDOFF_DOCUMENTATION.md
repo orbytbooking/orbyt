@@ -1,8 +1,8 @@
-# Premier Pro - Comprehensive Project Handoff Documentation
+# Orbyt - Comprehensive Project Handoff Documentation
 
 ## Executive Summary
 
-Premier Pro is a multi-tenant SaaS platform for service-based businesses, built with Next.js 16, React 19, TypeScript, and Supabase. The platform provides business management tools including provider management, customer booking, marketing automation, location management, and industry-specific modules (home cleaning, barber services, etc.).
+Orbyt is a multi-tenant SaaS platform for service-based businesses, built with Next.js 16, React 19, TypeScript, and Supabase. The platform provides business management tools including provider management, customer booking, marketing automation, location management, and industry-specific modules (home cleaning, barber services, etc.).
 
 **Current Status**: Production-ready core functionality with advanced modules partially implemented. The system supports multi-tenant architecture with proper business isolation and role-based access control.
 
@@ -391,7 +391,7 @@ SENDGRID_API_KEY=SG....
 1. **Clone Repository**
 ```bash
 git clone <repository-url>
-cd premier-pro
+cd orbyt
 ```
 
 2. **Install Dependencies**
@@ -507,7 +507,7 @@ psql $DATABASE_URL < database/full_schema.sql
 
 ### How The Application Works
 
-Premier Pro is a multi-tenant SaaS platform that enables service-based businesses to manage their operations through a web-based interface. The system uses Next.js for the frontend, Supabase for the backend and database, and Stripe for payment processing.
+Orbyt is a multi-tenant SaaS platform that enables service-based businesses to manage their operations through a web-based interface. The system uses Next.js for the frontend, Supabase for the backend and database, and Stripe for payment processing.
 
 **Core Architecture**:
 - **Multi-tenant**: Each business gets isolated data and custom branding
@@ -592,7 +592,7 @@ Premier Pro is a multi-tenant SaaS platform that enables service-based businesse
 
 ## Conclusion
 
-Premier Pro is a production-ready multi-tenant SaaS platform with solid architecture and comprehensive features for service-based businesses. The core functionality is complete and stable, with room for enhancement in advanced analytics, mobile optimization, and additional industry modules.
+Orbyt is a production-ready multi-tenant SaaS platform with solid architecture and comprehensive features for service-based businesses. The core functionality is complete and stable, with room for enhancement in advanced analytics, mobile optimization, and additional industry modules.
 
 The system is well-documented, properly architected for scalability, and follows modern development best practices. The multi-tenant design ensures data security and isolation, while the modular architecture allows for easy expansion and customization.
 

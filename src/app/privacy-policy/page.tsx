@@ -41,7 +41,7 @@ const PrivacyPolicy = () => {
                   1. Introduction
                 </h2>
                 <p className="text-muted-foreground leading-relaxed">
-                  At Premier Pro Cleaners, we are committed to protecting your privacy and ensuring 
+                  At Orbyt Cleaners, we are committed to protecting your privacy and ensuring 
                   the security of your personal information. This Privacy Policy explains how we collect, 
                   use, disclose, and safeguard your information when you visit our website and use our services. 
                   Please read this policy carefully to understand our practices regarding your personal data.
@@ -411,9 +411,9 @@ const PrivacyPolicy = () => {
                   data practices, please contact us:
                 </p>
                 <div className="bg-muted/50 rounded-lg p-6 space-y-2">
-                  <p className="font-medium text-foreground">Premier Pro Cleaners</p>
+                  <p className="font-medium text-foreground">Orbyt Cleaners</p>
                   <p className="text-muted-foreground">Phone: +1 234 567 890</p>
-                  <p className="text-muted-foreground">Email: privacy@premierprocleaners.com</p>
+                  <p className="text-muted-foreground">Email: privacy@orbytcleaners.com</p>
                   <p className="text-muted-foreground">Address: Chicago, Illinois, USA</p>
                 </div>
               </section>

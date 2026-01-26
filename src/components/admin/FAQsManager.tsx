@@ -18,7 +18,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
-const FAQS_STORAGE_KEY = 'premier_pro_faqs';
+const FAQS_STORAGE_KEY = 'orbyt_faqs';
 
 export type FAQ = {
   id: string;

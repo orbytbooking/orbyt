@@ -72,10 +72,10 @@ export default function NotificationsSettingsPage() {
 
   const [emailFrequency, setEmailFrequency] = useState('instant');
   const [quietHours, setQuietHours] = useState(false);
-  const [senderEmail, setSenderEmail] = useState('support@thepremiercleaning.com');
-  const [displayName, setDisplayName] = useState('Premier Pro Cleaners');
-  const [adminEmail, setAdminEmail] = useState('support@thepremiercleaning.com');
-  const [replyToEmail, setReplyToEmail] = useState('support@thepremiercleaning.com');
+  const [senderEmail, setSenderEmail] = useState('support@orbytcleaners.com');
+  const [displayName, setDisplayName] = useState('Orbyt Cleaners');
+  const [adminEmail, setAdminEmail] = useState('support@orbytcleaners.com');
+  const [replyToEmail, setReplyToEmail] = useState('support@orbytcleaners.com');
 
   const updatePreference = (id: string, channel: 'email' | 'sms', value: boolean) => {
     setPreferences(prev => prev.map(pref => 
@@ -137,7 +137,7 @@ export default function NotificationsSettingsPage() {
                           value={senderEmail}
                           onChange={(e) => setSenderEmail(e.target.value)}
                           className="flex-1"
-                          placeholder="support@thepremiercleaning.com"
+                          placeholder="support@orbytcleaners.com"
                         />
                         <Button 
                           onClick={handleResendVerification}
@@ -158,7 +158,7 @@ export default function NotificationsSettingsPage() {
                         type="text"
                         value={displayName}
                         onChange={(e) => setDisplayName(e.target.value)}
-                        placeholder="Premier Pro Cleaners"
+                        placeholder="Orbyt Cleaners"
                       />
                     </div>
 
@@ -172,7 +172,7 @@ export default function NotificationsSettingsPage() {
                         type="email"
                         value={adminEmail}
                         onChange={(e) => setAdminEmail(e.target.value)}
-                        placeholder="support@thepremiercleaning.com"
+                        placeholder="support@orbytcleaners.com"
                       />
                     </div>
 
@@ -186,7 +186,7 @@ export default function NotificationsSettingsPage() {
                         type="email"
                         value={replyToEmail}
                         onChange={(e) => setReplyToEmail(e.target.value)}
-                        placeholder="support@thepremiercleaning.com"
+                        placeholder="support@orbytcleaners.com"
                       />
                     </div>
                   </div>

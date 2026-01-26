@@ -84,7 +84,7 @@ const WebsiteBuilderTab = () => {
             <div className={`relative aspect-video border rounded-lg overflow-hidden ${currentTheme.colors.bg} p-6`}>
               <div className="h-full flex flex-col">
                 <div className={`flex-1 flex flex-col items-center justify-center text-center ${currentTheme.colors.text}`}>
-                  <h2 className="text-2xl sm:text-3xl font-bold">Premier Pro Cleaners</h2>
+                  <h2 className="text-2xl sm:text-3xl font-bold">Orbyt Cleaners</h2>
                 </div>
                 <div className={`${currentTheme.colors.nav} p-3 rounded-lg flex justify-center`}>
                   <a 

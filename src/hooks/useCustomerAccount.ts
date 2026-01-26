@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-const DEFAULT_EMAIL = "customer@premierpro.com";
+const DEFAULT_EMAIL = "customer@orbyt.com";
 
 export type CustomerAccount = {
   name: string;
@@ -23,7 +23,7 @@ const DEFAULT_ACCOUNT: CustomerAccount = {
   email: DEFAULT_EMAIL,
   phone: "(555) 123-4567",
   address: "123 Main St, Chicago, IL",
-  password: "premier123",
+  password: "orbyt123",
   avatar: "",
   notifications: {
     emailUpdates: true,

@@ -248,9 +248,9 @@ export default function AuthPage() {
             {/* Logo and Company Name */}
             <div className="text-center mb-6">
               <div className="flex justify-center mb-4">
-                <img src="/images/logo.png" alt="Premier Pro Cleaners" className="h-20 w-20" />
+                <img src="/images/logo.png" alt="Orbyt Cleaners" className="h-20 w-20" />
               </div>
-              <h2 className="text-2xl font-bold gradient-text mb-4">Premier Pro Cleaners</h2>
+              <h2 className="text-2xl font-bold gradient-text mb-4">Orbyt Cleaners</h2>
               <p className="text-muted-foreground text-sm">
                 {isLogin 
                   ? "Sign in to access your account and bookings" 

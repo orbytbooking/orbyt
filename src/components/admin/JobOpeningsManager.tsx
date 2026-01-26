@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
-const JOB_OPENINGS_STORAGE_KEY = 'premier_pro_job_openings';
+const JOB_OPENINGS_STORAGE_KEY = 'orbyt_job_openings';
 
 export type JobOpening = {
   id: string;

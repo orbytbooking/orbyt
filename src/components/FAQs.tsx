@@ -5,7 +5,7 @@ import { HelpCircle, ChevronDown } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import type { FAQ } from '@/components/admin/FAQsManager';
 
-const FAQS_STORAGE_KEY = 'premier_pro_faqs';
+const FAQS_STORAGE_KEY = 'orbyt_faqs';
 
 const DEFAULT_FAQS: FAQ[] = [
   {

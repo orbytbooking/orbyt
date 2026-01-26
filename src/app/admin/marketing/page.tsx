@@ -486,7 +486,7 @@ Offer valid until December 31st. Don't miss out!
 Thank you for being a valued customer.
 
 Best regards,
-The Premier Pro Team`);
+-The Orbyt Team`);
         break;
       case 'coupon':
         setCampaignSubject('💰 Exclusive Coupon Just For You!');
@@ -504,7 +504,7 @@ This coupon can be applied to any service booking. Simply enter the code at chec
 We look forward to serving you again soon!
 
 Warm regards,
-Premier Pro Cleaners`);
+Orbyt Cleaners`);
         break;
       case 'advertisement':
         setCampaignSubject('🌟 Discover Our Premium Cleaning Services');
@@ -529,7 +529,7 @@ Book your service today and experience the difference!
 Visit our website or call us to schedule.
 
 Thank you,
-Premier Pro Cleaners`);
+Orbyt Cleaners`);
         break;
       default:
         setCampaignSubject('');

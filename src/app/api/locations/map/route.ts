@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
 
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'PremierPro Location Manager (contact@example.com)'
+        'User-Agent': 'Orbyt Location Manager (contact@orbyt.com)'
       }
     });
 
@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
 
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'PremierPro Location Manager (contact@example.com)'
+        'User-Agent': 'Orbyt Location Manager (contact@orbyt.com)'
       }
     });
 

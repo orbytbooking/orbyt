@@ -22,10 +22,10 @@ Returns complete landing page configuration and all sections.
     "primary_color": "#06b6d4",
     "secondary_color": "#0f172a",
     "accent_color": "#8b5cf6",
-    "business_name": "Premier Pro Cleaners",
+    "business_name": "Orbyt Cleaners",
     "business_tagline": "Professional Cleaning Services in Chicago",
     "phone": "+1 234 567 890",
-    "email": "info@premierprocleaners.com",
+    "email": "info@orbytcleaners.com",
     "address": "123 Main St, Chicago, IL",
     "logo_url": "https://..."
   },

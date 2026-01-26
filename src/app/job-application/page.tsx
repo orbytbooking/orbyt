@@ -12,7 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Download, Printer, FileText } from 'lucide-react';
 import type { JobFormField } from '@/components/admin/JobFormManager';
 
-const JOB_FORM_STORAGE_KEY = 'premier_pro_job_form_fields';
+const JOB_FORM_STORAGE_KEY = 'orbyt_job_form_fields';
 
 export default function JobApplicationPage() {
   const { toast } = useToast();

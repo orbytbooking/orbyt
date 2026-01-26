@@ -42,10 +42,10 @@ const mockConfig: LandingPageConfig = {
   primary_color: '#2563eb',
   secondary_color: '#1e40af',
   accent_color: '#00BCD4',
-  business_name: 'Premier Pro Cleaners',
+  business_name: 'Orbyt Cleaners',
   business_tagline: 'Professional Cleaning Services in Chicago',
   phone: '(555) 123-4567',
-  email: 'info@premierprocleaners.com',
+  email: 'info@orbytcleaners.com',
   address: '123 Clean St, Chicago, IL 60601',
   logo_url: '/logo.png'
 };
@@ -229,7 +229,7 @@ const mockSections: Section[] = [
         section_id: 'contact',
         item_order: 2,
         title: 'Email',
-        description: 'info@premierprocleaners.com',
+        description: 'info@orbytcleaners.com',
         icon_name: 'mail',
         metadata: {
           type: 'email'

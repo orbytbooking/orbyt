@@ -1,8 +1,8 @@
-# Premier Pro - Accurate Project Handoff Documentation
+# Orbyt - Accurate Project Handoff Documentation
 
 ## Executive Summary
 
-Premier Pro is a multi-tenant SaaS platform for service-based businesses, built with Next.js 16, React 19, TypeScript, and Supabase. **This documentation reflects the actual implemented codebase, not planned features.**
+Orbyt is a multi-tenant SaaS platform for service-based businesses, built with Next.js 16, React 19, TypeScript, and Supabase. **This documentation reflects the actual implemented codebase, not planned features.**
 
 **Current Status**: Core multi-tenant infrastructure is solid. Some modules are complete (providers, gift cards, locations) while others have frontend only (marketing coupons) or are incomplete (cleaning industry module).
 
@@ -309,7 +309,7 @@ RESEND_FROM_EMAIL=noreply@orbytservice.com
 1. **Clone Repository**
 ```bash
 git clone <repository-url>
-cd premier-pro
+cd orbyt
 ```
 
 2. **Install Dependencies**
@@ -414,7 +414,7 @@ npm run dev
 
 ## Conclusion
 
-Premier Pro has a **solid foundation** with working multi-tenant architecture, authentication, and several complete modules (providers, gift cards, locations). However, **significant gaps exist** in the marketing backend and industry-specific modules.
+Orbyt has a **solid foundation** with working multi-tenant architecture, authentication, and several complete modules (providers, gift cards, locations). However, **significant gaps exist** in the marketing backend and industry-specific modules.
 
 **Immediate Priorities for New Developer:**
 1. Complete marketing backend APIs (coupons, email campaigns)

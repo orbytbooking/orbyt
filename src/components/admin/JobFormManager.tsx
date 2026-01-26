@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 
-const JOB_FORM_STORAGE_KEY = 'premier_pro_job_form_fields';
+const JOB_FORM_STORAGE_KEY = 'orbyt_job_form_fields';
 
 export type FieldType = 
   | 'text' 

@@ -31,8 +31,8 @@ const Footer = () => {
         <div className="grid md:grid-cols-2 gap-8 mb-8">
           <div>
             <div className="flex items-center gap-3 mb-4">
-              <img src="/images/logo.png" alt="Premier Pro Cleaners" className="h-16 w-16" />
-              <h3 className="text-2xl font-bold gradient-text">Premier Pro Cleaners</h3>
+              <img src="/images/logo.png" alt="Orbyt Cleaners" className="h-16 w-16" />
+              <h3 className="text-2xl font-bold gradient-text">Orbyt Cleaners</h3>
             </div>
             <p className="text-navy-foreground/80 mb-4">
               Call: +1 234 567 890
@@ -106,7 +106,7 @@ const Footer = () => {
 
         <div className="flex flex-col md:flex-row justify-between items-center pt-8 border-t border-navy-foreground/20">
           <p className="text-navy-foreground/80 mb-4 md:mb-0">
-            © 2025 Premier Pro Cleaners. All rights reserved.
+            © 2025 Orbyt Cleaners. All rights reserved.
           </p>
           
           <div className="flex gap-4">

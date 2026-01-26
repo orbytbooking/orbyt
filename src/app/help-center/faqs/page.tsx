@@ -6,7 +6,7 @@ import { ChevronRight, HelpCircle, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import type { FAQ } from "@/components/admin/FAQsManager";
 
-const FAQS_STORAGE_KEY = 'premier_pro_faqs';
+const FAQS_STORAGE_KEY = 'orbyt_faqs';
 
 const DEFAULT_FAQS: FAQ[] = [
   {

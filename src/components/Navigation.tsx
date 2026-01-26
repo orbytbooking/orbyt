@@ -97,8 +97,8 @@ const Navigation = () => {
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           <Link href="/builder" className="flex items-center gap-3 cursor-pointer">
-            <img src="/images/logo.png" alt="Premier Pro Cleaners" className="h-12 w-12" />
-            <span className="text-xl font-bold gradient-text">Premier Pro Cleaners</span>
+            <img src="/images/logo.png" alt="Orbyt Cleaners" className="h-12 w-12" />
+            <span className="text-xl font-bold gradient-text">Orbyt Cleaners</span>
           </Link>
           
           {/* Desktop Navigation */}

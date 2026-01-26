@@ -8,7 +8,7 @@ import { ArrowLeft, Download, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import type { JobOpening } from '@/components/admin/JobOpeningsManager';
 
-const JOB_OPENINGS_STORAGE_KEY = 'premier_pro_job_openings';
+const JOB_OPENINGS_STORAGE_KEY = 'orbyt_job_openings';
 
 export default function JobOpeningPage() {
   const params = useParams();

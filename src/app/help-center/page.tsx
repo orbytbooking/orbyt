@@ -125,7 +125,7 @@ export default function HelpCenter() {
                 </Link>
               </Button>
               <Button variant="outline" size="lg" asChild>
-                <a href="mailto:support@premierpro.com" className="flex items-center gap-2">
+                <a href="mailto:support@orbyt.com" className="flex items-center gap-2">
                   <LifeBuoy className="h-5 w-5" />
                   Email Us
                 </a>

@@ -11,8 +11,8 @@ export default function ContactSupport() {
       icon: <Mail className="h-6 w-6 text-primary" />,
       title: "Email Us",
       description: "We'll get back to you within 24 hours",
-      value: "support@premierpro.com",
-      link: "mailto:support@premierpro.com"
+      value: "support@orbyt.com",
+      link: "mailto:support@orbyt.com"
     },
     {
       icon: <Phone className="h-6 w-6 text-primary" />,

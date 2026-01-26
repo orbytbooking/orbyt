@@ -136,7 +136,7 @@ const defaultSections: WebsiteSection[] = [
     visible: true,
     data: {
       title: 'Contact Us',
-      email: 'info@premierpro.com',
+      email: 'info@orbyt.com',
       phone: '+1 234 567 8900',
       address: '123 Main St, Chicago, IL 60601'
     }
@@ -176,8 +176,8 @@ export default function WebsiteBuilderPage() {
       primaryColor: '#00D4E8',
       secondaryColor: '#00BCD4',
       logo: '/images/logo.png',
-      companyName: 'Premier Pro Cleaners',
-      domain: 'premierprocleaner.bookingkoala.com',
+      companyName: 'Orbyt Cleaners',
+      domain: 'orbytcleaner.bookingkoala.com',
     },
     template: 'modern',
   });
