@@ -1,0 +1,668 @@
+@import "react-day-picker/style.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom scrollbar for admin theme */
+.admin-theme * {
+  scrollbar-width: thin;
+  scrollbar-color: #00D4E8 rgba(30, 15, 50, 0.5);
+}
+
+.admin-theme *::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.admin-theme *::-webkit-scrollbar-track {
+  background: rgba(30, 15, 50, 0.5);
+  border-radius: 3px;
+}
+
+.admin-theme *::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%);
+  border-radius: 3px;
+}
+
+.admin-theme *::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, #00BCD4 0%, #0097A7 100%);
+}
+
+.admin-theme *::-webkit-scrollbar-button {
+  display: none;
+}
+
+.admin-theme *::-webkit-scrollbar-corner {
+  background-color: transparent;
+}
+
+/* Default scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #00D4E8 #f1f1f1;
+  scrollbar-arrow-color: transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #00D4E8;
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #00bcd4;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+*::-webkit-scrollbar-corner {
+  background-color: transparent;
+}
+
+
+/* Force calendar grid layout - react-day-picker v9 */
+.rdp {
+  --rdp-accent-color: #00D4E8;
+  --rdp-background-color: #00D4E8;
+}
+
+.rdp-month {
+  width: 100%;
+}
+
+.rdp-table {
+  width: 100%;
+  max-width: 100%;
+}
+
+.rdp-head,
+.rdp-tbody {
+  width: 100%;
+}
+
+.rdp-head_row,
+.rdp-week {
+  display: grid !important;
+  grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+  width: 100% !important;
+  gap: 0.5rem;
+}
+
+.rdp-head_cell,
+.rdp-day {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  aspect-ratio: 1;
+}
+
+.rdp-day_button {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Fix selected date styling */
+.rdp-day_button[aria-selected="true"],
+.rdp-day_button.rdp-selected {
+  background-color: #00D4E8 !important;
+  color: white !important;
+  border-radius: 0.5rem;
+}
+
+.rdp-day_button[aria-selected="true"]:hover,
+.rdp-day_button.rdp-selected:hover {
+  background-color: #00BCD4 !important;
+  color: white !important;
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 187 100% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 187 100% 42%;
+    --radius: 0.5rem;
+    --navy: 210 100% 15%;
+    --navy-foreground: 0 0% 100%;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 187 100% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 187 100% 42%;
+    --navy: 210 100% 15%;
+    --navy-foreground: 0 0% 100%;
+  }
+
+  .admin-theme {
+    --background: 260 40% 8%;
+    --foreground: 210 40% 98%;
+    --card: 260 30% 12%;
+    --card-foreground: 210 40% 98%;
+    --popover: 260 35% 10%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 187 100% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 260 25% 18%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 260 25% 15%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 187 100% 50%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62.8% 50.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 260 30% 20%;
+    --input: 260 30% 18%;
+    --ring: 187 100% 50%;
+    --radius: 0.75rem;
+  }
+
+  /* Apply glassmorphism to all cards and containers in admin theme */
+  .admin-theme .card,
+  .admin-theme [class*="card"],
+  .admin-theme div[class*="bg-white"],
+  .admin-theme div[class*="bg-card"],
+  .admin-theme section[class*="bg-"],
+  .admin-theme .glass,
+  .admin-theme .glass-card {
+    background: rgba(15, 8, 30, 0.7) !important;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(0, 212, 232, 0.15) !important;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+  }
+  
+  /* Apply glassmorphism to light theme cards and containers */
+  .light-theme .card,
+  .light-theme [class*="card"],
+  .light-theme div[class*="bg-white"],
+  .light-theme div[class*="bg-card"],
+  .light-theme section[class*="bg-"],
+  .light-theme .glass,
+  .light-theme .glass-card {
+    background: rgba(255, 255, 255, 0.4) !important;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
+  }
+  
+  /* Make customer name and email text black in light mode */
+  .light-theme tbody a,
+  .light-theme tbody td,
+  .light-theme tbody div {
+    color: #000000 !important;
+  }
+  
+  .light-theme tbody a:hover,
+  .light-theme tbody a:hover div {
+    color: #00BCD4 !important;
+  }
+  
+  /* Search bar and select styling in light mode */
+  .light-theme input {
+    color: #000000 !important;
+    border: 1px solid #d1d5db !important;
+  }
+  
+  .light-theme input::placeholder {
+    color: #9ca3af !important;
+  }
+  
+  .light-theme input:focus {
+    border-color: #00BCD4 !important;
+    outline: none !important;
+    box-shadow: 0 0 0 2px rgba(0, 188, 212, 0.2) !important;
+  }
+  
+  /* Style select dropdowns in light mode */
+  .light-theme select {
+    background-color: rgba(255, 255, 255, 0.9) !important;
+    color: #374151 !important;
+    border: 1px solid #d1d5db !important;
+  }
+  
+  .light-theme select:focus {
+    border-color: #00BCD4 !important;
+    outline: none !important;
+    box-shadow: 0 0 0 2px rgba(0, 188, 212, 0.2) !important;
+  }
+  
+  .light-theme select option {
+    background-color: #ffffff !important;
+    color: #374151 !important;
+  }
+  
+  /* Make button text black in light mode (except gradient buttons) */
+  .light-theme button:not([style*="gradient"]) {
+    color: #000000 !important;
+  }
+  
+  /* Make all card content text black in light mode */
+  .light-theme h1,
+  .light-theme h2,
+  .light-theme h3,
+  .light-theme h4,
+  .light-theme h5,
+  .light-theme h6,
+  .light-theme p,
+  .light-theme span,
+  .light-theme label {
+    color: #000000 !important;
+  }
+
+  /* Override error text to be red in light mode */
+  .light-theme .text-red-700,
+  .light-theme .text-red-600,
+  .light-theme .text-red-500 {
+    color: #dc2626 !important;
+  }
+
+  /* Apply glass effect to buttons and inputs */
+  .admin-theme button:not([class*="gradient"]):not([style*="background"]),
+  .admin-theme input,
+  .admin-theme textarea,
+  .admin-theme select {
+    background: rgba(10, 5, 20, 0.5);
+    border-color: rgba(0, 212, 232, 0.2);
+  }
+
+  .admin-theme input:focus,
+  .admin-theme textarea:focus,
+  .admin-theme select:focus {
+    border-color: rgba(0, 212, 232, 0.5);
+    box-shadow: 0 0 0 2px rgba(0, 212, 232, 0.1);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-inter), system-ui, sans-serif;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-space-grotesk), system-ui, sans-serif;
+  }
+  
+  /* Admin pages: Use Inter SemiBold for headings and Inter Regular for body text */
+  .admin-theme h1,
+  .admin-theme h2,
+  .admin-theme h3,
+  .admin-theme h4,
+  .admin-theme h5,
+  .admin-theme h6 {
+    font-family: var(--font-inter), system-ui, sans-serif;
+    font-weight: 600;
+  }
+  
+  .admin-theme body,
+  .admin-theme p,
+  .admin-theme span,
+  .admin-theme div,
+  .admin-theme label,
+  .admin-theme input,
+  .admin-theme textarea,
+  .admin-theme select {
+    font-family: var(--font-inter), system-ui, sans-serif;
+  }
+  
+  /* Light theme admin pages */
+  .light-theme h1,
+  .light-theme h2,
+  .light-theme h3,
+  .light-theme h4,
+  .light-theme h5,
+  .light-theme h6 {
+    font-family: var(--font-inter), system-ui, sans-serif;
+    font-weight: 600;
+  }
+  
+  .light-theme body,
+  .light-theme p,
+  .light-theme span,
+  .light-theme div,
+  .light-theme label,
+  .light-theme input,
+  .light-theme textarea,
+  .light-theme select {
+    font-family: var(--font-inter), system-ui, sans-serif;
+  }
+  
+  /* Buttons use Inter Regular */
+  .admin-theme button,
+  .light-theme button {
+    font-family: var(--font-inter), system-ui, sans-serif;
+  }
+  
+  /* Card titles and other UI components */
+  .admin-theme [class*="CardTitle"],
+  .admin-theme [class*="card-title"],
+  .light-theme [class*="CardTitle"],
+  .light-theme [class*="card-title"] {
+    font-family: var(--font-inter), system-ui, sans-serif;
+    font-weight: 600;
+  }
+  
+  .admin-theme [class*="CardDescription"],
+  .admin-theme [class*="card-description"],
+  .light-theme [class*="CardDescription"],
+  .light-theme [class*="card-description"] {
+    font-family: var(--font-inter), system-ui, sans-serif;
+  }
+}
+
+/* Custom animations */
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.6s ease-out;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.5s ease-out;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s ease-out;
+}
+
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-primary {
+  background: linear-gradient(90deg, #00BCD4 0%, #00D4E8 100%);
+}
+
+/* Card shadows */
+.card-shadow {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Glow effect */
+.glow-effect {
+  box-shadow: 0 0 20px rgba(0, 188, 212, 0.3);
+}
+
+/* Gradient card */
+.gradient-card {
+  background: linear-gradient(135deg, rgba(0, 188, 212, 0.02) 0%, rgba(0, 212, 232, 0.02) 100%);
+}
+
+/* Navy background */
+.bg-navy {
+  background-color: hsl(var(--navy));
+}
+
+.text-navy-foreground {
+  color: hsl(var(--navy-foreground));
+}
+
+/* Glassmorphism utilities - Dark Mode */
+.glass {
+  background: rgba(10, 5, 20, 0.6);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(0, 212, 232, 0.15);
+}
+
+.glass-card {
+  background: rgba(15, 8, 30, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 212, 232, 0.15);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+}
+
+.glass-sidebar {
+  background: rgba(10, 5, 20, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-right: 1px solid rgba(0, 212, 232, 0.2);
+}
+
+.glass-header {
+  background: rgba(15, 8, 30, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(0, 212, 232, 0.15);
+}
+
+/* Glassmorphism utilities - Light Mode */
+.light-theme .glass {
+  background: rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.light-theme .glass-card {
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
+}
+
+.light-theme .glass-sidebar {
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-right: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.light-theme .glass-header {
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+/* Neon glow effects */
+.neon-cyan {
+  box-shadow: 0 0 10px rgba(0, 212, 232, 0.5),
+              0 0 20px rgba(0, 212, 232, 0.3),
+              0 0 30px rgba(0, 212, 232, 0.1);
+}
+
+.neon-purple {
+  box-shadow: 0 0 10px rgba(138, 43, 226, 0.5),
+              0 0 20px rgba(138, 43, 226, 0.3);
+}
+
+/* Animated background - Dark Mode */
+.void-bg {
+  background-color: #0a0015;
+  background-image: 
+    linear-gradient(rgba(10, 0, 21, 0.7), rgba(10, 0, 21, 0.7)),
+    url('/images/admin-bg.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* Animated background - Light Mode */
+.light-theme {
+  background-color: #f0f9ff;
+  background-image: 
+    linear-gradient(rgba(240, 249, 255, 0.3), rgba(240, 249, 255, 0.3)),
+    url('/images/light-bg.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  position: relative;
+  overflow-x: hidden;
+}
+
+.void-bg::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    radial-gradient(circle at 20% 50%, rgba(0, 212, 232, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(138, 43, 226, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 50% 20%, rgba(0, 188, 212, 0.05) 0%, transparent 40%);
+  pointer-events: none;
+  z-index: 0;
+  animation: pulse-glow 8s ease-in-out infinite;
+}
+
+.void-bg::after {
+  content: '';
+  position: fixed;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: 
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 212, 232, 0.03) 2px,
+      rgba(0, 212, 232, 0.03) 4px
+    );
+  pointer-events: none;
+  z-index: 0;
+  animation: grid-move 20s linear infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes grid-move {
+  0% {
+    transform: translate(0, 0);
+  }
+  100% {
+    transform: translate(50px, 50px);
+  }
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--primary));
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary) / 0.8);
+}
