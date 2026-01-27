@@ -36,8 +36,17 @@ export async function proxy(request: NextRequest) {
   // https://supabase.com/docs/guides/auth/auth-helpers/nextjs#managing-session-with-middleware
   const url = request.nextUrl.clone()
 
-  // If user is not signed in and the current path is not /auth/*, redirect to /auth/login
-  if (!user && !request.nextUrl.pathname.startsWith('/auth') && !request.nextUrl.pathname.startsWith('/_next') && !request.nextUrl.pathname.startsWith('/api')) {
+  // Public routes that don't require authentication
+  const publicRoutes = ['/', '/auth', '/features', '/pricing', '/help-center', '/contact-support']
+  
+  // Check if current path is public or starts with a public route
+  const isPublicRoute = publicRoutes.some(route => 
+    request.nextUrl.pathname === route || 
+    request.nextUrl.pathname.startsWith(route + '/')
+  )
+
+  // If user is not signed in and trying to access protected routes, redirect to /auth/login
+  if (!user && !isPublicRoute && !request.nextUrl.pathname.startsWith('/_next') && !request.nextUrl.pathname.startsWith('/api')) {
     url.pathname = '/auth/login'
     return NextResponse.redirect(url)
   }
