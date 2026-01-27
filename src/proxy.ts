@@ -45,8 +45,11 @@ export async function proxy(request: NextRequest) {
     request.nextUrl.pathname.startsWith(route + '/')
   )
 
-  // If user is not signed in and trying to access protected routes, redirect to /auth/login
-  if (!user && !isPublicRoute && !request.nextUrl.pathname.startsWith('/_next') && !request.nextUrl.pathname.startsWith('/api')) {
+  // Allow access to any route that doesn't start with /admin (except auth redirects for logged users)
+  const isAdminRoute = request.nextUrl.pathname.startsWith('/admin')
+
+  // If user is not signed in and trying to access admin routes, redirect to /auth/login
+  if (!user && isAdminRoute && !request.nextUrl.pathname.startsWith('/_next') && !request.nextUrl.pathname.startsWith('/api')) {
     url.pathname = '/auth/login'
     return NextResponse.redirect(url)
   }
