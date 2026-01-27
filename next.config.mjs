@@ -28,7 +28,7 @@ const nextConfig = {
         pathname: '/images/**',
       },
     ],
-  },
+},
   // Faster development
   swcMinify: true,
   compiler: {
