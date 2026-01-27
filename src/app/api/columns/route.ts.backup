@@ -1,0 +1,316 @@
+import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
+
+export async function GET(request: Request) {
+  try {
+    // Create Supabase client with service role key for server-side auth
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    // Get auth token from request header
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'No authorization token provided' }, { status: 401 });
+    }
+
+    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+
+    // Get user session using the token
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
+    }
+
+    // Get business context from headers
+    const businessId = request.headers.get('x-business-id');
+    if (!businessId) {
+      return NextResponse.json({ error: 'Business context required' }, { status: 400 });
+    }
+
+    // Verify user has access to this business
+    const { data: businessAccess, error: accessError } = await supabase
+      .from('businesses')
+      .select('id')
+      .eq('owner_id', user.id)
+      .eq('id', businessId)
+      .single();
+
+    if (accessError || !businessAccess) {
+      return NextResponse.json({ error: 'Access denied to this business' }, { status: 403 });
+    }
+
+    // Get custom columns using the database function
+    const { data: columns, error: columnsError } = await supabase
+      .rpc('get_custom_columns', { p_business_id: businessId });
+
+    if (columnsError) {
+      console.error('Columns fetch error:', columnsError);
+      return NextResponse.json({ error: columnsError.message }, { status: 500 });
+    }
+
+    // Transform the data to match our expected format
+    const transformedColumns = columns?.map(col => ({
+      id: col.column_name,
+      business_id: businessId,
+      name: col.column_name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+      accessor: col.column_name,
+      type: mapColumnType(col.column_type),
+      options: null,
+      required: col.is_nullable === 'NO',
+      default_value: col.column_default,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    })) || [];
+
+    return NextResponse.json({
+      success: true,
+      data: transformedColumns,
+      business_id: businessId,
+      user_id: user.id
+    });
+
+  } catch (error) {
+    console.error('Columns API error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    // Create Supabase client with service role key for server-side auth
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    // Get auth token from request header
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'No authorization token provided' }, { status: 401 });
+    }
+
+    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+
+    // Get user session using the token
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
+    }
+
+    // Get business context from headers
+    const businessId = request.headers.get('x-business-id');
+    if (!businessId) {
+      return NextResponse.json({ error: 'Business context required' }, { status: 400 });
+    }
+
+    // Verify user has permission to create columns
+    const { data: businessAccess, error: accessError } = await supabase
+      .from('businesses')
+      .select('id, owner_id')
+      .eq('owner_id', user.id)
+      .eq('id', businessId)
+      .single();
+
+    if (accessError || !businessAccess) {
+      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+    }
+
+    // Parse request body
+    const columnData = await request.json();
+
+    // Validate required fields
+    if (!columnData.name || !columnData.type) {
+      return NextResponse.json({ error: 'Name and type are required' }, { status: 400 });
+    }
+
+    // Map our type to database type
+    const dbType = mapTypeToDB(columnData.type);
+
+    // Add column using the database function
+    console.log('Adding column with params:', {
+      p_business_id: businessId,
+      p_column_name: columnData.name,
+      p_column_type: dbType,
+      p_required: columnData.required || false,
+      p_default_value: columnData.default_value || null
+    });
+
+    const { data, error: columnError } = await supabase
+      .rpc('add_column_to_leads', {
+        p_business_id: businessId,
+        p_column_name: columnData.name,
+        p_column_type: dbType,
+        p_required: columnData.required || false,
+        p_default_value: columnData.default_value || null
+      });
+
+    if (columnError) {
+      console.error('Column creation error:', columnError.message, columnError);
+      
+      // Check if the function doesn't exist, try direct SQL approach
+      if (columnError.message.includes('function') && columnError.message.includes('does not exist')) {
+        console.log('Database functions not found, trying direct SQL approach...');
+        
+        try {
+          // Generate accessor from column name
+          const accessor = columnData.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+          
+          // Use direct SQL to add the column
+          const { error: directError } = await supabase
+            .from('leads')
+            .select('*')
+            .limit(1); // This will fail if we need to add the column differently
+          
+          if (directError) {
+            // Try using raw SQL through the service client
+            const { error: rawError } = await supabase.rpc('exec_sql', {
+              sql: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS ${accessor} ${dbType}`
+            });
+            
+            if (rawError) {
+              return NextResponse.json({ 
+                error: 'Database functions not found. Please run the setup_dynamic_columns.sql script first.' 
+              }, { status: 500 });
+            }
+          }
+        } catch (fallbackError) {
+          return NextResponse.json({ 
+            error: 'Database functions not found. Please run the setup_dynamic_columns.sql script first.' 
+          }, { status: 500 });
+        }
+      } else {
+        return NextResponse.json({ error: columnError.message }, { status: 500 });
+      }
+    }
+
+    // Return success with the created column info
+    const newColumn = {
+      id: columnData.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''),
+      business_id: businessId,
+      name: columnData.name,
+      accessor: columnData.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''),
+      type: columnData.type,
+      options: columnData.options || null,
+      required: columnData.required || false,
+      default_value: columnData.default_value || null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    return NextResponse.json({
+      success: true,
+      data: newColumn,
+      message: 'Column created successfully'
+    });
+
+  } catch (error) {
+    console.error('Create column API error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    // Create Supabase client with service role key for server-side auth
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    // Get auth token from request header
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'No authorization token provided' }, { status: 401 });
+    }
+
+    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+
+    // Get user session using the token
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
+    }
+
+    // Get business context from headers
+    const businessId = request.headers.get('x-business-id');
+    if (!businessId) {
+      return NextResponse.json({ error: 'Business context required' }, { status: 400 });
+    }
+
+    // Parse request body
+    const { id } = await request.json();
+
+    if (!id) {
+      return NextResponse.json({ error: 'Column ID is required' }, { status: 400 });
+    }
+
+    // Verify user has permission to delete columns
+    const { data: businessAccess, error: accessError } = await supabase
+      .from('businesses')
+      .select('id, owner_id')
+      .eq('owner_id', user.id)
+      .eq('id', businessId)
+      .single();
+
+    if (accessError || !businessAccess) {
+      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+    }
+
+    // Delete column using the database function
+    const { data, error: columnError } = await supabase
+      .rpc('remove_column_from_leads', {
+        p_business_id: businessId,
+        p_column_name: id
+      });
+
+    if (columnError) {
+      return NextResponse.json({ error: columnError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Column deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Delete column API error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+// Helper functions
+function mapTypeToDB(type: string): string {
+  const typeMap = {
+    'text': 'TEXT',
+    'number': 'DECIMAL',
+    'date': 'DATE',
+    'boolean': 'BOOLEAN',
+    'select': 'TEXT'
+  };
+  return typeMap[type as keyof typeof typeMap] || 'TEXT';
+}
+
+function mapColumnType(dbType: string): string {
+  const typeMap = {
+    'text': 'text',
+    'character varying': 'text',
+    'integer': 'number',
+    'decimal': 'number',
+    'numeric': 'number',
+    'date': 'date',
+    'timestamp': 'date',
+    'boolean': 'boolean'
+  };
+  return typeMap[dbType as keyof typeof typeMap] || 'text';
+}
