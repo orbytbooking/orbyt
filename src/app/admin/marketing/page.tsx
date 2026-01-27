@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, PlusCircle, Mail, Send, Users, Eye, Edit, Trash2 } from 'lucide-react';
+import { Search, PlusCircle, Mail, Send, Users, Eye, Edit, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from "react";
 import { DailyDiscountsForm } from "@/components/admin/marketing/DailyDiscountsForm";
 import { GiftCardInstances } from "@/components/admin/marketing/GiftCardInstances";
@@ -91,11 +91,7 @@ type EmailCampaign = {
   createdAt: string;
 };
 
-const GIFT_CARDS_KEY = 'marketingGiftCards';
-const SCRIPTS_KEY = 'marketingScripts';
-const CUSTOMERS_STORAGE_KEY = 'adminCustomers';
-const EMAIL_CAMPAIGNS_KEY = 'emailCampaigns';
-// Supabase replaces localStorage for coupons
+// Database replaces localStorage for all marketing data
 
 export default function MarketingPage() {
   const { toast } = useToast();
@@ -130,16 +126,23 @@ export default function MarketingPage() {
     content: '',
   });
   const [selectedScriptId, setSelectedScriptId] = useState<string | null>(null);
+  const [isEditingScript, setIsEditingScript] = useState(false);
   
   // Email Campaigns state
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomers, setSelectedCustomers] = useState<Set<string>>(new Set());
+  const [customEmails, setCustomEmails] = useState<string[]>([]);
+  const [customEmailInput, setCustomEmailInput] = useState('');
+  const [useCustomEmails, setUseCustomEmails] = useState(false);
   const [campaignSubject, setCampaignSubject] = useState('');
   const [campaignBody, setCampaignBody] = useState('');
   const [campaignTemplate, setCampaignTemplate] = useState<'holiday' | 'coupon' | 'advertisement' | 'custom'>('custom');
   const [campaigns, setCampaigns] = useState<EmailCampaign[]>([]);
   const [showPreview, setShowPreview] = useState(false);
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const [isEditingCampaign, setIsEditingCampaign] = useState(false);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const { currentBusiness } = useBusiness();
 
@@ -191,6 +194,74 @@ export default function MarketingPage() {
       }
     };
     fetchGiftCards();
+  }, [currentBusiness]);
+
+  // Load scripts from database (multitenant)
+  useEffect(() => {
+    if (!currentBusiness?.id) return;
+    const fetchScripts = async () => {
+      try {
+        const response = await fetch(`/api/marketing/scripts?business_id=${currentBusiness.id}`);
+        const result = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to fetch scripts');
+        }
+        
+        if (result.data) {
+          setScripts(result.data);
+        }
+      } catch (error: any) {
+        console.error('Error fetching scripts:', error);
+      }
+    };
+    fetchScripts();
+  }, [currentBusiness]);
+
+  // Load customers from database (multitenant)
+  useEffect(() => {
+    if (!currentBusiness?.id) return;
+    const fetchCustomers = async () => {
+      try {
+        const response = await fetch(`/api/customers?business_id=${currentBusiness.id}`);
+        const result = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to fetch customers');
+        }
+        
+        if (result.data) {
+          setCustomers(result.data);
+        }
+      } catch (error: any) {
+        console.error('Error fetching customers:', error);
+        // Fallback to empty array if API fails
+        setCustomers([]);
+      }
+    };
+    fetchCustomers();
+  }, [currentBusiness]);
+
+  // Load email campaigns from database (multitenant)
+  useEffect(() => {
+    if (!currentBusiness?.id) return;
+    const fetchCampaigns = async () => {
+      try {
+        const response = await fetch(`/api/marketing/email-campaigns?business_id=${currentBusiness.id}`);
+        const result = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to fetch email campaigns');
+        }
+        
+        if (result.data) {
+          setCampaigns(result.data);
+        }
+      } catch (error: any) {
+        console.error('Error fetching email campaigns:', error);
+      }
+    };
+    fetchCampaigns();
   }, [currentBusiness]);
 
   const handleTabChange = (value: string) => {
@@ -401,38 +472,145 @@ export default function MarketingPage() {
     }
   };
 
-  const saveScripts = (next: Script[]) => {
-    setScripts(next);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(SCRIPTS_KEY, JSON.stringify(next));
+  const handleSaveScript = async () => {
+    if (!newScript.title.trim() || !newScript.content.trim() || !currentBusiness?.id) {
+      toast({
+        title: 'Error',
+        description: 'Please fill in all required fields',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      let response;
+      const scriptData = {
+        business_id: currentBusiness.id,
+        title: newScript.title.trim(),
+        category: newScript.category,
+        content: newScript.content.trim(),
+      };
+
+      if (isEditingScript && selectedScriptId) {
+        // Update existing script
+        response = await fetch('/api/marketing/scripts', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            id: selectedScriptId,
+            ...scriptData,
+          }),
+        });
+      } else {
+        // Create new script
+        response = await fetch('/api/marketing/scripts', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(scriptData),
+        });
+      }
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to save script');
+      }
+
+      if (result.data) {
+        if (isEditingScript) {
+          // Update existing script in state
+          setScripts((prev) =>
+            prev.map((script) =>
+              script.id === selectedScriptId ? result.data : script
+            )
+          );
+          toast({
+            title: 'Script Updated',
+            description: `Script "${result.data.title}" has been updated successfully.`,
+          });
+        } else {
+          // Add new script to state
+          setScripts((prev) => [result.data, ...prev]);
+          setSelectedScriptId(result.data.id);
+          toast({
+            title: 'Script Created',
+            description: `Script "${result.data.title}" has been created successfully.`,
+          });
+        }
+
+        // Reset form
+        setNewScript({ title: '', category: 'Cold Calling', content: '' });
+        setIsEditingScript(false);
+        setSelectedScriptId(null);
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to save script',
+        variant: 'destructive',
+      });
     }
   };
 
-  const handleSaveScript = () => {
-    if (!newScript.title.trim() || !newScript.content.trim()) return;
-
-    const now = new Date().toISOString();
-    const script: Script = {
-      id: `SC-${Date.now()}`,
-      title: newScript.title.trim(),
-      category: newScript.category,
-      content: newScript.content.trim(),
-      updatedAt: now,
-    };
-
-    const next = [script, ...scripts];
-    saveScripts(next);
+  const handleEditScript = (script: Script) => {
+    setNewScript({
+      title: script.title,
+      category: script.category,
+      content: script.content,
+    });
     setSelectedScriptId(script.id);
+    setIsEditingScript(true);
+  };
+
+  const handleCancelEdit = () => {
     setNewScript({ title: '', category: 'Cold Calling', content: '' });
+    setIsEditingScript(false);
+    setSelectedScriptId(null);
   };
 
   const selectedScript = scripts.find((s) => s.id === selectedScriptId) ?? scripts[0];
 
-  const deleteScript = (id: string) => {
-    const next = scripts.filter((s) => s.id !== id);
-    saveScripts(next);
-    if (selectedScriptId === id) {
-      setSelectedScriptId(next[0]?.id ?? null);
+  const deleteScript = async (id: string) => {
+    if (!currentBusiness?.id) return;
+    
+    const script = scripts.find(s => s.id === id);
+    if (!script) return;
+    
+    if (!confirm(`Are you sure you want to delete script "${script.title}"?`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/marketing/scripts?id=${id}&business_id=${currentBusiness.id}`, {
+        method: 'DELETE',
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to delete script');
+      }
+
+      const next = scripts.filter((s) => s.id !== id);
+      setScripts(next);
+      if (selectedScriptId === id) {
+        setSelectedScriptId(next[0]?.id ?? null);
+      }
+      
+      toast({
+        title: 'Script Deleted',
+        description: `Script "${script.title}" has been deleted.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete script',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -537,8 +715,8 @@ Orbyt Cleaners`);
     }
   };
 
-  const handleSendCampaign = () => {
-    if (!campaignSubject.trim() || !campaignBody.trim()) {
+  const handleSendCampaign = async () => {
+    if (!campaignSubject.trim() || !campaignBody.trim() || !currentBusiness?.id) {
       toast({
         title: 'Error',
         description: 'Please fill in both subject and body',
@@ -547,39 +725,148 @@ Orbyt Cleaners`);
       return;
     }
 
-    if (selectedCustomers.size === 0) {
+    if (getAllRecipients().length === 0) {
       toast({
         title: 'Error',
-        description: 'Please select at least one customer',
+        description: 'Please select at least one customer or add custom email',
         variant: 'destructive',
       });
       return;
     }
 
-    const campaign: EmailCampaign = {
-      id: `EC-${Date.now()}`,
-      subject: campaignSubject,
-      body: campaignBody,
-      template: campaignTemplate,
-      recipients: Array.from(selectedCustomers),
-      sentAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-    };
+    try {
+      let response;
+      const campaignData = {
+        business_id: currentBusiness.id,
+        subject: campaignSubject.trim(),
+        body: campaignBody.trim(),
+        template: campaignTemplate,
+        recipients: getAllRecipients(),
+        sent_at: isEditingCampaign ? null : new Date().toISOString(), // Only set sent_at when actually sending
+      };
 
-    const next = [campaign, ...campaigns];
-    setCampaigns(next);
-    localStorage.setItem(EMAIL_CAMPAIGNS_KEY, JSON.stringify(next));
+      if (isEditingCampaign && selectedCampaignId) {
+        // Update existing campaign (don't send)
+        response = await fetch('/api/marketing/email-campaigns', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            id: selectedCampaignId,
+            ...campaignData,
+          }),
+        });
+      } else {
+        // Create new campaign and send
+        response = await fetch('/api/marketing/email-campaigns', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(campaignData),
+        });
+      }
 
-    toast({
-      title: 'Campaign Sent!',
-      description: `Email sent to ${selectedCustomers.size} customer(s)`,
-    });
+      const result = await response.json();
 
-    // Reset form
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to save campaign');
+      }
+
+      if (result.data) {
+        if (isEditingCampaign) {
+          // Update existing campaign in state
+          setCampaigns((prev) =>
+            prev.map((campaign) =>
+              campaign.id === selectedCampaignId ? result.data : campaign
+            )
+          );
+          toast({
+            title: 'Campaign Updated',
+            description: `Campaign "${result.data.subject}" has been updated successfully.`,
+          });
+        } else {
+          // Add new campaign to state
+          setCampaigns((prev) => [result.data, ...prev]);
+          toast({
+            title: 'Campaign Sent!',
+            description: `Email sent to ${getAllRecipients().length} recipient${getAllRecipients().length !== 1 ? 's' : ''}`,
+          });
+        }
+
+        // Reset form
+        resetCampaignForm();
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to save campaign',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleAddCustomEmail = () => {
+    const email = customEmailInput.trim();
+    if (email && !customEmails.includes(email) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setCustomEmails([...customEmails, email]);
+      setCustomEmailInput('');
+    } else if (email) {
+      toast({
+        title: 'Invalid Email',
+        description: 'Please enter a valid email address',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleRemoveCustomEmail = (emailToRemove: string) => {
+    setCustomEmails(customEmails.filter(email => email !== emailToRemove));
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddCustomEmail();
+    }
+  };
+
+  const getAllRecipients = () => {
+    const customerEmails = Array.from(selectedCustomers).map(customerId => {
+      const customer = customers.find(c => c.id === customerId);
+      return customer?.email;
+    }).filter(email => email); // Remove undefined
+
+    if (useCustomEmails) {
+      return [...customerEmails, ...customEmails];
+    }
+    return customerEmails;
+  };
+
+  const resetCampaignForm = () => {
     setCampaignSubject('');
     setCampaignBody('');
-    setSelectedCustomers(new Set());
     setCampaignTemplate('custom');
+    setSelectedCustomers(new Set());
+    setCustomEmails([]);
+    setCustomEmailInput('');
+    setUseCustomEmails(false);
+    setIsEditingCampaign(false);
+    setSelectedCampaignId(null);
+  };
+
+  const handleEditCampaign = (campaign: EmailCampaign) => {
+    setCampaignSubject(campaign.subject);
+    setCampaignBody(campaign.body);
+    setCampaignTemplate(campaign.template);
+    setSelectedCustomers(new Set(campaign.recipients));
+    setSelectedCampaignId(campaign.id);
+    setIsEditingCampaign(true);
+  };
+
+  const handleCancelEditCampaign = () => {
+    resetCampaignForm();
   };
 
   return (

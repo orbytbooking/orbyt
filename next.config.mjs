@@ -28,20 +28,16 @@ const nextConfig = {
         pathname: '/images/**',
       },
     ],
-},
+  },
   // Faster development
-  swcMinify: true,
   compiler: {
     removeConsole: process.env.NODE_ENV === 'production',
   },
+  // Empty turbopack config to resolve webpack conflict
+  turbopack: {},
   // Reduce file watching and compilation
   ...(process.env.NODE_ENV === 'development' && {
     experimental: {
-      turbo: {
-        resolveAlias: {
-          '@': './src',
-        },
-      },
       // Optimize builds
       optimizeCss: true,
     },
