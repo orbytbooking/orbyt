@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { useToast } from "@/hooks/use-toast";
+import { Shirt, Sofa, Droplets, Wind, Trash2, Upload, X, Flower2, Flame, Warehouse, Paintbrush } from "lucide-react";
 
 type ExcludeParameterRow = {
   id: number;
@@ -51,6 +52,7 @@ export default function ExcludeParameterNewPage() {
   const [form, setForm] = useState({
     name: "",
     description: "",
+    icon: "",
     display: "Customer Frontend, Backend & Admin" as "Customer Frontend, Backend & Admin" | "Customer Backend & Admin" | "Admin Only",
     price: "0",
     hours: "0",
@@ -65,6 +67,22 @@ export default function ExcludeParameterNewPage() {
     serviceCategory: [] as string[],
     variableCategories: [] as string[],
   });
+
+  const [showIconPicker, setShowIconPicker] = useState(false);
+  const [uploadedIcon, setUploadedIcon] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const predefinedIcons = [
+    { name: "Laundry", icon: Shirt, value: "laundry" },
+    { name: "Furniture", icon: Sofa, value: "furniture" },
+    { name: "Water/Mold", icon: Droplets, value: "water" },
+    { name: "Odor", icon: Wind, value: "odor" },
+    { name: "Trash/Clutter", icon: Trash2, value: "trash" },
+    { name: "Garden/Plants", icon: Flower2, value: "plants" },
+    { name: "Fire Damage", icon: Flame, value: "fire" },
+    { name: "Storage", icon: Warehouse, value: "storage" },
+    { name: "Paint Removal", icon: Paintbrush, value: "paint" },
+  ];
 
   const allDataKey = useMemo(() => `excludeParameters_${industry}`, [industry]);
   const extrasKey = useMemo(() => `extras_${industry}`, [industry]);
@@ -164,6 +182,7 @@ export default function ExcludeParameterNewPage() {
             setForm({
               name: existing.name,
               description: existing.description || "",
+              icon: existing.icon || "",
               display: existing.display,
               price: String(existing.price ?? 0),
               hours: String(hours),
@@ -178,6 +197,10 @@ export default function ExcludeParameterNewPage() {
               serviceCategory: existing.service_category ? existing.service_category.split(", ") : [],
               variableCategories: [],
             });
+
+            if (existing.icon && existing.icon.startsWith('data:')) {
+              setUploadedIcon(existing.icon);
+            }
           }
         }
       } catch (error) {
@@ -238,6 +261,7 @@ export default function ExcludeParameterNewPage() {
         industry_id: industryId,
         name: form.name.trim(),
         description: form.description || undefined,
+        icon: form.icon || uploadedIcon || undefined,
         price,
         time_minutes: timeMinutes,
         display: form.display,
@@ -392,6 +416,141 @@ export default function ExcludeParameterNewPage() {
                     <RadioGroupItem value="Admin Only" /> Admin Only
                   </label>
                 </RadioGroup>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Icon</Label>
+                <div className="space-y-3">
+                  {/* Current Icon Display */}
+                  {(form.icon || uploadedIcon) && (
+                    <div className="flex items-center gap-3 p-3 border rounded-md bg-muted/50">
+                      <div className="flex items-center justify-center w-12 h-12 border rounded-md bg-background">
+                        {uploadedIcon ? (
+                          <img src={uploadedIcon} alt="Custom icon" className="w-8 h-8 object-contain" />
+                        ) : (
+                          (() => {
+                            const IconComponent = predefinedIcons.find(i => i.value === form.icon)?.icon;
+                            return IconComponent ? <IconComponent className="w-6 h-6" /> : null;
+                          })()
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium">
+                          {uploadedIcon ? "Custom Icon" : predefinedIcons.find(i => i.value === form.icon)?.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Current icon</p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setForm(p => ({ ...p, icon: "" }));
+                          setUploadedIcon(null);
+                        }}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Icon Selection Buttons */}
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setShowIconPicker(!showIconPicker)}
+                      className="flex-1"
+                    >
+                      Select Icon
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex-1"
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      Upload Icon
+                    </Button>
+                  </div>
+
+                  {/* Hidden File Input */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        if (file.size > 2 * 1024 * 1024) {
+                          toast({
+                            title: "File too large",
+                            description: "Please upload an image smaller than 2MB",
+                            variant: "destructive",
+                          });
+                          return;
+                        }
+
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          const base64String = reader.result as string;
+                          setUploadedIcon(base64String);
+                          setForm(p => ({ ...p, icon: "" }));
+                          toast({
+                            title: "Icon uploaded",
+                            description: "Custom icon has been uploaded successfully",
+                          });
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+
+                  {/* Icon Picker Grid */}
+                  {showIconPicker && (
+                    <div className="border rounded-md p-4 bg-background">
+                      <div className="flex items-center justify-between mb-3">
+                        <Label className="text-sm font-medium">Select an icon</Label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowIconPicker(false)}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-5 gap-2">
+                        {predefinedIcons.map((iconItem) => {
+                          const IconComponent = iconItem.icon;
+                          return (
+                            <button
+                              key={iconItem.value}
+                              type="button"
+                              onClick={() => {
+                                setForm(p => ({ ...p, icon: iconItem.value }));
+                                setUploadedIcon(null);
+                                setShowIconPicker(false);
+                                toast({
+                                  title: "Icon selected",
+                                  description: `${iconItem.name} icon has been selected`,
+                                });
+                              }}
+                              className={`flex flex-col items-center justify-center p-3 border rounded-md hover:bg-muted transition-colors ${
+                                form.icon === iconItem.value ? "border-primary bg-primary/10" : ""
+                              }`}
+                            >
+                              <IconComponent className="w-6 h-6 mb-1" />
+                              <span className="text-xs text-center">{iconItem.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </TabsContent>
 

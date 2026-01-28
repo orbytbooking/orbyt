@@ -5,6 +5,7 @@ import { ArrowRight, Sparkles, Shield, Clock } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabaseClient";
 
 interface HeroProps {
   data?: {
@@ -40,20 +41,33 @@ const Hero = ({
   const [isCustomerAuthenticated, setIsCustomerAuthenticated] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    
-    const checkAuth = () => {
-      const isAuthed = window.localStorage.getItem("customerAuth") === "true";
-      setIsCustomerAuthenticated(isAuthed);
+    const checkAuthState = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data: customer } = await supabase
+          .from('customers')
+          .select('id')
+          .eq('auth_user_id', session.user.id)
+          .single();
+        
+        setIsCustomerAuthenticated(!!customer);
+      } else {
+        setIsCustomerAuthenticated(false);
+      }
     };
 
-    checkAuth();
-    window.addEventListener("storage", checkAuth);
-    window.addEventListener("customer-auth-changed", checkAuth);
+    checkAuthState();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || !session) {
+        setIsCustomerAuthenticated(false);
+      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        checkAuthState();
+      }
+    });
 
     return () => {
-      window.removeEventListener("storage", checkAuth);
-      window.removeEventListener("customer-auth-changed", checkAuth);
+      authListener.subscription.unsubscribe();
     };
   }, []);
 
