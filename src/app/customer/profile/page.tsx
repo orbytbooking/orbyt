@@ -25,28 +25,30 @@ const CustomerProfilePage = () => {
     setFormState(customerAccount);
   }, [customerAccount]);
 
-  const initials = useMemo(() => (
-    customerAccount.name
+  const initials = useMemo(() => {
+    if (!customerAccount?.name) return "PP";
+    return customerAccount.name
       .split(" ")
       .filter(Boolean)
       .slice(0, 2)
       .map((part) => part[0]?.toUpperCase() ?? "")
-      .join("") || "PP"
-  ), [customerAccount.name]);
+      .join("") || "PP";
+  }, [customerAccount?.name]);
 
   const isDirty = useMemo(() => JSON.stringify(formState) !== JSON.stringify(customerAccount), [formState, customerAccount]);
 
-  const handleFieldChange = (field: keyof typeof customerAccount) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleFieldChange = (field: string) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const value = event.target.value;
-    setFormState((prev) => ({ ...prev, [field]: value }));
+    setFormState((prev) => prev ? { ...prev, [field]: value } : prev);
   };
 
-  const handleNotificationChange = (field: keyof typeof customerAccount.notifications) => (checked: boolean) => {
-    setFormState((prev) => ({ ...prev, notifications: { ...prev.notifications, [field]: checked } }));
+  const handleNotificationChange = (field: string) => (checked: boolean) => {
+    setFormState((prev) => prev ? { ...prev, notifications: { ...prev.notifications, [field]: checked } } : prev);
   };
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!formState) return;
     updateAccount(formState);
     toast({
       title: "Profile updated",
@@ -127,8 +129,8 @@ const CustomerProfilePage = () => {
     <div className="min-h-screen bg-muted/20 text-foreground">
       <div className="min-h-screen flex flex-col lg:grid lg:grid-cols-[280px_1fr]">
         <CustomerSidebar
-          customerName={customerAccount.name}
-          customerEmail={customerAccount.email}
+          customerName={customerAccount?.name || ''}
+          customerEmail={customerAccount?.email || ''}
           initials={initials}
           onLogout={handleLogout}
         />
@@ -156,7 +158,7 @@ const CustomerProfilePage = () => {
                   <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
                   <div className="flex flex-col gap-4 rounded-2xl border border-dashed border-border p-4 sm:flex-row sm:items-center">
                     <Avatar className="h-16 w-16">
-                      {formState.avatar ? <AvatarImage src={formState.avatar} alt={formState.name} /> : null}
+                      {formState?.avatar ? <AvatarImage src={formState.avatar} alt={formState?.name || 'Profile'} /> : null}
                       <AvatarFallback className="text-base font-semibold">{initials}</AvatarFallback>
                     </Avatar>
                     <div className="flex-1 space-y-2">
@@ -166,7 +168,7 @@ const CustomerProfilePage = () => {
                         <Button type="button" size="sm" onClick={handleTriggerAvatarUpload}>
                           <Upload className="mr-2 h-4 w-4" /> Upload photo
                         </Button>
-                        {formState.avatar && (
+                        {formState?.avatar && (
                           <Button type="button" size="sm" variant="outline" onClick={handleAvatarRemove}>
                             <Trash2 className="mr-2 h-4 w-4" /> Remove
                           </Button>
@@ -179,7 +181,7 @@ const CustomerProfilePage = () => {
                       <Label htmlFor="profile-name">Full name</Label>
                       <Input
                         id="profile-name"
-                        value={formState.name}
+                        value={formState?.name || ''}
                         onChange={handleFieldChange("name")}
                         placeholder="Jane Doe"
                         required
@@ -190,7 +192,7 @@ const CustomerProfilePage = () => {
                       <Input
                         id="profile-email"
                         type="email"
-                        value={formState.email}
+                        value={formState?.email || ''}
                         onChange={handleFieldChange("email")}
                         placeholder="you@example.com"
                         required
@@ -200,7 +202,7 @@ const CustomerProfilePage = () => {
                       <Label htmlFor="profile-phone">Phone number</Label>
                       <Input
                         id="profile-phone"
-                        value={formState.phone}
+                        value={formState?.phone || ''}
                         onChange={handleFieldChange("phone")}
                         placeholder="(555) 123-4567"
                       />
@@ -209,7 +211,7 @@ const CustomerProfilePage = () => {
                       <Label htmlFor="profile-address">Service address</Label>
                       <Input
                         id="profile-address"
-                        value={formState.address}
+                        value={formState?.address || ''}
                         onChange={handleFieldChange("address")}
                         placeholder="123 Main St"
                       />
@@ -228,7 +230,7 @@ const CustomerProfilePage = () => {
                           <p className="text-sm text-muted-foreground">Get confirmations and receipts in your inbox.</p>
                         </div>
                         <Switch
-                          checked={formState.notifications.emailUpdates}
+                          checked={formState?.notifications?.emailUpdates || false}
                           onCheckedChange={handleNotificationChange("emailUpdates")}
                         />
                       </div>
@@ -238,7 +240,7 @@ const CustomerProfilePage = () => {
                           <p className="text-sm text-muted-foreground">Receive quick texts when your pro is on the way.</p>
                         </div>
                         <Switch
-                          checked={formState.notifications.smsUpdates}
+                          checked={formState?.notifications?.smsUpdates || false}
                           onCheckedChange={handleNotificationChange("smsUpdates")}
                         />
                       </div>
@@ -246,7 +248,7 @@ const CustomerProfilePage = () => {
                   </Card>
 
                   <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
-                    <Button type="button" variant="outline" onClick={() => setFormState(customerAccount)} disabled={!isDirty}>
+                    <Button type="button" variant="outline" onClick={() => setFormState(customerAccount)} disabled={!isDirty || !customerAccount}>
                       Reset changes
                     </Button>
                     <Button type="submit" disabled={!isDirty}>
