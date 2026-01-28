@@ -1416,11 +1416,11 @@ Orbyt Cleaners`);
                   </Button>
                   <Button
                     onClick={handleSendCampaign}
-                    disabled={!campaignSubject.trim() || !campaignBody.trim() || selectedCustomers.size === 0}
+                    disabled={!campaignSubject.trim() || !campaignBody.trim() || getAllRecipients().length === 0}
                     className="flex-1"
                   >
                     <Send className="h-4 w-4 mr-2" />
-                    Send to {selectedCustomers.size} Customer{selectedCustomers.size !== 1 ? 's' : ''}
+                    Send to {getAllRecipients().length} Recipient{getAllRecipients().length !== 1 ? 's' : ''}
                   </Button>
                 </div>
 
@@ -1450,10 +1450,10 @@ Orbyt Cleaners`);
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Users className="h-5 w-5" />
-                  Select Customers ({selectedCustomers.size} selected)
+                  Select Recipients ({getAllRecipients().length} total)
                 </CardTitle>
                 <CardDescription>
-                  Choose which customers will receive this email campaign.
+                  Choose customers and add custom emails to receive this campaign.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -1467,6 +1467,65 @@ Orbyt Cleaners`);
                     onChange={(e) => setCustomerSearchTerm(e.target.value)}
                   />
                 </div>
+
+                {/* Custom Email Toggle */}
+                <div className="flex items-center space-x-2 p-2 rounded-md border bg-muted/50">
+                  <Switch
+                    id="use-custom-emails"
+                    checked={useCustomEmails}
+                    onCheckedChange={setUseCustomEmails}
+                  />
+                  <Label
+                    htmlFor="use-custom-emails"
+                    className="text-sm font-medium cursor-pointer flex-1"
+                  >
+                    Add Custom Emails
+                  </Label>
+                </div>
+
+                {/* Custom Email Input */}
+                {useCustomEmails && (
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Enter custom email..."
+                        value={customEmailInput}
+                        onChange={(e) => setCustomEmailInput(e.target.value)}
+                        onKeyPress={handleKeyPress}
+                        className="flex-1"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={handleAddCustomEmail}
+                        disabled={!customEmailInput.trim()}
+                      >
+                        <PlusCircle className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    
+                    {/* Custom Email List */}
+                    {customEmails.length > 0 && (
+                      <div className="space-y-1 max-h-32 overflow-y-auto">
+                        {customEmails.map((email, index) => (
+                          <div
+                            key={index}
+                            className="flex items-center justify-between p-2 bg-muted/30 rounded text-sm"
+                          >
+                            <span className="truncate">{email}</span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleRemoveCustomEmail(email)}
+                              className="h-6 w-6 p-0 text-red-600 hover:bg-red-50"
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Select All */}
                 <div className="flex items-center space-x-2 p-2 rounded-md border bg-muted/50">
@@ -1520,11 +1579,19 @@ Orbyt Cleaners`);
                 </div>
 
                 {/* Stats */}
-                {customers.length > 0 && (
+                {(customers.length > 0 || customEmails.length > 0) && (
                   <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t">
-                    <div>Total customers: {customers.length}</div>
-                    <div>Active customers: {customers.filter(c => c.status === 'active').length}</div>
-                    <div>Selected: {selectedCustomers.size}</div>
+                    {customers.length > 0 && (
+                      <>
+                        <div>Total customers: {customers.length}</div>
+                        <div>Active customers: {customers.filter(c => c.status === 'active').length}</div>
+                        <div>Selected customers: {selectedCustomers.size}</div>
+                      </>
+                    )}
+                    {customEmails.length > 0 && (
+                      <div>Custom emails: {customEmails.length}</div>
+                    )}
+                    <div className="font-medium">Total recipients: {getAllRecipients().length}</div>
                   </div>
                 )}
               </CardContent>

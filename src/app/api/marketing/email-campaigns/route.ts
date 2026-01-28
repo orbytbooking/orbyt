@@ -63,8 +63,21 @@ export async function POST(request: NextRequest) {
     if (sent_at && recipients && recipients.length > 0) {
       try {
         const fromEmail = process.env.RESEND_FROM_EMAIL;
+        const resendApiKey = process.env.RESEND_API_KEY;
+        
+        console.log('=== EMAIL SENDING DEBUG ===');
+        console.log('Resend API Key exists:', !!resendApiKey);
+        console.log('From Email:', fromEmail);
+        console.log('Recipients:', recipients);
+        console.log('Business ID:', business_id);
+        
         if (!fromEmail) {
           throw new Error('RESEND_FROM_EMAIL environment variable is not configured');
+        }
+        
+        if (!resendApiKey) {
+          console.error('❌ RESEND_API_KEY is not configured - emails will not be sent');
+          throw new Error('RESEND_API_KEY environment variable is not configured');
         }
 
         // Send emails to all recipients
