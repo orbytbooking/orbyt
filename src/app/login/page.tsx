@@ -26,14 +26,8 @@ import { useToast } from "@/components/ui/use-toast";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Navigation from "@/components/Navigation";
+import { supabase } from "@/lib/supabaseClient";
 
-type StoredAccount = {
-  name: string;
-  email: string;
-  phone: string;
-  address: string;
-  password: string;
-};
 
 // Login form schema
 const loginSchema = z.object({
@@ -61,23 +55,11 @@ const forgotPasswordSchema = z.object({
 
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
-  const [hasAccount, setHasAccount] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmailSent, setResetEmailSent] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
 
-  const getStoredAccount = (): StoredAccount | null => {
-    if (typeof window === "undefined") return null;
-    const storedAccount = localStorage.getItem("customerAccount");
-    if (!storedAccount) return null;
-    try {
-      return JSON.parse(storedAccount) as StoredAccount;
-    } catch {
-      localStorage.removeItem("customerAccount");
-      return null;
-    }
-  };
 
   // Login form
   const loginForm = useForm<z.infer<typeof loginSchema>>({
@@ -117,59 +99,67 @@ export default function AuthPage() {
   }, [isLogin]);
 
   useEffect(() => {
-    const storedAccount = getStoredAccount();
-    const accountExists = Boolean(storedAccount);
-    setHasAccount(accountExists);
-    if (!accountExists) {
-      setIsLogin(false);
-    }
-
-    if (
-      typeof window !== "undefined" &&
-      accountExists &&
-      localStorage.getItem("customerAuth") === "true"
-    ) {
-      router.replace("/customer/dashboard");
-    }
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data: customer } = await supabase
+          .from('customers')
+          .select('id')
+          .eq('auth_user_id', session.user.id)
+          .single();
+        
+        if (customer) {
+          router.replace("/customer/dashboard");
+        }
+      }
+    };
+    checkAuth();
   }, [router]);
 
   // Handle login submission
   async function onLoginSubmit(values: z.infer<typeof loginSchema>) {
     try {
-      const storedAccount = getStoredAccount();
-      if (!storedAccount) {
-        toast({
-          title: "No account found",
-          description: "Please sign up before trying to sign in.",
-          variant: "destructive",
-        });
-        setIsLogin(false);
-        setHasAccount(false);
-        return;
-      }
-
-      if (
-        storedAccount.email !== values.email ||
-        storedAccount.password !== values.password
-      ) {
-        throw new Error("Invalid credentials");
-      }
-
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      toast({
-        title: "Login Successful!",
-        description: `Welcome back! You've been logged in.`,
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: values.email,
+        password: values.password,
       });
+
+      if (error) {
+        if (error.message.includes('Invalid login credentials')) {
+          throw new Error('Invalid email or password');
+        } else if (error.message.includes('Email not confirmed')) {
+          throw new Error('Please confirm your email first. Check your inbox for the confirmation link.');
+        } else {
+          throw error;
+        }
+      }
+
+      if (data.user) {
+        const { data: customer } = await supabase
+          .from('customers')
+          .select('id, name')
+          .eq('auth_user_id', data.user.id)
+          .single();
+
+        if (!customer) {
+          throw new Error('Customer account not found. Please sign up first.');
+        }
+
+        toast({
+          title: "Login Successful!",
+          description: `Welcome back${customer.name ? ', ' + customer.name : ''}!`,
+        });
+        
+        setTimeout(() => {
+          router.push("/customer/dashboard");
+        }, 500);
+      }
       
-      localStorage.setItem("customerAuth", "true");
-      router.push("/customer/dashboard");
-      
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Login error:', error);
       toast({
         title: "Error",
-        description: "Invalid email or password. Please try again.",
+        description: error.message || "Invalid email or password. Please try again.",
         variant: "destructive",
       });
     }
@@ -178,31 +168,36 @@ export default function AuthPage() {
   // Handle signup submission
   async function onSignupSubmit(values: z.infer<typeof signupSchema>) {
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      toast({
-        title: "Account Created!",
-        description: `Welcome ${values.name}! Your account has been created successfully.`,
-      });
-      
-      const accountData: StoredAccount = {
-        name: values.name,
+      const { data: authData, error: authError } = await supabase.auth.signUp({
         email: values.email,
-        phone: values.phone,
-        address: values.address,
         password: values.password,
-      };
+        options: {
+          data: {
+            full_name: values.name,
+            phone: values.phone,
+            address: values.address,
+            role: 'customer'
+          },
+          emailRedirectTo: undefined
+        }
+      });
 
-      localStorage.setItem("customerAccount", JSON.stringify(accountData));
-      localStorage.setItem("customerAuth", "false");
-      setHasAccount(true);
-      setIsLogin(true);
+      if (authError) throw authError;
+
+      if (authData.user) {
+        toast({
+          title: "Account Created!",
+          description: `Welcome ${values.name}! You can now sign in to your account.`,
+        });
+        
+        setIsLogin(true);
+      }
       
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Signup error:', error);
       toast({
         title: "Error",
-        description: "There was an error creating your account. Please try again.",
+        description: error.message || "There was an error creating your account. Please try again.",
         variant: "destructive",
       });
     }
@@ -211,8 +206,11 @@ export default function AuthPage() {
   // Handle forgot password submission
   async function onForgotPasswordSubmit(values: z.infer<typeof forgotPasswordSchema>) {
     try {
-      // Simulate API call to send reset email
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      const { error } = await supabase.auth.resetPasswordForEmail(values.email, {
+        redirectTo: `${window.location.origin}/auth/reset-password`,
+      });
+
+      if (error) throw error;
       
       setResetEmailSent(true);
       
@@ -221,10 +219,11 @@ export default function AuthPage() {
         description: `We've sent a password reset link to ${values.email}`,
       });
       
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Password reset error:', error);
       toast({
         title: "Error",
-        description: "Failed to send reset email. Please try again.",
+        description: error.message || "Failed to send reset email. Please try again.",
         variant: "destructive",
       });
     }
@@ -320,16 +319,10 @@ export default function AuthPage() {
                     </button>
                   </div>
 
-                  {!hasAccount && (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                      Please create an account before signing in.
-                    </div>
-                  )}
-
                   <Button 
                     type="submit"
                     className="w-full h-11 text-base group"
-                    disabled={!hasAccount || loginForm.formState.isSubmitting}
+                    disabled={loginForm.formState.isSubmitting}
                   >
                     {loginForm.formState.isSubmitting ? (
                       <>

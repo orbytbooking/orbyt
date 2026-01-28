@@ -5,6 +5,7 @@ import { Menu, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 
 const Navigation = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -13,22 +14,33 @@ const Navigation = () => {
   const pathname = usePathname();
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const syncAuthState = () => {
-      const isAuthed = window.localStorage.getItem("customerAuth") === "true";
-      setIsCustomerAuthenticated(isAuthed);
+    const checkAuthState = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data: customer } = await supabase
+          .from('customers')
+          .select('id')
+          .eq('auth_user_id', session.user.id)
+          .single();
+        
+        setIsCustomerAuthenticated(!!customer);
+      } else {
+        setIsCustomerAuthenticated(false);
+      }
     };
 
-    const handleCustomAuthEvent = () => syncAuthState();
+    checkAuthState();
 
-    syncAuthState();
-    window.addEventListener("storage", syncAuthState);
-    window.addEventListener("customer-auth-changed", handleCustomAuthEvent);
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || !session) {
+        setIsCustomerAuthenticated(false);
+      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        checkAuthState();
+      }
+    });
 
     return () => {
-      window.removeEventListener("storage", syncAuthState);
-      window.removeEventListener("customer-auth-changed", handleCustomAuthEvent);
+      authListener.subscription.unsubscribe();
     };
   }, []);
 

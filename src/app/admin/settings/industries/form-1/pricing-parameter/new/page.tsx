@@ -67,9 +67,9 @@ export default function PricingParameterNewPage() {
     name: "",
     description: "",
     display: "Customer Frontend, Backend & Admin" as "Customer Frontend, Backend & Admin" | "Customer Backend & Admin" | "Admin Only",
-    price: "0",
-    hours: "0",
-    minutes: "0",
+    price: "",
+    hours: "",
+    minutes: "",
     isDefault: false,
     showBasedOnFrequency: false,
     showBasedOnServiceCategory: false,
@@ -84,6 +84,14 @@ export default function PricingParameterNewPage() {
   });
 
   const [existingParameters, setExistingParameters] = useState<any[]>([]);
+
+  const [validationErrors, setValidationErrors] = useState({
+    variableCategory: "",
+    name: "",
+    price: "",
+    hours: "",
+    minutes: "",
+  });
 
   const allDataKey = useMemo(() => `pricingParamsAll_${industry}`, [industry]);
   const variablesKey = useMemo(() => `pricingVariables_${industry}`, [industry]);
@@ -224,6 +232,86 @@ export default function PricingParameterNewPage() {
 
     fetchExistingData();
   }, [editId, industryId]);
+
+  // Real-time validation for variable category
+  const validateVariableCategory = (value: string) => {
+    if (!value.trim()) {
+      return "Variable category is required";
+    }
+    return "";
+  };
+
+  // Real-time validation for name
+  const validateName = (value: string) => {
+    if (!value.trim()) {
+      return "Name is required";
+    }
+    
+    // Check for duplicate name in the same variable category
+    if (form.variableCategory) {
+      const duplicate = existingParameters.find(
+        (p: any) => 
+          p.variable_category === form.variableCategory && 
+          p.name.toLowerCase() === value.trim().toLowerCase() &&
+          p.id !== editId
+      );
+      
+      if (duplicate) {
+        return `A parameter with this name already exists in "${form.variableCategory}" category`;
+      }
+    }
+    
+    return "";
+  };
+
+  // Real-time validation for price
+  const validatePrice = (value: string) => {
+    if (!value.trim()) {
+      return "Price is required";
+    }
+    const numValue = Number(value);
+    if (isNaN(numValue)) {
+      return "Price must be a valid number";
+    }
+    if (numValue < 0) {
+      return "Price cannot be negative";
+    }
+    return "";
+  };
+
+  // Real-time validation for hours
+  const validateHours = (value: string, minutesValue: string) => {
+    if (!value.trim() && !minutesValue.trim()) {
+      return "Time is required (hours or minutes)";
+    }
+    if (value.trim()) {
+      const numValue = Number(value);
+      if (isNaN(numValue)) {
+        return "Hours must be a valid number";
+      }
+      if (numValue < 0) {
+        return "Hours cannot be negative";
+      }
+    }
+    return "";
+  };
+
+  // Real-time validation for minutes
+  const validateMinutes = (value: string, hoursValue: string) => {
+    if (!value.trim() && !hoursValue.trim()) {
+      return "Time is required (hours or minutes)";
+    }
+    if (value.trim()) {
+      const numValue = Number(value);
+      if (isNaN(numValue)) {
+        return "Minutes must be a valid number";
+      }
+      if (numValue < 0 || numValue > 59) {
+        return "Minutes must be between 0 and 59";
+      }
+    }
+    return "";
+  };
 
   const save = async () => {
     if (!form.variableCategory || !form.name.trim()) {
@@ -376,13 +464,28 @@ export default function PricingParameterNewPage() {
                 <Input
                   id="variable-category"
                   value={form.variableCategory}
-                  onChange={(e) => setForm(p => ({ ...p, variableCategory: e.target.value }))}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setForm(p => ({ ...p, variableCategory: value }));
+                    const error = validateVariableCategory(value);
+                    setValidationErrors(prev => ({ ...prev, variableCategory: error }));
+                  }}
+                  onBlur={(e) => {
+                    const error = validateVariableCategory(e.target.value);
+                    setValidationErrors(prev => ({ ...prev, variableCategory: error }));
+                  }}
                   placeholder="e.g., Sq Ft, Bedroom, Bathroom, Kitchen, Living Room"
                   disabled={!!editId}
+                  className={validationErrors.variableCategory ? "border-red-500" : ""}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Enter the variable category this parameter belongs to. You can type any category name.
-                </p>
+                {validationErrors.variableCategory && (
+                  <p className="text-xs text-red-500">{validationErrors.variableCategory}</p>
+                )}
+                {!validationErrors.variableCategory && (
+                  <p className="text-xs text-muted-foreground">
+                    Enter the variable category this parameter belongs to. You can type any category name.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -390,9 +493,22 @@ export default function PricingParameterNewPage() {
                 <Input
                   id="name"
                   value={form.name}
-                  onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setForm(p => ({ ...p, name: value }));
+                    const error = validateName(value);
+                    setValidationErrors(prev => ({ ...prev, name: error }));
+                  }}
+                  onBlur={(e) => {
+                    const error = validateName(e.target.value);
+                    setValidationErrors(prev => ({ ...prev, name: error }));
+                  }}
                   placeholder="e.g., 1 - 1249 Sq Ft"
+                  className={validationErrors.name ? "border-red-500" : ""}
                 />
+                {validationErrors.name && (
+                  <p className="text-xs text-red-500">{validationErrors.name}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -432,9 +548,22 @@ export default function PricingParameterNewPage() {
                   type="number"
                   step="0.01"
                   value={form.price}
-                  onChange={(e) => setForm(p => ({ ...p, price: e.target.value }))}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setForm(p => ({ ...p, price: value }));
+                    const error = validatePrice(value);
+                    setValidationErrors(prev => ({ ...prev, price: error }));
+                  }}
+                  onBlur={(e) => {
+                    const error = validatePrice(e.target.value);
+                    setValidationErrors(prev => ({ ...prev, price: error }));
+                  }}
                   placeholder="0.00"
+                  className={validationErrors.price ? "border-red-500" : ""}
                 />
+                {validationErrors.price && (
+                  <p className="text-xs text-red-500">{validationErrors.price}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -447,9 +576,24 @@ export default function PricingParameterNewPage() {
                       type="number"
                       min={0}
                       value={form.hours}
-                      onChange={(e) => setForm(p => ({ ...p, hours: e.target.value }))}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setForm(p => ({ ...p, hours: value }));
+                        const hoursError = validateHours(value, form.minutes);
+                        const minutesError = validateMinutes(form.minutes, value);
+                        setValidationErrors(prev => ({ ...prev, hours: hoursError, minutes: minutesError }));
+                      }}
+                      onBlur={(e) => {
+                        const hoursError = validateHours(e.target.value, form.minutes);
+                        const minutesError = validateMinutes(form.minutes, e.target.value);
+                        setValidationErrors(prev => ({ ...prev, hours: hoursError, minutes: minutesError }));
+                      }}
                       placeholder="0"
+                      className={validationErrors.hours ? "border-red-500" : ""}
                     />
+                    {validationErrors.hours && (
+                      <p className="text-xs text-red-500">{validationErrors.hours}</p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="minutes" className="text-xs text-muted-foreground">Minutes</Label>
@@ -459,9 +603,24 @@ export default function PricingParameterNewPage() {
                       min={0}
                       max={59}
                       value={form.minutes}
-                      onChange={(e) => setForm(p => ({ ...p, minutes: e.target.value }))}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setForm(p => ({ ...p, minutes: value }));
+                        const minutesError = validateMinutes(value, form.hours);
+                        const hoursError = validateHours(form.hours, value);
+                        setValidationErrors(prev => ({ ...prev, minutes: minutesError, hours: hoursError }));
+                      }}
+                      onBlur={(e) => {
+                        const minutesError = validateMinutes(e.target.value, form.hours);
+                        const hoursError = validateHours(form.hours, e.target.value);
+                        setValidationErrors(prev => ({ ...prev, minutes: minutesError, hours: hoursError }));
+                      }}
                       placeholder="0"
+                      className={validationErrors.minutes ? "border-red-500" : ""}
                     />
+                    {validationErrors.minutes && (
+                      <p className="text-xs text-red-500">{validationErrors.minutes}</p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -753,7 +912,18 @@ export default function PricingParameterNewPage() {
             </Button>
             <Button
               onClick={save}
-              disabled={!form.variableCategory || !form.name.trim() || saving}
+              disabled={
+                !form.variableCategory || 
+                !form.name.trim() || 
+                !form.price.trim() ||
+                (!form.hours.trim() && !form.minutes.trim()) ||
+                saving ||
+                !!validationErrors.variableCategory ||
+                !!validationErrors.name ||
+                !!validationErrors.price ||
+                !!validationErrors.hours ||
+                !!validationErrors.minutes
+              }
               className="text-white"
               style={{ background: "linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)" }}
             >

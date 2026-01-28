@@ -3,6 +3,7 @@
 import { supabase } from '@/lib/supabaseClient';
 import { useState, useMemo, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { serviceCategoriesService, ServiceCategory } from '@/lib/serviceCategories';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,7 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
-import { Plus, Minus, Search, X, User } from "lucide-react";
+import { Plus, Minus, Search, X, User, Shirt, Sofa, Droplets, Wind, Trash2, Flower2, Flame, Warehouse, Paintbrush } from "lucide-react";
 
 const BOOKINGS_STORAGE_KEY = "adminBookings";
 const CUSTOMERS_STORAGE_KEY = "adminCustomers";
@@ -69,6 +70,24 @@ type FrequencyRow = {
   discountType?: "%" | "$";
 };
 
+type PricingParameter = {
+  id: string;
+  name: string;
+  price: number;
+  time_minutes: number;
+  display: string;
+  service_category: string;
+  frequency: string;
+  variable_category: string;
+  description: string;
+  is_default: boolean;
+  show_based_on_frequency: boolean;
+  show_based_on_service_category: boolean;
+  excluded_extras: string[];
+  excluded_services: string[];
+  sort_order: number;
+};
+
 type Customer = {
   id: string;
   name: string;
@@ -105,9 +124,6 @@ const createEmptyBookingForm = () => ({
   duration: "02",
   durationUnit: "Hours",
   frequency: "",
-  bathroom: "",
-  sqFt: "",
-  bedroom: "",
   selectedExtras: [] as number[],
   privateBookingNotes: [] as string[],
   privateCustomerNotes: [] as string[],
@@ -150,6 +166,12 @@ export default function AddBookingPage() {
   });
   const [frequencies, setFrequencies] = useState<FrequencyRow[]>([]);
   const [extras, setExtras] = useState<Extra[]>([]);
+  const [pricingParameters, setPricingParameters] = useState<PricingParameter[]>([]);
+  const [variableCategories, setVariableCategories] = useState<string[]>([]);
+  const [categoryValues, setCategoryValues] = useState<Record<string, string>>({});
+  const [isPartialCleaning, setIsPartialCleaning] = useState(false);
+  const [excludeParameters, setExcludeParameters] = useState<any[]>([]);
+  const [selectedExcludeParams, setSelectedExcludeParams] = useState<string[]>([]);
   const [allProviders] = useState<Provider[]>([
     { id: "1", name: "John Smith", available: true, rating: 4.8, specialties: ["Standard Cleaning", "Deep Cleaning"], wage: 25, wageType: "hourly" },
     { id: "2", name: "Sarah Johnson", available: true, rating: 4.9, specialties: ["Deep Cleaning", "Move In/Out"], wage: 30, wageType: "percentage" },
@@ -169,6 +191,7 @@ export default function AddBookingPage() {
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
   const [providerWage, setProviderWage] = useState<string>('');
   const [providerWageType, setProviderWageType] = useState<'percentage' | 'fixed' | 'hourly'>('hourly');
+  const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>([]);
 
   useEffect(() => {
     try {
@@ -256,6 +279,67 @@ export default function AddBookingPage() {
     } catch {
       // ignore malformed localStorage
     }
+  }, []);
+
+  // Load pricing parameters and service categories from database
+  useEffect(() => {
+    const fetchPricingParameters = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data: business } = await supabase
+          .from('businesses')
+          .select('id')
+          .eq('owner_id', user.id)
+          .single();
+
+        if (!business) return;
+
+        const industriesResponse = await fetch(`/api/industries?business_id=${business.id}`);
+        const industriesData = await industriesResponse.json();
+        const currentIndustry = industriesData.industries?.find((ind: any) => ind.name === INDUSTRY_NAME);
+        
+        if (!currentIndustry) return;
+
+        const pricingResponse = await fetch(`/api/pricing-parameters?industryId=${currentIndustry.id}`);
+        const pricingData = await pricingResponse.json();
+        
+        if (pricingData.pricingParameters) {
+          setPricingParameters(pricingData.pricingParameters);
+          
+          // Extract unique variable categories
+          const categories = Array.from(
+            new Set(pricingData.pricingParameters.map((p: PricingParameter) => p.variable_category))
+          ).filter(Boolean) as string[];
+          
+          setVariableCategories(categories);
+          
+          // Initialize category values
+          const initialValues: Record<string, string> = {};
+          categories.forEach(cat => {
+            initialValues[cat] = '';
+          });
+          setCategoryValues(initialValues);
+        }
+
+        // Fetch exclude parameters
+        const excludeResponse = await fetch(`/api/exclude-parameters?industryId=${currentIndustry.id}`);
+        const excludeData = await excludeResponse.json();
+        
+        if (excludeData.excludeParameters) {
+          setExcludeParameters(excludeData.excludeParameters);
+        }
+
+        // Fetch service categories
+        const categories = await serviceCategoriesService.getServiceCategoriesByIndustry(currentIndustry.id);
+        setServiceCategories(categories);
+      } catch (error) {
+        console.error('Error loading pricing parameters:', error);
+      }
+    };
+
+    fetchPricingParameters();
   }, []);
 
   // Handle query parameters for pre-filling customer information
@@ -1023,39 +1107,99 @@ const handleAddBooking = async (status: string = 'pending') => {
             </div>
 
             
-            {/* Bathroom, Sq Ft, Bedroom */}
-            <div className="grid gap-4 md:grid-cols-3">
-              <div>
-                <Label htmlFor="bathroom" className="text-sm font-medium mb-2 block">Bathroom</Label>
-                <Input
-                  id="bathroom"
-                  type="number"
-                  placeholder="Number of bathrooms"
-                  value={newBooking.bathroom}
-                  onChange={(e) => setNewBooking({ ...newBooking, bathroom: e.target.value })}
-                />
+            {/* Dynamic Variable Categories from Pricing Parameters */}
+            {variableCategories.length > 0 && (
+              <div className={`grid gap-4 ${variableCategories.length === 1 ? 'md:grid-cols-1' : variableCategories.length === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
+                {variableCategories.map((category) => {
+                  const categoryOptions = pricingParameters.filter(p => p.variable_category === category);
+                  return (
+                    <div key={category}>
+                      <Label htmlFor={category} className="text-sm font-medium mb-2 block">{category}</Label>
+                      <Select 
+                        value={categoryValues[category] || ''} 
+                        onValueChange={(value) => setCategoryValues({ ...categoryValues, [category]: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={`Select ${category.toLowerCase()}`} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {categoryOptions.map((option) => (
+                            <SelectItem key={option.id} value={option.name}>
+                              {option.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  );
+                })}
               </div>
-              <div>
-                <Label htmlFor="sqFt" className="text-sm font-medium mb-2 block">Sq Ft</Label>
-                <Input
-                  id="sqFt"
-                  type="number"
-                  placeholder="Square footage"
-                  value={newBooking.sqFt}
-                  onChange={(e) => setNewBooking({ ...newBooking, sqFt: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="bedroom" className="text-sm font-medium mb-2 block">Bedroom</Label>
-                <Input
-                  id="bedroom"
-                  type="number"
-                  placeholder="Number of bedrooms"
-                  value={newBooking.bedroom}
-                  onChange={(e) => setNewBooking({ ...newBooking, bedroom: e.target.value })}
-                />
-              </div>
+            )}
+
+            {/* Partial Cleaning Checkbox */}
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="partial-cleaning"
+                checked={isPartialCleaning}
+                onCheckedChange={(checked) => setIsPartialCleaning(!!checked)}
+              />
+              <Label htmlFor="partial-cleaning" className="text-sm font-medium">This Is Partial Cleaning Only</Label>
             </div>
+
+            {/* Exclude Parameters - Show when partial cleaning is checked */}
+            {isPartialCleaning && excludeParameters.length > 0 && (
+              <div className="border rounded-lg p-4 space-y-3">
+                <h3 className="text-base font-semibold">Select What Does Not Need To Be Done</h3>
+                <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-5">
+                  {excludeParameters.map((param) => (
+                    <div 
+                      key={param.id} 
+                      className={`flex flex-col items-center justify-center p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                        selectedExcludeParams.includes(param.id) 
+                          ? 'border-blue-500 bg-blue-50' 
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                      onClick={() => {
+                        setSelectedExcludeParams(prev => 
+                          prev.includes(param.id) 
+                            ? prev.filter(id => id !== param.id)
+                            : [...prev, param.id]
+                        );
+                      }}
+                    >
+                      {param.icon ? (
+                        param.icon.startsWith('data:image/') ? (
+                          <img src={param.icon} alt={param.name} className="w-16 h-16 mb-2 object-contain" />
+                        ) : (
+                          (() => {
+                            const iconMap: Record<string, any> = {
+                              'laundry': Shirt,
+                              'furniture': Sofa,
+                              'water': Droplets,
+                              'odor': Wind,
+                              'trash': Trash2,
+                              'plants': Flower2,
+                              'fire': Flame,
+                              'storage': Warehouse,
+                              'paint': Paintbrush,
+                            };
+                            const IconComponent = iconMap[param.icon];
+                            return IconComponent ? (
+                              <IconComponent className="w-16 h-16 mb-2 text-gray-700" />
+                            ) : (
+                              <div className="text-4xl mb-2">🏠</div>
+                            );
+                          })()
+                        )
+                      ) : (
+                        <div className="text-4xl mb-2">🏠</div>
+                      )}
+                      <span className="text-sm font-medium text-center">{param.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Extras */}
             {extras.length > 0 && (
@@ -1340,11 +1484,21 @@ const handleAddBooking = async (status: string = 'pending') => {
                           <SelectValue placeholder="Select service" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="Standard Cleaning">Standard Cleaning</SelectItem>
-                          <SelectItem value="Deep Cleaning">Deep Cleaning</SelectItem>
-                          <SelectItem value="Move In/Out Cleaning">Move In/Out Cleaning</SelectItem>
-                          <SelectItem value="Office Cleaning">Office Cleaning</SelectItem>
-                          <SelectItem value="Carpet Cleaning">Carpet Cleaning</SelectItem>
+                          {serviceCategories.length > 0 ? (
+                            serviceCategories.map((category) => (
+                              <SelectItem key={category.id} value={category.name}>
+                                {category.name}
+                              </SelectItem>
+                            ))
+                          ) : (
+                            <>
+                              <SelectItem value="Standard Cleaning">Standard Cleaning</SelectItem>
+                              <SelectItem value="Deep Cleaning">Deep Cleaning</SelectItem>
+                              <SelectItem value="Move In/Out Cleaning">Move In/Out Cleaning</SelectItem>
+                              <SelectItem value="Office Cleaning">Office Cleaning</SelectItem>
+                              <SelectItem value="Carpet Cleaning">Carpet Cleaning</SelectItem>
+                            </>
+                          )}
                         </SelectContent>
                       </Select>
                     </div>

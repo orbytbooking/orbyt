@@ -2,105 +2,161 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-
-const DEFAULT_EMAIL = "customer@orbyt.com";
+import { supabase } from "@/lib/supabaseClient";
 
 export type CustomerAccount = {
+  id: string;
   name: string;
   email: string;
   phone: string;
   address: string;
-  password: string;
   avatar: string;
   notifications: {
     emailUpdates: boolean;
     smsUpdates: boolean;
+    pushUpdates: boolean;
   };
 };
 
-const DEFAULT_ACCOUNT: CustomerAccount = {
-  name: "Customer",
-  email: DEFAULT_EMAIL,
-  phone: "(555) 123-4567",
-  address: "123 Main St, Chicago, IL",
-  password: "orbyt123",
-  avatar: "",
-  notifications: {
-    emailUpdates: true,
-    smsUpdates: false,
-  },
-};
-
-const mergeAccount = (partial?: Partial<CustomerAccount>): CustomerAccount => ({
-  ...DEFAULT_ACCOUNT,
-  ...partial,
-  notifications: {
-    ...DEFAULT_ACCOUNT.notifications,
-    ...(partial?.notifications ?? {}),
-  },
-});
-
 export const useCustomerAccount = () => {
   const router = useRouter();
-  const [account, setAccount] = useState<CustomerAccount>(DEFAULT_ACCOUNT);
+  const [account, setAccount] = useState<CustomerAccount | null>(null);
   const [accountLoading, setAccountLoading] = useState(true);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    const loadCustomerAccount = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session?.user) {
+          router.replace("/login");
+          setAccountLoading(false);
+          return;
+        }
 
-    const isAuthenticated = localStorage.getItem("customerAuth") === "true";
-    if (!isAuthenticated) {
-      router.replace("/login");
-      setAccountLoading(false);
-      return;
-    }
+        const { data: customer, error } = await supabase
+          .from('customers')
+          .select('id, name, email, phone, address, avatar, email_notifications, sms_notifications, push_notifications')
+          .eq('auth_user_id', session.user.id)
+          .single();
 
-    const accountRaw = localStorage.getItem("customerAccount");
+        if (error || !customer) {
+          console.error('Error loading customer account:', error);
+          await supabase.auth.signOut();
+          router.replace("/login");
+          setAccountLoading(false);
+          return;
+        }
 
-    if (!accountRaw) {
-      localStorage.setItem("customerAccount", JSON.stringify(DEFAULT_ACCOUNT));
-      setAccount(DEFAULT_ACCOUNT);
-      setAccountLoading(false);
-      return;
-    }
+        setAccount({
+          id: customer.id,
+          name: customer.name || '',
+          email: customer.email || '',
+          phone: customer.phone || '',
+          address: customer.address || '',
+          avatar: customer.avatar || '',
+          notifications: {
+            emailUpdates: customer.email_notifications ?? true,
+            smsUpdates: customer.sms_notifications ?? false,
+            pushUpdates: customer.push_notifications ?? true,
+          },
+        });
+      } catch (error) {
+        console.error('Error in loadCustomerAccount:', error);
+        router.replace("/login");
+      } finally {
+        setAccountLoading(false);
+      }
+    };
 
-    try {
-      const parsed = JSON.parse(accountRaw) as Partial<CustomerAccount>;
-      setAccount(mergeAccount(parsed));
-    } catch {
-      setAccount(DEFAULT_ACCOUNT);
-    } finally {
-      setAccountLoading(false);
-    }
+    loadCustomerAccount();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || !session) {
+        setAccount(null);
+        router.replace("/login");
+      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        loadCustomerAccount();
+      }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
   }, [router]);
 
-  const persistAccount = useCallback((next: CustomerAccount) => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("customerAccount", JSON.stringify(next));
+  const updateAccount = useCallback(async (updates: Partial<CustomerAccount>) => {
+    if (!account) return;
+
+    try {
+      const dbUpdates: any = {};
+      
+      if (updates.name !== undefined) dbUpdates.name = updates.name;
+      if (updates.email !== undefined) dbUpdates.email = updates.email;
+      if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
+      if (updates.address !== undefined) dbUpdates.address = updates.address;
+      if (updates.avatar !== undefined) dbUpdates.avatar = updates.avatar;
+      if (updates.notifications?.emailUpdates !== undefined) dbUpdates.email_notifications = updates.notifications.emailUpdates;
+      if (updates.notifications?.smsUpdates !== undefined) dbUpdates.sms_notifications = updates.notifications.smsUpdates;
+      if (updates.notifications?.pushUpdates !== undefined) dbUpdates.push_notifications = updates.notifications.pushUpdates;
+
+      const { error } = await supabase
+        .from('customers')
+        .update(dbUpdates)
+        .eq('id', account.id);
+
+      if (error) {
+        console.error('Error updating customer account:', error);
+        throw error;
+      }
+
+      setAccount((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          ...updates,
+          notifications: {
+            ...prev.notifications,
+            ...(updates.notifications ?? {}),
+          },
+        };
+      });
+    } catch (error) {
+      console.error('Failed to update account:', error);
+      throw error;
+    }
+  }, [account]);
+
+  const updatePassword = useCallback(async (newPassword: string) => {
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (error) {
+        console.error('Error updating password:', error);
+        throw error;
+      }
+    } catch (error) {
+      console.error('Failed to update password:', error);
+      throw error;
     }
   }, []);
 
-  const updateAccount = useCallback((updates: Partial<CustomerAccount>) => {
-    setAccount((prev) => {
-      const next = mergeAccount({ ...prev, ...updates, notifications: { ...prev.notifications, ...(updates.notifications ?? {}) } });
-      persistAccount(next);
-      return next;
-    });
-  }, [persistAccount]);
-
-  const updatePassword = useCallback((nextPassword: string) => {
-    updateAccount({ password: nextPassword });
-  }, [updateAccount]);
-
-  const handleLogout = useCallback(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem("customerAuth", "false");
-    router.replace("/login");
+  const handleLogout = useCallback(async () => {
+    try {
+      await supabase.auth.signOut();
+      setAccount(null);
+      router.replace("/login");
+    } catch (error) {
+      console.error('Error logging out:', error);
+      router.replace("/login");
+    }
   }, [router]);
 
-  const customerName = account.name;
-  const customerEmail = account.email;
-  const customerAvatar = account.avatar;
+  const customerName = account?.name || '';
+  const customerEmail = account?.email || '';
+  const customerAvatar = account?.avatar || '';
 
   return {
     customerName,

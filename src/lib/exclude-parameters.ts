@@ -6,6 +6,7 @@ export interface ExcludeParameter {
   industry_id: string;
   name: string;
   description?: string;
+  icon?: string;
   price: number;
   time_minutes: number;
   display: 'Customer Frontend, Backend & Admin' | 'Customer Backend & Admin' | 'Admin Only';
@@ -23,6 +24,7 @@ export interface CreateExcludeParameterData {
   industry_id: string;
   name: string;
   description?: string;
+  icon?: string;
   price: number;
   time_minutes: number;
   display: ExcludeParameter['display'];

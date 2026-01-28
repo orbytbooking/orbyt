@@ -58,15 +58,11 @@ const CustomerProfilePage = () => {
     setPasswordForm((prev) => ({ ...prev, [field]: event.target.value }));
   };
 
-  const handlePasswordSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handlePasswordSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (passwordSaving) return;
-    if (!passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
+    if (!passwordForm.newPassword || !passwordForm.confirmPassword) {
       toast({ title: "Missing information", description: "Please complete all password fields.", variant: "destructive" });
-      return;
-    }
-    if (passwordForm.currentPassword !== customerAccount.password) {
-      toast({ title: "Incorrect password", description: "Your current password doesn't match our records.", variant: "destructive" });
       return;
     }
     if (passwordForm.newPassword.length < 6) {
@@ -79,10 +75,15 @@ const CustomerProfilePage = () => {
     }
 
     setPasswordSaving(true);
-    updatePassword(passwordForm.newPassword);
-    setPasswordSaving(false);
-    setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-    toast({ title: "Password updated", description: "You're all set with a fresh password." });
+    try {
+      await updatePassword(passwordForm.newPassword);
+      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      toast({ title: "Password updated", description: "You're all set with a fresh password." });
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to update password. Please try again.", variant: "destructive" });
+    } finally {
+      setPasswordSaving(false);
+    }
   };
 
   const handleTriggerAvatarUpload = () => {
@@ -263,17 +264,6 @@ const CustomerProfilePage = () => {
               </CardHeader>
               <CardContent>
                 <form className="space-y-6" onSubmit={handlePasswordSubmit}>
-                  <div className="space-y-2">
-                    <Label htmlFor="current-password">Current password</Label>
-                    <Input
-                      id="current-password"
-                      type="password"
-                      value={passwordForm.currentPassword}
-                      onChange={handlePasswordFieldChange("currentPassword")}
-                      placeholder="Enter current password"
-                      required
-                    />
-                  </div>
                   <div className="space-y-2">
                     <Label htmlFor="new-password">New password</Label>
                     <Input
