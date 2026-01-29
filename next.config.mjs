@@ -21,12 +21,6 @@ const nextConfig = {
         port: '3000',
         pathname: '/images/**',
       },
-      {
-        protocol: 'http',
-        hostname: 'localhost',
-        port: '3001',
-        pathname: '/images/**',
-      },
     ],
   },
   // Faster development
@@ -45,7 +39,7 @@ const nextConfig = {
       if (dev) {
         config.watchOptions = {
           poll: false,
-          aggregateTimeout: 1000, // Further increased delay
+          aggregateTimeout: 300, // Reduced from 1000ms
           ignored: [
             '**/node_modules/**', 
             '**/.git/**', 

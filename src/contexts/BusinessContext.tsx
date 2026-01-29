@@ -2,6 +2,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import { useAuth } from './AuthContext';
 
 interface Business {
   id: string;
@@ -42,13 +43,14 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
 
   const fetchBusinesses = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const { data: { user } } = await supabase.auth.getUser();
+      // Use centralized auth instead of making separate auth call
       if (!user) {
         // Don't redirect if on public pages or auth pages
         if (typeof window !== 'undefined') {
@@ -191,8 +193,13 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    fetchBusinesses();
-  }, []);
+    // Only fetch businesses when auth is loaded and user is available
+    if (!authLoading && user) {
+      fetchBusinesses();
+    } else if (!authLoading && !user) {
+      setLoading(false);
+    }
+  }, [user, authLoading]);
 
   const value: BusinessContextType = {
     businesses,

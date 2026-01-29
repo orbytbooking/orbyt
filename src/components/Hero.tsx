@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface HeroProps {
   data?: {
@@ -38,42 +39,11 @@ const Hero = ({
   branding
 }: HeroProps) => {
   const router = useRouter();
-  const [isCustomerAuthenticated, setIsCustomerAuthenticated] = useState(false);
-
-  useEffect(() => {
-    const checkAuthState = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const { data: customer } = await supabase
-          .from('customers')
-          .select('id')
-          .eq('auth_user_id', session.user.id)
-          .single();
-        
-        setIsCustomerAuthenticated(!!customer);
-      } else {
-        setIsCustomerAuthenticated(false);
-      }
-    };
-
-    checkAuthState();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT' || !session) {
-        setIsCustomerAuthenticated(false);
-      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        checkAuthState();
-      }
-    });
-
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
-  }, []);
+  const { user, isCustomer } = useAuth();
 
   const handleBookNowClick = (e: React.MouseEvent) => {
     e.preventDefault();
-    if (isCustomerAuthenticated) {
+    if (user && isCustomer) {
       router.push("/customer/dashboard");
     } else {
       router.push("/login");

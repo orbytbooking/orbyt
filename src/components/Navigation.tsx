@@ -1,58 +1,17 @@
 'use client'
 
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Menu, X } from "lucide-react";
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { useRouter, usePathname } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/contexts/AuthContext";
 
 const Navigation = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [isCustomerAuthenticated, setIsCustomerAuthenticated] = useState(false);
+  const { user, isCustomer, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-
-  useEffect(() => {
-    const checkAuthState = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const { data: customer } = await supabase
-          .from('customers')
-          .select('id')
-          .eq('auth_user_id', session.user.id)
-          .single();
-        
-        setIsCustomerAuthenticated(!!customer);
-      } else {
-        setIsCustomerAuthenticated(false);
-      }
-    };
-
-    checkAuthState();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT' || !session) {
-        setIsCustomerAuthenticated(false);
-      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        checkAuthState();
-      }
-    });
-
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
-  }, []);
-
-  const scrollToSection = (sectionId: string) => {
-    const element = document.getElementById(sectionId);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth' });
-      // Update URL with hash without page reload
-      window.history.pushState({}, '', `/builder#${sectionId}`);
-    }
-    setMobileMenuOpen(false);
-  };
 
   // Handle hash changes and initial page load with hash
   useEffect(() => {
@@ -144,15 +103,15 @@ const Navigation = () => {
               Contact
             </Link>
             <Button variant="outline" size="sm" asChild>
-              <Link href={isCustomerAuthenticated ? "/customer/dashboard" : "/login"}>
-                {isCustomerAuthenticated ? "My Dashboard" : "Login"}
+              <Link href={user && isCustomer ? "/customer/dashboard" : "/login"}>
+                {user && isCustomer ? "My Dashboard" : "Login"}
               </Link>
             </Button>
             <Button 
               size="sm"
               onClick={(e) => {
                 e.preventDefault();
-                if (isCustomerAuthenticated) {
+                if (user && isCustomer) {
                   router.push("/customer/dashboard");
                 } else {
                   router.push("/login");
@@ -205,15 +164,15 @@ const Navigation = () => {
             </Link>
             <div className="flex flex-col space-y-2 pt-2">
               <Button variant="outline" size="sm" asChild>
-                <Link href={isCustomerAuthenticated ? "/builder/customer/dashboard" : "/builder/login"}>
-                  {isCustomerAuthenticated ? "My Dashboard" : "Login"}
+                <Link href={user && isCustomer ? "/builder/customer/dashboard" : "/builder/login"}>
+                  {user && isCustomer ? "My Dashboard" : "Login"}
                 </Link>
               </Button>
               <Button 
                 size="sm"
                 onClick={(e) => {
                   e.preventDefault();
-                  if (isCustomerAuthenticated) {
+                  if (user && isCustomer) {
                     router.push("/customer/dashboard");
                   } else {
                     router.push("/login");

@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Inter, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { BusinessProvider } from "@/contexts/BusinessContext";
 
 const inter = Inter({ 
   subsets: ["latin"],
@@ -24,9 +26,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning data-scroll-behavior="smooth">
       <body className={`${inter.variable} ${spaceGrotesk.variable}`}>
-        {children}
+        <AuthProvider>
+          <BusinessProvider>
+            {children}
+          </BusinessProvider>
+        </AuthProvider>
         <Toaster />
       </body>
     </html>
