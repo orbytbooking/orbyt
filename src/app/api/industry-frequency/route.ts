@@ -76,6 +76,14 @@ export async function POST(request: NextRequest) {
       discount_type,
       is_default,
       excluded_providers,
+      // Recurring frequency options
+      frequency_repeats,
+      shorter_job_length,
+      shorter_job_length_by,
+      exclude_first_appointment,
+      frequency_discount,
+      charge_one_time_price,
+      // Dependencies
       add_to_other_industries,
       enabled_industries,
       show_based_on_location,
@@ -112,6 +120,14 @@ export async function POST(request: NextRequest) {
           discount_type: discount_type || '%',
           is_default: is_default || false,
           excluded_providers: excluded_providers || [],
+          // Recurring frequency options (stored as JSON or additional columns if needed)
+          frequency_repeats: frequency_repeats || null,
+          shorter_job_length: shorter_job_length || null,
+          shorter_job_length_by: shorter_job_length_by || null,
+          exclude_first_appointment: exclude_first_appointment || false,
+          frequency_discount: frequency_discount || null,
+          charge_one_time_price: charge_one_time_price || false,
+          // Dependencies
           add_to_other_industries: add_to_other_industries || false,
           enabled_industries: enabled_industries || [],
           show_based_on_location: show_based_on_location || false,
@@ -178,6 +194,14 @@ export async function PUT(request: NextRequest) {
     if (updateData.discount_type !== undefined) cleanedData.discount_type = updateData.discount_type;
     if (updateData.is_default !== undefined) cleanedData.is_default = updateData.is_default;
     if (updateData.excluded_providers !== undefined) cleanedData.excluded_providers = updateData.excluded_providers;
+    // Recurring frequency options
+    if (updateData.frequency_repeats !== undefined) cleanedData.frequency_repeats = updateData.frequency_repeats;
+    if (updateData.shorter_job_length !== undefined) cleanedData.shorter_job_length = updateData.shorter_job_length;
+    if (updateData.shorter_job_length_by !== undefined) cleanedData.shorter_job_length_by = updateData.shorter_job_length_by;
+    if (updateData.exclude_first_appointment !== undefined) cleanedData.exclude_first_appointment = updateData.exclude_first_appointment;
+    if (updateData.frequency_discount !== undefined) cleanedData.frequency_discount = updateData.frequency_discount;
+    if (updateData.charge_one_time_price !== undefined) cleanedData.charge_one_time_price = updateData.charge_one_time_price;
+    // Dependencies
     if (updateData.add_to_other_industries !== undefined) cleanedData.add_to_other_industries = updateData.add_to_other_industries;
     if (updateData.enabled_industries !== undefined) cleanedData.enabled_industries = updateData.enabled_industries;
     if (updateData.show_based_on_location !== undefined) cleanedData.show_based_on_location = updateData.show_based_on_location;

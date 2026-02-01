@@ -45,10 +45,10 @@ const formatCurrency = (value: number) => {
   return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(value);
 };
 
-const CustomerPreviousAppointmentsPage = () => {
+const CustomerAppointmentsHistoryPage = () => {
   const router = useRouter();
   const { bookings, loading: bookingsLoading, updateBookings } = useCustomerBookings();
-  const { customerName, customerEmail, accountLoading, handleLogout } = useCustomerAccount();
+  const { customerName, customerEmail, customerAccount, accountLoading, handleLogout } = useCustomerAccount();
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
@@ -235,6 +235,7 @@ const CustomerPreviousAppointmentsPage = () => {
           customerName={customerName}
           customerEmail={customerEmail}
           initials={initials}
+          businessName={customerAccount?.businessName || ''}
           onLogout={handleLogout}
         />
         <div className="order-1 flex flex-col lg:order-2">
@@ -432,4 +433,4 @@ const CustomerPreviousAppointmentsPage = () => {
   );
 };
 
-export default CustomerPreviousAppointmentsPage;
+export default CustomerAppointmentsHistoryPage;

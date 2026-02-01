@@ -45,6 +45,12 @@ class ExcludeParametersService {
   }
 
   async getExcludeParametersByIndustry(industryId: string): Promise<ExcludeParameter[]> {
+    console.log('🔍 EXCLUDE PARAMETERS SERVICE DEBUG');
+    console.log('📥 industryId:', industryId);
+    console.log('📥 industryId type:', typeof industryId);
+    console.log('📥 industryId value:', JSON.stringify(industryId));
+    console.log('🔍 Querying table: industry_exclude_parameter');
+    
     const { data, error } = await this.supabase
       .from('industry_exclude_parameter')
       .select('*')
@@ -52,11 +58,30 @@ class ExcludeParametersService {
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true });
 
+    console.log('📦 Database query result:');
+    console.log('  - error:', error);
+    console.log('  - data:', data);
+    console.log('  - data type:', typeof data);
+    console.log('  - data length:', data?.length || 0);
+
     if (error) {
-      console.error('Error fetching exclude parameters:', error);
+      console.error('❌ Database error:', error);
+      console.error('❌ Error code:', error.code);
+      console.error('❌ Error message:', error.message);
+      console.error('❌ Error details:', error.details);
       throw error;
     }
 
+    if (data && data.length > 0) {
+      console.log('✅ Successfully fetched exclude parameters:');
+      data.forEach((param, index) => {
+        console.log(`  ${index + 1}.`, param);
+      });
+    } else {
+      console.log('❌ No exclude parameters found in database');
+    }
+
+    console.log('=== END EXCLUDE PARAMETERS SERVICE DEBUG ===');
     return data || [];
   }
 

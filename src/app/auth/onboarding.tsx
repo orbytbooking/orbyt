@@ -34,14 +34,31 @@ export default function Onboarding() {
     businessCategory: '',
     plan: 'starter',
   });
+  const [signupCredentials, setSignupCredentials] = useState<{email: string, password: string} | null>(null);
 
   // Check authentication on component mount
   React.useEffect(() => {
     const checkAuth = async () => {
       try {
+        // Check if coming from signup with credentials
+        const signupEmail = sessionStorage.getItem('signup_email');
+        const signupPassword = sessionStorage.getItem('signup_password');
+        
+        if (signupEmail && signupPassword) {
+          // New signup flow - no account created yet
+          setSignupCredentials({ email: signupEmail, password: signupPassword });
+          setForm(prev => ({
+            ...prev,
+            email: signupEmail
+          }));
+          setAuthChecked(true);
+          return;
+        }
+        
+        // Existing flow - check if user is already authenticated
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
-          router.push('/auth/login');
+          router.push('/auth/signup');
           return;
         }
         
@@ -74,9 +91,9 @@ export default function Onboarding() {
         setAuthChecked(true);
       } catch (error) {
         console.error('Auth check error:', error);
-        // Only redirect to login if it's a critical auth error
+        // Only redirect to signup if it's a critical auth error
         if (error.message?.includes('auth')) {
-          router.push('/auth/login');
+          router.push('/auth/signup');
         } else {
           // For other errors, continue with onboarding
           setAuthChecked(true);
@@ -123,26 +140,60 @@ export default function Onboarding() {
         throw new Error('Please fill in all required fields');
       }
 
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      let userId: string;
+      
+      // Check if this is a new signup (credentials stored in state)
+      if (signupCredentials) {
+        console.log('Creating new account with email:', signupCredentials.email);
+        
+        // Create the account now with all the onboarding data
+        const { data: authData, error: signUpError } = await supabase.auth.signUp({ 
+          email: signupCredentials.email, 
+          password: signupCredentials.password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/admin/dashboard`,
+            data: {
+              full_name: form.fullName,
+              phone: form.phone,
+              signup_stage: 'completed',
+              role: 'owner'
+            }
+          }
+        });
+        
+        if (signUpError) throw signUpError;
+        if (!authData.user) throw new Error('Failed to create user account');
+        
+        userId = authData.user.id;
+        console.log('Account created successfully:', userId);
+        
+        // Clear the stored credentials
+        sessionStorage.removeItem('signup_email');
+        sessionStorage.removeItem('signup_password');
+      } else {
+        // Existing flow - user already authenticated
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error('User not authenticated');
+        userId = user.id;
+      }
       
       console.log('Creating business with data:', {
         name: form.businessName,
         address: form.businessAddress || null,
         category: form.businessCategory,
-        owner_id: user.id,
+        owner_id: userId,
         plan: form.plan,
         is_active: true
       });
       
-      // Create business first
+      // Create business
       const { data: businessData, error: businessError } = await supabase
         .from('businesses')
         .insert([{
           name: form.businessName,
           address: form.businessAddress || null,
           category: form.businessCategory,
-          owner_id: user.id,
+          owner_id: userId,
           plan: form.plan
         }])
         .select()
@@ -162,13 +213,13 @@ export default function Onboarding() {
           signup_stage: 'completed',
           business_id: businessData.id,
           full_name: form.fullName,
-          role: 'owner' // Always set as business owner
+          phone: form.phone,
+          role: 'owner'
         }
       });
       
       if (metadataError) {
         console.error('Metadata update error:', metadataError);
-        // Don't throw error for metadata update, just log it
         console.warn('Could not update user metadata, but continuing...');
       }
       
@@ -178,7 +229,6 @@ export default function Onboarding() {
       console.log('Onboarding completed successfully, redirecting to dashboard');
       
       // Success - account is now fully created in database
-      // Always redirect business owners to admin dashboard
       router.push('/admin/dashboard');
       
     } catch (err: any) {

@@ -98,6 +98,115 @@ export default function PricingParameterNewPage() {
   const extrasKey = useMemo(() => `extras_${industry}`, [industry]);
   const servicesKey = useMemo(() => `service_categories_${industry}`, [industry]);
 
+  // Load extras from backend
+  useEffect(() => {
+    const fetchExtras = async () => {
+      if (!industryId) return;
+      
+      try {
+        const response = await fetch(`/api/extras?industryId=${industryId}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch extras');
+        }
+        const data = await response.json();
+        
+        if (data.extras && Array.isArray(data.extras)) {
+          setExtras(data.extras.map((e: any) => ({ id: e.id, name: e.name })));
+        } else {
+          setExtras([]);
+        }
+      } catch (error) {
+        console.error('Error fetching extras:', error);
+        setExtras([]);
+      }
+    };
+
+    fetchExtras();
+  }, [industryId]);
+
+  // Load service categories from backend
+  useEffect(() => {
+    const fetchServiceCategories = async () => {
+      if (!industryId) return;
+      
+      try {
+        const response = await fetch(`/api/service-categories?industryId=${industryId}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch service categories');
+        }
+        const data = await response.json();
+        
+        if (data.serviceCategories && Array.isArray(data.serviceCategories)) {
+          setServices(data.serviceCategories.map((s: any) => ({ id: s.id, name: s.name })));
+          setServiceCategories(data.serviceCategories.map((s: any) => ({ id: s.id, name: s.name })));
+          console.log("Loaded service categories from backend:", data.serviceCategories);
+        } else {
+          setServices([]);
+          setServiceCategories([]);
+        }
+      } catch (error) {
+        console.error('Error fetching service categories:', error);
+        setServices([]);
+        setServiceCategories([]);
+      }
+    };
+
+    fetchServiceCategories();
+  }, [industryId]);
+
+  // Load frequencies from backend
+  useEffect(() => {
+    const fetchFrequencies = async () => {
+      if (!industryId) return;
+      
+      try {
+        const response = await fetch(`/api/industry-frequency?industryId=${industryId}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch frequencies');
+        }
+        const data = await response.json();
+        
+        if (data.frequencies && Array.isArray(data.frequencies)) {
+          setFrequencies(data.frequencies.map((f: any) => ({ id: f.id, name: f.name })));
+          console.log("Loaded frequencies from backend:", data.frequencies);
+        } else {
+          setFrequencies([]);
+        }
+      } catch (error) {
+        console.error('Error fetching frequencies:', error);
+        setFrequencies([]);
+      }
+    };
+
+    fetchFrequencies();
+  }, [industryId]);
+
+  // Load providers from backend
+  useEffect(() => {
+    const fetchProviders = async () => {
+      if (!currentBusiness?.id) return;
+      
+      try {
+        const response = await fetch(`/api/admin/providers?businessId=${currentBusiness.id}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch providers');
+        }
+        const data = await response.json();
+        
+        if (data.providers && Array.isArray(data.providers)) {
+          setProviders(data.providers.map((p: any) => ({ id: p.id, name: p.name })));
+        } else {
+          setProviders([]);
+        }
+      } catch (error) {
+        console.error('Error fetching providers:', error);
+        setProviders([]);
+      }
+    };
+
+    fetchProviders();
+  }, [currentBusiness?.id]);
+
   useEffect(() => {
     // Load variables
     try {
@@ -116,66 +225,76 @@ export default function PricingParameterNewPage() {
     } catch (e) {
       console.error("Error loading pricing data:", e);
     }
+  }, [allDataKey, variablesKey, industry]);
 
-    // Load extras
-    try {
-      const storedExtras = JSON.parse(localStorage.getItem(extrasKey) || "[]");
-      if (Array.isArray(storedExtras)) {
-        setExtras(storedExtras.map((e: any) => ({ id: e.id, name: e.name })));
+  // Load exclude parameters from backend
+  useEffect(() => {
+    const fetchExcludeParameters = async () => {
+      if (!industryId) return;
+      
+      console.log('🔍 EXCLUDE PARAMETERS DEBUG');
+      console.log('📥 industryId:', industryId);
+      
+      try {
+        const response = await fetch(`/api/exclude-parameters?industryId=${industryId}`);
+        console.log('📡 Response status:', response.status);
+        console.log('📡 Response ok:', response.ok);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.log('❌ Error response:', errorText);
+          throw new Error('Failed to fetch exclude parameters');
+        }
+        
+        const data = await response.json();
+        console.log('📦 Raw API response:', data);
+        console.log('📦 data.excludeParameters:', data.excludeParameters);
+        console.log('📦 Array.isArray(data.excludeParameters):', Array.isArray(data.excludeParameters));
+        
+        if (data.excludeParameters && Array.isArray(data.excludeParameters)) {
+          console.log('✅ Found exclude parameters array with', data.excludeParameters.length, 'items');
+          data.excludeParameters.forEach((param: any, index: number) => {
+            console.log(`  ${index + 1}.`, param);
+          });
+          
+          setExcludeParameters(data.excludeParameters.map((p: any) => ({ 
+            id: p.id, 
+            name: p.name, 
+            description: p.description || "" 
+          })));
+          console.log("✅ Loaded exclude parameters from backend:", data.excludeParameters);
+        } else {
+          console.log('❌ No exclude parameters found or invalid format');
+          setExcludeParameters([]);
+        }
+      } catch (error) {
+        console.error('💥 Error fetching exclude parameters:', error);
+        setExcludeParameters([]);
       }
+    };
+
+    fetchExcludeParameters();
+  }, [industryId]);
+
+  useEffect(() => {
+    // Load variables
+    try {
+      const storedVars = JSON.parse(localStorage.getItem(variablesKey) || "[]");
+      if (Array.isArray(storedVars)) setVariables(storedVars);
     } catch (e) {
-      console.error("Error loading extras:", e);
+      console.error("Error loading variables:", e);
     }
 
-    // Load service categories
+    // Load all pricing data
     try {
-      const storedServices = JSON.parse(localStorage.getItem(servicesKey) || "[]");
-      if (Array.isArray(storedServices)) {
-        setServices(storedServices.map((s: any) => ({ id: s.id, name: s.name })));
-        setServiceCategories(storedServices.map((s: any) => ({ id: s.id, name: s.name })));
-        console.log("Loaded service categories:", storedServices);
+      const storedData = JSON.parse(localStorage.getItem(allDataKey) || "{}");
+      if (storedData && typeof storedData === "object") {
+        setAllRows(storedData);
       }
     } catch (e) {
-      console.error("Error loading services:", e);
+      console.error("Error loading pricing data:", e);
     }
-
-    // Load frequencies
-    try {
-      const frequenciesKey = `frequencies_${industry}`;
-      const storedFrequencies = JSON.parse(localStorage.getItem(frequenciesKey) || "[]");
-      if (Array.isArray(storedFrequencies)) {
-        setFrequencies(storedFrequencies.map((f: any) => ({ id: f.id, name: f.name })));
-        console.log("Loaded frequencies:", storedFrequencies);
-      }
-    } catch (e) {
-      console.error("Error loading frequencies:", e);
-    }
-
-    // Load providers
-    try {
-      const storedProviders = JSON.parse(localStorage.getItem("adminProviders") || "[]");
-      if (Array.isArray(storedProviders)) {
-        setProviders(storedProviders.map((p: any) => ({ id: p.id, name: p.name })));
-      }
-    } catch (e) {
-      console.error("Error loading providers:", e);
-    }
-
-    // Load exclude parameters
-    try {
-      const excludeDataKey = `excludeParameters_${industry}`;
-      const storedExcludeParams = JSON.parse(localStorage.getItem(excludeDataKey) || "[]");
-      if (Array.isArray(storedExcludeParams)) {
-        setExcludeParameters(storedExcludeParams.map((p: any) => ({ 
-          id: p.id, 
-          name: p.name, 
-          description: p.description || "" 
-        })));
-      }
-    } catch (e) {
-      console.error("Error loading exclude parameters:", e);
-    }
-  }, [allDataKey, variablesKey, extrasKey, servicesKey, industry]);
+  }, [allDataKey, variablesKey, industry]);
 
   // Fetch existing pricing parameters for validation and editing
   useEffect(() => {
@@ -547,6 +666,7 @@ export default function PricingParameterNewPage() {
                   id="price"
                   type="number"
                   step="0.01"
+                  min="0"
                   value={form.price}
                   onChange={(e) => {
                     const value = e.target.value;
@@ -657,8 +777,8 @@ export default function PricingParameterNewPage() {
                 {form.showBasedOnFrequency && (
                   <div className="space-y-2">
                     <Label htmlFor="frequency">Frequency</Label>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 mb-2">
+                    <div className="space-y-2 p-4 border rounded-lg bg-white">
+                      <div className="flex items-center space-x-2 pb-2 border-b">
                         <Checkbox
                           id="select-all-frequencies"
                           checked={form.frequency.length === frequencies.length && frequencies.length > 0}
@@ -670,11 +790,13 @@ export default function PricingParameterNewPage() {
                             }
                           }}
                         />
-                        <Label htmlFor="select-all-frequencies" className="text-sm font-medium cursor-pointer">Select All</Label>
+                        <label htmlFor="select-all-frequencies" className="text-sm font-medium cursor-pointer">
+                          Select All
+                        </label>
                       </div>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-5 gap-2 max-h-48 overflow-y-auto">
                         {frequencies.map((frequency) => (
-                          <div key={frequency.id} className="flex items-center gap-2">
+                          <div key={frequency.id} className="flex items-center space-x-2">
                             <Checkbox
                               id={`frequency-${frequency.id}`}
                               checked={form.frequency.includes(frequency.name)}
@@ -686,7 +808,9 @@ export default function PricingParameterNewPage() {
                                 }
                               }}
                             />
-                            <Label htmlFor={`frequency-${frequency.id}`} className="text-sm cursor-pointer">{frequency.name}</Label>
+                            <label htmlFor={`frequency-${frequency.id}`} className="text-sm cursor-pointer">
+                              {frequency.name}
+                            </label>
                           </div>
                         ))}
                       </div>
@@ -713,8 +837,8 @@ export default function PricingParameterNewPage() {
                 {form.showBasedOnServiceCategory && (
                   <div className="space-y-2">
                     <Label htmlFor="service-category">Service Category</Label>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 mb-2">
+                    <div className="space-y-2 p-4 border rounded-lg bg-white">
+                      <div className="flex items-center space-x-2 pb-2 border-b">
                         <Checkbox
                           id="select-all-service-categories"
                           checked={form.serviceCategory.length === serviceCategories.length && serviceCategories.length > 0}
@@ -726,11 +850,13 @@ export default function PricingParameterNewPage() {
                             }
                           }}
                         />
-                        <Label htmlFor="select-all-service-categories" className="text-sm font-medium cursor-pointer">Select All</Label>
+                        <label htmlFor="select-all-service-categories" className="text-sm font-medium cursor-pointer">
+                          Select All
+                        </label>
                       </div>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-5 gap-2 max-h-48 overflow-y-auto">
                         {serviceCategories.map((category) => (
-                          <div key={category.id} className="flex items-center gap-2">
+                          <div key={category.id} className="flex items-center space-x-2">
                             <Checkbox
                               id={`service-category-${category.id}`}
                               checked={form.serviceCategory.includes(category.name)}
@@ -742,7 +868,9 @@ export default function PricingParameterNewPage() {
                                 }
                               }}
                             />
-                            <Label htmlFor={`service-category-${category.id}`} className="text-sm cursor-pointer">{category.name}</Label>
+                            <label htmlFor={`service-category-${category.id}`} className="text-sm cursor-pointer">
+                              {category.name}
+                            </label>
                           </div>
                         ))}
                       </div>
@@ -759,7 +887,7 @@ export default function PricingParameterNewPage() {
                     {excludeParameters.length === 0 ? (
                       <p className="text-sm text-muted-foreground pl-4">No exclude parameters available</p>
                     ) : (
-                      <div className="border rounded-md p-4 space-y-2">
+                      <div className="space-y-2 p-4 border rounded-lg bg-white">
                         <div className="flex items-center space-x-2 pb-2 border-b">
                           <Checkbox
                             id="select-all-exclude-parameters"
@@ -776,7 +904,7 @@ export default function PricingParameterNewPage() {
                             Select All
                           </label>
                         </div>
-                        <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                        <div className="grid grid-cols-5 gap-2 max-h-48 overflow-y-auto">
                           {excludeParameters.map((param) => (
                             <div key={param.id} className="flex items-center space-x-2">
                               <Checkbox
@@ -806,7 +934,7 @@ export default function PricingParameterNewPage() {
                     {extras.length === 0 ? (
                       <p className="text-sm text-muted-foreground pl-4">No extras available</p>
                     ) : (
-                      <div className="border rounded-md p-4 space-y-2">
+                      <div className="space-y-2 p-4 border rounded-lg bg-white">
                         <div className="flex items-center space-x-2 pb-2 border-b">
                           <Checkbox
                             id="select-all-extras"
@@ -823,7 +951,7 @@ export default function PricingParameterNewPage() {
                             Select All
                           </label>
                         </div>
-                        <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                        <div className="grid grid-cols-5 gap-2 max-h-48 overflow-y-auto">
                           {extras.map((extra) => (
                             <div key={extra.id} className="flex items-center space-x-2">
                               <Checkbox

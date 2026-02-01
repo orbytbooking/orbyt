@@ -20,30 +20,22 @@ export default function Signup() {
     e.preventDefault();
     setLoading(true);
     setError("");
+    
     try {
-      const { data, error: signUpError } = await supabase.auth.signUp({ 
-        email, 
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/onboarding`,
-          data: {
-            full_name: email.split('@')[0], // Temporary name from email
-            signup_stage: 'pending_onboarding' // Track signup stage
-          }
-        }
-      });
-      
-      if (signUpError) throw signUpError;
-      
-      // Show success message and redirect
-      if (data.user && !data.user.email_confirmed_at) {
-        // User needs to confirm email first
-        setError('Please check your email to confirm your account. After confirmation, you\'ll be taken to complete your business setup.');
-        // Don't redirect immediately, wait for email confirmation
-        return;
+      // Validate email and password
+      if (!email || !password) {
+        throw new Error('Please enter both email and password');
       }
       
-      // If email is already confirmed, redirect to onboarding
+      if (password.length < 6) {
+        throw new Error('Password must be at least 6 characters long');
+      }
+      
+      // Store credentials in sessionStorage to pass to onboarding
+      sessionStorage.setItem('signup_email', email);
+      sessionStorage.setItem('signup_password', password);
+      
+      // Redirect to onboarding without creating account yet
       router.push('/auth/onboarding');
     } catch (err: any) {
       setError(err.message || 'An error occurred during sign up');

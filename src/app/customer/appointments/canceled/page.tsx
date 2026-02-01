@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 
 const CustomerCanceledAppointmentsPage = () => {
   const { bookings, loading: bookingsLoading } = useCustomerBookings();
-  const { customerName, customerEmail, accountLoading, handleLogout } = useCustomerAccount();
+  const { customerName, customerEmail, customerAccount, accountLoading, handleLogout } = useCustomerAccount();
   const [search, setSearch] = useState("");
 
   const canceledBookings = useMemo(
@@ -59,6 +59,7 @@ const CustomerCanceledAppointmentsPage = () => {
           customerName={customerName}
           customerEmail={customerEmail}
           initials={initials}
+          businessName={customerAccount?.businessName || ''}
           onLogout={handleLogout}
         />
         <div className="order-1 flex flex-col lg:order-2">

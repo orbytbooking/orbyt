@@ -363,38 +363,53 @@ function BookingPageContent() {
         .filter(Boolean) as { label: string; key: string }[];
     };
 
-    const syncFromStorage = () => {
+    const fetchIndustries = async () => {
       if (typeof window === "undefined") return;
+      
       try {
-        const storedRaw = localStorage.getItem("industries");
-        if (!storedRaw) {
+        // Get current business ID from localStorage
+        const currentBusinessId = localStorage.getItem('currentBusinessId');
+        
+        if (!currentBusinessId) {
+          console.log('No business ID found, using default industries');
           setIndustryOptions(buildOptions(DEFAULT_INDUSTRIES));
           return;
         }
-        const parsed = JSON.parse(storedRaw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setIndustryOptions(buildOptions(parsed));
+
+        // Fetch industries from the database
+        const response = await fetch(`/api/industries?business_id=${currentBusinessId}`);
+        const data = await response.json();
+        
+        if (!response.ok) {
+          console.error('Failed to fetch industries:', data.error);
+          setIndustryOptions(buildOptions(DEFAULT_INDUSTRIES));
+          return;
+        }
+        
+        if (data.industries && Array.isArray(data.industries) && data.industries.length > 0) {
+          const industryNames = data.industries.map((ind: any) => ind.name);
+          setIndustryOptions(buildOptions(industryNames));
         } else {
           setIndustryOptions([]);
         }
-      } catch {
+      } catch (error) {
+        console.error('Error fetching industries:', error);
         setIndustryOptions(buildOptions(DEFAULT_INDUSTRIES));
       }
     };
 
-    syncFromStorage();
+    fetchIndustries();
 
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === "industries") {
-        syncFromStorage();
-      }
+    // Listen for industry changes from admin portal
+    const handleIndustryChange = () => {
+      fetchIndustries();
     };
 
-    window.addEventListener("storage", onStorage);
-    const interval = window.setInterval(syncFromStorage, 2000);
+    window.addEventListener('industryChanged', handleIndustryChange);
+    const interval = window.setInterval(fetchIndustries, 5000);
 
     return () => {
-      window.removeEventListener("storage", onStorage);
+      window.removeEventListener('industryChanged', handleIndustryChange);
       window.clearInterval(interval);
     };
   }, []);

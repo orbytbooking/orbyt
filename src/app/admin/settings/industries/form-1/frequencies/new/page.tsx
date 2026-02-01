@@ -11,6 +11,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ChevronDown } from "lucide-react";
+import { Info } from "lucide-react";
 import { useBusiness } from "@/contexts/BusinessContext";
 
 interface Industry {
@@ -71,9 +73,12 @@ export default function FrequencyNewPage() {
   const [pricingParameters, setPricingParameters] = useState<any[]>([]);
   const [loadingPricingParams, setLoadingPricingParams] = useState(true);
   const [industryId, setIndustryId] = useState<string | null>(null);
-  const [excludeParameters, setExcludeParameters] = useState<any[]>([]);
-  const [extras, setExtras] = useState<any[]>([]);
   const [loadingExtras, setLoadingExtras] = useState(true);
+  const [extras, setExtras] = useState<any[]>([]);
+  const [excludeParameters, setExcludeParameters] = useState<any[]>([]);
+  const [loadingServiceCategories, setLoadingServiceCategories] = useState(true);
+  const [loadingExcludeParams, setLoadingExcludeParams] = useState(true);
+  const [loadingProviders, setLoadingProviders] = useState(true);
 
   const [form, setForm] = useState({
     name: "",
@@ -87,6 +92,13 @@ export default function FrequencyNewPage() {
     discountType: "%" as Row["discountType"],
     isDefault: false,
     excludedProviders: [] as string[],
+    // Recurring frequency options
+    frequencyRepeats: "",
+    shorterJobLength: "yes" as "yes" | "no",
+    shorterJobLengthBy: "0",
+    excludeFirstAppointment: false,
+    frequencyDiscount: "all" as "all" | "exclude-first",
+    chargeOneTimePrice: false,
     // Dependencies
     addToOtherIndustries: false,
     enabledIndustries: [] as string[],
@@ -153,6 +165,13 @@ export default function FrequencyNewPage() {
               discountType: existing.discount_type || "%",
               isDefault: !!existing.is_default,
               excludedProviders: existing.excluded_providers || [],
+              // Recurring frequency options
+              frequencyRepeats: existing.frequency_repeats || "",
+              shorterJobLength: existing.shorter_job_length || "yes",
+              shorterJobLengthBy: existing.shorter_job_length_by || "0",
+              excludeFirstAppointment: !!existing.exclude_first_appointment,
+              frequencyDiscount: existing.frequency_discount || "all",
+              chargeOneTimePrice: !!existing.charge_one_time_price,
               addToOtherIndustries: !!existing.add_to_other_industries,
               enabledIndustries: existing.enabled_industries || [],
               showBasedOnLocation: !!existing.show_based_on_location,
@@ -207,30 +226,57 @@ export default function FrequencyNewPage() {
     fetchIndustries();
   }, [currentBusiness, industry]);
 
-  // Load providers from localStorage
+  // Load providers from API
   useEffect(() => {
-    try {
-      const storedProviders = JSON.parse(localStorage.getItem("adminProviders") || "[]");
-      if (Array.isArray(storedProviders)) {
-        setProviders(storedProviders.map((p: any) => ({ id: p.id, name: p.name })));
+    const fetchProviders = async () => {
+      if (!currentBusiness?.id) {
+        setLoadingProviders(false);
+        return;
       }
-    } catch {
-      // ignore
-    }
-  }, []);
+      
+      try {
+        setLoadingProviders(true);
+        const response = await fetch(`/api/admin/providers?businessId=${currentBusiness.id}`);
+        const data = await response.json();
+        
+        if (response.ok && data.providers) {
+          setProviders(data.providers.map((p: any) => ({ id: p.id, name: p.name })));
+        }
+      } catch (error) {
+        console.error('Error fetching providers:', error);
+      } finally {
+        setLoadingProviders(false);
+      }
+    };
+
+    fetchProviders();
+  }, [currentBusiness]);
   
-  // Load service categories from localStorage
+  // Load service categories from API
   useEffect(() => {
-    try {
-      const categoriesKey = `service_categories_${industry}`;
-      const storedCategories = JSON.parse(localStorage.getItem(categoriesKey) || "[]");
-      if (Array.isArray(storedCategories)) {
-        setServiceCategories(storedCategories.map((c: any) => ({ id: c.id, name: c.name })));
+    const fetchServiceCategories = async () => {
+      if (!industryId) {
+        setLoadingServiceCategories(false);
+        return;
       }
-    } catch {
-      // ignore
-    }
-  }, [industry]);
+      
+      try {
+        setLoadingServiceCategories(true);
+        const response = await fetch(`/api/service-categories?industryId=${industryId}`);
+        const data = await response.json();
+        
+        if (response.ok && data.serviceCategories) {
+          setServiceCategories(data.serviceCategories.map((c: any) => ({ id: c.id, name: c.name })));
+        }
+      } catch (error) {
+        console.error('Error fetching service categories:', error);
+      } finally {
+        setLoadingServiceCategories(false);
+      }
+    };
+
+    fetchServiceCategories();
+  }, [industryId]);
 
   // Load extras from API
   useEffect(() => {
@@ -306,18 +352,31 @@ export default function FrequencyNewPage() {
     fetchPricingParameters();
   }, [industryId]);
 
-  // Load exclude parameters from localStorage
+  // Load exclude parameters from API
   useEffect(() => {
-    try {
-      const excludeParamsKey = `excludeParameters_${industry}`;
-      const storedExcludeParams = JSON.parse(localStorage.getItem(excludeParamsKey) || "[]");
-      if (Array.isArray(storedExcludeParams)) {
-        setExcludeParameters(storedExcludeParams);
+    const fetchExcludeParameters = async () => {
+      if (!industryId) {
+        setLoadingExcludeParams(false);
+        return;
       }
-    } catch {
-      // ignore
-    }
-  }, [industry]);
+      
+      try {
+        setLoadingExcludeParams(true);
+        const response = await fetch(`/api/exclude-parameters?industryId=${industryId}`);
+        const data = await response.json();
+        
+        if (response.ok && data.excludeParameters) {
+          setExcludeParameters(data.excludeParameters);
+        }
+      } catch (error) {
+        console.error('Error fetching exclude parameters:', error);
+      } finally {
+        setLoadingExcludeParams(false);
+      }
+    };
+
+    fetchExcludeParameters();
+  }, [industryId]);
 
 
   useEffect(() => {
@@ -339,6 +398,9 @@ export default function FrequencyNewPage() {
         error = "Discount must be a valid number";
       } else if (discountValue < 0) {
         error = "Discount cannot be negative";
+      } else if (discountValue === 0) {
+        // Clear error when value is exactly 0 (valid)
+        error = "";
       }
     } else if (fieldName === "occurrenceTime") {
       if (!value || value.trim() === "") {
@@ -386,6 +448,13 @@ export default function FrequencyNewPage() {
       discount_type: form.discountType,
       is_default: form.isDefault,
       excluded_providers: form.excludedProviders,
+      // Recurring frequency options
+      frequency_repeats: form.frequencyRepeats,
+      shorter_job_length: form.shorterJobLength,
+      shorter_job_length_by: form.shorterJobLengthBy,
+      exclude_first_appointment: form.excludeFirstAppointment,
+      frequency_discount: form.frequencyDiscount,
+      charge_one_time_price: form.chargeOneTimePrice,
       add_to_other_industries: form.addToOtherIndustries,
       enabled_industries: form.enabledIndustries,
       show_based_on_location: form.showBasedOnLocation,
@@ -479,16 +548,6 @@ export default function FrequencyNewPage() {
                 <Label htmlFor="freq-desc">Description</Label>
                 <Textarea id="freq-desc" rows={3} value={form.description} onChange={(e) => setForm(p => ({ ...p, description: e.target.value }))} placeholder="Add Description" />
               </div>
-              <div className="flex flex-col gap-2">
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={form.showExplanation} onCheckedChange={(v) => setForm(p => ({ ...p, showExplanation: !!v }))} />
-                  Show explanation icon on form
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={form.enablePopup} onCheckedChange={(v) => setForm(p => ({ ...p, enablePopup: !!v }))} />
-                  Enable popup on selection
-                </label>
-              </div>
               <div className="space-y-2">
                 <Label>Display</Label>
                 <RadioGroup
@@ -523,17 +582,147 @@ export default function FrequencyNewPage() {
                   <p className="text-sm text-red-500">{errors.occurrenceTime}</p>
                 )}
               </div>
+
+              {/* Recurring Frequency Options */}
+              {form.occurrenceTime === "recurring" && (
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Label>Frequency repeats every</Label>
+                      <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                    </div>
+                    <Select 
+                      value={form.frequencyRepeats} 
+                      onValueChange={(v) => setForm(p => ({ ...p, frequencyRepeats: v }))}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select frequency" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60 overflow-y-auto">
+                      <SelectItem value="daily">Daily</SelectItem>
+                      <SelectItem value="daily-no-sat-sun">Daily (No Saturday/Sunday)</SelectItem>
+                      <SelectItem value="daily-no-sun">Daily (No Sunday)</SelectItem>
+                      <SelectItem value="every-mon-fri">Every Monday & Friday</SelectItem>
+                      <SelectItem value="every-mon-wed-fri">Every Monday, Wednesday, Friday</SelectItem>
+                      <SelectItem value="every-tue-thu">Every Tuesday And Thursday</SelectItem>
+                      <SelectItem value="sat-sun">Saturday & Sunday</SelectItem>
+                      <SelectItem value="every-week">Every Week</SelectItem>
+                      <SelectItem value="every-tue-wed-fri">Every Tuesday, Wednesday & Friday</SelectItem>
+                      <SelectItem value="every-mon-wed">Every Monday & Wednesday</SelectItem>
+                      <SelectItem value="every-mon-thu">Every Monday & Thursday</SelectItem>
+                      <SelectItem value="every-2-weeks">Every 2 Weeks</SelectItem>
+                      <SelectItem value="every-3-weeks">Every 3 Weeks</SelectItem>
+                      <SelectItem value="every-4-weeks">Every 4 Weeks</SelectItem>
+                      <SelectItem value="every-5-weeks">Every 5 Weeks</SelectItem>
+                      <SelectItem value="every-6-weeks">Every 6 Weeks</SelectItem>
+                      <SelectItem value="every-7-weeks">Every 7 Weeks</SelectItem>
+                      <SelectItem value="every-8-weeks">Every 8 Weeks</SelectItem>
+                      <SelectItem value="every-9-weeks">Every 9 Weeks</SelectItem>
+                      <SelectItem value="every-10-weeks">Every 10 Weeks</SelectItem>
+                      <SelectItem value="every-11-weeks">Every 11 Weeks</SelectItem>
+                      <SelectItem value="every-12-weeks">Every 12 Weeks</SelectItem>
+                      <SelectItem value="every-24-weeks">Every 24 Weeks</SelectItem>
+                    </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Label>Shorter job length when the plan is selected?</Label>
+                      <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                    </div>
+                    <RadioGroup
+                      value={form.shorterJobLength}
+                      onValueChange={(v: "yes" | "no") => setForm(p => ({ ...p, shorterJobLength: v }))}
+                      className="flex gap-4"
+                    >
+                      <label className="flex items-center gap-2 text-sm">
+                        <RadioGroupItem value="yes" /> Yes
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <RadioGroupItem value="no" /> No
+                      </label>
+                    </RadioGroup>
+                  </div>
+
+                  {form.shorterJobLength === "yes" && (
+                    <>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Label>By:</Label>
+                          <div className="flex items-center gap-2">
+                            <Input 
+                              type="number" 
+                              value={form.shorterJobLengthBy} 
+                              onChange={(e) => setForm(p => ({ ...p, shorterJobLengthBy: e.target.value }))}
+                              className="w-20"
+                              placeholder="0"
+                            />
+                            <span className="text-sm">% from original one-time length.</span>
+                            <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <Checkbox 
+                          id="exclude-first" 
+                          checked={form.excludeFirstAppointment} 
+                          onCheckedChange={(v) => setForm(p => ({ ...p, excludeFirstAppointment: !!v }))} 
+                        />
+                        <Label htmlFor="exclude-first" className="text-sm">
+                          Exclude first appointment and use original one time job length
+                        </Label>
+                      </div>
+                    </>
+                  )}
+
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Label>Frequency discount</Label>
+                      <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                    </div>
+                    <RadioGroup
+                      value={form.frequencyDiscount}
+                      onValueChange={(v: "all" | "exclude-first") => setForm(p => ({ ...p, frequencyDiscount: v }))}
+                      className="flex flex-col gap-2"
+                    >
+                      <label className="flex items-center gap-2 text-sm">
+                        <RadioGroupItem value="all" /> Applicable on all bookings
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <RadioGroupItem value="exclude-first" /> Exclude 1st booking and charges as one time
+                      </label>
+                    </RadioGroup>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Checkbox 
+                      id="charge-one-time" 
+                      checked={form.chargeOneTimePrice} 
+                      onCheckedChange={(v) => setForm(p => ({ ...p, chargeOneTimePrice: !!v }))} 
+                    />
+                    <Label htmlFor="charge-one-time" className="text-sm">
+                      Charge one time price if cancelled after 1st appointment
+                    </Label>
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-3 gap-2 items-end">
                 <div className="col-span-2 space-y-2">
                   <Label htmlFor="freq-discount">Discount <span className="text-red-500">*</span></Label>
                   <Input 
                     id="freq-discount" 
                     type="number" 
+                    min="0"
                     value={form.discount} 
                     onChange={(e) => {
-                      setForm(p => ({ ...p, discount: e.target.value }));
+                      const value = e.target.value;
+                      // Prevent negative values by setting to 0 if negative is entered
+                      const sanitizedValue = value === "" || Number(value) >= 0 ? value : "0";
+                      setForm(p => ({ ...p, discount: sanitizedValue }));
                       if (touched.discount) {
-                        validateField("discount", e.target.value);
+                        validateField("discount", sanitizedValue);
                       }
                     }}
                     onBlur={() => {
@@ -685,44 +874,54 @@ export default function FrequencyNewPage() {
                 )}
 
                 {/* Service Category */}
-                <div className="space-y-3 mb-6">
+                <div className="space-y-3 mb-6 border p-4 rounded-md bg-white">
                   <Label className="text-base font-semibold">Service Category</Label>
-                  <div className="space-y-2 mt-3">
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="select-all-categories"
-                        checked={form.serviceCategories.length === serviceCategories.length && serviceCategories.length > 0}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setForm(p => ({ ...p, serviceCategories: serviceCategories.map(c => String(c.id)) }));
-                          } else {
-                            setForm(p => ({ ...p, serviceCategories: [] }));
-                          }
-                        }}
-                      />
-                      <Label htmlFor="select-all-categories" className="text-sm font-medium cursor-pointer">Select All</Label>
-                    </div>
-                    {serviceCategories.map((cat) => (
-                      <div key={cat.id} className="flex items-center gap-2">
+                  {loadingServiceCategories ? (
+                    <p className="text-sm text-muted-foreground italic py-2">
+                      Loading service categories...
+                    </p>
+                  ) : serviceCategories.length === 0 ? (
+                    <p className="text-sm text-muted-foreground italic py-2">
+                      No service categories found. Add service categories from the Service Categories section.
+                    </p>
+                  ) : (
+                    <div className="space-y-2 mt-3">
+                      <div className="flex items-center gap-2">
                         <Checkbox
-                          id={`cat-${cat.id}`}
-                          checked={form.serviceCategories.includes(String(cat.id))}
+                          id="select-all-categories"
+                          checked={form.serviceCategories.length === serviceCategories.length && serviceCategories.length > 0}
                           onCheckedChange={(checked) => {
                             if (checked) {
-                              setForm(p => ({ ...p, serviceCategories: [...p.serviceCategories, String(cat.id)] }));
+                              setForm(p => ({ ...p, serviceCategories: serviceCategories.map(c => String(c.id)) }));
                             } else {
-                              setForm(p => ({ ...p, serviceCategories: p.serviceCategories.filter(c => c !== String(cat.id)) }));
+                              setForm(p => ({ ...p, serviceCategories: [] }));
                             }
                           }}
                         />
-                        <Label htmlFor={`cat-${cat.id}`} className="text-sm cursor-pointer">{cat.name}</Label>
+                        <Label htmlFor="select-all-categories" className="text-sm font-medium cursor-pointer">Select All</Label>
                       </div>
-                    ))}
-                  </div>
+                      {serviceCategories.map((cat) => (
+                        <div key={cat.id} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`cat-${cat.id}`}
+                            checked={form.serviceCategories.includes(String(cat.id))}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setForm(p => ({ ...p, serviceCategories: [...p.serviceCategories, String(cat.id)] }));
+                              } else {
+                                setForm(p => ({ ...p, serviceCategories: p.serviceCategories.filter(c => c !== String(cat.id)) }));
+                              }
+                            }}
+                          />
+                          <Label htmlFor={`cat-${cat.id}`} className="text-sm cursor-pointer">{cat.name}</Label>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Variables Section */}
-                <div className="space-y-4 mb-6">
+                <div className="space-y-4 mb-6 border p-4 rounded-md bg-white">
                   <div>
                     <Label className="text-base font-semibold">Variables</Label>
                     <p className="text-sm text-muted-foreground mt-1">
@@ -740,26 +939,6 @@ export default function FrequencyNewPage() {
                     </p>
                   ) : (
                     <div className="space-y-2">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Checkbox
-                          id="select-all-variables"
-                          checked={form.bathroomVariables.length + form.sqftVariables.length + form.bedroomVariables.length === pricingParameters.length && pricingParameters.length > 0}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setForm(p => ({ 
-                                ...p, 
-                                bathroomVariables: pricingParameters.filter(v => v.variable_category === "Bathroom").map(v => v.name),
-                                sqftVariables: pricingParameters.filter(v => v.variable_category === "Sq Ft").map(v => v.name),
-                                bedroomVariables: pricingParameters.filter(v => v.variable_category === "Bedroom").map(v => v.name)
-                              }));
-                            } else {
-                              setForm(p => ({ ...p, bathroomVariables: [], sqftVariables: [], bedroomVariables: [] }));
-                            }
-                          }}
-                        />
-                        <Label htmlFor="select-all-variables" className="text-sm cursor-pointer">Select All</Label>
-                      </div>
-                      
                       {/* Group parameters by category */}
                       {['Bathroom', 'Sq Ft', 'Bedroom'].map(category => {
                         const categoryParams = pricingParameters.filter(v => v.variable_category === category);
@@ -768,7 +947,37 @@ export default function FrequencyNewPage() {
                         return (
                           <div key={category} className="space-y-2">
                             <Label className="text-sm font-semibold">{category}</Label>
-                            <div className="grid grid-cols-4 gap-2">
+                            <div className="flex items-center gap-2">
+                              <Checkbox
+                                id={`select-all-${category.toLowerCase()}`}
+                                checked={
+                                  category === 'Bathroom' ? form.bathroomVariables.length === categoryParams.length && categoryParams.length > 0 :
+                                  category === 'Sq Ft' ? form.sqftVariables.length === categoryParams.length && categoryParams.length > 0 :
+                                  form.bedroomVariables.length === categoryParams.length && categoryParams.length > 0
+                                }
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    if (category === 'Bathroom') {
+                                      setForm(p => ({ ...p, bathroomVariables: categoryParams.map(v => v.name) }));
+                                    } else if (category === 'Sq Ft') {
+                                      setForm(p => ({ ...p, sqftVariables: categoryParams.map(v => v.name) }));
+                                    } else {
+                                      setForm(p => ({ ...p, bedroomVariables: categoryParams.map(v => v.name) }));
+                                    }
+                                  } else {
+                                    if (category === 'Bathroom') {
+                                      setForm(p => ({ ...p, bathroomVariables: [] }));
+                                    } else if (category === 'Sq Ft') {
+                                      setForm(p => ({ ...p, sqftVariables: [] }));
+                                    } else {
+                                      setForm(p => ({ ...p, bedroomVariables: [] }));
+                                    }
+                                  }
+                                }}
+                              />
+                              <Label htmlFor={`select-all-${category.toLowerCase()}`} className="text-sm font-medium cursor-pointer">Select All</Label>
+                            </div>
+                            <div className="grid grid-cols-8 gap-2">
                               {categoryParams.map((param) => (
                                 <div key={param.id} className="flex items-center gap-2">
                                   <Checkbox
@@ -810,47 +1019,57 @@ export default function FrequencyNewPage() {
                 </div>
 
                 {/* Exclude Parameters */}
-                <div className="space-y-3 mb-6">
+                <div className="space-y-3 mb-6 border p-4 rounded-md bg-white">
                   <Label className="text-base font-semibold">Exclude Parameters</Label>
                   <p className="text-sm text-muted-foreground">
                     Select which exclusion parameter(s) will display for this frequency. Any exclusion parameters that have not been checked off in this section will not display when this frequency is selected on the booking form.
                   </p>
-                  <div className="space-y-2 mt-3">
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="select-all-exclude"
-                        checked={form.excludeParameters.length === excludeParameters.length && excludeParameters.length > 0}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setForm(p => ({ ...p, excludeParameters: excludeParameters.map(param => param.name) }));
-                          } else {
-                            setForm(p => ({ ...p, excludeParameters: [] }));
-                          }
-                        }}
-                      />
-                      <Label htmlFor="select-all-exclude" className="text-sm font-medium cursor-pointer">Select All</Label>
-                    </div>
-                    {excludeParameters.map((param) => (
-                      <div key={param.id} className="flex items-center gap-2">
+                  {loadingExcludeParams ? (
+                    <p className="text-sm text-muted-foreground italic py-2">
+                      Loading exclude parameters...
+                    </p>
+                  ) : excludeParameters.length === 0 ? (
+                    <p className="text-sm text-muted-foreground italic py-2">
+                      No exclude parameters found. Add exclude parameters from the Pricing Parameters section.
+                    </p>
+                  ) : (
+                    <div className="space-y-2 mt-3">
+                      <div className="flex items-center gap-2">
                         <Checkbox
-                          id={`exclude-${param.id}`}
-                          checked={form.excludeParameters.includes(param.name)}
+                          id="select-all-exclude"
+                          checked={form.excludeParameters.length === excludeParameters.length && excludeParameters.length > 0}
                           onCheckedChange={(checked) => {
                             if (checked) {
-                              setForm(p => ({ ...p, excludeParameters: [...p.excludeParameters, param.name] }));
+                              setForm(p => ({ ...p, excludeParameters: excludeParameters.map(param => param.name) }));
                             } else {
-                              setForm(p => ({ ...p, excludeParameters: p.excludeParameters.filter(e => e !== param.name) }));
+                              setForm(p => ({ ...p, excludeParameters: [] }));
                             }
                           }}
                         />
-                        <Label htmlFor={`exclude-${param.id}`} className="text-sm cursor-pointer">{param.name}</Label>
+                        <Label htmlFor="select-all-exclude" className="text-sm font-medium cursor-pointer">Select All</Label>
                       </div>
-                    ))}
-                  </div>
+                      {excludeParameters.map((param) => (
+                        <div key={param.id} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`exclude-${param.id}`}
+                            checked={form.excludeParameters.includes(param.name)}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setForm(p => ({ ...p, excludeParameters: [...p.excludeParameters, param.name] }));
+                              } else {
+                                setForm(p => ({ ...p, excludeParameters: p.excludeParameters.filter(e => e !== param.name) }));
+                              }
+                            }}
+                          />
+                          <Label htmlFor={`exclude-${param.id}`} className="text-sm cursor-pointer">{param.name}</Label>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Extras */}
-                <div className="space-y-3 mb-6">
+                <div className="space-y-3 mb-6 border p-4 rounded-md bg-white">
                   <Label className="text-base font-semibold">Extras</Label>
                   <p className="text-sm text-muted-foreground">
                     Select which extra(s) will display for frequency. Any extras that have not been checked off in this section will not display when frequency is selected on the booking form.
@@ -904,11 +1123,16 @@ export default function FrequencyNewPage() {
             {/* PROVIDERS TAB */}
             <TabsContent value="providers" className="mt-4 space-y-6">
               <div className="space-y-4">
+                <Label className="text-base font-semibold">Providers</Label>
                 <p className="text-sm text-muted-foreground">
                   Check the providers you want to exclude from this frequency.
                 </p>
                 
-                {providers.length === 0 ? (
+                {loadingProviders ? (
+                  <p className="text-sm text-muted-foreground italic">
+                    Loading providers...
+                  </p>
+                ) : providers.length === 0 ? (
                   <p className="text-sm text-muted-foreground italic">
                     No providers added yet. Add providers from the Providers section in the admin dashboard.
                   </p>

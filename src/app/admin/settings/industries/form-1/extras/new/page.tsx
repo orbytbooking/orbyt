@@ -14,6 +14,31 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { toast } from "sonner";
 
+// Helper function to get display name for variables
+const getVariableDisplayName = (param: any, category: string): string => {
+  // If description exists and is not empty, use it
+  if (param.description && param.description.trim()) {
+    return param.description;
+  }
+  
+  // If name looks like a descriptive name (not just numbers), use it
+  if (param.name && !/^[\d\-\s]+$/.test(param.name)) {
+    return param.name;
+  }
+  
+  // Generate descriptive name based on category and value
+  switch (category) {
+    case 'Bathroom':
+      return `${param.name} Bathroom${param.name !== '1' ? 's' : ''}`;
+    case 'Sq Ft':
+      return `${param.name} sq ft`;
+    case 'Bedroom':
+      return `${param.name} Bedroom${param.name !== '1' ? 's' : ''}`;
+    default:
+      return `${category}: ${param.name}`;
+  }
+};
+
 type Extra = {
   id: number;
   name: string;
@@ -73,7 +98,6 @@ export default function ExtraNewPage() {
     excludedProviders: [] as string[],
   });
 
-  // Fetch providers from localStorage
   const [providers, setProviders] = useState<Array<{ id: string; name: string }>>([]);
   
   // Load available frequencies, service categories, and variables
@@ -81,80 +105,184 @@ export default function ExtraNewPage() {
   const [availableServiceCategories, setAvailableServiceCategories] = useState<string[]>([]);
   const [availableVariables, setAvailableVariables] = useState<{ [key: string]: any[] }>({});
 
+  // Load extras from database (for legacy compatibility)
   useEffect(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem(storageKey) || "null");
-      if (Array.isArray(stored)) setExtras(stored);
-    } catch {}
-  }, [storageKey]);
-
-  // Load providers from localStorage
-  useEffect(() => {
-    try {
-      const storedProviders = JSON.parse(localStorage.getItem("adminProviders") || "[]");
-      if (Array.isArray(storedProviders)) {
-        setProviders(storedProviders.map((p: any) => ({ id: p.id, name: p.name })));
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  // Load frequencies from localStorage
-  useEffect(() => {
-    try {
-      const pricingDataKey = `pricingParamsAll_${industry}`;
-      const storedPricingData = JSON.parse(localStorage.getItem(pricingDataKey) || "null");
+    const fetchExtras = async () => {
+      if (!industryId) return;
       
-      if (storedPricingData && typeof storedPricingData === "object") {
-        const allFrequencies: string[] = [];
-        Object.values(storedPricingData).forEach((rows: any[]) => {
-          rows.forEach((row: any) => {
-            if (row.frequency && typeof row.frequency === "string") {
-              const rowFrequencies = row.frequency.split(',').map((f: string) => f.trim());
-              allFrequencies.push(...rowFrequencies);
-            }
-          });
-        });
+      try {
+        const response = await fetch(`/api/extras?industryId=${industryId}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch extras');
+        }
+        const data = await response.json();
         
-        const uniqueFrequencies = [...new Set(allFrequencies)];
-        setAvailableFrequencies(uniqueFrequencies);
-      } else {
-        const defaultFrequencies = ["Daily", "Weekly", "Monthly", "One-time"];
-        setAvailableFrequencies(defaultFrequencies);
+        if (data.extras && Array.isArray(data.extras)) {
+          setExtras(data.extras);
+        } else {
+          setExtras([]);
+        }
+      } catch (error) {
+        console.error('Error fetching extras:', error);
+        setExtras([]);
       }
-    } catch {
-      const defaultFrequencies = ["Daily", "Weekly", "Monthly", "One-time"];
-      setAvailableFrequencies(defaultFrequencies);
-    }
-  }, [industry]);
+    };
 
-  // Load service categories from localStorage
-  useEffect(() => {
-    try {
-      const serviceCategoriesKey = `service_categories_${industry}`;
-      const storedCategories = JSON.parse(localStorage.getItem(serviceCategoriesKey) || "[]");
-      if (Array.isArray(storedCategories)) {
-        const categoryNames = storedCategories.map((cat: any) => cat.name).filter(Boolean);
-        setAvailableServiceCategories(categoryNames);
-      }
-    } catch {
-      // ignore
-    }
-  }, [industry]);
+    fetchExtras();
+  }, [industryId]);
 
-  // Load variables from localStorage
+  // Load providers from database
   useEffect(() => {
-    try {
-      const allDataKey = `pricingParamsAll_${industry}`;
-      const storedData = JSON.parse(localStorage.getItem(allDataKey) || "{}");
-      if (storedData && typeof storedData === "object") {
-        setAvailableVariables(storedData);
+    const fetchProviders = async () => {
+      if (!currentBusiness?.id) return;
+      
+      try {
+        const response = await fetch(`/api/admin/providers?businessId=${currentBusiness.id}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch providers');
+        }
+        const data = await response.json();
+        
+        if (data.providers && Array.isArray(data.providers)) {
+          setProviders(data.providers.map((p: any) => ({ id: p.id, name: p.name })));
+        } else {
+          setProviders([]);
+        }
+      } catch (error) {
+        console.error('Error fetching providers:', error);
+        setProviders([]);
       }
-    } catch {
-      // ignore
-    }
-  }, [industry]);
+    };
+
+    fetchProviders();
+  }, [currentBusiness?.id]);
+
+  // Load frequencies from database
+  useEffect(() => {
+    const fetchFrequencies = async () => {
+      if (!industryId) return;
+      
+      try {
+        const response = await fetch(`/api/industry-frequency?industryId=${industryId}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch frequencies');
+        }
+        const data = await response.json();
+        
+        if (data.frequencies && Array.isArray(data.frequencies)) {
+          const frequencyNames = data.frequencies
+            .map((freq: any) => freq.name)
+            .filter(Boolean);
+          setAvailableFrequencies(frequencyNames);
+        } else {
+          setAvailableFrequencies([]);
+        }
+      } catch (error) {
+        console.error('Error fetching frequencies:', error);
+        setAvailableFrequencies([]);
+      }
+    };
+
+    fetchFrequencies();
+  }, [industryId]);
+
+  // Load service categories from database
+  useEffect(() => {
+    const fetchServiceCategories = async () => {
+      console.log('=== SERVICE CATEGORIES DEBUG ===');
+      console.log('Industry ID:', industryId);
+      console.log('Industry ID type:', typeof industryId);
+      console.log('Industry ID value:', JSON.stringify(industryId));
+      
+      if (!industryId) {
+        console.log('❌ No industryId available');
+        return;
+      }
+      
+      try {
+        const apiUrl = `/api/service-categories?industryId=${industryId}`;
+        console.log('🔗 Fetching from:', apiUrl);
+        
+        const response = await fetch(apiUrl);
+        console.log('📡 Response status:', response.status);
+        console.log('📡 Response ok:', response.ok);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.log('❌ Error response:', errorText);
+          throw new Error('Failed to fetch service categories');
+        }
+        
+        const data = await response.json();
+        console.log('📦 Raw API response:', data);
+        console.log('📦 data.serviceCategories:', data.serviceCategories);
+        console.log('📦 Array.isArray(data.serviceCategories):', Array.isArray(data.serviceCategories));
+        
+        if (data.serviceCategories && Array.isArray(data.serviceCategories)) {
+          console.log('✅ Found service categories array with', data.serviceCategories.length, 'items');
+          data.serviceCategories.forEach((cat: any, index: number) => {
+            console.log(`  ${index + 1}.`, cat);
+          });
+          
+          const categoryNames = data.serviceCategories
+            .map((cat: any) => cat.name)
+            .filter(Boolean);
+          console.log('📝 Extracted category names:', categoryNames);
+          setAvailableServiceCategories(categoryNames);
+        } else {
+          console.log('❌ No service categories found or invalid format');
+          setAvailableServiceCategories([]);
+        }
+      } catch (error) {
+        console.error('💥 Error fetching service categories:', error);
+        setAvailableServiceCategories([]);
+      }
+      console.log('=== END SERVICE CATEGORIES DEBUG ===');
+    };
+
+    fetchServiceCategories();
+  }, [industryId]);
+
+  // Load variables from database
+  useEffect(() => {
+    const fetchVariables = async () => {
+      if (!industryId) return;
+      
+      try {
+        const response = await fetch(`/api/pricing-parameters?industryId=${industryId}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch pricing parameters');
+        }
+        const data = await response.json();
+        
+        if (data.pricingParameters && Array.isArray(data.pricingParameters)) {
+          // Group variables by category
+          const groupedVariables: { [key: string]: any[] } = {};
+          
+          data.pricingParameters.forEach((param: any) => {
+            const category = param.variable_category;
+            if (!groupedVariables[category]) {
+              groupedVariables[category] = [];
+            }
+            groupedVariables[category].push({
+              id: param.id,
+              name: param.name,
+              description: param.description
+            });
+          });
+          
+          setAvailableVariables(groupedVariables);
+        } else {
+          setAvailableVariables({});
+        }
+      } catch (error) {
+        console.error('Error fetching variables:', error);
+        setAvailableVariables({});
+      }
+    };
+
+    fetchVariables();
+  }, [industryId]);
 
   useEffect(() => {
     if (editId) {
@@ -724,7 +852,6 @@ export default function ExtraNewPage() {
             {/* DEPENDENCIES TAB */}
             <TabsContent value="dependencies" className="mt-4 space-y-6">
               <div className="space-y-4">
-                <h3 className="font-medium">Form 1</h3>
                 
                 <div className="space-y-2">
                   <Label>Should the extras show based on the frequency?</Label>
@@ -742,45 +869,63 @@ export default function ExtraNewPage() {
                   </RadioGroup>
                   
                   {form.showBasedOnFrequency && (
-                    <div className="ml-6 mt-3 space-y-2">
-                      <Label className="text-sm">Select frequency options</Label>
-                      <div className="space-y-2">
-                        {availableFrequencies.length === 0 ? (
-                          <p className="text-xs text-muted-foreground italic">No frequencies available. Add frequencies from the pricing parameters section.</p>
-                        ) : (
-                          <>
-                            <div className="flex items-center gap-2">
-                              <Checkbox
-                                id="select-all-frequencies"
-                                checked={form.frequencyOptions.length === availableFrequencies.length && availableFrequencies.length > 0}
-                                onCheckedChange={(checked) => {
-                                  if (checked) {
-                                    setForm(p => ({ ...p, frequencyOptions: [...availableFrequencies] }));
-                                  } else {
-                                    setForm(p => ({ ...p, frequencyOptions: [] }));
-                                  }
-                                }}
-                              />
-                              <Label htmlFor="select-all-frequencies" className="text-sm font-medium cursor-pointer">Select All</Label>
-                            </div>
-                            {availableFrequencies.map((frequency) => (
-                              <div key={frequency} className="flex items-center gap-2">
+                    <div className="ml-6 mt-3">
+                      <div className="bg-white rounded-lg border p-4 shadow-sm">
+                        <Label className="text-sm font-medium mb-3 block">Select frequency options</Label>
+                        <div className="space-y-3">
+                          {availableFrequencies.length === 0 ? (
+                            <p className="text-xs text-muted-foreground italic">No frequencies available. Add frequencies from the pricing parameters section.</p>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-2">
                                 <Checkbox
-                                  id={`frequency-${frequency}`}
-                                  checked={form.frequencyOptions.includes(frequency)}
+                                  id="select-all-frequencies"
+                                  checked={form.frequencyOptions.length === availableFrequencies.length && availableFrequencies.length > 0}
                                   onCheckedChange={(checked) => {
                                     if (checked) {
-                                      setForm(p => ({ ...p, frequencyOptions: [...p.frequencyOptions, frequency] }));
+                                      setForm(p => ({ ...p, frequencyOptions: [...availableFrequencies] }));
                                     } else {
-                                      setForm(p => ({ ...p, frequencyOptions: p.frequencyOptions.filter(f => f !== frequency) }));
+                                      setForm(p => ({ ...p, frequencyOptions: [] }));
                                     }
                                   }}
                                 />
-                                <Label htmlFor={`frequency-${frequency}`} className="text-sm font-normal cursor-pointer">{frequency}</Label>
+                                <Label htmlFor="select-all-frequencies" className="text-sm font-medium cursor-pointer">Select All</Label>
                               </div>
-                            ))}
-                          </>
-                        )}
+                              <div className="grid grid-cols-6 gap-2">
+                                {availableFrequencies.map((frequency) => {
+                                  const isMonthly = frequency.toLowerCase().includes('monthly') || frequency.toLowerCase().includes('4 weeks');
+                                  const isTwicePerWeek = frequency.toLowerCase().includes('2x') || frequency.toLowerCase().includes('twice') || frequency.toLowerCase().includes('2 per');
+                                  
+                                  return (
+                                    <div key={frequency} className="flex items-center gap-2">
+                                      <Checkbox
+                                        id={`frequency-${frequency}`}
+                                        checked={form.frequencyOptions.includes(frequency)}
+                                        onCheckedChange={(checked) => {
+                                          if (checked) {
+                                            setForm(p => ({ ...p, frequencyOptions: [...p.frequencyOptions, frequency] }));
+                                          } else {
+                                            setForm(p => ({ ...p, frequencyOptions: p.frequencyOptions.filter(f => f !== frequency) }));
+                                          }
+                                        }}
+                                      />
+                                      <Label 
+                                        htmlFor={`frequency-${frequency}`} 
+                                        className={`text-sm font-normal cursor-pointer ${
+                                          isMonthly ? 'text-blue-600' : 
+                                          isTwicePerWeek ? 'text-green-600' : 
+                                          ''
+                                        }`}
+                                      >
+                                        {frequency}
+                                      </Label>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -802,45 +947,49 @@ export default function ExtraNewPage() {
                   </RadioGroup>
                   
                   {form.showBasedOnServiceCategory && (
-                    <div className="ml-6 mt-3 space-y-2">
-                      <Label className="text-sm">Select service category options</Label>
-                      <div className="space-y-2">
-                        {availableServiceCategories.length === 0 ? (
-                          <p className="text-xs text-muted-foreground italic">No service categories available. Add service categories from the service category section.</p>
-                        ) : (
-                          <>
-                            <div className="flex items-center gap-2">
-                              <Checkbox
-                                id="select-all-service-categories"
-                                checked={form.serviceCategoryOptions.length === availableServiceCategories.length && availableServiceCategories.length > 0}
-                                onCheckedChange={(checked) => {
-                                  if (checked) {
-                                    setForm(p => ({ ...p, serviceCategoryOptions: [...availableServiceCategories] }));
-                                  } else {
-                                    setForm(p => ({ ...p, serviceCategoryOptions: [] }));
-                                  }
-                                }}
-                              />
-                              <Label htmlFor="select-all-service-categories" className="text-sm font-medium cursor-pointer">Select All</Label>
-                            </div>
-                            {availableServiceCategories.map((category) => (
-                              <div key={category} className="flex items-center gap-2">
+                    <div className="ml-6 mt-3">
+                      <div className="bg-white rounded-lg border p-4 shadow-sm">
+                        <Label className="text-sm font-medium mb-3 block">Select service category options</Label>
+                        <div className="space-y-3">
+                          {availableServiceCategories.length === 0 ? (
+                            <p className="text-xs text-muted-foreground italic">No service categories available. Add service categories from the service category section.</p>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-2">
                                 <Checkbox
-                                  id={`service-category-${category}`}
-                                  checked={form.serviceCategoryOptions.includes(category)}
+                                  id="select-all-service-categories"
+                                  checked={form.serviceCategoryOptions.length === availableServiceCategories.length && availableServiceCategories.length > 0}
                                   onCheckedChange={(checked) => {
                                     if (checked) {
-                                      setForm(p => ({ ...p, serviceCategoryOptions: [...p.serviceCategoryOptions, category] }));
+                                      setForm(p => ({ ...p, serviceCategoryOptions: [...availableServiceCategories] }));
                                     } else {
-                                      setForm(p => ({ ...p, serviceCategoryOptions: p.serviceCategoryOptions.filter(c => c !== category) }));
+                                      setForm(p => ({ ...p, serviceCategoryOptions: [] }));
                                     }
                                   }}
                                 />
-                                <Label htmlFor={`service-category-${category}`} className="text-sm font-normal cursor-pointer">{category}</Label>
+                                <Label htmlFor="select-all-service-categories" className="text-sm font-medium cursor-pointer">Select All</Label>
                               </div>
-                            ))}
-                          </>
-                        )}
+                              <div className="grid grid-cols-6 gap-2">
+                                {availableServiceCategories.map((category) => (
+                                  <div key={category} className="flex items-center gap-2">
+                                    <Checkbox
+                                      id={`service-category-${category}`}
+                                      checked={form.serviceCategoryOptions.includes(category)}
+                                      onCheckedChange={(checked) => {
+                                        if (checked) {
+                                          setForm(p => ({ ...p, serviceCategoryOptions: [...p.serviceCategoryOptions, category] }));
+                                        } else {
+                                          setForm(p => ({ ...p, serviceCategoryOptions: p.serviceCategoryOptions.filter(c => c !== category) }));
+                                        }
+                                      }}
+                                    />
+                                    <Label htmlFor={`service-category-${category}`} className="text-sm font-normal cursor-pointer">{category}</Label>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -898,7 +1047,7 @@ export default function ExtraNewPage() {
                                     />
                                     <Label htmlFor={`select-all-extra-${category.toLowerCase().replace(' ', '-')}`} className="text-sm cursor-pointer">Select All</Label>
                                   </div>
-                                  <div className="grid grid-cols-4 gap-2">
+                                  <div className="grid grid-cols-6 gap-2">
                                     {categoryParams.map((param) => (
                                       <div key={param.id} className="flex items-center gap-2">
                                         <Checkbox
@@ -913,7 +1062,9 @@ export default function ExtraNewPage() {
                                             }
                                           }}
                                         />
-                                        <Label htmlFor={`extra-variable-${param.id}`} className="text-sm cursor-pointer">{param.name}</Label>
+                                        <Label htmlFor={`extra-variable-${param.id}`} className="text-sm cursor-pointer">
+                                          {param.name}
+                                        </Label>
                                       </div>
                                     ))}
                                   </div>

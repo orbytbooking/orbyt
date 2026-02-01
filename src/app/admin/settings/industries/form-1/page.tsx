@@ -41,26 +41,26 @@ export default function IndustryForm1Page() {
         if (currentIndustry) {
           setIndustryId(currentIndustry.id);
           
-          // Fetch extras count from database
+          // Fetch all stats from database
           const extrasResponse = await fetch(`/api/extras?industryId=${currentIndustry.id}`);
           const extrasData = await extrasResponse.json();
           const extrasCount = extrasData.extras?.length || 0;
 
-          // Get other stats from localStorage for now
-          const serviceCategories =
-            JSON.parse(localStorage.getItem(`service_categories_${industry}`) || "[]")?.length || 0;
-          const frequencies =
-            JSON.parse(localStorage.getItem(`frequencies_${industry}`) || "[]")?.length || 0;
-          const locations =
-            JSON.parse(localStorage.getItem(`locations_${industry}`) || "[]")?.length || 0;
+          const serviceCategoriesResponse = await fetch(`/api/service-categories?industryId=${currentIndustry.id}`);
+          const serviceCategoriesData = await serviceCategoriesResponse.json();
+          const serviceCategories = serviceCategoriesData.serviceCategories?.length || 0;
 
-          const pricingData = JSON.parse(
-            localStorage.getItem(`pricingParamsAll_${industry}`) || "{}"
-          ) as Record<string, any[]>;
-          const pricingParams = Object.values(pricingData).reduce(
-            (total, rows) => total + (Array.isArray(rows) ? rows.length : 0),
-            0
-          );
+          const frequenciesResponse = await fetch(`/api/industry-frequency?industryId=${currentIndustry.id}`);
+          const frequenciesData = await frequenciesResponse.json();
+          const frequencies = frequenciesData.frequencies?.length || 0;
+
+          const locationsResponse = await fetch(`/api/locations?industryId=${currentIndustry.id}`);
+          const locationsData = await locationsResponse.json();
+          const locations = locationsData.locations?.length || 0;
+
+          const pricingResponse = await fetch(`/api/pricing-parameters?industryId=${currentIndustry.id}`);
+          const pricingData = await pricingResponse.json();
+          const pricingParams = pricingData.pricingParameters?.length || 0;
 
           setStats({
             serviceCategories,
@@ -251,7 +251,7 @@ export default function IndustryForm1Page() {
             <CardContent className="space-y-2 text-sm text-muted-foreground">
               <p>
                 Once these sections are configured, your public booking form can use them to show the right categories,
-                extras, visit frequencies, locations, and price estimates – similar to BookingKoala&apos;s booking CRM.
+                extras, visit frequencies, locations, and price estimates.
               </p>
               <p>
                 You can revisit this screen any time to adjust how Form 1 behaves for {industry.toLowerCase()} as your

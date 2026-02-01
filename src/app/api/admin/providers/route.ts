@@ -3,6 +3,94 @@ import { NextRequest, NextResponse } from 'next/server';
 import { EmailService } from '@/lib/emailService';
 import { v4 as uuidv4 } from 'uuid';
 
+export async function GET(request: NextRequest) {
+  try {
+    console.log('=== FETCH PROVIDERS API ===');
+    
+    const { searchParams } = new URL(request.url);
+    const businessId = searchParams.get('businessId');
+    
+    console.log('📥 businessId:', businessId);
+
+    if (!businessId) {
+      return NextResponse.json(
+        { error: 'Business ID is required' },
+        { status: 400 }
+      );
+    }
+
+    // Load environment variables
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!supabaseUrl || !supabaseServiceRoleKey) {
+      console.error('❌ Missing Supabase configuration');
+      return NextResponse.json(
+        { error: 'Server configuration error' },
+        { status: 500 }
+      );
+    }
+
+    // Create admin client
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
+
+    console.log('📊 Fetching providers for business:', businessId);
+
+    // Fetch providers from service_providers table
+    const { data: providers, error } = await supabaseAdmin
+      .from('service_providers')
+      .select('id, first_name, last_name, email, phone, business_id')
+      .eq('business_id', businessId)
+      .order('last_name', { ascending: true })
+      .order('first_name', { ascending: true });
+
+    console.log('📦 Query result:');
+    console.log('  - error:', error);
+    console.log('  - providers:', providers);
+    console.log('  - providers length:', providers?.length || 0);
+
+    if (error) {
+      console.error('❌ Error fetching providers:', error);
+      return NextResponse.json(
+        { error: `Failed to fetch providers: ${error.message}` },
+        { status: 500 }
+      );
+    }
+
+    // Transform data to match expected format
+    const transformedProviders = providers?.map(provider => ({
+      id: provider.id,
+      name: `${provider.first_name} ${provider.last_name}`.trim(),
+      firstName: provider.first_name,
+      lastName: provider.last_name,
+      email: provider.email,
+      phone: provider.phone
+    })) || [];
+
+    console.log('✅ Successfully fetched and transformed providers:', transformedProviders.length);
+
+    return NextResponse.json({ 
+      providers: transformedProviders,
+      count: transformedProviders.length
+    });
+
+  } catch (error: any) {
+    console.error('❌ Unexpected error fetching providers:', error);
+    return NextResponse.json(
+      { 
+        error: error.message || 'Internal server error',
+        details: 'Failed to fetch providers'
+      },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     console.log('=== PROVIDER INVITATION API ===');

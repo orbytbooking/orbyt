@@ -41,7 +41,7 @@ export default function BookingDetailsPage() {
   const router = useRouter();
   const { toast } = useToast();
   const { bookings, loading: bookingsLoading } = useCustomerBookings();
-  const { customerName, customerEmail, accountLoading, handleLogout } = useCustomerAccount();
+  const { customerName, customerEmail, customerAccount, accountLoading, handleLogout } = useCustomerAccount();
 
   const booking = useMemo(() => bookings.find((item) => item.id.toLowerCase() === bookingId.toLowerCase()), [bookings, bookingId]);
 
@@ -100,7 +100,7 @@ export default function BookingDetailsPage() {
     { label: "Area size", value: customization.squareMeters },
     { label: "Bedrooms", value: customization.bedroom },
     { label: "Bathrooms", value: customization.bathroom },
-    { label: "Extras", value: customization.extras && customization.extras !== "None" ? customization.extras : "None" },
+    { label: "Extras", value: customization.extras && Array.isArray(customization.extras) && customization.extras.length > 0 ? customization.extras.join(", ") : "None" },
   ];
 
   const notesList = [
@@ -111,7 +111,7 @@ export default function BookingDetailsPage() {
   return (
     <div className="min-h-screen bg-muted/20 text-foreground">
       <div className="min-h-screen flex flex-col lg:grid lg:grid-cols-[280px_1fr]">
-        <CustomerSidebar customerName={customerName} customerEmail={customerEmail} initials={initials} onLogout={handleLogout} />
+        <CustomerSidebar customerName={customerName} customerEmail={customerEmail} initials={initials} businessName={customerAccount?.businessName || ''} onLogout={handleLogout} />
         <div className="order-1 flex flex-col lg:order-2">
           <header className="bg-background border-b border-border shadow-sm">
             <div className="flex flex-wrap items-center gap-3 px-4 py-4 sm:px-6">

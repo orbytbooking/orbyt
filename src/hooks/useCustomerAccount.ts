@@ -11,6 +11,7 @@ export type CustomerAccount = {
   phone: string;
   address: string;
   avatar: string;
+  businessName: string;
   notifications: {
     emailUpdates: boolean;
     smsUpdates: boolean;
@@ -36,7 +37,7 @@ export const useCustomerAccount = () => {
 
         const { data: customer, error } = await supabase
           .from('customers')
-          .select('id, name, email, phone, address, avatar, email_notifications, sms_notifications, push_notifications')
+          .select('id, name, email, phone, address, avatar, email_notifications, sms_notifications, push_notifications, businesses(name)')
           .eq('auth_user_id', session.user.id)
           .single();
 
@@ -55,6 +56,7 @@ export const useCustomerAccount = () => {
           phone: customer.phone || '',
           address: customer.address || '',
           avatar: customer.avatar || '',
+          businessName: (customer.businesses as any)?.name || '',
           notifications: {
             emailUpdates: customer.email_notifications ?? true,
             smsUpdates: customer.sms_notifications ?? false,

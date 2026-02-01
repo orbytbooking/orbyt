@@ -236,18 +236,54 @@ export default function ServiceCategoryNewPage() {
     }
   };
 
-  // Load pricing parameters from localStorage
+  // Load pricing parameters from database
   useEffect(() => {
-    try {
-      const allDataKey = `pricingParamsAll_${industry}`;
-      const storedData = JSON.parse(localStorage.getItem(allDataKey) || "{}");
-      if (storedData && typeof storedData === "object") {
-        setPricingParameters(storedData);
+    const fetchPricingParameters = async () => {
+      if (!industryId) return;
+      
+      try {
+        console.log('Fetching pricing parameters for industryId:', industryId);
+        const response = await fetch(`/api/pricing-parameters?industryId=${encodeURIComponent(industryId)}`);
+        console.log('Pricing parameters API response status:', response.status);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('Pricing parameters API response data:', data);
+          
+          if (data.pricingParameters && Array.isArray(data.pricingParameters)) {
+            console.log('Setting available pricing parameters:', data.pricingParameters);
+            // Group pricing parameters by variable_category for display
+            const groupedParams: { [key: string]: any[] } = {};
+            data.pricingParameters.forEach((param: any) => {
+              const category = param.variable_category || 'Other';
+              if (!groupedParams[category]) {
+                groupedParams[category] = [];
+              }
+              groupedParams[category].push({
+                id: param.id,
+                name: param.name,
+                category: param.variable_category
+              });
+            });
+            setPricingParameters(groupedParams);
+          } else {
+            console.log('No pricing parameters array in response');
+            setPricingParameters({});
+          }
+        } else {
+          console.error('API response not ok:', response.status, response.statusText);
+          setPricingParameters({});
+        }
+      } catch (error) {
+        console.error('Error fetching pricing parameters:', error);
+        setPricingParameters({});
       }
-    } catch {
-      // ignore
+    };
+    
+    if (industryId) {
+      fetchPricingParameters();
     }
-  }, [industry]);
+  }, [industryId]);
 
   // Fetch industryId if not in URL
   useEffect(() => {
@@ -303,51 +339,79 @@ export default function ServiceCategoryNewPage() {
     }
   }, [industryId]);
 
-  // Load frequencies from localStorage
+  // Load frequencies from database
   useEffect(() => {
-    try {
-      // Load from pricing parameters data structure (same as pricing parameter page)
-      const pricingDataKey = `pricingParamsAll_${industry}`;
-      const storedPricingData = JSON.parse(localStorage.getItem(pricingDataKey) || "null");
+    const fetchFrequencies = async () => {
+      if (!industryId) return;
       
-      if (storedPricingData && typeof storedPricingData === "object") {
-        // Extract frequencies from all pricing parameter rows
-        const allFrequencies: string[] = [];
-        Object.values(storedPricingData).forEach((rows: any[]) => {
-          rows.forEach((row: any) => {
-            if (row.frequency && typeof row.frequency === "string") {
-              const rowFrequencies = row.frequency.split(',').map((f: string) => f.trim());
-              allFrequencies.push(...rowFrequencies);
-            }
-          });
-        });
+      try {
+        console.log('Fetching frequencies for industryId:', industryId);
+        const response = await fetch(`/api/industry-frequency?industryId=${encodeURIComponent(industryId)}`);
+        console.log('Frequencies API response status:', response.status);
         
-        // Remove duplicates and set
-        const uniqueFrequencies = [...new Set(allFrequencies)];
-        setFrequencies(uniqueFrequencies);
-      } else {
-        // Fallback to default frequencies if no pricing data exists
-        const defaultFrequencies = ["Daily", "Weekly", "Monthly", "One-time"];
-        setFrequencies(defaultFrequencies);
+        if (response.ok) {
+          const data = await response.json();
+          console.log('Frequencies API response data:', data);
+          
+          if (data.frequencies && Array.isArray(data.frequencies)) {
+            console.log('Setting available frequencies:', data.frequencies);
+            // Extract frequency names from the database response
+            const frequencyNames = data.frequencies.map((f: any) => f.name || f.occurrence_time).filter(Boolean);
+            setFrequencies(frequencyNames);
+          } else {
+            console.log('No frequencies array in response');
+            setFrequencies([]);
+          }
+        } else {
+          console.error('API response not ok:', response.status, response.statusText);
+          setFrequencies([]);
+        }
+      } catch (error) {
+        console.error('Error fetching frequencies:', error);
+        setFrequencies([]);
       }
-    } catch {
-      // Fallback to default frequencies on error
-      const defaultFrequencies = ["Daily", "Weekly", "Monthly", "One-time"];
-      setFrequencies(defaultFrequencies);
+    };
+    
+    if (industryId) {
+      fetchFrequencies();
     }
-  }, []);
+  }, [industryId]);
 
-  // Load exclude parameters from localStorage
+  // Load exclude parameters from database
   useEffect(() => {
-    try {
-      const storedExcludeParams = JSON.parse(localStorage.getItem(`excludeParameters_${industry}`) || "[]");
-      if (Array.isArray(storedExcludeParams)) {
-        setExcludeParameters(storedExcludeParams);
+    const fetchExcludeParameters = async () => {
+      if (!industryId) return;
+      
+      try {
+        console.log('Fetching exclude parameters for industryId:', industryId);
+        const response = await fetch(`/api/exclude-parameters?industryId=${encodeURIComponent(industryId)}`);
+        console.log('Exclude parameters API response status:', response.status);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('Exclude parameters API response data:', data);
+          
+          if (data.excludeParameters && Array.isArray(data.excludeParameters)) {
+            console.log('Setting available exclude parameters:', data.excludeParameters);
+            setExcludeParameters(data.excludeParameters);
+          } else {
+            console.log('No exclude parameters array in response');
+            setExcludeParameters([]);
+          }
+        } else {
+          console.error('API response not ok:', response.status, response.statusText);
+          setExcludeParameters([]);
+        }
+      } catch (error) {
+        console.error('Error fetching exclude parameters:', error);
+        setExcludeParameters([]);
       }
-    } catch {
-      // ignore
+    };
+    
+    if (industryId) {
+      fetchExcludeParameters();
     }
-  }, [industry]);
+  }, [industryId]);
 
   // Load providers from localStorage
   useEffect(() => {
@@ -1537,7 +1601,7 @@ export default function ServiceCategoryNewPage() {
                 {form.serviceCategoryFrequency && (
                   <div className="space-y-3">
                     <h4 className="text-sm font-medium">Select Frequencies</h4>
-                    <div className="space-y-2">
+                    <div className="space-y-2 p-4 border rounded-lg bg-white">
                       <div className="flex items-center gap-2">
                         <Checkbox
                           id="select-all-frequencies"
@@ -1594,9 +1658,9 @@ export default function ServiceCategoryNewPage() {
                       No pricing parameters added yet. Add pricing parameters from the Pricing section.
                     </p>
                   ) : (
-                    <div className="space-y-4">
-                      {/* Group variables by category */}
-                      {['Bathroom', 'Sq Ft', 'Bedroom'].map(category => {
+                    <div className="space-y-4 p-4 border rounded-lg bg-white">
+                      {/* Group variables by category dynamically */}
+                      {Object.keys(pricingParameters).map(category => {
                         const categoryParams = pricingParameters[category] || [];
                         if (categoryParams.length === 0) return null;
                         
@@ -1629,7 +1693,7 @@ export default function ServiceCategoryNewPage() {
                               />
                               <Label htmlFor={`select-all-service-${category.toLowerCase().replace(' ', '-')}`} className="text-sm cursor-pointer">Select All</Label>
                             </div>
-                            <div className="grid grid-cols-4 gap-2">
+                            <div className="grid grid-cols-10 gap-2">
                               {categoryParams.map((param) => (
                                 <div key={param.id} className="flex items-center gap-2">
                                   <Checkbox
@@ -1675,7 +1739,7 @@ export default function ServiceCategoryNewPage() {
                       No exclude parameters added yet. Add exclude parameters from the Pricing section.
                     </p>
                   ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-2 p-4 border rounded-lg bg-white">
                       <div className="flex items-center gap-2">
                         <Checkbox
                           id="select-all-exclude-params"
@@ -1715,7 +1779,7 @@ export default function ServiceCategoryNewPage() {
                 {/* Extras */}
                 <div className="space-y-3">
                   <h4 className="text-sm font-medium">Extras</h4>
-                  <div className="space-y-2">
+                  <div className="space-y-2 p-4 border rounded-lg bg-white">
                     <div className="flex items-center gap-2">
                       <Checkbox
                         id="select-all-extras"

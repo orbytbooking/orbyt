@@ -24,7 +24,7 @@ import { CustomerSidebar } from "@/components/customer/CustomerSidebar";
 
 const CustomerDashboard = () => {
   const { bookings, loading: bookingsLoading } = useCustomerBookings();
-  const { customerName, customerEmail, accountLoading, handleLogout } = useCustomerAccount();
+  const { customerName, customerEmail, customerAccount, accountLoading, handleLogout } = useCustomerAccount();
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const today = new Date();
     return new Date(today.getFullYear(), today.getMonth(), 1);
@@ -144,6 +144,7 @@ const CustomerDashboard = () => {
           customerName={customerName}
           customerEmail={customerEmail}
           initials={initials}
+          businessName={customerAccount?.businessName || ''}
           onLogout={handleLogout}
         />
         <div className="order-1 flex flex-col lg:order-2">

@@ -4,42 +4,57 @@ CREATE TABLE IF NOT EXISTS public.industry_frequency (
   business_id uuid NOT NULL,
   industry_id uuid NOT NULL,
   name text NOT NULL,
-  description text,
-  different_on_customer_end boolean DEFAULT false,
-  show_explanation boolean DEFAULT false,
-  enable_popup boolean DEFAULT false,
-  display text NOT NULL DEFAULT 'Both' CHECK (display = ANY (ARRAY['Both'::text, 'Booking'::text, 'Quote'::text])),
-  occurrence_time text NOT NULL CHECK (occurrence_time = ANY (ARRAY['onetime'::text, 'recurring'::text])),
+  description text NULL,
+  different_on_customer_end boolean NULL DEFAULT false,
+  show_explanation boolean NULL DEFAULT false,
+  enable_popup boolean NULL DEFAULT false,
+  display text NOT NULL DEFAULT 'Both'::text,
+  occurrence_time text NOT NULL,
   discount numeric NOT NULL DEFAULT 0,
-  discount_type text NOT NULL DEFAULT '%' CHECK (discount_type = ANY (ARRAY['%'::text, '$'::text])),
-  is_default boolean DEFAULT false,
-  excluded_providers text[] DEFAULT '{}',
+  discount_type text NOT NULL DEFAULT '%'::text,
+  is_default boolean NULL DEFAULT false,
+  excluded_providers text[] NULL DEFAULT '{}'::text[],
   
   -- Dependencies
-  add_to_other_industries boolean DEFAULT false,
-  enabled_industries text[] DEFAULT '{}',
-  show_based_on_location boolean DEFAULT false,
-  location_ids text[] DEFAULT '{}',
-  service_categories text[] DEFAULT '{}',
-  bathroom_variables text[] DEFAULT '{}',
-  sqft_variables text[] DEFAULT '{}',
-  bedroom_variables text[] DEFAULT '{}',
-  exclude_parameters text[] DEFAULT '{}',
-  extras text[] DEFAULT '{}',
+  add_to_other_industries boolean NULL DEFAULT false,
+  enabled_industries text[] NULL DEFAULT '{}'::text[],
+  show_based_on_location boolean NULL DEFAULT false,
+  location_ids text[] NULL DEFAULT '{}'::text[],
+  service_categories text[] NULL DEFAULT '{}'::text[],
+  bathroom_variables text[] NULL DEFAULT '{}'::text[],
+  sqft_variables text[] NULL DEFAULT '{}'::text[],
+  bedroom_variables text[] NULL DEFAULT '{}'::text[],
+  exclude_parameters text[] NULL DEFAULT '{}'::text[],
+  extras text[] NULL DEFAULT '{}'::text[],
   
   is_active boolean NOT NULL DEFAULT true,
-  created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now(),
+  created_at timestamp with time zone NULL DEFAULT now(),
+  updated_at timestamp with time zone NULL DEFAULT now(),
   
   CONSTRAINT industry_frequency_pkey PRIMARY KEY (id),
-  CONSTRAINT industry_frequency_business_id_fkey FOREIGN KEY (business_id) REFERENCES public.businesses(id) ON DELETE CASCADE,
-  CONSTRAINT industry_frequency_industry_id_fkey FOREIGN KEY (industry_id) REFERENCES public.industries(id) ON DELETE CASCADE
-);
+  CONSTRAINT industry_frequency_business_id_fkey FOREIGN KEY (business_id) REFERENCES public.businesses (id) ON DELETE CASCADE,
+  CONSTRAINT industry_frequency_industry_id_fkey FOREIGN KEY (industry_id) REFERENCES public.industries (id) ON DELETE CASCADE,
+  CONSTRAINT industry_frequency_discount_type_check CHECK (
+    (discount_type = ANY (ARRAY['%'::text, '$'::text]))
+  ),
+  CONSTRAINT industry_frequency_display_check CHECK (
+    (
+      display = ANY (
+        ARRAY['Both'::text, 'Booking'::text, 'Quote'::text]
+      )
+    )
+  ),
+  CONSTRAINT industry_frequency_occurrence_time_check CHECK (
+    (
+      occurrence_time = ANY (ARRAY['onetime'::text, 'recurring'::text])
+    )
+  )
+) TABLESPACE pg_default;
 
 -- Create index for faster queries
-CREATE INDEX IF NOT EXISTS idx_industry_frequency_business_id ON public.industry_frequency(business_id);
-CREATE INDEX IF NOT EXISTS idx_industry_frequency_industry_id ON public.industry_frequency(industry_id);
-CREATE INDEX IF NOT EXISTS idx_industry_frequency_is_active ON public.industry_frequency(is_active);
+CREATE INDEX IF NOT EXISTS idx_industry_frequency_business_id ON public.industry_frequency USING btree (business_id) TABLESPACE pg_default;
+CREATE INDEX IF NOT EXISTS idx_industry_frequency_industry_id ON public.industry_frequency USING btree (industry_id) TABLESPACE pg_default;
+CREATE INDEX IF NOT EXISTS idx_industry_frequency_is_active ON public.industry_frequency USING btree (is_active) TABLESPACE pg_default;
 
 -- Add RLS policies
 ALTER TABLE public.industry_frequency ENABLE ROW LEVEL SECURITY;
