@@ -26,7 +26,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Navigation from "@/components/Navigation";
-import ServiceCard, { ServiceCustomization } from "@/components/ServiceCard";
+import FrequencyAwareServiceCard, { ServiceCustomization } from "@/components/FrequencyAwareServiceCard";
 import {
   Booking,
   readStoredBookings,
@@ -285,9 +285,10 @@ function BookingPageContent() {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [flippedCardId, setFlippedCardId] = useState<string | null>(null);
   const [cardCustomizations, setCardCustomizations] = useState<Record<string, ServiceCustomization>>({});
-  const [industryOptions, setIndustryOptions] = useState<{ label: string; key: string }[]>(
+  const [industryOptions, setIndustryOptions] = useState<{ label: string; key: string; id?: string }[]>(
     DEFAULT_INDUSTRIES.map((label, index) => ({ label, key: toIndustryKey(label) || `industry-${index}` })),
   );
+  const [industries, setIndustries] = useState<Array<{ id: string; name: string }>>([]);
   const [storedAddress, setStoredAddress] = useState<StoredAddress | null>(null);
   const { customerName, customerEmail, accountLoading } = useCustomerAccount();
   const [pricingRows, setPricingRows] = useState<PricingTier[]>([]);
@@ -311,6 +312,7 @@ function BookingPageContent() {
   );
 
   const selectedIndustryLabel = selectedIndustry?.label ?? "";
+  const selectedIndustryId = selectedIndustry?.id ?? "";
 
   // Load pricing tiers for the selected industry (e.g., Home Cleaning) from localStorage
   useEffect(() => {
@@ -387,9 +389,15 @@ function BookingPageContent() {
         }
         
         if (data.industries && Array.isArray(data.industries) && data.industries.length > 0) {
-          const industryNames = data.industries.map((ind: any) => ind.name);
-          setIndustryOptions(buildOptions(industryNames));
+          setIndustries(data.industries);
+          const industryOptionsWithIds = data.industries.map((ind: any) => ({
+            label: ind.name,
+            key: toIndustryKey(ind.name) || `industry-${ind.id}`,
+            id: ind.id
+          }));
+          setIndustryOptions(industryOptionsWithIds);
         } else {
+          setIndustries([]);
           setIndustryOptions([]);
         }
       } catch (error) {
@@ -1177,7 +1185,7 @@ function BookingPageContent() {
               {categoryServices.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {categoryServices.map((service) => (
-                    <ServiceCard
+                    <FrequencyAwareServiceCard
                       key={service.id}
                       service={service}
                       isSelected={selectedService?.id === service.id}
@@ -1186,6 +1194,7 @@ function BookingPageContent() {
                       onFlip={handleCardFlip}
                       customization={getCardCustomization(service.id)}
                       onCustomizationChange={handleCustomizationChange}
+                      industryId={selectedIndustryId}
                     />
                   ))}
                 </div>

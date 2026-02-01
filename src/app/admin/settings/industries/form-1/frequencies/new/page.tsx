@@ -29,7 +29,7 @@ export default function FrequencyNewPage() {
   const params = useSearchParams();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
-  const editId = params.get("editId") ? Number(params.get("editId")) : null;
+  const editId = params.get("editId");
   const { currentBusiness } = useBusiness();
 
   type LocationRow = {
@@ -43,7 +43,7 @@ export default function FrequencyNewPage() {
   };
 
   type Row = {
-    id: number;
+    id: string;
     name: string;
     discount: number;
     discountType?: "%" | "$";
@@ -130,7 +130,7 @@ export default function FrequencyNewPage() {
   // Load data for dependencies
   const [industries, setIndustries] = useState<Industry[]>([]);
   const [loadingIndustries, setLoadingIndustries] = useState(true);
-  const [serviceCategories, setServiceCategories] = useState<Array<{ id: number; name: string }>>([]);
+  const [serviceCategories, setServiceCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [locations, setLocations] = useState<LocationRow[]>([]);
   
   const bathroomOptions = ["1", "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5", "5.5", "6", "6.5", "7", "7.5"];
@@ -266,7 +266,7 @@ export default function FrequencyNewPage() {
         const data = await response.json();
         
         if (response.ok && data.serviceCategories) {
-          setServiceCategories(data.serviceCategories.map((c: any) => ({ id: c.id, name: c.name })));
+          setServiceCategories(data.serviceCategories.map((c: any) => ({ id: String(c.id), name: c.name })));
         }
       } catch (error) {
         console.error('Error fetching service categories:', error);

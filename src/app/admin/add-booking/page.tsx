@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { useState, useMemo, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { serviceCategoriesService, ServiceCategory } from '@/lib/serviceCategories';
+import { getFrequencyDependencies } from '@/lib/frequencyFilter';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +22,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
 import { Plus, Minus, Search, X, User, Shirt, Sofa, Droplets, Wind, Trash2, Flower2, Flame, Warehouse, Paintbrush } from "lucide-react";
+import { useBusiness } from "@/contexts/BusinessContext";
 
 const BOOKINGS_STORAGE_KEY = "adminBookings";
 const CUSTOMERS_STORAGE_KEY = "adminCustomers";
@@ -34,7 +36,7 @@ const SERVICE_COSTS: Record<string, number> = {
 };
 
 type Extra = {
-  id: number;
+  id: string;
   name: string;
   time: number; // in minutes
   serviceCategory: string;
@@ -44,6 +46,15 @@ type Extra = {
   exemptFromDiscount?: boolean;
   description?: string;
   serviceChecklists?: string[];
+};
+
+type FrequencyRow = {
+  id: string;
+  name: string;
+  display: "Both" | "Booking" | "Quote";
+  isDefault?: boolean;
+  discount?: number;
+  discountType?: "%" | "$";
 };
 
 type Provider = {
@@ -59,15 +70,6 @@ type Provider = {
 type ProviderWithWage = Provider & {
   tempWage?: number;
   tempWageType?: 'percentage' | 'fixed' | 'hourly';
-};
-
-type FrequencyRow = {
-  id: number;
-  name: string;
-  display: "Both" | "Booking" | "Quote";
-  isDefault?: boolean;
-  discount?: number;
-  discountType?: "%" | "$";
 };
 
 type PricingParameter = {
@@ -103,14 +105,6 @@ type Customer = {
 
 const INDUSTRY_NAME = "Home Cleaning";
 const FALLBACK_INDUSTRY_NAME = "Industry";
-const FREQUENCY_STORAGE_KEYS = [
-  `frequencies_${INDUSTRY_NAME}`,
-  `frequencies_${FALLBACK_INDUSTRY_NAME}`,
-];
-const EXTRAS_STORAGE_KEYS = [
-  `extras_${INDUSTRY_NAME}`,
-  `extras_${FALLBACK_INDUSTRY_NAME}`,
-];
 
 const createEmptyBookingForm = () => ({
   customerType: "new",
@@ -124,7 +118,7 @@ const createEmptyBookingForm = () => ({
   duration: "02",
   durationUnit: "Hours",
   frequency: "",
-  selectedExtras: [] as number[],
+  selectedExtras: [] as string[],
   privateBookingNotes: [] as string[],
   privateCustomerNotes: [] as string[],
   serviceProviderNotes: [] as string[],
@@ -154,6 +148,7 @@ export default function AddBookingPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
+  const { currentBusiness } = useBusiness();
   const [newBooking, setNewBooking] = useState(createEmptyBookingForm());
   const [errors, setErrors] = useState({
     firstName: false,
@@ -172,6 +167,7 @@ export default function AddBookingPage() {
   const [isPartialCleaning, setIsPartialCleaning] = useState(false);
   const [excludeParameters, setExcludeParameters] = useState<any[]>([]);
   const [selectedExcludeParams, setSelectedExcludeParams] = useState<string[]>([]);
+  const [frequencyDependencies, setFrequencyDependencies] = useState<any>(null);
   const [allProviders] = useState<Provider[]>([
     { id: "1", name: "John Smith", available: true, rating: 4.8, specialties: ["Standard Cleaning", "Deep Cleaning"], wage: 25, wageType: "hourly" },
     { id: "2", name: "Sarah Johnson", available: true, rating: 4.9, specialties: ["Deep Cleaning", "Move In/Out"], wage: 30, wageType: "percentage" },
@@ -193,80 +189,215 @@ export default function AddBookingPage() {
   const [providerWageType, setProviderWageType] = useState<'percentage' | 'fixed' | 'hourly'>('hourly');
   const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>([]);
 
+  // Load frequencies from API
   useEffect(() => {
-    try {
-      let visible: FrequencyRow[] | null = null;
-
-      for (const key of FREQUENCY_STORAGE_KEYS) {
-        const raw = localStorage.getItem(key);
-        if (!raw) continue;
-
-        try {
-          const parsed = JSON.parse(raw);
-          if (!Array.isArray(parsed)) continue;
-
-          const rows = (parsed as FrequencyRow[]).filter(
-            (r) => r && (r.display === "Both" || r.display === "Booking"),
-          );
-
-          if (rows.length === 0) continue;
-
-          const defaultRows = rows.filter((r) => r.isDefault);
-          visible = defaultRows.length > 0 ? defaultRows : rows;
-          if (visible.length > 0) break;
-        } catch {
-          // ignore malformed localStorage for this key and keep checking others
+    const fetchFrequencies = async () => {
+      if (!currentBusiness) return;
+      
+      try {
+        // First get the industry ID for Home Cleaning
+        const industriesResponse = await fetch(`/api/industries?business_id=${currentBusiness.id}`);
+        const industriesData = await industriesResponse.json();
+        
+        if (!industriesResponse.ok || !industriesData.industries) {
+          console.error('Failed to fetch industries:', industriesData.error);
+          return;
         }
+        
+        const currentIndustry = industriesData.industries.find((ind: any) => ind.name === INDUSTRY_NAME);
+        
+        if (!currentIndustry) {
+          console.log('Home Cleaning industry not found, checking for fallback industry');
+          const fallbackIndustry = industriesData.industries.find((ind: any) => ind.name === FALLBACK_INDUSTRY_NAME);
+          
+          if (!fallbackIndustry) {
+            console.log('No suitable industry found');
+            return;
+          }
+          
+          // Use fallback industry
+          const frequenciesResponse = await fetch(`/api/industry-frequency?industryId=${fallbackIndustry.id}`);
+          const frequenciesData = await frequenciesResponse.json();
+          
+          if (frequenciesResponse.ok && frequenciesData.frequencies) {
+            const visibleFrequencies = frequenciesData.frequencies.filter(
+              (f: any) => f && (f.display === "Both" || f.display === "Booking")
+            );
+            
+            if (visibleFrequencies.length > 0) {
+              setFrequencies(visibleFrequencies);
+              
+              const defaultFrequency = visibleFrequencies.find((f: any) => f.isDefault) || visibleFrequencies[0];
+              if (defaultFrequency) {
+                setNewBooking(prev => 
+                  prev.frequency ? prev : { ...prev, frequency: defaultFrequency.name }
+                );
+              }
+            }
+          }
+        } else {
+          // Use Home Cleaning industry
+          const frequenciesResponse = await fetch(`/api/industry-frequency?industryId=${currentIndustry.id}`);
+          const frequenciesData = await frequenciesResponse.json();
+          
+          if (frequenciesResponse.ok && frequenciesData.frequencies) {
+            const visibleFrequencies = frequenciesData.frequencies.filter(
+              (f: any) => f && (f.display === "Both" || f.display === "Booking")
+            );
+            
+            if (visibleFrequencies.length > 0) {
+              setFrequencies(visibleFrequencies);
+              
+              const defaultFrequency = visibleFrequencies.find((f: any) => f.isDefault) || visibleFrequencies[0];
+              if (defaultFrequency) {
+                setNewBooking(prev => 
+                  prev.frequency ? prev : { ...prev, frequency: defaultFrequency.name }
+                );
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error loading frequencies:', error);
       }
+    };
 
-      if (!visible || visible.length === 0) return;
+    fetchFrequencies();
+  }, [currentBusiness]);
 
-      setFrequencies(visible);
-
-      const first = visible[0];
-      if (first) {
-        setNewBooking((prev) =>
-          prev.frequency ? prev : { ...prev, frequency: first.name },
-        );
-      }
-    } catch {
-      // ignore malformed localStorage
-    }
-  }, []);
-
-  // Load extras from localStorage
+  // Load frequency dependencies when frequency changes
   useEffect(() => {
-    try {
-      let visible: Extra[] | null = null;
-
-      for (const key of EXTRAS_STORAGE_KEYS) {
-        const raw = localStorage.getItem(key);
-        if (!raw) continue;
-
-        try {
-          const parsed = JSON.parse(raw);
-          if (!Array.isArray(parsed)) continue;
-
-          const rows = (parsed as Extra[]).filter(
-            (r) => r && (r.display === "frontend-backend-admin" || r.display === "Both" || r.display === "Booking"),
-          );
-
-          if (rows.length === 0) continue;
-
-          visible = rows;
-          if (visible.length > 0) break;
-        } catch {
-          // ignore malformed localStorage for this key and keep checking others
+    const fetchFrequencyDependencies = async () => {
+      if (!currentBusiness || !newBooking.frequency) {
+        setFrequencyDependencies(null);
+        return;
+      }
+      
+      try {
+        // Get the industry ID for Home Cleaning
+        const industriesResponse = await fetch(`/api/industries?business_id=${currentBusiness.id}`);
+        const industriesData = await industriesResponse.json();
+        
+        if (!industriesResponse.ok || !industriesData.industries) {
+          console.error('Failed to fetch industries:', industriesData.error);
+          return;
         }
+        
+        const currentIndustry = industriesData.industries.find((ind: any) => ind.name === INDUSTRY_NAME);
+        
+        if (!currentIndustry) {
+          console.log('Home Cleaning industry not found, checking for fallback industry');
+          const fallbackIndustry = industriesData.industries.find((ind: any) => ind.name === FALLBACK_INDUSTRY_NAME);
+          
+          if (!fallbackIndustry) {
+            console.log('No suitable industry found for frequency dependencies');
+            return;
+          }
+          
+          const dependencies = await getFrequencyDependencies(fallbackIndustry.id, newBooking.frequency);
+          setFrequencyDependencies(dependencies);
+        } else {
+          const dependencies = await getFrequencyDependencies(currentIndustry.id, newBooking.frequency);
+          setFrequencyDependencies(dependencies);
+        }
+      } catch (error) {
+        console.error('Error loading frequency dependencies:', error);
+        setFrequencyDependencies(null);
       }
+    };
 
-      if (visible && visible.length > 0) {
-        setExtras(visible);
+    fetchFrequencyDependencies();
+  }, [currentBusiness, newBooking.frequency]);
+
+  // Load extras from API
+  useEffect(() => {
+    const fetchExtras = async () => {
+      if (!currentBusiness) return;
+      
+      try {
+        // First get the industry ID for Home Cleaning
+        const industriesResponse = await fetch(`/api/industries?business_id=${currentBusiness.id}`);
+        const industriesData = await industriesResponse.json();
+        
+        if (!industriesResponse.ok || !industriesData.industries) {
+          console.error('Failed to fetch industries:', industriesData.error);
+          return;
+        }
+        
+        const currentIndustry = industriesData.industries.find((ind: any) => ind.name === INDUSTRY_NAME);
+        
+        if (!currentIndustry) {
+          console.log('Home Cleaning industry not found, checking for fallback industry');
+          const fallbackIndustry = industriesData.industries.find((ind: any) => ind.name === FALLBACK_INDUSTRY_NAME);
+          
+          if (!fallbackIndustry) {
+            console.log('No suitable industry found for extras');
+            return;
+          }
+          
+          // Use fallback industry
+          const extrasResponse = await fetch(`/api/extras?industryId=${fallbackIndustry.id}`);
+          const extrasData = await extrasResponse.json();
+          
+          if (extrasResponse.ok && extrasData.extras) {
+            const visibleExtras = extrasData.extras.filter(
+              (e: any) => e && (e.display === "frontend-backend-admin" || e.display === "Both" || e.display === "Booking")
+            );
+            
+            if (visibleExtras.length > 0) {
+              // Convert database format to form format
+              const formattedExtras = visibleExtras.map((e: any) => ({
+                id: e.id,
+                name: e.name,
+                time: e.time_minutes,
+                serviceCategory: e.service_category || '',
+                price: e.price,
+                display: e.display,
+                qtyBased: e.qty_based,
+                exemptFromDiscount: e.exempt_from_discount,
+                description: e.description,
+                serviceChecklists: []
+              }));
+              
+              setExtras(formattedExtras);
+            }
+          }
+        } else {
+          // Use Home Cleaning industry
+          const extrasResponse = await fetch(`/api/extras?industryId=${currentIndustry.id}`);
+          const extrasData = await extrasResponse.json();
+          
+          if (extrasResponse.ok && extrasData.extras) {
+            const visibleExtras = extrasData.extras.filter(
+              (e: any) => e && (e.display === "frontend-backend-admin" || e.display === "Both" || e.display === "Booking")
+            );
+            
+            if (visibleExtras.length > 0) {
+              // Convert database format to form format
+              const formattedExtras = visibleExtras.map((e: any) => ({
+                id: e.id,
+                name: e.name,
+                time: e.time_minutes,
+                serviceCategory: e.service_category || '',
+                price: e.price,
+                display: e.display,
+                qtyBased: e.qty_based,
+                exemptFromDiscount: e.exempt_from_discount,
+                description: e.description,
+                serviceChecklists: []
+              }));
+              
+              setExtras(formattedExtras);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error loading extras:', error);
       }
-    } catch {
-      // ignore malformed localStorage
-    }
-  }, []);
+    };
+
+    fetchExtras();
+  }, [currentBusiness]);
 
   // Load customers from localStorage
   useEffect(() => {
@@ -393,31 +524,6 @@ export default function AddBookingPage() {
     setFilteredCustomers([]);
   };
 
-  const estimatedCost = useMemo(() => {
-    const cost = SERVICE_COSTS[newBooking.service as keyof typeof SERVICE_COSTS];
-    return typeof cost === "number" ? cost : 0;
-  }, [newBooking.service]);
-
-  const discountedCost = useMemo(() => {
-    const base = estimatedCost;
-    if (!base) return 0;
-
-    const freq = frequencies.find((f) => f.name === newBooking.frequency);
-    if (!freq) return base;
-
-    const rawDiscount = typeof freq.discount === "number" ? freq.discount : Number(freq.discount ?? 0);
-    if (!rawDiscount || Number.isNaN(rawDiscount) || rawDiscount <= 0) return base;
-
-    if (freq.discountType === "$") {
-      const v = base - rawDiscount;
-      return v < 0 ? 0 : v;
-    }
-
-    // Treat anything else (including undefined) as percentage
-    const pct = rawDiscount;
-    const v = base * (1 - pct / 100);
-    return v < 0 ? 0 : v;
-  }, [estimatedCost, frequencies, newBooking.frequency]);
 
 
 const handleAddBooking = async (status: string = 'pending') => {
@@ -495,7 +601,7 @@ const handleAddBooking = async (status: string = 'pending') => {
         time: newBooking.time,
         address: newBooking.address,
         status: status,
-        amount: discountedCost,
+        amount: 0,
         payment_method: newBooking.paymentMethod || null,
         notes: newBooking.notes,
       }),
@@ -672,7 +778,7 @@ const handleAddBooking = async (status: string = 'pending') => {
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Frequency</span>
-                <span className="font-medium">{newBooking.frequency || "One-time"}</span>
+                <span className="font-medium">{newBooking.frequency || "Not selected"}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Length</span>
@@ -680,6 +786,7 @@ const handleAddBooking = async (status: string = 'pending') => {
               </div>
             </CardContent>
           </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Payment Summary</CardTitle>
@@ -687,15 +794,23 @@ const handleAddBooking = async (status: string = 'pending') => {
             <CardContent className="space-y-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Service Total</span>
-                <span className="font-medium">${estimatedCost.toFixed(2)}</span>
+                <span className="font-medium">$0.00</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Discounted Total</span>
-                <span className="font-medium">${discountedCost.toFixed(2)}</span>
+                <span className="text-muted-foreground">Extras Total</span>
+                <span className="font-medium">$0.00</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Partial Cleaning Discount</span>
+                <span className="font-medium text-green-600">-$0.00</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Frequency Discount</span>
+                <span className="font-medium text-green-600">-$0.00</span>
               </div>
               <div className="flex justify-between font-semibold">
                 <span>TOTAL</span>
-                <span>${discountedCost.toFixed(2)}</span>
+                <span>$0.00</span>
               </div>
             </CardContent>
           </Card>
@@ -1073,45 +1188,55 @@ const handleAddBooking = async (status: string = 'pending') => {
                   ))}
                 </div>
               ) : (
-                <div className="flex gap-3">
-                  <Button
-                    type="button"
-                    variant={newBooking.frequency === "One-time" ? "default" : "outline"}
-                    onClick={() =>
-                      setNewBooking((prev) => ({ ...prev, frequency: "One-time" }))
-                    }
-                    className={
-                      newBooking.frequency === "One-time"
-                        ? "bg-cyan-100 border-cyan-400 text-cyan-700 hover:bg-cyan-200 transition-all duration-200"
-                        : "hover:bg-cyan-100 hover:border-cyan-400 hover:text-cyan-700 transition-all duration-200"
-                    }
-                  >
-                    One-time
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={newBooking.frequency === "Every 4 weeks" ? "default" : "outline"}
-                    onClick={() =>
-                      setNewBooking((prev) => ({ ...prev, frequency: "Every 4 weeks" }))
-                    }
-                    className={
-                      newBooking.frequency === "Every 4 weeks"
-                        ? "bg-cyan-100 border-cyan-400 text-cyan-700 hover:bg-cyan-200 transition-all duration-200"
-                        : "hover:bg-cyan-100 hover:border-cyan-400 hover:text-cyan-700 transition-all duration-200"
-                    }
-                  >
-                    Every 4 weeks
-                  </Button>
+                <div className="text-sm text-muted-foreground p-4 border border-dashed border-gray-300 rounded-lg">
+                  No frequencies configured. Please add frequencies in the admin settings.
                 </div>
               )}
             </div>
 
             
-            {/* Dynamic Variable Categories from Pricing Parameters */}
+            {/* Dynamic Variable Categories from Pricing Parameters with Frequency Filtering */}
             {variableCategories.length > 0 && (
               <div className={`grid gap-4 ${variableCategories.length === 1 ? 'md:grid-cols-1' : variableCategories.length === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
                 {variableCategories.map((category) => {
                   const categoryOptions = pricingParameters.filter(p => p.variable_category === category);
+                  
+                  // Apply frequency filtering
+                  let filteredOptions = categoryOptions;
+                  if (frequencyDependencies) {
+                    let allowedOptions: string[] = [];
+                    
+                    switch (category) {
+                      case 'Bathroom':
+                        allowedOptions = frequencyDependencies.bathroomVariables || [];
+                        break;
+                      case 'Sq Ft':
+                        allowedOptions = frequencyDependencies.sqftVariables || [];
+                        break;
+                      case 'Bedroom':
+                        allowedOptions = frequencyDependencies.bedroomVariables || [];
+                        break;
+                      default:
+                        // For other categories, show all options
+                        allowedOptions = categoryOptions.map(opt => opt.name);
+                    }
+                    
+                    // Only show checked options if any are checked, otherwise hide the entire category
+                    if (allowedOptions.length > 0) {
+                      filteredOptions = categoryOptions.filter(option => 
+                        allowedOptions.includes(option.name)
+                      );
+                    } else {
+                      // If no options are checked for this category, don't show the category at all
+                      return null;
+                    }
+                  }
+                  
+                  // Don't render if no filtered options
+                  if (filteredOptions.length === 0) {
+                    return null;
+                  }
+                  
                   return (
                     <div key={category}>
                       <Label htmlFor={category} className="text-sm font-medium mb-2 block">{category}</Label>
@@ -1123,7 +1248,7 @@ const handleAddBooking = async (status: string = 'pending') => {
                           <SelectValue placeholder={`Select ${category.toLowerCase()}`} />
                         </SelectTrigger>
                         <SelectContent>
-                          {categoryOptions.map((option) => (
+                          {filteredOptions.map((option) => (
                             <SelectItem key={option.id} value={option.name}>
                               {option.name}
                             </SelectItem>
@@ -1132,7 +1257,7 @@ const handleAddBooking = async (status: string = 'pending') => {
                       </Select>
                     </div>
                   );
-                })}
+                }).filter(Boolean)}
               </div>
             )}
 
@@ -1201,43 +1326,60 @@ const handleAddBooking = async (status: string = 'pending') => {
               </div>
             )}
 
-            {/* Extras */}
+            {/* Extras with Frequency Filtering */}
             {extras.length > 0 && (
               <div>
                 <Label className="text-sm font-medium mb-3 block">Extras</Label>
-                <div className={`grid gap-2 ${extras.length > 3 ? 'md:grid-cols-3' : 'grid-cols-1'}`}>
-                  {extras.map((extra) => (
-                    <div key={extra.id} className="flex items-center p-3 border rounded-lg">
-                      <div className="flex items-center space-x-3">
-                        <Checkbox
-                          id={`extra-${extra.id}`}
-                          checked={newBooking.selectedExtras?.includes(extra.id) || false}
-                          onCheckedChange={(checked) => {
-                            const currentExtras = newBooking.selectedExtras || [];
-                            if (checked) {
-                              setNewBooking(prev => ({
-                                ...prev,
-                                selectedExtras: [...currentExtras, extra.id]
-                              }));
-                            } else {
-                              setNewBooking(prev => ({
-                                ...prev,
-                                selectedExtras: currentExtras.filter(id => id !== extra.id)
-                              }));
-                            }
-                          }}
-                        />
-                        <div>
-                          <div className="font-medium">{extra.name}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {extra.serviceCategory}
-                            {extra.qtyBased && " • Quantity based"}
+                {/* Apply frequency filtering */}
+                {(() => {
+                  let filteredExtras = extras;
+                  if (frequencyDependencies && frequencyDependencies.extras && frequencyDependencies.extras.length > 0) {
+                    filteredExtras = extras.filter(extra => 
+                      frequencyDependencies.extras.includes(extra.id)
+                    );
+                  }
+                  
+                  // Don't show the entire Extras section if no extras are available for this frequency
+                  if (filteredExtras.length === 0) {
+                    return null;
+                  }
+                  
+                  return (
+                    <div className={`grid gap-2 ${filteredExtras.length > 3 ? 'md:grid-cols-3' : 'grid-cols-1'}`}>
+                      {filteredExtras.map((extra) => (
+                        <div key={extra.id} className="flex items-center p-3 border rounded-lg">
+                          <div className="flex items-center space-x-3">
+                            <Checkbox
+                              id={`extra-${extra.id}`}
+                              checked={newBooking.selectedExtras?.includes(extra.id) || false}
+                              onCheckedChange={(checked) => {
+                                const currentExtras = newBooking.selectedExtras || [];
+                                if (checked) {
+                                  setNewBooking(prev => ({
+                                    ...prev,
+                                    selectedExtras: [...currentExtras, extra.id]
+                                  }));
+                                } else {
+                                  setNewBooking(prev => ({
+                                    ...prev,
+                                    selectedExtras: currentExtras.filter(id => id !== extra.id)
+                                  }));
+                                }
+                              }}
+                            />
+                            <div>
+                              <div className="font-medium">{extra.name}</div>
+                              <div className="text-sm text-muted-foreground">
+                                {extra.serviceCategory}
+                                {extra.qtyBased && " • Quantity based"}
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  );
+                })()}
               </div>
             )}
 
