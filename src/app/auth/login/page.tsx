@@ -59,7 +59,14 @@ export default function LoginPage() {
 
       if (data.user) {
         // Get user role from metadata
-        const userRole = data.user.user_metadata?.role || 'owner'; // Default to owner for backward compatibility
+        const userRole = data.user.user_metadata?.role || 'owner';
+        
+        // Check if user is a customer - this login page is NOT for customers
+        if (userRole === 'customer') {
+          // Sign out the user since they're a customer trying to use admin login
+          await supabase.auth.signOut();
+          throw new Error('This login page is for business accounts only. Please use the customer login page.');
+        }
         
         // Check if user has completed onboarding by looking for their business
         // For providers, they don't need a business to access their dashboard
@@ -93,12 +100,15 @@ export default function LoginPage() {
           description: `Welcome back${data.user.user_metadata?.full_name ? ', ' + data.user.user_metadata.full_name : ''}!`,
         });
 
-        // Set business context if available
-        if (business?.id) {
+        // Clear any existing business context to prevent cross-role contamination
+        localStorage.removeItem('currentBusinessId');
+        
+        // Set business context only if available and user is owner/admin
+        if (business?.id && (userRole === 'owner' || userRole === 'admin')) {
           localStorage.setItem('currentBusinessId', business.id);
         }
 
-        // Redirect based on user role
+        // Redirect based on user role - don't use stored business context for providers
         const redirectPath = userRole === 'provider' ? '/provider/dashboard' : '/admin/dashboard';
         setTimeout(() => {
           router.push(redirectPath);

@@ -16,7 +16,8 @@ export function DatePicker({
 }: {
   date: Date | undefined
   onSelect: (date: Date | undefined) => void
-} & React.HTMLAttributes<HTMLDivElement>) {
+  className?: string
+} & Omit<React.HTMLAttributes<HTMLDivElement>, 'onSelect'>) {
   const [open, setOpen] = React.useState(false)
 
   return (

@@ -55,7 +55,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
         // Don't redirect if on public pages or auth pages
         if (typeof window !== 'undefined') {
           const currentPath = window.location.pathname;
-          const publicPaths = ['/', '/features', '/auth/', '/pricing', '/contact'];
+          const publicPaths = ['/', '/features', '/auth/', '/pricing', '/contact', '/provider'];
           const isPublicPath = publicPaths.some(path => currentPath.startsWith(path));
           
           if (!isPublicPath) {
@@ -65,12 +65,22 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Get businesses where user is owner (simplified for current schema)
+      // Providers don't need businesses - skip business fetching for them
+      const userRole = user.user_metadata?.role || 'owner';
+      if (userRole === 'provider') {
+        console.log('Provider user detected, skipping business fetch');
+        setBusinesses([]);
+        setCurrentBusiness(null);
+        setLoading(false);
+        return;
+      }
+
+      // Get businesses where user is owner or has profile entry
       const { data: ownerBusinesses, error: ownerError } = await supabase
         .from('businesses')
         .select('*')
         .eq('owner_id', user.id)
-        .order('created_at', { ascending: false }); // Add ordering to prevent caching
+        .order('created_at', { ascending: false });
       
       console.log('Raw business data from DB:', ownerBusinesses);
 

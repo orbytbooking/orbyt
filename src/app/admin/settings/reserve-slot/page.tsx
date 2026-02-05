@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useId } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -73,6 +73,7 @@ const RESERVE_SLOT_STORAGE_KEY = 'reserveSlotSettings';
 
 export default function ReserveSlotPage() {
   const [activeTab, setActiveTab] = useState("maximum");
+  const idCounter = useId();
   
   // Maximum Settings
   const [maxSettings, setMaxSettings] = useState<MaximumSettings>({
@@ -209,7 +210,7 @@ export default function ReserveSlotPage() {
     }
 
     const newLocation: LocationBookingSpots = {
-      locationId: Date.now().toString(),
+      locationId: `${idCounter}-${Date.now()}`,
       locationName: newLocationName.trim(),
       spots: []
     };
@@ -240,7 +241,7 @@ export default function ReserveSlotPage() {
     }
 
     const newSpot: BookingSpot = {
-      id: Date.now().toString(),
+      id: `${idCounter}-${Date.now()}`,
       ...spotForm
     };
 
@@ -395,7 +396,7 @@ export default function ReserveSlotPage() {
     if (!validateSlotForm()) return;
 
     const newSlot: TimeSlot = {
-      id: Date.now().toString(),
+      id: `${idCounter}-${Date.now()}`,
       ...formData,
       createdAt: new Date().toISOString()
     };
@@ -471,7 +472,7 @@ export default function ReserveSlotPage() {
     }
 
     const newHoliday: Holiday = {
-      id: Date.now().toString(),
+      id: `${idCounter}-${Date.now()}`,
       ...holidayForm,
       createdAt: new Date().toISOString()
     };
@@ -958,14 +959,14 @@ export default function ReserveSlotPage() {
                           <Label>Start Date</Label>
                           <DatePicker
                             date={formData.startDate ? new Date(formData.startDate) : undefined}
-                            onSelect={(date) => handleDateChange('startDate', date)}
+                            onSelect={(date: Date | undefined) => handleDateChange('startDate', date)}
                           />
                         </div>
                         <div className="space-y-2">
                           <Label>End Date</Label>
                           <DatePicker
                             date={formData.endDate ? new Date(formData.endDate) : undefined}
-                            onSelect={(date) => handleDateChange('endDate', date)}
+                            onSelect={(date: Date | undefined) => handleDateChange('endDate', date)}
                           />
                         </div>
                       </div>
@@ -1113,7 +1114,7 @@ export default function ReserveSlotPage() {
                       <Label htmlFor="holiday-date">Date *</Label>
                       <DatePicker
                         date={holidayForm.date ? new Date(holidayForm.date) : undefined}
-                        onSelect={handleHolidayDateChange}
+                        onSelect={(date: Date | undefined) => handleHolidayDateChange(date)}
                       />
                     </div>
 

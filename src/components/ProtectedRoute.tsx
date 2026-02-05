@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabaseClient";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -10,37 +10,101 @@ interface ProtectedRouteProps {
 
 const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
   const router = useRouter();
-  const { user, loading, isAdmin, isCustomer } = useAuth();
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
   useEffect(() => {
-    // If still loading, do nothing
-    if (loading) return;
+    const checkAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session) {
+          router.push("/auth/login");
+          setIsAuthenticated(false);
+          return;
+        }
 
-    // If no user, redirect to login
-    if (!user) {
-      console.log('No user found, redirecting to login');
-      router.push("/auth/login");
-      return;
-    }
+        // Check if user has completed onboarding by looking for their business
+        const { data: business, error: businessError } = await supabase
+          .from('businesses')
+          .select('id')
+          .eq('owner_id', session.user.id)
+          .maybeSingle();
 
-    // Check user role and redirect accordingly
-    if (isCustomer) {
-      console.log('User is a customer, redirecting to customer dashboard');
-      router.push("/customer/dashboard");
-      return;
-    }
-    
-    if (!isAdmin) {
-      console.log('User is not an admin, redirecting to provider dashboard');
-      router.push("/provider/dashboard");
-      return;
-    }
+        // Check user role and redirect accordingly
+        const userRole = session.user.user_metadata?.role || 'owner';
+        
+        if (userRole === 'customer') {
+          console.log('User is a customer, redirecting to customer dashboard');
+          router.push("/customer/dashboard");
+          setIsAuthenticated(false);
+          return;
+        }
+        
+        // For providers, don't check business ownership - they don't need businesses
+        if (userRole === 'provider') {
+          console.log('User is a provider, allowing access to provider dashboard');
+          setIsAuthenticated(true);
+          return;
+        }
+        
+        // For owners/admins, check business ownership
+        if (!business) {
+          router.push("/auth/onboarding");
+          setIsAuthenticated(false);
+          return;
+        }
 
-    console.log('Admin user authenticated successfully');
-  }, [user, loading, isAdmin, isCustomer, router]);
+        setIsAuthenticated(true);
+      } catch (error) {
+        console.error('Auth check error:', error);
+        router.push("/auth/login");
+        setIsAuthenticated(false);
+      }
+    };
+
+    checkAuth();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!session) {
+        router.push("/auth/login");
+        setIsAuthenticated(false);
+      } else {
+        // Check user role on auth state change
+        const userRole = session.user.user_metadata?.role || 'owner';
+        
+        if (userRole === 'customer') {
+          router.push("/customer/dashboard");
+          setIsAuthenticated(false);
+        } else if (userRole === 'provider') {
+          // Providers don't need business validation
+          setIsAuthenticated(true);
+        } else if (userRole === 'owner' || userRole === 'admin') {
+          // Owners/admins need business validation
+          const { data: business } = await supabase
+            .from('businesses')
+            .select('id')
+            .eq('owner_id', session.user.id)
+            .maybeSingle();
+          
+          if (!business) {
+            router.push("/auth/onboarding");
+            setIsAuthenticated(false);
+          } else {
+            setIsAuthenticated(true);
+          }
+        } else {
+          router.push("/provider/dashboard");
+          setIsAuthenticated(false);
+        }
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [router]);
 
   // Show loading state while checking authentication
-  if (loading) {
+  if (isAuthenticated === null) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -51,8 +115,8 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
     );
   }
 
-  // Only render children if authenticated and is admin
-  if (!user || !isAdmin) {
+  // Only render children if authenticated
+  if (!isAuthenticated) {
     return null;
   }
 
