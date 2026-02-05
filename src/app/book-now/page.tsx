@@ -36,7 +36,6 @@ import {
 } from "@/lib/customer-bookings";
 import styles from "./BookingPage.module.css";
 import { useCustomerAccount } from "@/hooks/useCustomerAccount";
-import { supabase } from "@/lib/supabaseClient";
 
 const optionalEmailSchema = z.union([z.string().email("Please enter a valid email"), z.literal("")]);
 const optionalPhoneSchema = z.union([
@@ -202,7 +201,6 @@ const availableTimes = [
 ];
 
 const FREQUENCY_OPTIONS = ["One-Time", "2x per week", "Weekly", "Every Other Week", "Monthly"] as const;
-// These will be replaced with dynamic options from service categories
 const AREA_SIZE_OPTIONS = ["10-20 sqm", "21-30 sqm", "31-40 sqm", "41-50 sqm", "51+ sqm"] as const;
 const BEDROOM_OPTIONS = ["1 Bedroom", "2 Bedrooms", "3 Bedrooms", "4 Bedrooms", "5 Bedrooms", "6 Bedrooms"] as const;
 const BATHROOM_OPTIONS = ["1 Bathroom", "2 Bathrooms", "3 Bathrooms", "4 Bathrooms", "5 Bathrooms", "6 Bathrooms"] as const;
@@ -294,9 +292,6 @@ function BookingPageContent() {
   const [storedAddress, setStoredAddress] = useState<StoredAddress | null>(null);
   const { customerName, customerEmail, accountLoading } = useCustomerAccount();
   const [pricingRows, setPricingRows] = useState<PricingTier[]>([]);
-  const [serviceCategories, setServiceCategories] = useState<any[]>([]);
-  const [availableExtras, setAvailableExtras] = useState<any[]>([]);
-  const [availableVariables, setAvailableVariables] = useState<{ [key: string]: any[] }>({});
 
   // Handle phone number input to ensure it's a valid number
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>, field: any) => {
@@ -497,112 +492,6 @@ function BookingPageContent() {
       // ignore invalid stored address
     }
   }, [form]);
-
-  // Fetch service categories and dependencies when industry is selected
-  useEffect(() => {
-    const fetchServiceCategoriesAndDependencies = async () => {
-      if (!selectedIndustryId) {
-        setServiceCategories([]);
-        setAvailableExtras([]);
-        setAvailableVariables({});
-        return;
-      }
-
-      try {
-        // Get current business ID from localStorage
-        const currentBusinessId = localStorage.getItem('currentBusinessId');
-        
-        // Fetch service categories
-        const categoriesResponse = await fetch(`/api/service-categories?industryId=${selectedIndustryId}${currentBusinessId ? `&businessId=${currentBusinessId}` : ''}`);
-        const categoriesData = await categoriesResponse.json();
-        
-        if (categoriesResponse.ok && categoriesData.serviceCategories) {
-          // Apply frequency-based filtering
-          let filteredCategories = categoriesData.serviceCategories;
-          
-          // Get current frequency from service customization (if any service is selected)
-          const currentFrequency = serviceCustomization?.frequency;
-          
-          if (currentFrequency) {
-            filteredCategories = categoriesData.serviceCategories.filter((category: any) => {
-              // If service_category_frequency is false, show it always
-              if (!category.service_category_frequency) {
-                return true;
-              }
-              
-              // If service_category_frequency is true, check if current frequency is in selected_frequencies
-              const selectedFrequencies = category.selected_frequencies || [];
-              return selectedFrequencies.includes(currentFrequency);
-            });
-          }
-          
-          setServiceCategories(filteredCategories);
-        }
-
-        // Fetch extras for this industry
-        const extrasResponse = await fetch(`/api/extras?industryId=${selectedIndustryId}`);
-        const extrasData = await extrasResponse.json();
-        
-        if (extrasResponse.ok && extrasData.extras) {
-          setAvailableExtras(extrasData.extras);
-        }
-
-        // Fetch pricing parameters (variables) for this industry
-        const variablesResponse = await fetch(`/api/pricing-parameters?industryId=${selectedIndustryId}`);
-        const variablesData = await variablesResponse.json();
-        
-        if (variablesResponse.ok && variablesData.pricingParameters) {
-          // Group variables by category
-          const groupedVariables: { [key: string]: any[] } = {};
-          variablesData.pricingParameters.forEach((param: any) => {
-            const category = param.variable_category || 'Other';
-            if (!groupedVariables[category]) {
-              groupedVariables[category] = [];
-            }
-            groupedVariables[category].push(param);
-          });
-          setAvailableVariables(groupedVariables);
-        }
-      } catch (error) {
-        console.error('Error fetching service categories and dependencies:', error);
-        setServiceCategories([]);
-        setAvailableExtras([]);
-        setAvailableVariables({});
-      }
-    };
-
-    fetchServiceCategoriesAndDependencies();
-  }, [selectedIndustryId, serviceCustomization?.frequency]);
-
-  // Helper functions to get available options for selected service category
-  const getSelectedServiceCategory = useCallback(() => {
-    if (!selectedCategory || !serviceCategories.length) return null;
-    return serviceCategories.find(cat => cat.name === selectedCategory) || null;
-  }, [selectedCategory, serviceCategories]);
-
-  const getAvailableExtrasForCategory = useCallback(() => {
-    const category = getSelectedServiceCategory();
-    if (!category || !category.extras || !Array.isArray(category.extras)) return [];
-    
-    return availableExtras.filter(extra => category.extras.includes(extra.id));
-  }, [getSelectedServiceCategory, availableExtras]);
-
-  const getAvailableVariablesForCategory = useCallback(() => {
-    const category = getSelectedServiceCategory();
-    if (!category || !category.variables) return {};
-    
-    const result: { [key: string]: any[] } = {};
-    Object.keys(category.variables).forEach(variableCategory => {
-      const selectedVariableNames = category.variables[variableCategory];
-      if (Array.isArray(selectedVariableNames) && availableVariables[variableCategory]) {
-        result[variableCategory] = availableVariables[variableCategory].filter(variable => 
-          selectedVariableNames.includes(variable.name)
-        );
-      }
-    });
-    
-    return result;
-  }, [getSelectedServiceCategory, availableVariables]);
 
   useEffect(() => {
     if (addressPreference === "existing") {
@@ -983,7 +872,7 @@ function BookingPageContent() {
 
   // Category Selection Screen
   if (currentStep === "category") {
-    const categoriesAvailable = serviceCategories.length > 0;
+    const categoriesAvailable = industryOptions.length > 0;
     return (
       <div className="min-h-screen">
         <Navigation />
@@ -993,85 +882,65 @@ function BookingPageContent() {
               <h1 className={styles.title}>Select Service Category</h1>
               <p className={styles.subtitle}>
                 {categoriesAvailable
-                  ? "Choose from the service categories you've configured."
-                  : "No service categories available. Please contact support."
-                }
+                  ? "Choose from the industries you've enabled in your admin dashboard."
+                  : "Add industries in your admin dashboard to display them here."}
               </p>
             </div>
 
             {categoriesAvailable ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-12">
-                {serviceCategories.map((category) => {
-                  const isSelected = selectedCategory === category.name;
+                {industryOptions.map((option) => {
+                  const detail = industryDetails[option.key];
+                  const IconComponent = detail?.Icon ?? Building2;
+                  const description = detail?.description ?? `Professional ${option.label} services tailored to your clients.`;
+                  const isSelected = selectedCategory === option.key;
                   return (
                     <div
-                      key={category.id}
-                      onClick={() => handleCategorySelect(category.name)}
-                      className={`
-                        relative p-6 rounded-2xl border-2 cursor-pointer transition-all duration-300
-                        ${isSelected 
-                          ? 'border-cyan-500 bg-cyan-50 shadow-lg scale-105' 
-                          : 'border-gray-200 bg-white hover:border-cyan-300 hover:shadow-md'
-                        }
-                      `}
+                      key={option.key}
+                      onClick={() => handleCategorySelect(option.key)}
+                      className={`${styles.categoryCard} ${isSelected ? styles.selected : ""}`}
                     >
-                      <div className="flex items-start justify-between mb-4">
-                        <div>
-                          <h3 className="text-xl font-bold text-gray-900 mb-2">
-                            {category.name}
-                          </h3>
-                          {category.description && (
-                            <p className="text-sm text-gray-600 leading-relaxed">
-                              {category.description}
-                            </p>
-                          )}
-                        </div>
-                        {isSelected && (
-                          <div className="bg-cyan-500 text-white rounded-full p-2">
-                            <CheckCircle className="h-5 w-5" />
-                          </div>
-                        )}
+                      <div className={styles.categoryIcon}>
+                        <IconComponent className="h-12 w-12" />
                       </div>
-                      
-                      {category.service_category_frequency && (
-                        <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-                          <p className="text-xs text-blue-700 font-medium">
-                            📅 Frequency-based service
-                          </p>
-                          {category.selected_frequencies && category.selected_frequencies.length > 0 && (
-                            <p className="text-xs text-blue-600 mt-1">
-                              Available for: {category.selected_frequencies.join(", ")}
-                            </p>
-                          )}
-                        </div>
-                      )}
+                      <h3 className={styles.categoryTitle}>{option.label}</h3>
+                      <p className={styles.categoryDescription}>{description}</p>
                     </div>
                   );
                 })}
               </div>
             ) : (
-              <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-12 text-center">
-                <Building2 className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-gray-700 mb-2">
-                  No Service Categories Available
-                </h3>
-                <p className="text-gray-500 mb-6">
-                  Service categories haven't been configured yet. Please contact support or check back later.
+              <div className="mt-12 rounded-2xl border border-dashed border-cyan-300 bg-cyan-50/60 p-8 text-center">
+                <p className="text-base text-slate-600">
+                  No industries have been added yet. Visit the admin dashboard to add industries so they appear here for customers.
                 </p>
-              </div>
-            )}
-
-            {selectedCategory && (
-              <div className="mt-8 text-center">
-                <Button
-                  onClick={() => setCurrentStep("details")}
-                  className="bg-cyan-500 hover:bg-cyan-600 text-white px-8 py-3 text-lg font-medium"
-                >
-                  Continue to Details
-                  <ArrowRight className="ml-2 h-5 w-5" />
+                <Button asChild variant="outline" className="mt-4">
+                  <Link href="/admin/settings/industries">Go to Industries Settings</Link>
                 </Button>
               </div>
             )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Success Screen
+  if (currentStep === "success") {
+    return (
+      <div className="min-h-screen">
+        <Navigation />
+        <div className={styles.bookingContainer}>
+          <div className="container mx-auto px-4 py-16 max-w-4xl">
+            <div className={styles.successMessage}>
+              <div className={styles.successIcon}>
+                <CheckCircle size={48} />
+              </div>
+              <h2 className={styles.successTitle}>Booking Confirmed!</h2>
+              <p className={styles.successText}>
+                Thanks for booking with us. We’re sending you back to your appointments dashboard…
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -1289,28 +1158,9 @@ function BookingPageContent() {
 
   // Booking Details Form
   if (currentStep === "details" && selectedCategory) {
-    const selectedServiceCategory = getSelectedServiceCategory();
-    const showSummary = serviceCustomization;
+    const categoryServices = servicesByIndustry[selectedCategory] ?? [];
+    const showSummary = selectedService && serviceCustomization;
     const { subtotal, tax, total } = showSummary ? calculateTotal() : { subtotal: 0, tax: 0, total: 0 };
-    
-    if (!selectedServiceCategory) {
-      return (
-        <div className="min-h-screen">
-          <Navigation />
-          <div className={styles.bookingContainer}>
-            <div className="container mx-auto px-4 py-16 max-w-4xl">
-              <div className="text-center">
-                <h2 className="text-2xl font-bold mb-4">Service Category Not Found</h2>
-                <p className="text-gray-600 mb-6">The selected service category could not be found.</p>
-                <Button onClick={() => setCurrentStep("category")}>
-                  Go Back
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    }
     
     return (
       <div className="min-h-screen">
@@ -1319,35 +1169,22 @@ function BookingPageContent() {
           <div className="container mx-auto px-4 py-16 max-w-6xl">
             <div className={styles.header}>
               <h1 className={styles.title}>
-                {selectedServiceCategory.name} Booking
+                {selectedIndustryLabel || "Service"} Booking
               </h1>
               <p className={styles.subtitle}>
-                {selectedServiceCategory.description || "Complete your booking details"}
+                {showSummary 
+                  ? `Complete your booking details for ${selectedService.name}`
+                  : "Select a service type and fill out your booking details"
+                }
               </p>
             </div>
 
-            {/* Service Category Details */}
+            {/* Service Type Selection - Always show flip cards */}
             <div className="mb-8">
-              <div className="bg-cyan-50 border border-cyan-200 rounded-lg p-6">
-                <h3 className="text-lg font-semibold mb-2">{selectedServiceCategory.name}</h3>
-                {selectedServiceCategory.description && (
-                  <p className="text-gray-600 mb-4">{selectedServiceCategory.description}</p>
-                )}
-                
-                {selectedServiceCategory.service_category_frequency && (
-                  <div className="mt-4">
-                    <p className="text-sm text-blue-700 font-medium">
-                      📅 This service is frequency-dependent
-                    </p>
-                    {selectedServiceCategory.selected_frequencies && selectedServiceCategory.selected_frequencies.length > 0 && (
-                      <p className="text-sm text-blue-600 mt-1">
-                        Available for: {selectedServiceCategory.selected_frequencies.join(", ")}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
+              <h2 className="text-2xl font-bold mb-4">Select Services</h2>
+              {categoryServices.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {categoryServices.map((service) => (
                     <FrequencyAwareServiceCard
                       key={service.id}
                       service={service}
@@ -1358,9 +1195,6 @@ function BookingPageContent() {
                       customization={getCardCustomization(service.id)}
                       onCustomizationChange={handleCustomizationChange}
                       industryId={selectedIndustryId}
-                      serviceCategory={getSelectedServiceCategory()}
-                      availableExtras={getAvailableExtrasForCategory()}
-                      availableVariables={getAvailableVariablesForCategory()}
                     />
                   ))}
                 </div>
