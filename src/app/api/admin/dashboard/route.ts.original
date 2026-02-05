@@ -1,0 +1,177 @@
+import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
+import { MultiTenantHelper } from '@/lib/multiTenantSupabase';
+
+export async function GET(request: Request) {
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+
+    // Get user session
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Get business context from headers
+    const businessId = request.headers.get('x-business-id');
+    if (!businessId) {
+      return NextResponse.json({ error: 'Business context required' }, { status: 400 });
+    }
+
+    // Verify user has access to this business (simplified - check ownership only)
+    const { data: businessAccess, error: accessError } = await supabase
+      .from('businesses')
+      .select('id')
+      .eq('owner_id', user.id)
+      .eq('id', businessId)
+      .single();
+
+    if (accessError || !businessAccess) {
+      return NextResponse.json({ error: 'Access denied to this business' }, { status: 403 });
+    }
+
+    // Set business context for all queries
+    MultiTenantHelper.setBusinessContext(businessId);
+
+    // Fetch bookings for current business
+    const { data: bookings, error: bookingsError } = MultiTenantHelper.filterBookings(
+      supabase.from('bookings').select('*')
+    );
+
+    // Fetch customers for current business
+    const { data: customers, error: customersError } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('business_id', businessId);
+
+    if (bookingsError || customersError) {
+      return NextResponse.json({ error: 'Failed to fetch dashboard data' }, { status: 500 });
+    }
+
+    // Calculate stats
+    const totalBookings = bookings?.length || 0;
+    const activeCustomers = customers?.length || 0;
+    
+    // Calculate total revenue from completed bookings
+    const completedBookings = bookings?.filter(b => b.status === 'completed') || [];
+    const totalRevenue = completedBookings.reduce((sum, booking) => {
+      return sum + (booking.total_price || 0);
+    }, 0);
+
+    // Calculate completion rate
+    const completionRate = totalBookings > 0 
+      ? ((completedBookings.length / totalBookings) * 100).toFixed(1)
+      : '0.0';
+
+    // Calculate month-over-month changes (simplified - comparing current month with previous month)
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    const previousMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+    const previousYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+
+    const currentMonthBookings = bookings?.filter(b => {
+      const bookingDate = new Date(b.scheduled_date || b.created_at);
+      return bookingDate.getMonth() === currentMonth && bookingDate.getFullYear() === currentYear;
+    }) || [];
+
+    const previousMonthBookings = bookings?.filter(b => {
+      const bookingDate = new Date(b.scheduled_date || b.created_at);
+      return bookingDate.getMonth() === previousMonth && bookingDate.getFullYear() === previousYear;
+    }) || [];
+
+    const currentMonthRevenue = currentMonthBookings.reduce((sum, booking) => {
+      return sum + (booking.total_price || 0);
+    }, 0);
+
+    const previousMonthRevenue = previousMonthBookings.reduce((sum, booking) => {
+      return sum + (booking.total_price || 0);
+    }, 0);
+
+    // Calculate percentage changes
+    const bookingChange = previousMonthBookings.length > 0 
+      ? ((currentMonthBookings.length - previousMonthBookings.length) / previousMonthBookings.length * 100).toFixed(1)
+      : '+0.0';
+
+    const revenueChange = previousMonthRevenue > 0 
+      ? ((currentMonthRevenue - previousMonthRevenue) / previousMonthRevenue * 100).toFixed(1)
+      : '+0.0';
+
+    const customerChange = '+0.0'; // Simplified - would need historical data
+
+    const stats = {
+      totalRevenue: {
+        value: `$${totalRevenue.toFixed(2)}`,
+        change: `${revenueChange.startsWith('-') ? revenueChange : '+' + revenueChange}%`,
+        icon: 'DollarSign',
+        trend: revenueChange.startsWith('-') ? 'down' : 'up',
+        color: 'text-green-600',
+        bgColor: 'bg-green-100 dark:bg-green-900/20'
+      },
+      totalBookings: {
+        value: totalBookings.toString(),
+        change: `${bookingChange.startsWith('-') ? bookingChange : '+' + bookingChange}%`,
+        icon: 'Calendar',
+        trend: bookingChange.startsWith('-') ? 'down' : 'up',
+        color: 'text-blue-600',
+        bgColor: 'bg-blue-100 dark:bg-blue-900/20'
+      },
+      activeCustomers: {
+        value: activeCustomers.toString(),
+        change: customerChange,
+        icon: 'Users',
+        trend: 'up',
+        color: 'text-cyan-600',
+        bgColor: 'bg-cyan-100 dark:bg-cyan-900/20'
+      },
+      completionRate: {
+        value: `${completionRate}%`,
+        change: '+2.3%', // Simplified - would need historical comparison
+        icon: 'TrendingUp',
+        trend: 'up',
+        color: 'text-orange-600',
+        bgColor: 'bg-orange-100 dark:bg-orange-900/20'
+      }
+    };
+
+    // Transform bookings data to match expected format
+    const transformedBookings = bookings?.map(booking => ({
+      id: booking.id,
+      customer: {
+        name: booking.customer_name || 'Unknown Customer',
+        email: booking.customer_email || '',
+        phone: booking.customer_phone || ''
+      },
+      service: booking.service || 'General Service',
+      date: booking.scheduled_date || booking.created_at?.split('T')[0] || '',
+      time: booking.scheduled_time ? 
+        booking.scheduled_time.toString().slice(0, 5) + ' ' + 
+        (parseInt(booking.scheduled_time.toString().slice(0, 2)) >= 12 ? 'PM' : 'AM') : 
+        '12:00 PM',
+      status: booking.status || 'pending',
+      amount: `$${(booking.total_price || 0).toFixed(2)}`,
+      paymentMethod: booking.payment_method,
+      notes: booking.notes
+    })) || [];
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        stats,
+        bookings: transformedBookings,
+        business_id: businessId,
+        user_id: user.id
+      }
+    });
+
+  } catch (error) {
+    console.error('Dashboard API error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}

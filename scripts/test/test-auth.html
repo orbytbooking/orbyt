@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Auth Test</title>
+</head>
+<body>
+    <h1>Authentication Test</h1>
+    <button onclick="testBusinessAPI()">Test Business API</button>
+    <button onclick="testUploadAPI()">Test Upload API</button>
+    <div id="results"></div>
+
+    <script>
+        async function testBusinessAPI() {
+            try {
+                const response = await fetch('/api/admin/business');
+                const data = await response.json();
+                
+                document.getElementById('results').innerHTML = `
+                    <h3>Business API Response:</h3>
+                    <pre>${JSON.stringify({
+                        status: response.status,
+                        ok: response.ok,
+                        data: data
+                    }, null, 2)}</pre>
+                `;
+                
+                if (response.ok && data.business) {
+                    console.log('✅ Business API working');
+                    console.log('Business ID:', data.business.id);
+                    console.log('Business Name:', data.business.name);
+                } else {
+                    console.log('❌ Business API failed:', data.error);
+                }
+            } catch (error) {
+                console.error('Test failed:', error);
+                document.getElementById('results').innerHTML = `<p>Error: ${error.message}</p>`;
+            }
+        }
+
+        async function testUploadAPI() {
+            try {
+                // First get business info
+                const businessResponse = await fetch('/api/admin/business');
+                const businessData = await businessResponse.json();
+                
+                if (!businessResponse.ok || !businessData.business) {
+                    document.getElementById('results').innerHTML = '<p>No business found</p>';
+                    return;
+                }
+                
+                // Create a mock file
+                const blob = new Blob(['fake image data'], { type: 'image/png' });
+                const formData = new FormData();
+                formData.append('file', blob, 'test.png');
+                formData.append('businessId', businessData.business.id);
+                
+                const uploadResponse = await fetch('/api/admin/business/upload-logo', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const uploadData = await uploadResponse.json();
+                
+                document.getElementById('results').innerHTML = `
+                    <h3>Upload API Response:</h3>
+                    <pre>${JSON.stringify({
+                        status: uploadResponse.status,
+                        ok: uploadResponse.ok,
+                        data: uploadData
+                    }, null, 2)}</pre>
+                `;
+                
+                if (uploadResponse.ok) {
+                    console.log('✅ Upload API authentication working');
+                } else {
+                    console.log('❌ Upload API authentication failed:', uploadData.error);
+                }
+            } catch (error) {
+                console.error('Test failed:', error);
+                document.getElementById('results').innerHTML = `<p>Error: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>
