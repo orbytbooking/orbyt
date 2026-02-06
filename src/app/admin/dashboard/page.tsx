@@ -23,11 +23,25 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
-const BOOKINGS_STORAGE_KEY = "adminBookings";
+// Icon mapping for API responses
+const iconMap: Record<string, any> = {
+  DollarSign,
+  Calendar,
+  Users,
+  TrendingUp,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+  UserPlus,
+  Plus
+};
 
 type Booking = {
   id: string;
-  customer: { name: string; email: string; phone: string } | string;
+  customer: { name: string; email: string; phone: string };
   service: string;
   date: string;
   time: string;
@@ -37,100 +51,24 @@ type Booking = {
   notes?: string;
 };
 
-// Mock data - replace with real API calls
-const stats = [
-  {
-    title: "Total Revenue",
-    value: "$12,450",
-    change: "+12.5%",
-    icon: DollarSign,
-    trend: "up",
-    color: "text-green-600",
-    bgColor: "bg-green-100 dark:bg-green-900/20"
-  },
-  {
-    title: "Total Bookings",
-    value: "156",
-    change: "+8.2%",
-    icon: Calendar,
-    trend: "up",
-    color: "text-blue-600",
-    bgColor: "bg-blue-100 dark:bg-blue-900/20"
-  },
-  {
-    title: "Active Customers",
-    value: "89",
-    change: "+5.1%",
-    icon: Users,
-    trend: "up",
-    color: "text-cyan-600",
-    bgColor: "bg-cyan-100 dark:bg-cyan-900/20"
-  },
-  {
-    title: "Completion Rate",
-    value: "94.2%",
-    change: "+2.3%",
-    icon: TrendingUp,
-    trend: "up",
-    color: "text-orange-600",
-    bgColor: "bg-orange-100 dark:bg-orange-900/20"
-  },
-];
-
-const defaultBookings: Booking[] = [
-  {
-    id: "BK001",
-    customer: { name: "John Doe", email: "john@example.com", phone: "(555) 123-4567" },
-    service: "Deep Cleaning",
-    date: "2024-11-08",
-    time: "9:00 AM",
-    status: "confirmed",
-    amount: "$250"
-  },
-  {
-    id: "BK002",
-    customer: { name: "Jane Smith", email: "jane@example.com", phone: "(555) 234-5678" },
-    service: "Standard Cleaning",
-    date: "2024-11-08",
-    time: "11:00 AM",
-    status: "pending",
-    amount: "$120"
-  },
-  {
-    id: "BK003",
-    customer: { name: "Mike Johnson", email: "mike@example.com", phone: "(555) 345-6789" },
-    service: "Office Cleaning",
-    date: "2024-11-09",
-    time: "1:00 PM",
-    status: "confirmed",
-    amount: "$200"
-  },
-  {
-    id: "BK004",
-    customer: { name: "Sarah Williams", email: "sarah@example.com", phone: "(555) 456-7890" },
-    service: "Carpet Cleaning",
-    date: "2024-11-09",
-    time: "3:00 PM",
-    status: "completed",
-    amount: "$150"
-  },
-  {
-    id: "BK005",
-    customer: { name: "David Brown", email: "david@example.com", phone: "(555) 567-8901" },
-    service: "Move In/Out",
-    date: "2024-11-10",
-    time: "9:00 AM",
-    status: "cancelled",
-    amount: "$350"
-  },
-];
+type DashboardData = {
+  stats: {
+    totalRevenue: { value: string; change: string; icon: any; trend: string; color: string; bgColor: string };
+    totalBookings: { value: string; change: string; icon: any; trend: string; color: string; bgColor: string };
+    activeCustomers: { value: string; change: string; icon: any; trend: string; color: string; bgColor: string };
+    completionRate: { value: string; change: string; icon: any; trend: string; color: string; bgColor: string };
+  };
+  upcomingBookings: Booking[];
+  recentBookings: Booking[];
+  business_id: string;
+};
 
 const getStatusBadge = (status: string) => {
   const styles = {
     confirmed: "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30",
     pending: "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30",
     completed: "bg-green-500/20 text-green-300 border border-green-500/30",
-    cancelled: "bg-pink-500/20 text-pink-300 border border-pink-500/30",
+    cancelled: "bg-red-500/20 text-red-300 border border-red-500/30",
   };
 
   const icons = {
@@ -152,28 +90,49 @@ const getStatusBadge = (status: string) => {
 
 const Dashboard = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [bookings, setBookings] = useState<Booking[]>(defaultBookings);
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const { config } = useWebsiteConfig();
   const router = useRouter();
   const { toast } = useToast();
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const stored = localStorage.getItem(BOOKINGS_STORAGE_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as Booking[];
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setBookings(parsed);
-        }
-      } catch (error) {
-        console.error("Failed to load bookings for dashboard", error);
+  // Fetch dashboard data from API
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await fetch('/api/admin/dashboard');
+      if (!response.ok) {
+        throw new Error('Failed to fetch dashboard data');
       }
+      
+      const result = await response.json();
+      if (result.success) {
+        setData(result.data);
+      } else {
+        throw new Error(result.error || 'Unknown error');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+      console.error('Dashboard fetch error:', err);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    fetchDashboardData();
   }, []);
+
+  // Get all bookings for calendar
+  const allBookings = useMemo(() => {
+    if (!data) return [];
+    return [...data.upcomingBookings, ...data.recentBookings];
+  }, [data]);
   
   // Get calendar data
   const getDaysInMonth = (date: Date) => {
@@ -191,11 +150,11 @@ const Dashboard = () => {
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   
   const normalizedBookings = useMemo(() => {
-    return bookings.map((booking) => ({
+    return allBookings.map((booking) => ({
       ...booking,
-      customerName: typeof booking.customer === "string" ? booking.customer : booking.customer.name,
+      customerName: booking.customer.name,
     }));
-  }, [bookings]);
+  }, [allBookings]);
 
   const bookingsByDate = useMemo(() => {
     return normalizedBookings.reduce<Record<string, typeof normalizedBookings>>(function (acc, booking) {
@@ -249,18 +208,42 @@ const Dashboard = () => {
 
   const acceptBooking = () => {
     if (!selectedBooking) return;
-    const id = selectedBooking.id;
-    setBookings((prev) => {
-      const next = prev.map((b) => b.id === id ? { ...b, status: 'confirmed' } : b);
-      if (typeof window !== 'undefined') {
-        try { localStorage.setItem(BOOKINGS_STORAGE_KEY, JSON.stringify(next)); } catch {}
-      }
-      return next;
-    });
-    setSelectedBooking((b) => b ? { ...b, status: 'confirmed' } : b);
-    const name = typeof selectedBooking.customer === 'string' ? selectedBooking.customer : selectedBooking.customer.name;
+    // In a real implementation, this would call an API to update the booking status
+    const name = selectedBooking.customer.name;
     toast({ title: 'Booking accepted', description: `${name} • ${selectedBooking.service} is now confirmed.` });
   };
+
+  // Loading and error states
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center py-8">
+          <div className="text-muted-foreground">Loading dashboard...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center py-8">
+          <div className="text-red-600">Error: {error}</div>
+          <Button onClick={fetchDashboardData} className="mt-4">Retry</Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center py-8">
+          <div className="text-muted-foreground">No data available</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -297,13 +280,14 @@ const Dashboard = () => {
       
       {/* Stats Grid */}
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-        {stats.map((stat) => {
-          const Icon = stat.icon;
+        {Object.entries(data.stats).map(([key, stat]) => {
+          const Icon = iconMap[stat.icon] || DollarSign; // Fallback to DollarSign
+          const title = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
           return (
-            <Card key={stat.title} className="p-4 glass-card border-cyan-500/20 hover:border-cyan-500/40 transition-all">
+            <Card key={key} className="p-4 glass-card border-cyan-500/20 hover:border-cyan-500/40 transition-all">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-medium text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
-                  {stat.title}
+                  {title}
                 </p>
                 <div className={`p-1.5 rounded-md ${stat.bgColor}`}>
                   <Icon className={`h-3.5 w-3.5 ${stat.color}`} />
@@ -407,7 +391,7 @@ const Dashboard = () => {
                             const chipColor = booking.status === "completed"
                               ? "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)"
                               : booking.status === "cancelled"
-                                ? "linear-gradient(135deg, #ec4899 0%, #a855f7 100%)"
+                                ? "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)"
                                 : 'linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%)';
 
                             return (
@@ -448,7 +432,7 @@ const Dashboard = () => {
                   <span className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Completed bookings</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 rounded bg-pink-400" />
+                  <div className="h-3 w-3 rounded bg-red-400" />
                   <span className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Cancelled bookings</span>
                 </div>
                 <div className="flex items-center gap-2">

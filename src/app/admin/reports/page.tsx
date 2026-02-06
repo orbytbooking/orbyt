@@ -6,15 +6,40 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
-const sampleData = [
-  { id: 'BK001', date: '2025-11-08', service: 'Standard Cleaning', status: 'completed', amount: 120 },
-  { id: 'BK002', date: '2025-11-09', service: 'Office Cleaning', status: 'completed', amount: 200 },
-  { id: 'BK003', date: '2025-11-09', service: 'Carpet Cleaning', status: 'completed', amount: 150 },
-  { id: 'BK004', date: '2025-11-10', service: 'Move In/Out', status: 'cancelled', amount: 350 },
-  { id: 'BK005', date: '2025-11-15', service: 'Deep Cleaning', status: 'confirmed', amount: 250 },
-]
+interface ReportData {
+  id: string
+  date: string
+  scheduled_date: string
+  service: string
+  status: string
+  amount: number
+  customer_name: string
+  customer_email: string
+  customer_phone: string
+  payment_method?: string
+  payment_status?: string
+  notes?: string
+  created_at: string
+}
 
-const BOOKINGS_STORAGE_KEY = 'adminBookings'
+interface ReportsResponse {
+  bookings: ReportData[]
+  summary: {
+    totalBookings: number
+    revenue: number
+    completed: number
+    cancelled: number
+  }
+  charts: {
+    revenueByDate: [string, number][]
+    statusCounts: {
+      pending: number
+      confirmed: number
+      completed: number
+      cancelled: number
+    }
+  }
+}
 
 // Simple SVG Line Chart
 function LineChartSVG({ points, labels, width = 600, height = 220 }: { points: number[]; labels: string[]; width?: number; height?: number }) {
@@ -79,67 +104,152 @@ export default function ReportsPage() {
   const [status, setStatus] = useState<'all' | 'pending' | 'confirmed' | 'completed' | 'cancelled'>('all')
   const [startDate, setStartDate] = useState<string>('')
   const [endDate, setEndDate] = useState<string>('')
-  const [rows, setRows] = useState<{ id: string; date: string; service: string; status: string; amount: number }[]>(sampleData)
+  const [data, setData] = useState<ReportsResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [initialLoad, setInitialLoad] = useState(true)
+
+  const fetchReports = async () => {
+    try {
+      if (!initialLoad) setLoading(true)
+      setError(null)
+      
+      const params = new URLSearchParams()
+      if (query) params.append('query', query)
+      if (status !== 'all') params.append('status', status)
+      if (startDate) params.append('startDate', startDate)
+      if (endDate) params.append('endDate', endDate)
+      
+      // Debug logging
+      console.log('Fetching reports with params:', {
+        query,
+        status,
+        startDate,
+        endDate,
+        paramString: params.toString()
+      })
+      
+      const response = await fetch(`/api/admin/reports?${params.toString()}`)
+      if (!response.ok) {
+        throw new Error('Failed to fetch reports')
+      }
+      
+      const result = await response.json()
+      if (result.success) {
+        console.log('Reports data received:', result.data)
+        setData(result.data)
+      } else {
+        throw new Error(result.error || 'Unknown error')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred')
+      console.error('Reports fetch error:', err)
+    } finally {
+      setLoading(false)
+      if (initialLoad) setInitialLoad(false)
+    }
+  }
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    try {
-      const stored = localStorage.getItem(BOOKINGS_STORAGE_KEY)
-      if (!stored) return
-      const parsed = JSON.parse(stored)
-      if (!Array.isArray(parsed)) return
-      const normalized = parsed.map((b: any) => {
-        const amt = typeof b.amount === 'number' ? b.amount : parseFloat(String(b.amount).replace(/[^0-9.]/g, '')) || 0
-        return {
-          id: String(b.id || ''),
-          date: String(b.date || ''),
-          service: String(b.service || ''),
-          status: String(b.status || ''),
-          amount: amt,
-        }
-      })
-      setRows(normalized)
-    } catch (e) {
-      // ignore parse errors, fallback to sampleData
-    }
+    fetchReports()
   }, [])
 
+  useEffect(() => {
+    // Debounced search
+    const timer = setTimeout(() => {
+      fetchReports()
+    }, 300)
+    
+    return () => clearTimeout(timer)
+  }, [query, status, startDate, endDate])
+
   const filtered = useMemo(() => {
-    return rows.filter((r) => {
-      const matchesQuery = r.id.toLowerCase().includes(query.toLowerCase()) || r.service.toLowerCase().includes(query.toLowerCase())
-      const matchesStatus = status === 'all' ? true : r.status === status
-      const inStart = startDate ? r.date >= startDate : true
-      const inEnd = endDate ? r.date <= endDate : true
-      return matchesQuery && matchesStatus && inStart && inEnd
-    })
-  }, [rows, query, status, startDate, endDate])
+    if (!data) return []
+    return data.bookings
+  }, [data])
 
   const totals = useMemo(() => {
-    const totalBookings = filtered.length
-    const completed = filtered.filter((r) => r.status === 'completed').length
-    const cancelled = filtered.filter((r) => r.status === 'cancelled').length
-    const revenue = filtered.filter((r) => r.status === 'completed' || r.status === 'confirmed').reduce((sum, r) => sum + r.amount, 0)
-    return { totalBookings, completed, cancelled, revenue }
-  }, [filtered])
+    if (!data) return { totalBookings: 0, completed: 0, cancelled: 0, revenue: 0 }
+    return data.summary
+  }, [data])
 
-  // Build series for charts from filtered rows
+  // Build series for charts from API data
   const revenueByDate = useMemo(() => {
-    const map = new Map<string, number>();
-    filtered.forEach((r) => {
-      if (r.status === 'completed' || r.status === 'confirmed') {
-        map.set(r.date, (map.get(r.date) || 0) + r.amount);
-      }
-    });
-    const entries = Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-    return entries;
-  }, [filtered]);
+    if (!data) return []
+    return data.charts.revenueByDate
+  }, [data])
 
   const statusCounts = useMemo(() => {
+    if (!data) return []
     const keys = ['pending', 'confirmed', 'completed', 'cancelled'] as const;
-    const counts: Record<string, number> = { pending: 0, confirmed: 0, completed: 0, cancelled: 0 };
-    filtered.forEach((r) => { counts[r.status] = (counts[r.status] || 0) + 1; });
-    return keys.map((k) => ({ label: k, value: counts[k] }));
-  }, [filtered])
+    return keys.map((k) => ({ label: k, value: data.charts.statusCounts[k] }));
+  }, [data])
+
+  const exportCSV = () => {
+    if (!data) return
+    
+    // Create proper CSV format that Excel opens without warnings
+    const headers = ['Booking ID', 'Customer Name', 'Customer Email', 'Customer Phone', 'Scheduled Date', 'Created Date', 'Service', 'Status', 'Amount']
+    
+    let csvContent = headers.join(',') + '\n'
+    
+    data.bookings.forEach(booking => {
+      csvContent += [
+        `"${booking.id}"`,
+        `"${booking.customer_name || 'N/A'}"`,
+        `"${booking.customer_email || 'N/A'}"`,
+        `"${booking.customer_phone || 'N/A'}"`,
+        `"${booking.scheduled_date || 'N/A'}"`,
+        `"${booking.created_at?.split('T')[0] || 'N/A'}"`,
+        `"${booking.service}"`,
+        `"${booking.status}"`,
+        `"${booking.amount.toFixed(2)}"`
+      ].join(',') + '\n'
+    })
+    
+    // Add UTF-8 BOM for Excel compatibility
+    const BOM = '\uFEFF'
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `reports-${new Date().toISOString().split('T')[0]}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+  }
+
+  if (loading && initialLoad) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center py-8">
+          <div className="text-muted-foreground">Loading reports...</div>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center py-8">
+          <div className="text-red-600">Error: {error}</div>
+          <Button onClick={fetchReports} className="mt-4">Retry</Button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!data) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center py-8">
+          <div className="text-muted-foreground">No data available</div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -175,7 +285,7 @@ export default function ReportsPage() {
         <Button
           className="text-white"
           style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)' }}
-          onClick={() => { /* placeholder for export */ }}
+          onClick={exportCSV}
         >
           Export CSV
         </Button>
@@ -251,8 +361,9 @@ export default function ReportsPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Booking ID</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Date</th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Customer Name</th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Scheduled Date</th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Created Date</th>
                   <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Service</th>
                   <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Amount</th>
@@ -261,8 +372,9 @@ export default function ReportsPage() {
               <tbody>
                 {filtered.map((r) => (
                   <tr key={r.id} className="border-b border-border">
-                    <td className="py-3 px-4 text-sm font-medium">{r.id}</td>
-                    <td className="py-3 px-4 text-sm">{r.date}</td>
+                    <td className="py-3 px-4 text-sm font-medium">{r.customer_name || 'N/A'}</td>
+                    <td className="py-3 px-4 text-sm">{r.scheduled_date || 'N/A'}</td>
+                    <td className="py-3 px-4 text-sm">{r.created_at?.split('T')[0] || 'N/A'}</td>
                     <td className="py-3 px-4 text-sm">{r.service}</td>
                     <td className="py-3 px-4">{r.status}</td>
                     <td className="py-3 px-4 text-sm font-medium text-right">${r.amount.toFixed(2)}</td>

@@ -33,18 +33,25 @@ export async function GET() {
     }
     
     const businessId = business.id;
+
+    // Get current date and previous month for comparisons (using UTC for consistency)
+    const now = new Date();
+    const currentMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const previousMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    const currentMonthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
     
-    // Get bookings directly (no auth check for testing)
+    // Get all bookings for metrics calculation
     const { data: bookings, error: bookingError } = await supabase
       .from('bookings')
       .select('*')
-      .eq('business_id', businessId);
+      .eq('business_id', businessId)
+      .order('created_at', { ascending: false });
     
     if (bookingError) {
       return NextResponse.json({ error: bookingError.message }, { status: 500 });
     }
-    
-    // Get customers directly
+
+    // Get customers
     const { data: customers, error: customerError } = await supabase
       .from('customers')
       .select('*')
@@ -53,81 +60,148 @@ export async function GET() {
     if (customerError) {
       return NextResponse.json({ error: customerError.message }, { status: 500 });
     }
+
+    // Calculate current month metrics (using UTC dates)
+    const currentMonthBookings = bookings.filter(b => {
+      const bookingDate = new Date(b.created_at);
+      return bookingDate >= currentMonthStart && bookingDate <= currentMonthEnd;
+    });
+
+    const previousMonthBookings = bookings.filter(b => {
+      const bookingDate = new Date(b.created_at);
+      return bookingDate >= previousMonthStart && bookingDate < currentMonthStart;
+    });
+
+    // Current month stats
+    const currentMonthRevenue = currentMonthBookings
+      .filter(b => b.status === 'completed' || b.status === 'confirmed')
+      .reduce((sum, booking) => sum + (booking.total_price || 0), 0);
     
-    // Calculate stats
-    const totalBookings = bookings?.length || 0;
-    const activeCustomers = customers?.length || 0;
-    const completedBookings = bookings?.filter(b => b.status === 'completed') || [];
-    const totalRevenue = completedBookings.reduce((sum, booking) => sum + (booking.total_price || 0), 0);
-    const completionRate = totalBookings > 0 ? ((completedBookings.length / totalBookings) * 100).toFixed(1) : '0.0';
+    const currentMonthBookingsCount = currentMonthBookings.length;
+    const currentMonthCompleted = currentMonthBookings.filter(b => b.status === 'completed').length;
+    const currentMonthCompletionRate = currentMonthBookingsCount > 0 
+      ? (currentMonthCompleted / currentMonthBookingsCount) * 100 
+      : 0;
+
+    // Previous month stats for comparison
+    const previousMonthRevenue = previousMonthBookings
+      .filter(b => b.status === 'completed' || b.status === 'confirmed')
+      .reduce((sum, booking) => sum + (booking.total_price || 0), 0);
     
-    // Create stats object
+    const previousMonthBookingsCount = previousMonthBookings.length;
+    const previousMonthCustomers = new Set(previousMonthBookings.map(b => b.customer_id)).size;
+
+    // Calculate percentage changes
+    const revenueChange = previousMonthRevenue > 0 
+      ? ((currentMonthRevenue - previousMonthRevenue) / previousMonthRevenue * 100).toFixed(1)
+      : '0.0';
+    
+    const bookingsChange = previousMonthBookingsCount > 0
+      ? ((currentMonthBookingsCount - previousMonthBookingsCount) / previousMonthBookingsCount * 100).toFixed(1)
+      : '0.0';
+    
+    // Count unique customers from current month only
+    const activeCustomers = new Set(currentMonthBookings.map(b => b.customer_id)).size;
+    const customersChange = previousMonthCustomers > 0
+      ? ((activeCustomers - previousMonthCustomers) / previousMonthCustomers * 100).toFixed(1)
+      : '0.0';
+
+    const completionRateChange = '0.0'; // Would need historical data for accurate comparison
+
+    // Convert string changes to numbers for comparison
+    const revenueChangeNum = parseFloat(revenueChange);
+    const bookingsChangeNum = parseFloat(bookingsChange);
+    const customersChangeNum = parseFloat(customersChange);
+    const completionRateChangeNum = parseFloat(completionRateChange);
+
+    // Create stats object with real data
     const stats = {
       totalRevenue: {
-        value: `$${totalRevenue.toFixed(2)}`,
-        change: '+0.0%',
+        value: `$${currentMonthRevenue.toFixed(2)}`,
+        change: `${revenueChangeNum >= 0 ? '+' : ''}${revenueChange}%`,
         icon: 'DollarSign',
-        trend: 'up',
-        color: 'text-green-600',
-        bgColor: 'bg-green-100 dark:bg-green-900/20'
+        trend: revenueChangeNum >= 0 ? 'up' : 'down',
+        color: revenueChangeNum >= 0 ? 'text-green-600' : 'text-red-600',
+        bgColor: revenueChangeNum >= 0 ? 'bg-green-100 dark:bg-green-900/20' : 'bg-red-100 dark:bg-red-900/20'
       },
       totalBookings: {
-        value: totalBookings.toString(),
-        change: '+0.0%',
+        value: currentMonthBookingsCount.toString(),
+        change: `${bookingsChangeNum >= 0 ? '+' : ''}${bookingsChange}%`,
         icon: 'Calendar',
-        trend: 'up',
-        color: 'text-blue-600',
-        bgColor: 'bg-blue-100 dark:bg-blue-900/20'
+        trend: bookingsChangeNum >= 0 ? 'up' : 'down',
+        color: bookingsChangeNum >= 0 ? 'text-blue-600' : 'text-red-600',
+        bgColor: bookingsChangeNum >= 0 ? 'bg-blue-100 dark:bg-blue-900/20' : 'bg-red-100 dark:bg-red-900/20'
       },
       activeCustomers: {
         value: activeCustomers.toString(),
-        change: '+0.0%',
+        change: `${customersChangeNum >= 0 ? '+' : ''}${customersChange}%`,
         icon: 'Users',
-        trend: 'up',
-        color: 'text-cyan-600',
-        bgColor: 'bg-cyan-100 dark:bg-cyan-900/20'
+        trend: customersChangeNum >= 0 ? 'up' : 'down',
+        color: customersChangeNum >= 0 ? 'text-cyan-600' : 'text-red-600',
+        bgColor: customersChangeNum >= 0 ? 'bg-cyan-100 dark:bg-cyan-900/20' : 'bg-red-100 dark:bg-red-900/20'
       },
       completionRate: {
-        value: `${completionRate}%`,
-        change: '+0.0%',
+        value: `${currentMonthCompletionRate.toFixed(1)}%`,
+        change: `${completionRateChangeNum >= 0 ? '+' : ''}${completionRateChange}%`,
         icon: 'TrendingUp',
-        trend: 'up',
+        trend: completionRateChangeNum >= 0 ? 'up' : 'down',
         color: 'text-orange-600',
         bgColor: 'bg-orange-100 dark:bg-orange-900/20'
       }
     };
+
+    // Get upcoming bookings (future bookings) - using UTC for consistent date comparison
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
     
-    // Transform bookings
-    const transformedBookings = bookings?.map(booking => ({
-      id: booking.id,
-      customer: {
-        name: booking.customer_name || 'Unknown Customer',
-        email: booking.customer_email || '',
-        phone: booking.customer_phone || ''
-      },
-      service: booking.service || 'General Service',
-      date: booking.scheduled_date || booking.created_at?.split('T')[0] || '',
-      time: booking.scheduled_time ? 
-        booking.scheduled_time.toString().slice(0, 5) + ' ' + 
-        (parseInt(booking.scheduled_time.toString().slice(0, 2)) >= 12 ? 'PM' : 'AM') : 
-        '12:00 PM',
-      status: booking.status || 'pending',
-      amount: `$${(booking.total_price || 0).toFixed(2)}`,
-      paymentMethod: booking.payment_method,
-      notes: booking.notes
-    })) || [];
-    
+    const upcomingBookings = bookings
+      .filter(booking => {
+        const scheduledDate = booking.scheduled_date || booking.date;
+        if (!scheduledDate) return false;
+        const bookingDate = new Date(scheduledDate);
+        return bookingDate >= today;
+      })
+      .sort((a, b) => {
+        const dateA = new Date(a.scheduled_date || a.date);
+        const dateB = new Date(b.scheduled_date || b.date);
+        return dateA.getTime() - dateB.getTime();
+      })
+      .slice(0, 10); // Limit to next 10 bookings
+
+    // Get recent bookings (latest created)
+    const recentBookings = bookings
+      .slice(0, 10) // Already ordered by created_at desc
+      .map(booking => ({
+        id: booking.id,
+        customer: {
+          name: booking.customer_name || 'Unknown Customer',
+          email: booking.customer_email || '',
+          phone: booking.customer_phone || ''
+        },
+        service: booking.service || 'General Service',
+        date: booking.scheduled_date || booking.date || booking.created_at?.split('T')[0] || '',
+        time: booking.scheduled_time ? 
+          booking.scheduled_time.toString().slice(0, 5) + ' ' + 
+          (parseInt(booking.scheduled_time.toString().slice(0, 2)) >= 12 ? 'PM' : 'AM') : 
+          '12:00 PM',
+        status: booking.status || 'pending',
+        amount: `$${(booking.total_price || 0).toFixed(2)}`,
+        paymentMethod: booking.payment_method,
+        notes: booking.notes
+      }));
+
     return NextResponse.json({
       success: true,
       data: {
         stats,
-        bookings: transformedBookings,
+        upcomingBookings,
+        recentBookings,
         business_id: businessId
       }
     });
 
   } catch (error) {
-    console.error('Simple dashboard API error:', error);
+    console.error('Dashboard API error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

@@ -47,6 +47,13 @@ type FrequencyRow = {
   isDefault?: boolean;
   discount?: number;
   discountType?: "%" | "$";
+  occurrence_time?: "onetime" | "recurring";
+  frequency_repeats?: string;
+  shorter_job_length?: "yes" | "no";
+  shorter_job_length_by?: string;
+  exclude_first_appointment?: boolean;
+  frequency_discount?: "all" | "exclude-first";
+  charge_one_time_price?: boolean;
 };
 
 type Provider = {
@@ -173,6 +180,7 @@ function AddBookingPage() {
   const [providerWage, setProviderWage] = useState<string>('');
   const [providerWageType, setProviderWageType] = useState<'percentage' | 'fixed' | 'hourly'>('hourly');
   const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>([]);
+  const [isFirstAppointment, setIsFirstAppointment] = useState(true);
 
   // Load frequencies from API
   useEffect(() => {
@@ -944,12 +952,34 @@ const handleAddBooking = async (status: string = 'pending') => {
         customer_email: customerEmail,
         customer_phone: customerPhone,
         service: newBooking.service,
+        frequency: newBooking.frequency,
         date: newBooking.selectedDate,
         time: newBooking.selectedTime,
         status: status,
-        amount: 0,
+        amount: calculateTotalAmount,
+        service_total: calculateServiceTotal,
+        extras_total: calculateExtrasTotal,
+        partial_cleaning_discount: calculatePartialCleaningDiscount,
+        frequency_discount: calculateFrequencyDiscount,
         payment_method: newBooking.paymentMethod || null,
         notes: newBooking.notes,
+        duration: newBooking.duration,
+        duration_unit: newBooking.durationUnit,
+        selected_extras: newBooking.selectedExtras,
+        extra_quantities: newBooking.extraQuantities,
+        category_values: categoryValues,
+        is_partial_cleaning: isPartialCleaning,
+        excluded_areas: selectedExcludeParams,
+        exclude_quantities: newBooking.excludeQuantities,
+        service_provider_id: newBooking.serviceProvider,
+        provider_wage: providerWage,
+        provider_wage_type: providerWageType,
+        private_booking_notes: newBooking.privateBookingNotes,
+        private_customer_notes: newBooking.privateCustomerNotes,
+        service_provider_notes: newBooking.serviceProviderNotes,
+        waiting_list: newBooking.waitingList,
+        priority: newBooking.priority,
+        zip_code: newBooking.zipCode,
       }),
     });
 
@@ -1105,6 +1135,176 @@ const handleAddBooking = async (status: string = 'pending') => {
     });
   };
 
+  // Calculate service total based on pricing parameters
+  const calculateServiceTotal = useMemo(() => {
+    if (!newBooking.service || !newBooking.frequency) {
+      return 0;
+    }
+
+    // Find matching pricing parameter based on selected variables
+    const matchingParam = pricingParameters.find(param => {
+      // Check if all variable categories match
+      let matches = true;
+      
+      // Check frequency match if parameter uses frequency filtering
+      if (param.show_based_on_frequency && param.frequency) {
+        const allowedFrequencies = param.frequency.split(', ').map(f => f.trim());
+        if (!allowedFrequencies.includes(newBooking.frequency)) {
+          matches = false;
+        }
+      }
+      
+      // Check service category match if parameter uses service category filtering
+      if (param.show_based_on_service_category && param.service_category) {
+        const allowedServices = param.service_category.split(', ').map(s => s.trim());
+        if (!allowedServices.includes(newBooking.service)) {
+          matches = false;
+        }
+      }
+      
+      // Check if variable category value matches
+      if (param.variable_category && categoryValues[param.variable_category]) {
+        if (param.name !== categoryValues[param.variable_category]) {
+          matches = false;
+        }
+      }
+      
+      return matches;
+    });
+
+    return matchingParam?.price || 0;
+  }, [newBooking.service, newBooking.frequency, categoryValues, pricingParameters]);
+
+  // Calculate extras total
+  const calculateExtrasTotal = useMemo(() => {
+    let total = 0;
+    
+    newBooking.selectedExtras?.forEach(extraId => {
+      const extra = extras.find(e => e.id === extraId);
+      if (extra) {
+        const quantity = newBooking.extraQuantities[extraId] || 1;
+        total += extra.price * quantity;
+      }
+    });
+    
+    return total;
+  }, [newBooking.selectedExtras, newBooking.extraQuantities, extras]);
+
+  // Calculate partial cleaning discount
+  const calculatePartialCleaningDiscount = useMemo(() => {
+    if (!isPartialCleaning || selectedExcludeParams.length === 0) {
+      return 0;
+    }
+
+    let discount = 0;
+    selectedExcludeParams.forEach(paramId => {
+      const param = excludeParameters.find(p => p.id === paramId);
+      if (param && param.price) {
+        const quantity = newBooking.excludeQuantities[paramId] || 1;
+        discount += param.price * quantity;
+      }
+    });
+
+    return discount;
+  }, [isPartialCleaning, selectedExcludeParams, excludeParameters, newBooking.excludeQuantities]);
+
+  // Calculate adjusted job length for recurring frequencies
+  const calculateAdjustedDuration = useMemo(() => {
+    if (!newBooking.frequency || !newBooking.duration) {
+      return { duration: newBooking.duration, durationUnit: newBooking.durationUnit };
+    }
+
+    const selectedFreq = frequencies.find(f => f.name === newBooking.frequency);
+    if (!selectedFreq) {
+      return { duration: newBooking.duration, durationUnit: newBooking.durationUnit };
+    }
+
+    // Only apply job length adjustment for recurring frequencies
+    if (selectedFreq.occurrence_time !== 'recurring') {
+      return { duration: newBooking.duration, durationUnit: newBooking.durationUnit };
+    }
+
+    // Check if shorter job length is enabled
+    if (selectedFreq.shorter_job_length !== 'yes') {
+      return { duration: newBooking.duration, durationUnit: newBooking.durationUnit };
+    }
+
+    // If this is the first appointment and we should exclude it from shorter length
+    if (isFirstAppointment && selectedFreq.exclude_first_appointment) {
+      return { duration: newBooking.duration, durationUnit: newBooking.durationUnit };
+    }
+
+    // Apply the percentage reduction
+    const reductionPercentage = parseFloat(selectedFreq.shorter_job_length_by || '0');
+    if (reductionPercentage <= 0) {
+      return { duration: newBooking.duration, durationUnit: newBooking.durationUnit };
+    }
+
+    // Calculate reduced duration
+    const originalDuration = parseFloat(newBooking.duration);
+    const reducedDuration = originalDuration * (1 - reductionPercentage / 100);
+    
+    // Convert to appropriate format
+    if (newBooking.durationUnit === 'Hours') {
+      const hours = Math.floor(reducedDuration);
+      const minutes = Math.round((reducedDuration - hours) * 60);
+      
+      if (minutes >= 30) {
+        return { 
+          duration: hours.toString().padStart(2, '0'), 
+          durationUnit: 'Hours',
+          displayText: `${hours} Hr ${minutes} Min`
+        };
+      } else {
+        return { 
+          duration: hours.toString().padStart(2, '0'), 
+          durationUnit: 'Hours',
+          displayText: `${hours} Hr`
+        };
+      }
+    } else {
+      return { 
+        duration: Math.round(reducedDuration).toString().padStart(2, '0'), 
+        durationUnit: newBooking.durationUnit 
+      };
+    }
+  }, [newBooking.frequency, newBooking.duration, newBooking.durationUnit, frequencies, isFirstAppointment]);
+
+  // Calculate frequency discount with first appointment exclusion logic
+  const calculateFrequencyDiscount = useMemo(() => {
+    if (!newBooking.frequency) {
+      return 0;
+    }
+
+    const selectedFreq = frequencies.find(f => f.name === newBooking.frequency);
+    if (!selectedFreq || !selectedFreq.discount) {
+      return 0;
+    }
+
+    // For recurring frequencies, check if we should exclude the first appointment
+    if (selectedFreq.occurrence_time === 'recurring') {
+      // If frequency_discount is "exclude-first" and this is the first appointment, no discount
+      if (selectedFreq.frequency_discount === 'exclude-first' && isFirstAppointment) {
+        return 0;
+      }
+    }
+
+    const subtotal = calculateServiceTotal + calculateExtrasTotal - calculatePartialCleaningDiscount;
+    
+    if (selectedFreq.discountType === '%') {
+      return (subtotal * selectedFreq.discount) / 100;
+    } else {
+      return selectedFreq.discount;
+    }
+  }, [newBooking.frequency, frequencies, calculateServiceTotal, calculateExtrasTotal, calculatePartialCleaningDiscount, isFirstAppointment]);
+
+  // Calculate total amount
+  const calculateTotalAmount = useMemo(() => {
+    const subtotal = calculateServiceTotal + calculateExtrasTotal;
+    const totalDiscount = calculatePartialCleaningDiscount + calculateFrequencyDiscount;
+    return Math.max(0, subtotal - totalDiscount);
+  }, [calculateServiceTotal, calculateExtrasTotal, calculatePartialCleaningDiscount, calculateFrequencyDiscount]);
+
   return (
     <div className="space-y-6">
       <div className="grid gap-6 lg:grid-cols-[0.8fr_2fr]">
@@ -1127,10 +1327,40 @@ const handleAddBooking = async (status: string = 'pending') => {
                 <span className="text-muted-foreground">Frequency</span>
                 <span className="font-medium">{newBooking.frequency || "Not selected"}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Length</span>
-                <span className="font-medium">{newBooking.duration} {newBooking.durationUnit === "Hours" ? "Hr" : "Min"} {newBooking.duration !== "01" && newBooking.durationUnit === "Hours" ? "0 Min" : ""}</span>
-              </div>
+              {(() => {
+                const selectedFreq = frequencies.find(f => f.name === newBooking.frequency);
+                const adjustedDuration = calculateAdjustedDuration;
+                const isRecurring = selectedFreq?.occurrence_time === 'recurring';
+                const hasAdjustment = isRecurring && selectedFreq?.shorter_job_length === 'yes' && parseFloat(selectedFreq?.shorter_job_length_by || '0') > 0;
+                
+                return (
+                  <>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Length</span>
+                      <span className="font-medium">
+                        {hasAdjustment && adjustedDuration.displayText ? adjustedDuration.displayText : 
+                          `${newBooking.duration} ${newBooking.durationUnit === "Hours" ? "Hr" : "Min"}${newBooking.duration !== "01" && newBooking.durationUnit === "Hours" ? " 0 Min" : ""}`}
+                      </span>
+                    </div>
+                    {hasAdjustment && (
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Original Length</span>
+                        <span className="text-muted-foreground line-through">
+                          {newBooking.duration} {newBooking.durationUnit === "Hours" ? "Hr" : "Min"}
+                        </span>
+                      </div>
+                    )}
+                    {isRecurring && selectedFreq?.frequency_repeats && (
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Repeats</span>
+                        <span className="text-muted-foreground">
+                          {selectedFreq.frequency_repeats.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </CardContent>
           </Card>
 
@@ -1141,23 +1371,46 @@ const handleAddBooking = async (status: string = 'pending') => {
             <CardContent className="space-y-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Service Total</span>
-                <span className="font-medium">$0.00</span>
+                <span className="font-medium">${calculateServiceTotal.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Extras Total</span>
-                <span className="font-medium">$0.00</span>
+                <span className="font-medium">${calculateExtrasTotal.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Partial Cleaning Discount</span>
-                <span className="font-medium text-green-600">-$0.00</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Frequency Discount</span>
-                <span className="font-medium text-green-600">-$0.00</span>
-              </div>
-              <div className="flex justify-between font-semibold">
+              {calculatePartialCleaningDiscount > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Partial Cleaning Discount</span>
+                  <span className="font-medium text-green-600">-${calculatePartialCleaningDiscount.toFixed(2)}</span>
+                </div>
+              )}
+              {(() => {
+                const selectedFreq = frequencies.find(f => f.name === newBooking.frequency);
+                const isRecurring = selectedFreq?.occurrence_time === 'recurring';
+                const excludeFirst = selectedFreq?.frequency_discount === 'exclude-first';
+                
+                if (calculateFrequencyDiscount > 0) {
+                  return (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Frequency Discount</span>
+                      <span className="font-medium text-green-600">-${calculateFrequencyDiscount.toFixed(2)}</span>
+                    </div>
+                  );
+                } else if (isRecurring && excludeFirst && isFirstAppointment && selectedFreq?.discount) {
+                  return (
+                    <div className="flex justify-between text-xs">
+                      <span className="text-amber-600">Frequency Discount (Applied from 2nd booking)</span>
+                      <span className="text-amber-600">
+                        {selectedFreq.discountType === '%' ? `${selectedFreq.discount}%` : `$${selectedFreq.discount.toFixed(2)}`}
+                      </span>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+              <div className="border-t pt-2 mt-2"></div>
+              <div className="flex justify-between font-semibold text-base">
                 <span>TOTAL</span>
-                <span>$0.00</span>
+                <span>${calculateTotalAmount.toFixed(2)}</span>
               </div>
             </CardContent>
           </Card>
@@ -1598,6 +1851,44 @@ const handleAddBooking = async (status: string = 'pending') => {
               })()}
             </div>
 
+            {/* First Appointment Toggle for Recurring Frequencies */}
+            {(() => {
+              const selectedFreq = frequencies.find(f => f.name === newBooking.frequency);
+              const isRecurring = selectedFreq?.occurrence_time === 'recurring';
+              const hasDiscountExclusion = selectedFreq?.frequency_discount === 'exclude-first';
+              const hasShorterLength = selectedFreq?.shorter_job_length === 'yes' && selectedFreq?.exclude_first_appointment;
+              
+              if (isRecurring && (hasDiscountExclusion || hasShorterLength)) {
+                return (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="flex items-start space-x-3">
+                      <Checkbox
+                        id="first-appointment"
+                        checked={isFirstAppointment}
+                        onCheckedChange={(checked) => setIsFirstAppointment(!!checked)}
+                      />
+                      <div className="flex-1">
+                        <Label htmlFor="first-appointment" className="text-sm font-medium cursor-pointer">
+                          This is the first appointment
+                        </Label>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {hasDiscountExclusion && hasShorterLength && (
+                            <>First appointment uses original job length and one-time pricing (no frequency discount)</>
+                          )}
+                          {hasDiscountExclusion && !hasShorterLength && (
+                            <>First appointment charged at one-time price (no frequency discount)</>
+                          )}
+                          {!hasDiscountExclusion && hasShorterLength && (
+                            <>First appointment uses original job length</>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
             
             {/* Dynamic Variable Categories from Pricing Parameters with Service Category and Frequency Filtering */}
             {variableCategories.length > 0 && (

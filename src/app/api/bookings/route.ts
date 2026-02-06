@@ -114,12 +114,41 @@ export async function POST(request: Request) {
       }
     }
 
-    // Add business_id and ensure total_price and payment_method are set
+    // Prepare booking data with all fields
     const bookingWithBusiness = {
-      ...bookingData,
-      business_id: businessId, // Restore business_id for manual filtering
-      total_price: bookingData.amount || 0, // Use amount or default to 0
-      payment_method: paymentMethod, // Use mapped valid value
+      business_id: businessId,
+      customer_name: bookingData.customer_name,
+      customer_email: bookingData.customer_email,
+      customer_phone: bookingData.customer_phone,
+      service: bookingData.service,
+      frequency: bookingData.frequency,
+      date: bookingData.date,
+      time: bookingData.time,
+      status: bookingData.status || 'pending',
+      total_price: bookingData.amount || 0,
+      service_total: bookingData.service_total || 0,
+      extras_total: bookingData.extras_total || 0,
+      partial_cleaning_discount: bookingData.partial_cleaning_discount || 0,
+      frequency_discount: bookingData.frequency_discount || 0,
+      payment_method: paymentMethod,
+      notes: bookingData.notes || '',
+      duration: bookingData.duration,
+      duration_unit: bookingData.duration_unit,
+      selected_extras: bookingData.selected_extras || [],
+      extra_quantities: bookingData.extra_quantities || {},
+      category_values: bookingData.category_values || {},
+      is_partial_cleaning: bookingData.is_partial_cleaning || false,
+      excluded_areas: bookingData.excluded_areas || [],
+      exclude_quantities: bookingData.exclude_quantities || {},
+      service_provider_id: bookingData.service_provider_id,
+      provider_wage: bookingData.provider_wage,
+      provider_wage_type: bookingData.provider_wage_type,
+      private_booking_notes: bookingData.private_booking_notes || [],
+      private_customer_notes: bookingData.private_customer_notes || [],
+      service_provider_notes: bookingData.service_provider_notes || [],
+      waiting_list: bookingData.waiting_list || false,
+      priority: bookingData.priority || 'Medium',
+      zip_code: bookingData.zip_code,
     };
 
     // Insert booking directly
