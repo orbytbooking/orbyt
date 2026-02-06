@@ -10,6 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { serviceCategoriesService, ServiceCategory } from "@/lib/serviceCategories";
+import { pricingParametersService, PricingParameter } from "@/lib/pricing-parameters";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { useToast } from "@/hooks/use-toast";
 import { Shirt, Sofa, Droplets, Wind, Trash2, Upload, X, Flower2, Flame, Warehouse, Paintbrush } from "lucide-react";
@@ -45,10 +47,11 @@ export default function ExcludeParameterNewPage() {
 
   const [allRows, setAllRows] = useState<ExcludeParameterRow[]>([]);
   const [extras, setExtras] = useState<Array<{id: number; name: string}>>([]);
-  const [services, setServices] = useState<Array<{id: number; name: string}>>([]);
+  const [services, setServices] = useState<Array<{id: string; name: string}>>([]);
   const [providers, setProviders] = useState<Array<{ id: string; name: string }>>([]);
-  const [frequencies, setFrequencies] = useState<Array<{ id: number; name: string }>>([]);
+  const [frequencies, setFrequencies] = useState<Array<{ id: string; name: string }>>([]);
   const [variables, setVariables] = useState<Array<{ id: string; name: string; category: string }>>([]);
+  const [loading, setLoading] = useState(true);
 
   const [form, setForm] = useState({
     name: "",
@@ -86,73 +89,101 @@ export default function ExcludeParameterNewPage() {
   ];
 
   const allDataKey = useMemo(() => `excludeParameters_${industry}`, [industry]);
-  const extrasKey = useMemo(() => `extras_${industry}`, [industry]);
-  const servicesKey = useMemo(() => `service_categories_${industry}`, [industry]);
 
+  // Fetch industry ID if not provided
   useEffect(() => {
-    // Load all exclude parameters data
-    try {
-      const storedData = JSON.parse(localStorage.getItem(allDataKey) || "[]");
-      if (Array.isArray(storedData)) {
-        setAllRows(storedData);
-      }
-    } catch (e) {
-      console.error("Error loading exclude parameters data:", e);
-    }
+    const fetchIndustryId = async () => {
+      if (!currentBusiness?.id || industryId) return;
 
-    // Load extras
-    try {
-      const storedExtras = JSON.parse(localStorage.getItem(extrasKey) || "[]");
-      if (Array.isArray(storedExtras)) {
-        setExtras(storedExtras.map((e: any) => ({ id: e.id, name: e.name })));
+      try {
+        const response = await fetch(`/api/industries?business_id=${currentBusiness.id}`);
+        const data = await response.json();
+        const currentIndustry = data.industries?.find((ind: any) => ind.name === industry);
+        
+        if (currentIndustry) {
+          // Update URL with industryId
+          const newUrl = new URL(window.location.href);
+          newUrl.searchParams.set('industryId', currentIndustry.id);
+          window.history.replaceState({}, '', newUrl.toString());
+        }
+      } catch (error) {
+        console.error('Error fetching industry ID:', error);
       }
-    } catch (e) {
-      console.error("Error loading extras:", e);
-    }
+    };
+    
+    fetchIndustryId();
+  }, [industry, industryId, currentBusiness?.id]);
 
-    // Load service categories
-    try {
-      const storedServices = JSON.parse(localStorage.getItem(servicesKey) || "[]");
-      if (Array.isArray(storedServices)) {
-        setServices(storedServices.map((s: any) => ({ id: s.id, name: s.name })));
-      }
-    } catch (e) {
-      console.error("Error loading services:", e);
-    }
+  // Load all data from database
+  useEffect(() => {
+    const loadData = async () => {
+      if (!industryId) return;
 
-    // Load frequencies
-    try {
-      const frequenciesKey = `frequencies_${industry}`;
-      const storedFrequencies = JSON.parse(localStorage.getItem(frequenciesKey) || "[]");
-      if (Array.isArray(storedFrequencies)) {
-        setFrequencies(storedFrequencies.map((f: any) => ({ id: f.id, name: f.name })));
-      }
-    } catch (e) {
-      console.error("Error loading frequencies:", e);
-    }
+      try {
+        setLoading(true);
 
-    // Load variables (pricing parameters)
-    try {
-      const allDataKey = `pricingParamsAll_${industry}`;
-      const storedData = JSON.parse(localStorage.getItem(allDataKey) || "{}");
-      if (storedData && typeof storedData === "object") {
-        const allVariables: Array<{ id: string; name: string; category: string }> = [];
-        Object.keys(storedData).forEach(category => {
-          const rows = storedData[category] || [];
-          rows.forEach((row: any) => {
+        // Load service categories
+        try {
+          const serviceCategoriesData = await serviceCategoriesService.getServiceCategoriesByIndustry(industryId);
+          setServices(serviceCategoriesData.map(s => ({ id: s.id, name: s.name })));
+        } catch (error) {
+          console.error('Error loading service categories:', error);
+        }
+
+        // Load pricing parameters (variables)
+        try {
+          const pricingParamsData = await pricingParametersService.getPricingParametersByIndustry(industryId);
+          const allVariables: Array<{ id: string; name: string; category: string }> = [];
+          pricingParamsData.forEach(param => {
             allVariables.push({
-              id: `${category}-${row.id}`,
-              name: row.name,
-              category: category
+              id: param.id,
+              name: param.name,
+              category: param.variable_category
             });
           });
+          setVariables(allVariables);
+        } catch (error) {
+          console.error('Error loading pricing parameters:', error);
+        }
+
+        // Load frequencies from API
+        try {
+          const response = await fetch(`/api/industry-frequency?industryId=${industryId}`);
+          const data = await response.json();
+          if (data.frequencies && Array.isArray(data.frequencies)) {
+            setFrequencies(data.frequencies.map((f: any) => ({ id: f.id, name: f.name })));
+          }
+        } catch (error) {
+          console.error('Error loading frequencies:', error);
+        }
+
+        // Load providers
+        try {
+          if (currentBusiness?.id) {
+            const response = await fetch(`/api/admin/providers?businessId=${currentBusiness.id}`);
+            const data = await response.json();
+            if (data.providers && Array.isArray(data.providers)) {
+              setProviders(data.providers.map((p: any) => ({ id: p.id, name: `${p.first_name} ${p.last_name}` })));
+            }
+          }
+        } catch (error) {
+          console.error('Error loading providers:', error);
+        }
+
+      } catch (error) {
+        console.error('Error loading data:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load some data. Please try refreshing the page.",
+          variant: "destructive",
         });
-        setVariables(allVariables);
+      } finally {
+        setLoading(false);
       }
-    } catch (e) {
-      console.error("Error loading variables:", e);
-    }
-  }, [allDataKey, extrasKey, servicesKey, industry]);
+    };
+
+    loadData();
+  }, [industryId, currentBusiness?.id, toast]);
 
   // Fetch existing exclude parameter data when editing
   useEffect(() => {
@@ -213,22 +244,17 @@ export default function ExcludeParameterNewPage() {
       if (!currentBusiness) return;
       
       try {
-        console.log('Fetching providers for businessId:', currentBusiness.id);
         const response = await fetch(`/api/admin/providers?businessId=${encodeURIComponent(currentBusiness.id)}`);
-        console.log('Providers API response status:', response.status);
         
         if (response.ok) {
           const data = await response.json();
-          console.log('Providers API response data:', data);
           
           if (data.providers && Array.isArray(data.providers)) {
-            console.log('Setting available providers:', data.providers);
             setProviders(data.providers.map((p: any) => ({ 
               id: p.id, 
               name: p.name 
             })));
           } else {
-            console.log('No providers array in response');
             setProviders([]);
           }
         } else {
@@ -283,6 +309,12 @@ export default function ExcludeParameterNewPage() {
       // Auto-set frequency and service category based on form state
       const frequencyValue = form.showBasedOnFrequency ? form.frequency.join(", ") : "";
       const serviceCategoryValue = form.showBasedOnServiceCategory ? form.serviceCategory.join(", ") : "";
+      
+      // Extract just the variable names (remove category prefix) for saving
+      const variableNames = form.variableCategories.map(vc => {
+        const parts = vc.split('-');
+        return parts.slice(1).join('-'); // Remove the category part, keep the rest
+      }).join(", ");
 
       const paramData = {
         business_id: currentBusiness.id,
@@ -297,6 +329,8 @@ export default function ExcludeParameterNewPage() {
         frequency: frequencyValue || undefined,
         show_based_on_frequency: form.showBasedOnFrequency,
         show_based_on_service_category: form.showBasedOnServiceCategory,
+        show_based_on_variables: form.showBasedOnVariables,
+        variables: variableNames || undefined,
         excluded_providers: form.excludedProviders,
       };
 
@@ -357,7 +391,13 @@ export default function ExcludeParameterNewPage() {
           <CardDescription>Configure exclude parameter for {industry}.</CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="details" className="w-full">
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="text-sm text-muted-foreground">Loading data...</div>
+            </div>
+          ) : (
+            <>
+            <Tabs defaultValue="details" className="w-full">
             <TabsList className="grid w-full grid-cols-3 mb-6">
               <TabsTrigger value="details">Details</TabsTrigger>
               <TabsTrigger value="dependencies">Dependencies</TabsTrigger>
@@ -606,38 +646,46 @@ export default function ExcludeParameterNewPage() {
                   <div className="space-y-2">
                     <Label htmlFor="frequency">Frequency</Label>
                     <div className="space-y-2">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Checkbox
-                          id="select-all-frequencies"
-                          checked={form.frequency.length === frequencies.length && frequencies.length > 0}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setForm(p => ({ ...p, frequency: frequencies.map(f => f.name) }));
-                            } else {
-                              setForm(p => ({ ...p, frequency: [] }));
-                            }
-                          }}
-                        />
-                        <Label htmlFor="select-all-frequencies" className="text-sm font-medium cursor-pointer">Select All</Label>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        {frequencies.map((frequency) => (
-                          <div key={frequency.id} className="flex items-center gap-2">
+                      {frequencies.length === 0 ? (
+                        <p className="text-sm text-muted-foreground italic">
+                          No frequencies available. Please add frequencies for this industry first.
+                        </p>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2 mb-2">
                             <Checkbox
-                              id={`frequency-${frequency.id}`}
-                              checked={form.frequency.includes(frequency.name)}
+                              id="select-all-frequencies"
+                              checked={form.frequency.length === frequencies.length && frequencies.length > 0}
                               onCheckedChange={(checked) => {
                                 if (checked) {
-                                  setForm(p => ({ ...p, frequency: [...p.frequency, frequency.name] }));
+                                  setForm(p => ({ ...p, frequency: frequencies.map(f => f.name) }));
                                 } else {
-                                  setForm(p => ({ ...p, frequency: p.frequency.filter(f => f !== frequency.name) }));
+                                  setForm(p => ({ ...p, frequency: [] }));
                                 }
                               }}
                             />
-                            <Label htmlFor={`frequency-${frequency.id}`} className="text-sm cursor-pointer">{frequency.name}</Label>
+                            <Label htmlFor="select-all-frequencies" className="text-sm font-medium cursor-pointer">Select All</Label>
                           </div>
-                        ))}
-                      </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            {frequencies.map((frequency) => (
+                              <div key={frequency.id} className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`frequency-${frequency.id}`}
+                                  checked={form.frequency.includes(frequency.name)}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setForm(p => ({ ...p, frequency: [...p.frequency, frequency.name] }));
+                                    } else {
+                                      setForm(p => ({ ...p, frequency: p.frequency.filter(f => f !== frequency.name) }));
+                                    }
+                                  }}
+                                />
+                                <Label htmlFor={`frequency-${frequency.id}`} className="text-sm cursor-pointer">{frequency.name}</Label>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}
@@ -662,38 +710,46 @@ export default function ExcludeParameterNewPage() {
                   <div className="space-y-2">
                     <Label htmlFor="service-category">Service Category</Label>
                     <div className="space-y-2">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Checkbox
-                          id="select-all-service-categories"
-                          checked={form.serviceCategory.length === services.length && services.length > 0}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setForm(p => ({ ...p, serviceCategory: services.map(s => s.name) }));
-                            } else {
-                              setForm(p => ({ ...p, serviceCategory: [] }));
-                            }
-                          }}
-                        />
-                        <Label htmlFor="select-all-service-categories" className="text-sm font-medium cursor-pointer">Select All</Label>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        {services.map((service) => (
-                          <div key={service.id} className="flex items-center gap-2">
+                      {services.length === 0 ? (
+                        <p className="text-sm text-muted-foreground italic">
+                          No service categories available. Please add service categories for this industry first.
+                        </p>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2 mb-2">
                             <Checkbox
-                              id={`service-category-${service.id}`}
-                              checked={form.serviceCategory.includes(service.name)}
+                              id="select-all-service-categories"
+                              checked={form.serviceCategory.length === services.length && services.length > 0}
                               onCheckedChange={(checked) => {
                                 if (checked) {
-                                  setForm(p => ({ ...p, serviceCategory: [...p.serviceCategory, service.name] }));
+                                  setForm(p => ({ ...p, serviceCategory: services.map(s => s.name) }));
                                 } else {
-                                  setForm(p => ({ ...p, serviceCategory: p.serviceCategory.filter(s => s !== service.name) }));
+                                  setForm(p => ({ ...p, serviceCategory: [] }));
                                 }
                               }}
                             />
-                            <Label htmlFor={`service-category-${service.id}`} className="text-sm cursor-pointer">{service.name}</Label>
+                            <Label htmlFor="select-all-service-categories" className="text-sm font-medium cursor-pointer">Select All</Label>
                           </div>
-                        ))}
-                      </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            {services.map((service) => (
+                              <div key={service.id} className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`service-category-${service.id}`}
+                                  checked={form.serviceCategory.includes(service.name)}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setForm(p => ({ ...p, serviceCategory: [...p.serviceCategory, service.name] }));
+                                    } else {
+                                      setForm(p => ({ ...p, serviceCategory: p.serviceCategory.filter(s => s !== service.name) }));
+                                    }
+                                  }}
+                                />
+                                <Label htmlFor={`service-category-${service.id}`} className="text-sm cursor-pointer">{service.name}</Label>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}
@@ -718,66 +774,74 @@ export default function ExcludeParameterNewPage() {
                   <div className="space-y-2">
                     <Label htmlFor="variable-categories">Variable</Label>
                     <div className="space-y-2">
-                      {/* Group variables by category */}
-                      {Array.from(new Set(variables.map(v => v.category))).map(category => {
-                        const categoryVariables = variables.filter(v => v.category === category);
-                        const allCategoryVariablesSelected = categoryVariables.every(v => form.variableCategories.includes(v.name));
-                        
-                        return (
-                          <div key={category} className="border rounded-md p-3 space-y-2">
-                            {/* Category header with select all */}
-                            <div className="flex items-center gap-2">
-                              <Checkbox
-                                id={`category-all-${category}`}
-                                checked={allCategoryVariablesSelected}
-                                onCheckedChange={(checked) => {
-                                  if (checked) {
-                                    // Add all variables from this category
-                                    const newVariableCategories = [...form.variableCategories];
-                                    categoryVariables.forEach(v => {
-                                      if (!newVariableCategories.includes(v.name)) {
-                                        newVariableCategories.push(v.name);
-                                      }
-                                    });
-                                    setForm(p => ({ ...p, variableCategories: newVariableCategories }));
-                                  } else {
-                                    // Remove all variables from this category
-                                    setForm(p => ({ 
-                                      ...p, 
-                                      variableCategories: p.variableCategories.filter(vc => 
-                                        !categoryVariables.some(v => v.name === vc)
-                                      )
-                                    }));
-                                  }
-                                }}
-                              />
-                              <Label htmlFor={`category-all-${category}`} className="text-sm font-medium cursor-pointer">
-                                {category}
-                              </Label>
+                      {variables.length === 0 ? (
+                        <p className="text-sm text-muted-foreground italic">
+                          No variables available. Please add pricing parameters/variables for this industry first.
+                        </p>
+                      ) : (
+                        /* Group variables by category */
+                        Array.from(new Set(variables.map(v => v.category))).map(category => {
+                          const categoryVariables = variables.filter(v => v.category === category);
+                          const allCategoryVariablesSelected = categoryVariables.every(v => form.variableCategories.includes(`${v.category}-${v.name}`));
+                          
+                          return (
+                            <div key={category} className="border rounded-md p-3 space-y-2">
+                              {/* Category header with select all */}
+                              <div className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`category-all-${category}`}
+                                  checked={allCategoryVariablesSelected}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      // Add all variables from this category
+                                      const newVariableCategories = [...form.variableCategories];
+                                      categoryVariables.forEach(v => {
+                                        const uniqueVarName = `${v.category}-${v.name}`;
+                                        if (!newVariableCategories.includes(uniqueVarName)) {
+                                          newVariableCategories.push(uniqueVarName);
+                                        }
+                                      });
+                                      setForm(p => ({ ...p, variableCategories: newVariableCategories }));
+                                    } else {
+                                      // Remove all variables from this category
+                                      setForm(p => ({ 
+                                        ...p, 
+                                        variableCategories: p.variableCategories.filter(vc => 
+                                          !categoryVariables.some(v => `${v.category}-${v.name}` === vc)
+                                        )
+                                      }));
+                                    }
+                                  }}
+                                />
+                                <Label htmlFor={`category-all-${category}`} className="text-sm font-medium cursor-pointer">
+                                  {category}
+                                </Label>
+                              </div>
+                              
+                              {/* Individual variables in this category */}
+                              <div className="grid grid-cols-10 gap-2 pl-6">
+                                {categoryVariables.map(variable => (
+                                  <div key={`${variable.category}-${variable.id}`} className="flex items-center gap-2">
+                                    <Checkbox
+                                      id={`variable-${variable.category}-${variable.id}`}
+                                      checked={form.variableCategories.includes(`${variable.category}-${variable.name}`)}
+                                      onCheckedChange={(checked) => {
+                                        const uniqueVarName = `${variable.category}-${variable.name}`;
+                                        if (checked) {
+                                          setForm(p => ({ ...p, variableCategories: [...p.variableCategories, uniqueVarName] }));
+                                        } else {
+                                          setForm(p => ({ ...p, variableCategories: p.variableCategories.filter(v => v !== uniqueVarName) }));
+                                        }
+                                      }}
+                                    />
+                                    <Label htmlFor={`variable-${variable.category}-${variable.id}`} className="text-sm cursor-pointer">{variable.name}</Label>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
-                            
-                            {/* Individual variables in this category */}
-                            <div className="grid grid-cols-10 gap-2 pl-6">
-                              {categoryVariables.map(variable => (
-                                <div key={variable.id} className="flex items-center gap-2">
-                                  <Checkbox
-                                    id={`variable-${variable.id}`}
-                                    checked={form.variableCategories.includes(variable.name)}
-                                    onCheckedChange={(checked) => {
-                                      if (checked) {
-                                        setForm(p => ({ ...p, variableCategories: [...p.variableCategories, variable.name] }));
-                                      } else {
-                                        setForm(p => ({ ...p, variableCategories: p.variableCategories.filter(v => v !== variable.name) }));
-                                      }
-                                    }}
-                                  />
-                                  <Label htmlFor={`variable-${variable.id}`} className="text-sm cursor-pointer">{variable.name}</Label>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 )}
@@ -835,11 +899,12 @@ export default function ExcludeParameterNewPage() {
               </div>
             </TabsContent>
           </Tabs>
-
-          <div className="mt-6 flex gap-2 justify-end">
+          <div className="flex justify-end gap-4 pt-6 border-t">
             <Button
+              type="button"
               variant="outline"
               onClick={() => router.push(`/admin/settings/industries/form-1/pricing-parameter?industry=${encodeURIComponent(industry)}`)}
+              disabled={saving}
             >
               Cancel
             </Button>
@@ -852,6 +917,8 @@ export default function ExcludeParameterNewPage() {
               {saving ? "Saving..." : (editId ? "Save" : "Create")}
             </Button>
           </div>
+          </>
+          )}
         </CardContent>
       </Card>
     </div>

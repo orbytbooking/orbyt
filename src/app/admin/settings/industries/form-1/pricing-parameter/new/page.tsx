@@ -490,6 +490,14 @@ export default function PricingParameterNewPage() {
       const serviceCategory2Value = form.showBasedOnServiceCategory2 ? form.serviceCategory2.join(", ") : "";
       const frequencyValue = form.showBasedOnFrequency ? form.frequency.join(", ") : "";
 
+      console.log('=== SAVING PRICING PARAMETER DEBUG ===');
+      console.log('showBasedOnFrequency:', form.showBasedOnFrequency);
+      console.log('showBasedOnServiceCategory:', form.showBasedOnServiceCategory);
+      console.log('form.frequency:', form.frequency);
+      console.log('form.serviceCategory:', form.serviceCategory);
+      console.log('frequencyValue:', frequencyValue);
+      console.log('serviceCategoryValue:', serviceCategoryValue);
+
       const paramData = {
         business_id: currentBusiness.id,
         industry_id: industryId,
