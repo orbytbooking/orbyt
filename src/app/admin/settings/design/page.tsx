@@ -8,11 +8,13 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/use-toast";
 import { Layout, Palette, Save, Globe, ShoppingCart, HelpCircle, FileText, Eye } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { FAQsManager } from "@/components/admin/FAQsManager";
 import { JobOpeningsManager } from "@/components/admin/JobOpeningsManager";
 
 const WebsiteBuilderTab = () => {
   const [selectedTheme, setSelectedTheme] = useState('modern');
+  const router = useRouter();
   
   const themes = [
     { 
@@ -77,8 +79,19 @@ const WebsiteBuilderTab = () => {
       <div className="lg:col-span-3">
         <Card className="h-full">
           <CardHeader>
-            <CardTitle>Website Preview - {currentTheme.name} Theme</CardTitle>
-            <CardDescription>Preview of your website with the selected theme</CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Website Preview - {currentTheme.name} Theme</CardTitle>
+                <CardDescription>Preview of your website with the selected theme</CardDescription>
+              </div>
+              <Button
+                onClick={() => router.push("/admin/website-builder")}
+                className="border border-cyan-500/30 bg-white/5 neon-cyan text-cyan-300 hover:text-white hover:bg-gradient-to-r hover:from-cyan-500 hover:to-cyan-600"
+              >
+                <Layout className="h-4 w-4 mr-2" />
+                Edit Website
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <div className={`relative aspect-video border rounded-lg overflow-hidden ${currentTheme.colors.bg} p-6`}>
