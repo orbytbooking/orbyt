@@ -208,6 +208,12 @@ export default function BuilderLoginPage() {
                 Sign up here
               </Link>
             </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              Business owner?{' '}
+              <Link href="/auth/signup" className="font-medium text-primary hover:text-primary/80 transition-colors">
+                Create business account
+              </Link>
+            </p>
           </div>
         </div>
       </div>

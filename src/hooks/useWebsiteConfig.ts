@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabaseClient';
+import { useBusiness } from '@/contexts/BusinessContext';
 
 export interface WebsiteSection {
   id: string;
@@ -107,11 +109,16 @@ const defaultConfig: WebsiteConfig = {
 export const useWebsiteConfig = () => {
   const [config, setConfig] = useState<WebsiteConfig>(defaultConfig);
   const [isLoading, setIsLoading] = useState(true);
+  const { currentBusiness } = useBusiness();
 
   const updateConfig = (newConfig: Partial<WebsiteConfig>) => {
     const updatedConfig = { ...defaultConfig, ...config, ...newConfig };
     setConfig(updatedConfig);
-    localStorage.setItem('websiteConfig', JSON.stringify(updatedConfig));
+    
+    // Save to localStorage with business isolation
+    const storageKey = currentBusiness ? `websiteConfig_${currentBusiness.id}` : 'websiteConfig';
+    localStorage.setItem(storageKey, JSON.stringify(updatedConfig));
+    
     // Trigger storage event for other tabs
     window.dispatchEvent(new Event('storage'));
     // Also trigger a custom event for same-tab updates
@@ -120,21 +127,51 @@ export const useWebsiteConfig = () => {
   };
 
   useEffect(() => {
-    // Load from localStorage
-    const saved = localStorage.getItem('websiteConfig');
-    if (saved) {
+    const loadConfig = async () => {
+      setIsLoading(true);
+      
       try {
-        const parsed = JSON.parse(saved);
-        setConfig(parsed);
-      } catch (e) {
-        console.error('Failed to load website config', e);
-      }
-    }
-    setIsLoading(false);
+        // First try to load from database if we have a current business
+        if (currentBusiness) {
+          const { data: businessConfig, error } = await supabase
+            .from('business_website_configs')
+            .select('config')
+            .eq('business_id', currentBusiness.id)
+            .single();
 
+          if (!error && businessConfig) {
+            setConfig(businessConfig.config);
+            setIsLoading(false);
+            return;
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load config from database:', error);
+      }
+
+      // Fallback to localStorage with business isolation
+      const storageKey = currentBusiness ? `websiteConfig_${currentBusiness.id}` : 'websiteConfig';
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setConfig(parsed);
+        } catch (e) {
+          console.error('Failed to load website config', e);
+        }
+      }
+      
+      setIsLoading(false);
+    };
+
+    loadConfig();
+  }, [currentBusiness]);
+
+  useEffect(() => {
     // Listen for storage changes (when builder saves)
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'websiteConfig' && e.newValue) {
+      const storageKey = currentBusiness ? `websiteConfig_${currentBusiness.id}` : 'websiteConfig';
+      if (e.key === storageKey && e.newValue) {
         try {
           const parsed = JSON.parse(e.newValue);
           setConfig(parsed);
@@ -148,7 +185,8 @@ export const useWebsiteConfig = () => {
 
     // Also listen for custom event (same-tab updates)
     const handleCustomEvent = () => {
-      const saved = localStorage.getItem('websiteConfig');
+      const storageKey = currentBusiness ? `websiteConfig_${currentBusiness.id}` : 'websiteConfig';
+      const saved = localStorage.getItem(storageKey);
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
@@ -165,7 +203,7 @@ export const useWebsiteConfig = () => {
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('website-config-updated', handleCustomEvent);
     };
-  }, []);
+  }, [currentBusiness]);
 
   return { 
     config, 

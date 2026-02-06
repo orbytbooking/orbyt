@@ -185,6 +185,36 @@ export default function AuthPage() {
       if (authError) throw authError;
 
       if (authData.user) {
+        // Get the current business - for customer signup, we need to associate with a business
+        // This could be determined by subdomain, selected business, or default business
+        const { data: businessData } = await supabase
+          .from('businesses')
+          .select('id')
+          .eq('is_active', true)
+          .limit(1)
+          .single();
+
+        if (businessData) {
+          // Create customer record associated with the business
+          const { error: customerError } = await supabase
+            .from('customers')
+            .insert({
+              auth_user_id: authData.user.id,
+              business_id: businessData.id,
+              name: values.name,
+              email: values.email,
+              phone: values.phone,
+              address: values.address,
+              created_at: new Date().toISOString()
+            });
+
+          if (customerError) {
+            console.error('Customer creation error:', customerError);
+            // Don't throw error here as auth user was created successfully
+            // Log it for debugging purposes
+          }
+        }
+
         toast({
           title: "Account Created!",
           description: `Welcome ${values.name}! You can now sign in to your account.`,
