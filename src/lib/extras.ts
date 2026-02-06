@@ -6,6 +6,7 @@ export interface Extra {
   industry_id: string;
   name: string;
   description?: string;
+  icon?: string;
   time_minutes: number;
   service_category?: string;
   price: number;
@@ -29,6 +30,7 @@ export interface CreateExtraData {
   industry_id: string;
   name: string;
   description?: string;
+  icon?: string;
   time_minutes: number;
   service_category?: string;
   price: number;
@@ -200,6 +202,7 @@ class ExtrasService {
         industry_id: industryId,
         name: extra.name,
         description: extra.description,
+        icon: extra.icon,
         time_minutes: extra.time || 0,
         service_category: extra.serviceCategory,
         price: extra.price || 0,

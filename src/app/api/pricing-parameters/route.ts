@@ -77,6 +77,9 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     const { id, ...updateData } = body;
 
+    console.log('PUT - Received update data:', JSON.stringify(updateData, null, 2));
+    console.log('PUT - Pricing parameter ID:', id);
+
     if (!id) {
       return NextResponse.json(
         { error: 'Pricing parameter ID is required' },
@@ -86,11 +89,19 @@ export async function PUT(request: NextRequest) {
 
     const pricingParameter = await pricingParametersService.updatePricingParameter(id, updateData);
     
+    console.log('PUT - Pricing parameter updated successfully:', pricingParameter);
     return NextResponse.json({ pricingParameter });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error updating pricing parameter:', error);
+    console.error('Error details:', error instanceof Error ? error.message : 'Unknown error');
+    console.error('Error stack:', error?.stack);
+    console.error('Supabase error:', error?.code, error?.details, error?.hint);
     return NextResponse.json(
-      { error: 'Failed to update pricing parameter' },
+      { 
+        error: error instanceof Error ? error.message : 'Failed to update pricing parameter',
+        details: error?.details || error?.hint || undefined,
+        code: error?.code || undefined
+      },
       { status: 500 }
     );
   }

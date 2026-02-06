@@ -20,7 +20,7 @@ export interface PricingParameter {
   excluded_extras?: string[];
   excluded_services?: string[];
   excluded_providers?: string[];
-  exclude_parameters?: number[];
+  exclude_parameters?: string[];
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -45,7 +45,7 @@ export interface CreatePricingParameterData {
   excluded_extras?: string[];
   excluded_services?: string[];
   excluded_providers?: string[];
-  exclude_parameters?: number[];
+  exclude_parameters?: string[];
   sort_order?: number;
 }
 

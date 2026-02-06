@@ -60,7 +60,7 @@ export default function PricingParameterNewPage() {
   const [providers, setProviders] = useState<Array<{ id: string; name: string }>>([]);
   const [serviceCategories, setServiceCategories] = useState<Array<{ id: number; name: string }>>([]);
   const [frequencies, setFrequencies] = useState<Array<{ id: number; name: string }>>([]);
-  const [excludeParameters, setExcludeParameters] = useState<Array<{ id: number; name: string; description: string }>>([]);
+  const [excludeParameters, setExcludeParameters] = useState<Array<{ id: string; name: string; description: string }>>([]);
 
   const [form, setForm] = useState({
     variableCategory: "",
@@ -77,7 +77,7 @@ export default function PricingParameterNewPage() {
     excludedExtras: [] as number[],
     excludedServices: [] as number[],
     excludedProviders: [] as string[],
-    excludeParameters: [] as number[],
+    excludeParameters: [] as string[],
     serviceCategory: [] as string[],
     serviceCategory2: [] as string[],
     frequency: [] as string[],
@@ -400,9 +400,6 @@ export default function PricingParameterNewPage() {
 
   // Real-time validation for hours
   const validateHours = (value: string, minutesValue: string) => {
-    if (!value.trim() && !minutesValue.trim()) {
-      return "Time is required (hours or minutes)";
-    }
     if (value.trim()) {
       const numValue = Number(value);
       if (isNaN(numValue)) {
@@ -417,9 +414,6 @@ export default function PricingParameterNewPage() {
 
   // Real-time validation for minutes
   const validateMinutes = (value: string, hoursValue: string) => {
-    if (!value.trim() && !hoursValue.trim()) {
-      return "Time is required (hours or minutes)";
-    }
     if (value.trim()) {
       const numValue = Number(value);
       if (isNaN(numValue)) {
@@ -497,6 +491,9 @@ export default function PricingParameterNewPage() {
       console.log('form.serviceCategory:', form.serviceCategory);
       console.log('frequencyValue:', frequencyValue);
       console.log('serviceCategoryValue:', serviceCategoryValue);
+      console.log('form.excludeParameters:', form.excludeParameters);
+      console.log('form.excludeParameters type:', typeof form.excludeParameters);
+      console.log('form.excludeParameters array?:', Array.isArray(form.excludeParameters));
 
       const paramData = {
         business_id: currentBusiness.id,
@@ -892,95 +889,121 @@ export default function PricingParameterNewPage() {
                   {/* Exclude Parameters Section */}
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">Exclude Parameters</Label>
-                    {excludeParameters.length === 0 ? (
-                      <p className="text-sm text-muted-foreground pl-4">No exclude parameters available</p>
-                    ) : (
-                      <div className="space-y-2 p-4 border rounded-lg bg-white">
-                        <div className="flex items-center space-x-2 pb-2 border-b">
-                          <Checkbox
-                            id="select-all-exclude-parameters"
-                            checked={form.excludeParameters.length === excludeParameters.length}
-                            onCheckedChange={(checked) => {
-                              if (checked) {
-                                setForm(p => ({ ...p, excludeParameters: excludeParameters.map(ep => ep.id) }));
-                              } else {
-                                setForm(p => ({ ...p, excludeParameters: [] }));
-                              }
-                            }}
-                          />
-                          <label htmlFor="select-all-exclude-parameters" className="text-sm font-medium cursor-pointer">
-                            Select All
-                          </label>
+                    {(() => {
+                      // Filter exclude parameters based on frequency/service category settings
+                      let filteredExcludeParams = excludeParameters;
+                      
+                      // If showBasedOnFrequency is Yes AND frequencies are selected, filter by those frequencies
+                      // If showBasedOnServiceCategory is Yes AND service categories are selected, filter by those
+                      // If both are No, show all exclude parameters (pricing parameter's own configuration)
+                      
+                      // Note: Currently we show all items regardless because exclude parameters don't have
+                      // frequency/service category associations stored. When that data is available,
+                      // implement filtering here based on form.showBasedOnFrequency and form.showBasedOnServiceCategory
+                      
+                      return filteredExcludeParams.length === 0 ? (
+                        <p className="text-sm text-muted-foreground pl-4">No exclude parameters available</p>
+                      ) : (
+                        <div className="space-y-2 p-4 border rounded-lg bg-white">
+                          <div className="flex items-center space-x-2 pb-2 border-b">
+                            <Checkbox
+                              id="select-all-exclude-parameters"
+                              checked={form.excludeParameters.length === filteredExcludeParams.length && filteredExcludeParams.length > 0}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setForm(p => ({ ...p, excludeParameters: filteredExcludeParams.map(ep => ep.id) }));
+                                } else {
+                                  setForm(p => ({ ...p, excludeParameters: [] }));
+                                }
+                              }}
+                            />
+                            <label htmlFor="select-all-exclude-parameters" className="text-sm font-medium cursor-pointer">
+                              Select All
+                            </label>
+                          </div>
+                          <div className="grid grid-cols-5 gap-2 max-h-48 overflow-y-auto">
+                            {filteredExcludeParams.map((param) => (
+                              <div key={param.id} className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={`exclude-param-${param.id}`}
+                                  checked={form.excludeParameters.includes(param.id)}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setForm(p => ({ ...p, excludeParameters: [...p.excludeParameters, param.id] }));
+                                    } else {
+                                      setForm(p => ({ ...p, excludeParameters: p.excludeParameters.filter(id => id !== param.id) }));
+                                    }
+                                  }}
+                                />
+                                <label htmlFor={`exclude-param-${param.id}`} className="text-sm cursor-pointer">
+                                  {param.name}
+                                </label>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <div className="grid grid-cols-5 gap-2 max-h-48 overflow-y-auto">
-                          {excludeParameters.map((param) => (
-                            <div key={param.id} className="flex items-center space-x-2">
-                              <Checkbox
-                                id={`exclude-param-${param.id}`}
-                                checked={form.excludeParameters.includes(param.id)}
-                                onCheckedChange={(checked) => {
-                                  if (checked) {
-                                    setForm(p => ({ ...p, excludeParameters: [...p.excludeParameters, param.id] }));
-                                  } else {
-                                    setForm(p => ({ ...p, excludeParameters: p.excludeParameters.filter(id => id !== param.id) }));
-                                  }
-                                }}
-                              />
-                              <label htmlFor={`exclude-param-${param.id}`} className="text-sm cursor-pointer">
-                                {param.name}
-                              </label>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
 
                   {/* Extras Section */}
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">Extras</Label>
-                    {extras.length === 0 ? (
-                      <p className="text-sm text-muted-foreground pl-4">No extras available</p>
-                    ) : (
-                      <div className="space-y-2 p-4 border rounded-lg bg-white">
-                        <div className="flex items-center space-x-2 pb-2 border-b">
-                          <Checkbox
-                            id="select-all-extras"
-                            checked={form.excludedExtras.length === extras.length}
-                            onCheckedChange={(checked) => {
-                              if (checked) {
-                                setForm(p => ({ ...p, excludedExtras: extras.map(e => e.id) }));
-                              } else {
-                                setForm(p => ({ ...p, excludedExtras: [] }));
-                              }
-                            }}
-                          />
-                          <label htmlFor="select-all-extras" className="text-sm font-medium cursor-pointer">
-                            Select All
-                          </label>
+                    {(() => {
+                      // Filter extras based on frequency/service category settings
+                      let filteredExtras = extras;
+                      
+                      // If showBasedOnFrequency is Yes AND frequencies are selected, filter by those frequencies
+                      // If showBasedOnServiceCategory is Yes AND service categories are selected, filter by those
+                      // If both are No, show all extras (pricing parameter's own configuration)
+                      
+                      // Note: Currently we show all items regardless because extras don't have
+                      // frequency/service category associations stored. When that data is available,
+                      // implement filtering here based on form.showBasedOnFrequency and form.showBasedOnServiceCategory
+                      
+                      return filteredExtras.length === 0 ? (
+                        <p className="text-sm text-muted-foreground pl-4">No extras available</p>
+                      ) : (
+                        <div className="space-y-2 p-4 border rounded-lg bg-white">
+                          <div className="flex items-center space-x-2 pb-2 border-b">
+                            <Checkbox
+                              id="select-all-extras"
+                              checked={form.excludedExtras.length === filteredExtras.length && filteredExtras.length > 0}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setForm(p => ({ ...p, excludedExtras: filteredExtras.map(e => e.id) }));
+                                } else {
+                                  setForm(p => ({ ...p, excludedExtras: [] }));
+                                }
+                              }}
+                            />
+                            <label htmlFor="select-all-extras" className="text-sm font-medium cursor-pointer">
+                              Select All
+                            </label>
+                          </div>
+                          <div className="grid grid-cols-5 gap-2 max-h-48 overflow-y-auto">
+                            {filteredExtras.map((extra) => (
+                              <div key={extra.id} className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={`extra-${extra.id}`}
+                                  checked={form.excludedExtras.includes(extra.id)}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setForm(p => ({ ...p, excludedExtras: [...p.excludedExtras, extra.id] }));
+                                    } else {
+                                      setForm(p => ({ ...p, excludedExtras: p.excludedExtras.filter(id => id !== extra.id) }));
+                                    }
+                                  }}
+                                />
+                                <label htmlFor={`extra-${extra.id}`} className="text-sm cursor-pointer">
+                                  {extra.name}
+                                </label>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <div className="grid grid-cols-5 gap-2 max-h-48 overflow-y-auto">
-                          {extras.map((extra) => (
-                            <div key={extra.id} className="flex items-center space-x-2">
-                              <Checkbox
-                                id={`extra-${extra.id}`}
-                                checked={form.excludedExtras.includes(extra.id)}
-                                onCheckedChange={(checked) => {
-                                  if (checked) {
-                                    setForm(p => ({ ...p, excludedExtras: [...p.excludedExtras, extra.id] }));
-                                  } else {
-                                    setForm(p => ({ ...p, excludedExtras: p.excludedExtras.filter(id => id !== extra.id) }));
-                                  }
-                                }}
-                              />
-                              <label htmlFor={`extra-${extra.id}`} className="text-sm cursor-pointer">
-                                {extra.name}
-                              </label>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
 
                                   </div>
@@ -1049,11 +1072,11 @@ export default function PricingParameterNewPage() {
             <Button
               onClick={save}
               disabled={
+                saving ||
                 !form.variableCategory || 
                 !form.name.trim() || 
                 !form.price.trim() ||
                 (!form.hours.trim() && !form.minutes.trim()) ||
-                saving ||
                 !!validationErrors.variableCategory ||
                 !!validationErrors.name ||
                 !!validationErrors.price ||

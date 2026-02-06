@@ -69,7 +69,7 @@ export default function ExcludeParameterNewPage() {
     excludedProviders: [] as string[],
     frequency: [] as string[],
     serviceCategory: [] as string[],
-    variableCategories: [] as string[],
+    variables: {} as { [key: string]: string[] },
   });
 
   const [showIconPicker, setShowIconPicker] = useState(false);
@@ -211,13 +211,13 @@ export default function ExcludeParameterNewPage() {
               minutes: String(minutes),
               showBasedOnFrequency: existing.show_based_on_frequency || false,
               showBasedOnServiceCategory: existing.show_based_on_service_category || false,
-              showBasedOnVariables: false,
+              showBasedOnVariables: existing.show_based_on_variables || false,
               excludedExtras: [],
               excludedServices: [],
-              excludedProviders: [],
+              excludedProviders: existing.excluded_providers || [],
               frequency: existing.frequency ? existing.frequency.split(", ") : [],
               serviceCategory: existing.service_category ? existing.service_category.split(", ") : [],
-              variableCategories: [],
+              variables: existing.variables || {},
             });
 
             if (existing.icon && existing.icon.startsWith('data:')) {
@@ -309,12 +309,6 @@ export default function ExcludeParameterNewPage() {
       // Auto-set frequency and service category based on form state
       const frequencyValue = form.showBasedOnFrequency ? form.frequency.join(", ") : "";
       const serviceCategoryValue = form.showBasedOnServiceCategory ? form.serviceCategory.join(", ") : "";
-      
-      // Extract just the variable names (remove category prefix) for saving
-      const variableNames = form.variableCategories.map(vc => {
-        const parts = vc.split('-');
-        return parts.slice(1).join('-'); // Remove the category part, keep the rest
-      }).join(", ");
 
       const paramData = {
         business_id: currentBusiness.id,
@@ -330,7 +324,7 @@ export default function ExcludeParameterNewPage() {
         show_based_on_frequency: form.showBasedOnFrequency,
         show_based_on_service_category: form.showBasedOnServiceCategory,
         show_based_on_variables: form.showBasedOnVariables,
-        variables: variableNames || undefined,
+        variables: form.variables,
         excluded_providers: form.excludedProviders,
       };
 
@@ -782,7 +776,7 @@ export default function ExcludeParameterNewPage() {
                         /* Group variables by category */
                         Array.from(new Set(variables.map(v => v.category))).map(category => {
                           const categoryVariables = variables.filter(v => v.category === category);
-                          const allCategoryVariablesSelected = categoryVariables.every(v => form.variableCategories.includes(`${v.category}-${v.name}`));
+                          const allCategoryVariablesSelected = form.variables[category]?.length === categoryVariables.length && categoryVariables.length > 0;
                           
                           return (
                             <div key={category} className="border rounded-md p-3 space-y-2">
@@ -793,22 +787,20 @@ export default function ExcludeParameterNewPage() {
                                   checked={allCategoryVariablesSelected}
                                   onCheckedChange={(checked) => {
                                     if (checked) {
-                                      // Add all variables from this category
-                                      const newVariableCategories = [...form.variableCategories];
-                                      categoryVariables.forEach(v => {
-                                        const uniqueVarName = `${v.category}-${v.name}`;
-                                        if (!newVariableCategories.includes(uniqueVarName)) {
-                                          newVariableCategories.push(uniqueVarName);
+                                      setForm(p => ({
+                                        ...p,
+                                        variables: {
+                                          ...p.variables,
+                                          [category]: categoryVariables.map(v => v.name)
                                         }
-                                      });
-                                      setForm(p => ({ ...p, variableCategories: newVariableCategories }));
+                                      }));
                                     } else {
-                                      // Remove all variables from this category
-                                      setForm(p => ({ 
-                                        ...p, 
-                                        variableCategories: p.variableCategories.filter(vc => 
-                                          !categoryVariables.some(v => `${v.category}-${v.name}` === vc)
-                                        )
+                                      setForm(p => ({
+                                        ...p,
+                                        variables: {
+                                          ...p.variables,
+                                          [category]: []
+                                        }
                                       }));
                                     }
                                   }}
@@ -824,13 +816,25 @@ export default function ExcludeParameterNewPage() {
                                   <div key={`${variable.category}-${variable.id}`} className="flex items-center gap-2">
                                     <Checkbox
                                       id={`variable-${variable.category}-${variable.id}`}
-                                      checked={form.variableCategories.includes(`${variable.category}-${variable.name}`)}
+                                      checked={form.variables[category]?.includes(variable.name) || false}
                                       onCheckedChange={(checked) => {
-                                        const uniqueVarName = `${variable.category}-${variable.name}`;
+                                        const currentSelections = form.variables[category] || [];
                                         if (checked) {
-                                          setForm(p => ({ ...p, variableCategories: [...p.variableCategories, uniqueVarName] }));
+                                          setForm(p => ({
+                                            ...p,
+                                            variables: {
+                                              ...p.variables,
+                                              [category]: [...currentSelections, variable.name]
+                                            }
+                                          }));
                                         } else {
-                                          setForm(p => ({ ...p, variableCategories: p.variableCategories.filter(v => v !== uniqueVarName) }));
+                                          setForm(p => ({
+                                            ...p,
+                                            variables: {
+                                              ...p.variables,
+                                              [category]: currentSelections.filter(item => item !== variable.name)
+                                            }
+                                          }));
                                         }
                                       }}
                                     />

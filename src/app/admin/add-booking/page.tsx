@@ -402,6 +402,7 @@ function AddBookingPage() {
             const formattedExtras = visibleExtras.map((e: any) => ({
               id: e.id,
               name: e.name,
+              icon: e.icon,
               time: e.time_minutes,
               serviceCategory: e.service_category || '',
               price: e.price,
@@ -435,6 +436,7 @@ function AddBookingPage() {
             const formattedExtras = visibleExtras.map((e: any) => ({
               id: e.id,
               name: e.name,
+              icon: e.icon,
               time: e.time_minutes,
               serviceCategory: e.service_category || '',
               price: e.price,
@@ -491,19 +493,36 @@ function AddBookingPage() {
           
           // Fetch service categories
           const categories = await serviceCategoriesService.getServiceCategoriesByIndustry(fallbackIndustry.id);
-          // Apply frequency dependency filter if frequency is selected
-          let filteredCategories = categories;
-          // Don't filter by frequency here - let users see all services first
-          // Frequency filtering will happen in the frequency section based on selected service
           
           console.log('=== ADMIN BOOKING DEBUG ===');
           console.log('Fetched categories:', categories);
           console.log('Selected frequency:', newBooking.frequency);
+          console.log('Frequency dependencies:', frequencyDependencies);
           console.log('All categories with frequency settings:', categories.map(cat => ({
             name: cat.name,
             service_category_frequency: cat.service_category_frequency,
             selected_frequencies: cat.selected_frequencies
           })));
+          
+          // Apply frequency-based filtering logic
+          let filteredCategories = categories.filter((category: ServiceCategory) => {
+            // If service_category_frequency is false (No), always show the service category
+            if (!category.service_category_frequency) {
+              console.log(`Service "${category.name}": service_category_frequency is false, showing always`);
+              return true;
+            }
+            
+            // If service_category_frequency is true (Yes), filter by frequency dependencies
+            if (frequencyDependencies && frequencyDependencies.serviceCategories && frequencyDependencies.serviceCategories.length > 0) {
+              const isIncluded = frequencyDependencies.serviceCategories.includes(String(category.id));
+              console.log(`Service "${category.name}": service_category_frequency is true, frequency filter result: ${isIncluded}`);
+              return isIncluded;
+            }
+            
+            // If no frequency dependencies are available yet, hide frequency-dependent services
+            console.log(`Service "${category.name}": service_category_frequency is true, but no frequency dependencies available`);
+            return false;
+          });
           
           console.log('Filtered categories:', filteredCategories);
           setServiceCategories(filteredCategories);
@@ -513,16 +532,32 @@ function AddBookingPage() {
           console.log('=== ADMIN BOOKING DEBUG (CURRENT INDUSTRY) ===');
           console.log('Fetched categories:', categories);
           console.log('Selected frequency:', newBooking.frequency);
+          console.log('Frequency dependencies:', frequencyDependencies);
           console.log('All categories with frequency settings:', categories.map(cat => ({
             name: cat.name,
             service_category_frequency: cat.service_category_frequency,
             selected_frequencies: cat.selected_frequencies
           })));
           
-          // Apply frequency dependency filter if frequency is selected
-          let filteredCategories = categories;
-          // Don't filter by frequency here - let users see all services first
-          // Frequency filtering will happen in the frequency section based on selected service
+          // Apply frequency-based filtering logic
+          let filteredCategories = categories.filter((category: ServiceCategory) => {
+            // If service_category_frequency is false (No), always show the service category
+            if (!category.service_category_frequency) {
+              console.log(`Service "${category.name}": service_category_frequency is false, showing always`);
+              return true;
+            }
+            
+            // If service_category_frequency is true (Yes), filter by frequency dependencies
+            if (frequencyDependencies && frequencyDependencies.serviceCategories && frequencyDependencies.serviceCategories.length > 0) {
+              const isIncluded = frequencyDependencies.serviceCategories.includes(String(category.id));
+              console.log(`Service "${category.name}": service_category_frequency is true, frequency filter result: ${isIncluded}`);
+              return isIncluded;
+            }
+            
+            // If no frequency dependencies are available yet, hide frequency-dependent services
+            console.log(`Service "${category.name}": service_category_frequency is true, but no frequency dependencies available`);
+            return false;
+          });
           
           console.log('Filtered categories:', filteredCategories);
           setServiceCategories(filteredCategories);
@@ -534,7 +569,7 @@ function AddBookingPage() {
     };
 
     updateServiceCategories();
-  }, [frequencyDependencies, currentBusiness]);
+  }, [frequencyDependencies, currentBusiness, newBooking.frequency]);
 
   // Debug extras rendering
   useEffect(() => {
@@ -565,46 +600,53 @@ function AddBookingPage() {
       let filteredExtras = [...allExtras];
       console.log('Starting with all extras:', filteredExtras.length);
       
-      // First, apply service category filtering if a service is selected
+      // Apply filtering based on service category configuration
       if (newBooking.service) {
-        console.log('🔍 Service selected, applying service category filtering...');
-        console.log('Available service categories:', serviceCategories.map(cat => ({ name: cat.name, extras: cat.extras })));
+        console.log('🔍 Service selected, checking service category configuration...');
         
         const selectedServiceCategory = serviceCategories.find(cat => cat.name === newBooking.service);
         console.log('Selected service category:', selectedServiceCategory);
-        console.log('Looking for service name:', `"${newBooking.service}"`);
         
         if (selectedServiceCategory) {
           console.log('✅ Service category found!');
-          console.log('Service category extras:', selectedServiceCategory.extras);
-          console.log('Service category extras type:', typeof selectedServiceCategory.extras);
-          console.log('Service category extras length:', selectedServiceCategory.extras?.length);
+          console.log('service_category_frequency:', selectedServiceCategory.service_category_frequency);
           
-          if (selectedServiceCategory.extras && selectedServiceCategory.extras.length > 0) {
-            console.log('✅ Service category has extras configured:', selectedServiceCategory.extras);
-            console.log('Service category extras types:', selectedServiceCategory.extras.map(id => ({ id, type: typeof id })));
-            console.log('Available extra IDs:', allExtras.map(e => ({ id: e.id, name: e.name, type: typeof e.id })));
-            
-            filteredExtras = filteredExtras.filter((e: any) => {
-              // Check if extras array contains strings or numbers and match accordingly
-              const extraId = String(e.id);
-              const matches = selectedServiceCategory.extras.some((extraId: any) => {
-                const serviceExtraId = String(extraId);
-                return serviceExtraId === extraId;
-              });
-              
-              console.log(`Extra ${e.name} (ID: ${e.id}, type: ${typeof e.id}):`);
-              console.log(`  Match result:`, matches);
-              
-              return matches;
-            });
-            console.log('After service category filtering:', filteredExtras.length);
+          // Check if service category uses frequency-based filtering
+          if (selectedServiceCategory.service_category_frequency) {
+            // Use frequency dependencies configuration
+            console.log('📋 Using FREQUENCY dependencies for extras');
+            if (frequencyDependencies && frequencyDependencies.extras && frequencyDependencies.extras.length > 0) {
+              console.log('Frequency extras:', frequencyDependencies.extras);
+              filteredExtras = filteredExtras.filter((e: any) => 
+                frequencyDependencies.extras.includes(String(e.id))
+              );
+              console.log('After frequency filtering:', filteredExtras.length);
+            } else {
+              console.log('⚠️ No frequency dependencies available, hiding all extras');
+              filteredExtras = [];
+            }
           } else {
-            console.log('❌ Service category has no extras configured, hiding all extras');
-            console.log('extras field:', selectedServiceCategory.extras);
-            console.log('extras field type:', typeof selectedServiceCategory.extras);
-            console.log('extras field length:', selectedServiceCategory.extras?.length);
-            filteredExtras = [];
+            // Use service category's own extras configuration
+            console.log('📋 Using SERVICE CATEGORY configuration for extras');
+            console.log('Service category extras:', selectedServiceCategory.extras);
+            
+            if (selectedServiceCategory.extras && selectedServiceCategory.extras.length > 0) {
+              console.log('✅ Service category has extras configured:', selectedServiceCategory.extras);
+              
+              filteredExtras = filteredExtras.filter((e: any) => {
+                const extraId = String(e.id);
+                const matches = selectedServiceCategory.extras.some((serviceExtraId: any) => {
+                  return String(serviceExtraId) === extraId;
+                });
+                
+                console.log(`Extra ${e.name} (ID: ${e.id}): ${matches ? 'INCLUDED' : 'EXCLUDED'}`);
+                return matches;
+              });
+              console.log('After service category filtering:', filteredExtras.length);
+            } else {
+              console.log('❌ Service category has no extras configured, hiding all extras');
+              filteredExtras = [];
+            }
           }
         } else {
           console.log('⚠️ Service category not found for name:', newBooking.service);
@@ -612,18 +654,6 @@ function AddBookingPage() {
         }
       } else {
         console.log('ℹ️ No service selected, showing all extras');
-      }
-      
-      // Then, apply frequency dependency filter if frequency is selected
-      if (frequencyDependencies && frequencyDependencies.extras && frequencyDependencies.extras.length > 0) {
-        console.log('🔍 Applying frequency dependency filtering...');
-        console.log('Frequency extras:', frequencyDependencies.extras);
-        filteredExtras = filteredExtras.filter((e: any) => 
-          frequencyDependencies.extras.includes(String(e.id))
-        );
-        console.log('After frequency filtering:', filteredExtras.length);
-      } else {
-        console.log('ℹ️ No frequency dependencies to apply');
       }
       
       console.log('✅ Final filtered extras:', filteredExtras.length);
@@ -1583,76 +1613,102 @@ const handleAddBooking = async (status: string = 'pending') => {
                   // Start with all category options
                   let filteredOptions = categoryOptions;
                   
-                  // Apply frequency filtering if parameter has show_based_on_frequency enabled
-                  filteredOptions = filteredOptions.filter(option => {
-                    console.log(`Processing option: ${option.name}`);
-                    console.log('- show_based_on_frequency (raw):', option.show_based_on_frequency);
-                    console.log('- show_based_on_frequency (type):', typeof option.show_based_on_frequency);
-                    console.log('- show_based_on_service_category (raw):', option.show_based_on_service_category);
-                    console.log('- show_based_on_service_category (type):', typeof option.show_based_on_service_category);
-                    console.log('- option.frequency (raw):', option.frequency);
-                    console.log('- option.frequency (type):', typeof option.frequency);
-                    console.log('- option.service_category (raw):', option.service_category);
-                    console.log('- option.service_category (type):', typeof option.service_category);
-                    console.log('- newBooking.frequency (raw):', newBooking.frequency);
-                    console.log('- newBooking.service (raw):', newBooking.service);
-                    
-                    // If this parameter doesn't use frequency filtering, include it
-                    if (!option.show_based_on_frequency) {
-                      console.log('- PASS: No frequency filtering required');
-                      return true;
-                    }
-                    
-                    // If frequency is selected, check if this parameter's frequency includes the selected frequency
-                    if (newBooking.frequency && option.frequency) {
-                      const allowedFrequencies = option.frequency.split(', ').map(f => f.trim());
-                      const frequencyMatch = allowedFrequencies.includes(newBooking.frequency);
-                      console.log('- Frequency check:', { allowedFrequencies, selected: newBooking.frequency, match: frequencyMatch });
-                      return frequencyMatch;
-                    }
-                    
-                    // If no frequency is selected but parameter requires frequency filtering, exclude it
-                    console.log('- FAIL: No frequency selected but filtering required');
-                    return false;
-                  });
+                  // Check if service category uses frequency-based filtering
+                  const selectedServiceCategory = serviceCategories.find(cat => cat.name === newBooking.service);
                   
-                  console.log('After frequency filtering:', filteredOptions);
-                  
-                  // Apply service category filtering if parameter has show_based_on_service_category enabled
-                  filteredOptions = filteredOptions.filter(option => {
-                    // If this parameter doesn't use service category filtering, include it
-                    if (!option.show_based_on_service_category) {
-                      console.log('- PASS: No service category filtering required');
-                      return true;
-                    }
+                  if (selectedServiceCategory) {
+                    console.log('service_category_frequency:', selectedServiceCategory.service_category_frequency);
                     
-                    // If service is selected, check if this parameter's service category includes the selected service
-                    if (newBooking.service && option.service_category) {
-                      const allowedServiceCategories = option.service_category.split(', ').map(sc => sc.trim());
-                      const serviceMatch = allowedServiceCategories.includes(newBooking.service);
-                      console.log('- Service category check:', { allowedServiceCategories, selected: newBooking.service, match: serviceMatch });
-                      return serviceMatch;
-                    }
-                    
-                    // If no service is selected but parameter requires service category filtering, exclude it
-                    console.log('- FAIL: No service selected but filtering required');
-                    return false;
-                  });
-                  
-                  console.log('After service category filtering:', filteredOptions);
-                  
-                  // Additional service category-specific filtering (legacy logic for service categories that have variables configured)
-                  if (newBooking.service) {
-                    const selectedServiceCategory = serviceCategories.find(cat => cat.name === newBooking.service);
-                    if (selectedServiceCategory && selectedServiceCategory.variables && selectedServiceCategory.variables[category]) {
-                      // If service category has variables configured for this category, show only those
-                      const allowedVariables = selectedServiceCategory.variables[category];
-                      filteredOptions = filteredOptions.filter(option => 
-                        allowedVariables.includes(option.name)
-                      );
-                    } else if (selectedServiceCategory && (!selectedServiceCategory.variables || !selectedServiceCategory.variables[category] || selectedServiceCategory.variables[category].length === 0)) {
-                      // If service category has no variables configured for this category, show none
-                      filteredOptions = [];
+                    if (selectedServiceCategory.service_category_frequency) {
+                      // Use frequency dependencies - apply pricing parameter's own frequency/service filtering
+                      console.log('📋 Using FREQUENCY dependencies for variables');
+                      
+                      // Apply frequency filtering if parameter has show_based_on_frequency enabled
+                      filteredOptions = filteredOptions.filter(option => {
+                        console.log(`\n🔍 Processing option: ${option.name}`);
+                        console.log('  - show_based_on_frequency:', option.show_based_on_frequency);
+                        console.log('  - show_based_on_service_category:', option.show_based_on_service_category);
+                        console.log('  - option.frequency:', option.frequency);
+                        console.log('  - option.service_category:', option.service_category);
+                        
+                        // If this parameter doesn't use frequency filtering, include it
+                        if (!option.show_based_on_frequency) {
+                          console.log('  ✅ PASS: No frequency filtering required');
+                          return true;
+                        }
+                        
+                        // If frequency is selected, check if this parameter's frequency includes the selected frequency
+                        if (newBooking.frequency && option.frequency) {
+                          const allowedFrequencies = option.frequency.split(', ').map(f => f.trim());
+                          const frequencyMatch = allowedFrequencies.includes(newBooking.frequency);
+                          console.log('  - Frequency check:', { allowedFrequencies, selected: newBooking.frequency, match: frequencyMatch });
+                          if (frequencyMatch) {
+                            console.log('  ✅ PASS: Frequency matches');
+                            return true;
+                          } else {
+                            console.log('  ❌ FAIL: Frequency does not match');
+                            return false;
+                          }
+                        }
+                        
+                        // If no frequency is selected but parameter requires frequency filtering, exclude it
+                        console.log('  ❌ FAIL: No frequency selected but filtering required');
+                        return false;
+                      });
+                      
+                      console.log('After frequency filtering:', filteredOptions.length, 'options remaining');
+                      
+                      // Apply service category filtering if parameter has show_based_on_service_category enabled
+                      filteredOptions = filteredOptions.filter(option => {
+                        console.log(`\n🔍 Service category check for: ${option.name}`);
+                        console.log('  - show_based_on_service_category:', option.show_based_on_service_category);
+                        
+                        // If this parameter doesn't use service category filtering, include it
+                        if (!option.show_based_on_service_category) {
+                          console.log('  ✅ PASS: No service category filtering required');
+                          return true;
+                        }
+                        
+                        // If service is selected, check if this parameter's service category includes the selected service
+                        if (newBooking.service && option.service_category) {
+                          const allowedServiceCategories = option.service_category.split(', ').map(sc => sc.trim());
+                          const serviceMatch = allowedServiceCategories.includes(newBooking.service);
+                          console.log('  - Service category check:', { 
+                            allowedServiceCategories, 
+                            selected: newBooking.service, 
+                            match: serviceMatch 
+                          });
+                          if (serviceMatch) {
+                            console.log('  ✅ PASS: Service category matches');
+                            return true;
+                          } else {
+                            console.log('  ❌ FAIL: Service category does not match');
+                            return false;
+                          }
+                        }
+                        
+                        // If no service is selected but parameter requires service category filtering, exclude it
+                        console.log('  ❌ FAIL: No service selected but filtering required');
+                        return false;
+                      });
+                      
+                      console.log('After service category filtering:', filteredOptions.length, 'options remaining');
+                    } else {
+                      // Use service category's own variables configuration
+                      console.log('📋 Using SERVICE CATEGORY configuration for variables');
+                      
+                      if (selectedServiceCategory.variables && selectedServiceCategory.variables[category]) {
+                        // If service category has variables configured for this category, show only those
+                        const allowedVariables = selectedServiceCategory.variables[category];
+                        filteredOptions = filteredOptions.filter(option => 
+                          allowedVariables.includes(option.name)
+                        );
+                        console.log('After service category variables filtering:', filteredOptions.length);
+                      } else {
+                        // If service category has no variables configured for this category, show none
+                        console.log('No variables configured for this category in service category');
+                        filteredOptions = [];
+                      }
                     }
                   }
                   
@@ -1697,26 +1753,38 @@ const handleAddBooking = async (status: string = 'pending') => {
 
             {/* Exclude Parameters - Show when partial cleaning is checked */}
             {isPartialCleaning && (() => {
-              // First, apply service category filtering if a service is selected
+              // Apply filtering based on service category configuration
               let filteredExcludeParams = excludeParameters;
+              
               if (newBooking.service) {
                 const selectedServiceCategory = serviceCategories.find(cat => cat.name === newBooking.service);
-                if (selectedServiceCategory && selectedServiceCategory.selected_exclude_parameters && selectedServiceCategory.selected_exclude_parameters.length > 0) {
-                  // If service category has exclude parameters configured, show only those
-                  filteredExcludeParams = filteredExcludeParams.filter(param => 
-                    selectedServiceCategory.selected_exclude_parameters.includes(param.name)
-                  );
-                } else if (selectedServiceCategory && (!selectedServiceCategory.selected_exclude_parameters || selectedServiceCategory.selected_exclude_parameters.length === 0)) {
-                  // If service category has no exclude parameters configured, show none
-                  filteredExcludeParams = [];
+                
+                if (selectedServiceCategory) {
+                  // Check if service category uses frequency-based filtering
+                  if (selectedServiceCategory.service_category_frequency) {
+                    // Use frequency dependencies configuration
+                    console.log('📋 Using FREQUENCY dependencies for exclude parameters');
+                    if (frequencyDependencies && frequencyDependencies.excludeParameters && frequencyDependencies.excludeParameters.length > 0) {
+                      filteredExcludeParams = filteredExcludeParams.filter(param => 
+                        frequencyDependencies.excludeParameters.includes(param.name)
+                      );
+                    } else {
+                      // No frequency dependencies available
+                      filteredExcludeParams = [];
+                    }
+                  } else {
+                    // Use service category's own exclude parameters configuration
+                    console.log('📋 Using SERVICE CATEGORY configuration for exclude parameters');
+                    if (selectedServiceCategory.selected_exclude_parameters && selectedServiceCategory.selected_exclude_parameters.length > 0) {
+                      filteredExcludeParams = filteredExcludeParams.filter(param => 
+                        selectedServiceCategory.selected_exclude_parameters.includes(param.name)
+                      );
+                    } else {
+                      // Service category has no exclude parameters configured
+                      filteredExcludeParams = [];
+                    }
+                  }
                 }
-              }
-              
-              // Then, apply frequency dependency filter if frequency is selected
-              if (frequencyDependencies && frequencyDependencies.excludeParameters && frequencyDependencies.excludeParameters.length > 0) {
-                filteredExcludeParams = filteredExcludeParams.filter(param => 
-                  frequencyDependencies.excludeParameters.includes(param.name)
-                );
               }
               
               // Don't show the entire Exclude Parameters section if no parameters are available
