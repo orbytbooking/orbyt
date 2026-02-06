@@ -749,19 +749,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                 </DropdownMenuContent>
               </DropdownMenu>
               
-              <Button
-                variant="outline"
-                onClick={() => router.push("/admin/website-builder")}
-                className={`border border-cyan-500/30 bg-white/5 h-9 px-3 neon-cyan ${
-                  theme === 'light' ? 'text-black hover:text-black' : 'text-cyan-300 hover:text-white'
-                }`}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'}
-              >
-                <Layout className="h-4 w-4 mr-2" />
-                Edit Website
-              </Button>
-              <a
+                            <a
                 href="/"
                 target="_blank"
                 rel="noopener noreferrer"

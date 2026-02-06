@@ -1,0 +1,72 @@
+{
+  "success": true,
+  "data": {
+    "stats": {
+      "totalRevenue": {
+        "value": "$0.00",
+        "change": "+0.0%",
+        "icon": "DollarSign",
+        "trend": "up",
+        "color": "text-green-600",
+        "bgColor": "bg-green-100 dark:bg-green-900/20"
+      },
+      "totalBookings": {
+        "value": "2",
+        "change": "+0.0%",
+        "icon": "Calendar",
+        "trend": "up",
+        "color": "text-blue-600",
+        "bgColor": "bg-blue-100 dark:bg-blue-900/20"
+      },
+      "activeCustomers": {
+        "value": "1",
+        "change": "+0.0%",
+        "icon": "Users",
+        "trend": "up",
+        "color": "text-cyan-600",
+        "bgColor": "bg-cyan-100 dark:bg-cyan-900/20"
+      },
+      "completionRate": {
+        "value": "0.0%",
+        "change": "+0.0%",
+        "icon": "TrendingUp",
+        "trend": "up",
+        "color": "text-orange-600",
+        "bgColor": "bg-orange-100 dark:bg-orange-900/20"
+      }
+    },
+    "bookings": [
+      {
+        "id": "437dcd4a-410a-4381-a3f7-b60c73208be6",
+        "customer": {
+          "name": "ABE JAY ofracio",
+          "email": "abejayofracio@gmail.com",
+          "phone": ""
+        },
+        "service": "Move In/Out Cleaning",
+        "date": "2026-01-29",
+        "time": "09:00 AM",
+        "status": "pending",
+        "amount": "$350.00",
+        "paymentMethod": "cash",
+        "notes": ""
+      },
+      {
+        "id": "deedb33a-e5a0-4767-bd71-c844b7796b35",
+        "customer": {
+          "name": "jane sample",
+          "email": "janesample@gmail.com",
+          "phone": ""
+        },
+        "service": "Standard Cleaning",
+        "date": "2026-01-30",
+        "time": "14:00 PM",
+        "status": "pending",
+        "amount": "$116.40",
+        "paymentMethod": "cash",
+        "notes": ""
+      }
+    ],
+    "business_id": "20ec44c8-1d49-45b9-ac7e-0412fd610ffb"
+  }
+}
