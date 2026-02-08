@@ -41,7 +41,8 @@ const iconMap: Record<string, any> = {
 
 type Booking = {
   id: string;
-  customer: { name: string; email: string; phone: string };
+  customer?: { name: string; email: string; phone: string };
+  customerName?: string;
   service: string;
   date: string;
   time: string;
@@ -128,10 +129,24 @@ const Dashboard = () => {
     fetchDashboardData();
   }, []);
 
-  // Get all bookings for calendar
+  // Get all bookings for calendar (remove duplicates)
   const allBookings = useMemo(() => {
     if (!data) return [];
-    return [...data.upcomingBookings, ...data.recentBookings];
+    
+    // Combine both arrays and remove duplicates by ID
+    const combinedBookings = [...data.upcomingBookings, ...data.recentBookings];
+    const uniqueBookings = new Map();
+    
+    combinedBookings.forEach(booking => {
+      if (booking && booking.id) {
+        uniqueBookings.set(booking.id, booking);
+      }
+    });
+    
+    const result = Array.from(uniqueBookings.values());
+    console.log(`Dashboard: Combined ${combinedBookings.length} bookings, removed ${combinedBookings.length - result.length} duplicates, ${result.length} unique bookings`);
+    
+    return result;
   }, [data]);
   
   // Get calendar data
@@ -150,10 +165,22 @@ const Dashboard = () => {
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   
   const normalizedBookings = useMemo(() => {
-    return allBookings.map((booking) => ({
-      ...booking,
-      customerName: booking.customer.name,
-    }));
+    if (!allBookings || !Array.isArray(allBookings)) return [];
+    
+    return allBookings.filter(Boolean).map((booking) => {
+      try {
+        return {
+          ...booking,
+          customerName: booking.customer?.name || booking.customerName || 'Unknown Customer',
+        };
+      } catch (error) {
+        console.error('Error normalizing booking:', error);
+        return {
+          ...booking,
+          customerName: 'Error Loading Customer',
+        };
+      }
+    });
   }, [allBookings]);
 
   const bookingsByDate = useMemo(() => {
@@ -209,7 +236,7 @@ const Dashboard = () => {
   const acceptBooking = () => {
     if (!selectedBooking) return;
     // In a real implementation, this would call an API to update the booking status
-    const name = selectedBooking.customer.name;
+    const name = selectedBooking.customer?.name || selectedBooking.customerName || 'Unknown Customer';
     toast({ title: 'Booking accepted', description: `${name} • ${selectedBooking.service} is now confirmed.` });
   };
 
@@ -396,7 +423,7 @@ const Dashboard = () => {
 
                             return (
                               <div 
-                                key={i} 
+                                key={booking.id}
                                 className="text-[9px] px-1 py-1 rounded text-white leading-tight cursor-pointer"
                                 style={{ background: chipColor }}
                                 title={`${booking.time} - ${booking.customerName} - ${booking.service}`}
@@ -483,7 +510,7 @@ const Dashboard = () => {
           <div className="space-y-3">
             {normalizedBookings.slice(0, 5).map((booking) => (
               <div 
-                key={booking.id} 
+                key={booking.id}
                 className="p-3 rounded-lg border border-cyan-500/20 hover:bg-white/5 transition-all cursor-pointer glass"
                 onClick={() => setSelectedBooking(booking)}
                 role="button"
@@ -532,7 +559,7 @@ const Dashboard = () => {
               </div>
               <div>
                 <div className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Customer</div>
-                <div className="font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{typeof selectedBooking.customer === 'string' ? selectedBooking.customer : selectedBooking.customer.name}</div>
+                <div className="font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{selectedBooking.customer?.name || selectedBooking.customerName || 'Unknown Customer'}</div>
               </div>
               <div>
                 <div className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Service</div>
@@ -547,15 +574,15 @@ const Dashboard = () => {
                 <div className="font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{selectedBooking.amount}</div>
               </div>
             </div>
-            {typeof selectedBooking.customer !== 'string' && (
+            {selectedBooking.customer && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <div className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Email</div>
-                  <div className="font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{selectedBooking.customer.email}</div>
+                  <div className="font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{selectedBooking.customer?.email || 'N/A'}</div>
                 </div>
                 <div>
                   <div className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Phone</div>
-                  <div className="font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{selectedBooking.customer.phone}</div>
+                  <div className="font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{selectedBooking.customer?.phone || 'N/A'}</div>
                 </div>
               </div>
             )}

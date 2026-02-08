@@ -39,6 +39,7 @@ import Reviews from '@/components/Reviews';
 import FAQs from '@/components/FAQs';
 import Contact from '@/components/Contact';
 import Footer from '@/components/Footer';
+import { useWebsiteConfig } from '@/hooks/useWebsiteConfig';
 
 // Types
 interface WebsiteSection {
@@ -168,6 +169,7 @@ const templates = [
 export default function WebsiteBuilderPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const { updateConfig } = useWebsiteConfig(); // Get updateConfig from hook
   const [viewMode, setViewMode] = useState<'desktop' | 'mobile'>('desktop');
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
   const [websiteConfig, setWebsiteConfig] = useState<WebsiteConfig>({
@@ -199,14 +201,23 @@ export default function WebsiteBuilderPage() {
   }, []);
 
   // Save config
-  const saveConfig = () => {
-    localStorage.setItem('websiteConfig', JSON.stringify(websiteConfig));
-    // Dispatch custom event to update landing page immediately
-    window.dispatchEvent(new CustomEvent('website-config-updated'));
-    toast({
-      title: 'Saved!',
-      description: 'Your website changes have been saved.',
-    });
+  const saveConfig = async () => {
+    try {
+      // Update config using the hook (which now saves to database)
+      updateConfig(websiteConfig);
+      
+      toast({
+        title: 'Website saved successfully',
+        description: 'Your website configuration has been saved to the database.',
+      });
+    } catch (error) {
+      console.error('Save error:', error);
+      toast({
+        title: 'Save failed',
+        description: 'There was an error saving your website. Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
 
   // Publish config

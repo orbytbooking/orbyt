@@ -40,15 +40,41 @@ export async function GET() {
     const previousMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
     const currentMonthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
     
-    // Get all bookings for metrics calculation
-    const { data: bookings, error: bookingError } = await supabase
-      .from('bookings')
-      .select('*')
-      .eq('business_id', businessId)
-      .order('created_at', { ascending: false });
+    // Get all bookings - start with simple query to isolate issues
+    let bookings;
+    let bookingError;
     
-    if (bookingError) {
-      return NextResponse.json({ error: bookingError.message }, { status: 500 });
+    try {
+      // Try simple query first
+      const simpleResult = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('business_id', businessId)
+        .order('created_at', { ascending: false });
+      
+      bookings = simpleResult.data;
+      bookingError = simpleResult.error;
+      
+      if (bookingError) {
+        console.error('Dashboard API - Simple booking query error:', bookingError);
+        return NextResponse.json({ error: bookingError.message }, { status: 500 });
+      }
+      
+      console.log(`Dashboard API - Simple query successful, got ${bookings?.length || 0} bookings`);
+      
+    } catch (queryError) {
+      console.error('Dashboard API - Query exception:', queryError);
+      return NextResponse.json({ error: 'Query failed: ' + queryError.message }, { status: 500 });
+    }
+
+    // Ensure bookings is an array
+    const safeBookings = Array.isArray(bookings) ? bookings : [];
+    console.log(`Dashboard API - Found ${safeBookings.length} bookings for business ${businessId}`);
+    
+    // Debug: Check for any booking data issues
+    const problematicBookings = safeBookings.filter(b => !b.id || !b.created_at);
+    if (problematicBookings.length > 0) {
+      console.warn(`Dashboard API - Found ${problematicBookings.length} bookings with missing required fields:`, problematicBookings);
     }
 
     // Get customers
@@ -62,12 +88,12 @@ export async function GET() {
     }
 
     // Calculate current month metrics (using UTC dates)
-    const currentMonthBookings = bookings.filter(b => {
+    const currentMonthBookings = safeBookings.filter(b => {
       const bookingDate = new Date(b.created_at);
       return bookingDate >= currentMonthStart && bookingDate <= currentMonthEnd;
     });
 
-    const previousMonthBookings = bookings.filter(b => {
+    const previousMonthBookings = safeBookings.filter(b => {
       const bookingDate = new Date(b.created_at);
       return bookingDate >= previousMonthStart && bookingDate < currentMonthStart;
     });
@@ -89,22 +115,22 @@ export async function GET() {
       .reduce((sum, booking) => sum + (booking.total_price || 0), 0);
     
     const previousMonthBookingsCount = previousMonthBookings.length;
-    const previousMonthCustomers = new Set(previousMonthBookings.map(b => b.customer_id)).size;
+    const previousMonthCustomers = new Set(previousMonthBookings.map(b => b.customer_id).filter(Boolean)).size;
 
-    // Calculate percentage changes
+    // Calculate percentage changes with safe defaults
     const revenueChange = previousMonthRevenue > 0 
       ? ((currentMonthRevenue - previousMonthRevenue) / previousMonthRevenue * 100).toFixed(1)
-      : '0.0';
+      : currentMonthRevenue > 0 ? '100.0' : '0.0';
     
     const bookingsChange = previousMonthBookingsCount > 0
       ? ((currentMonthBookingsCount - previousMonthBookingsCount) / previousMonthBookingsCount * 100).toFixed(1)
-      : '0.0';
+      : currentMonthBookingsCount > 0 ? '100.0' : '0.0';
     
     // Count unique customers from current month only
-    const activeCustomers = new Set(currentMonthBookings.map(b => b.customer_id)).size;
+    const activeCustomers = new Set(currentMonthBookings.map(b => b.customer_id).filter(Boolean)).size;
     const customersChange = previousMonthCustomers > 0
       ? ((activeCustomers - previousMonthCustomers) / previousMonthCustomers * 100).toFixed(1)
-      : '0.0';
+      : activeCustomers > 0 ? '100.0' : '0.0';
 
     const completionRateChange = '0.0'; // Would need historical data for accurate comparison
 
@@ -154,7 +180,7 @@ export async function GET() {
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
     
-    const upcomingBookings = bookings
+    const upcomingBookings = safeBookings
       .filter(booking => {
         const scheduledDate = booking.scheduled_date || booking.date;
         if (!scheduledDate) return false;
@@ -166,29 +192,115 @@ export async function GET() {
         const dateB = new Date(b.scheduled_date || b.date);
         return dateA.getTime() - dateB.getTime();
       })
-      .slice(0, 10); // Limit to next 10 bookings
+      .slice(0, 10) // Limit to next 10 bookings
+      .map(booking => {
+        try {
+          // Use hybrid approach: customer_* fields from bookings table (no joins to avoid schema issues)
+          let formattedTime = '12:00 PM';
+          if (booking.scheduled_time) {
+            try {
+              const timeStr = typeof booking.scheduled_time === 'string' ? 
+                booking.scheduled_time : 
+                booking.scheduled_time.toString();
+              const timePart = timeStr.slice(0, 5);
+              const hourPart = parseInt(timePart.split(':')[0]) || 12;
+              const period = hourPart >= 12 ? 'PM' : 'AM';
+              formattedTime = `${timePart} ${period}`;
+            } catch (timeError) {
+              console.warn('Time formatting error for booking:', booking.id, timeError);
+            }
+          }
+          
+          return {
+            id: booking.id || 'unknown',
+            customer: {
+              name: booking.customer_name || 'Unknown Customer',
+              email: booking.customer_email || '',
+              phone: booking.customer_phone || ''
+            },
+            service: booking.service || 'General Service',
+            date: booking.scheduled_date || booking.date || booking.created_at?.split('T')[0] || '',
+            time: formattedTime,
+            status: booking.status || 'pending',
+            amount: `$${(booking.total_price || 0).toFixed(2)}`,
+            paymentMethod: booking.payment_method,
+            notes: booking.notes || ''
+          };
+        } catch (bookingError) {
+          console.error('Error processing booking:', booking.id, bookingError);
+          return {
+            id: booking.id || 'error-booking',
+            customer: {
+              name: 'Error Loading Customer',
+              email: '',
+              phone: ''
+            },
+            service: 'Error Loading Service',
+            date: '',
+            time: '12:00 PM',
+            status: 'error',
+            amount: '$0.00',
+            paymentMethod: '',
+            notes: 'Error processing booking'
+          };
+        }
+      });
 
     // Get recent bookings (latest created)
-    const recentBookings = bookings
+    const recentBookings = safeBookings
       .slice(0, 10) // Already ordered by created_at desc
-      .map(booking => ({
-        id: booking.id,
-        customer: {
-          name: booking.customer_name || 'Unknown Customer',
-          email: booking.customer_email || '',
-          phone: booking.customer_phone || ''
-        },
-        service: booking.service || 'General Service',
-        date: booking.scheduled_date || booking.date || booking.created_at?.split('T')[0] || '',
-        time: booking.scheduled_time ? 
-          booking.scheduled_time.toString().slice(0, 5) + ' ' + 
-          (parseInt(booking.scheduled_time.toString().slice(0, 2)) >= 12 ? 'PM' : 'AM') : 
-          '12:00 PM',
-        status: booking.status || 'pending',
-        amount: `$${(booking.total_price || 0).toFixed(2)}`,
-        paymentMethod: booking.payment_method,
-        notes: booking.notes
-      }));
+      .map(booking => {
+        try {
+          // Use hybrid approach: customer_* fields from bookings table (no joins to avoid schema issues)
+          let formattedTime = '12:00 PM';
+          if (booking.scheduled_time) {
+            try {
+              const timeStr = typeof booking.scheduled_time === 'string' ? 
+                booking.scheduled_time : 
+                booking.scheduled_time.toString();
+              const timePart = timeStr.slice(0, 5);
+              const hourPart = parseInt(timePart.split(':')[0]) || 12;
+              const period = hourPart >= 12 ? 'PM' : 'AM';
+              formattedTime = `${timePart} ${period}`;
+            } catch (timeError) {
+              console.warn('Time formatting error for booking:', booking.id, timeError);
+            }
+          }
+          
+          return {
+            id: booking.id || 'unknown',
+            customer: {
+              name: booking.customer_name || 'Unknown Customer',
+              email: booking.customer_email || '',
+              phone: booking.customer_phone || ''
+            },
+            service: booking.service || 'General Service',
+            date: booking.scheduled_date || booking.date || booking.created_at?.split('T')[0] || '',
+            time: formattedTime,
+            status: booking.status || 'pending',
+            amount: `$${(booking.total_price || 0).toFixed(2)}`,
+            paymentMethod: booking.payment_method,
+            notes: booking.notes || ''
+          };
+        } catch (bookingError) {
+          console.error('Error processing booking:', booking.id, bookingError);
+          return {
+            id: booking.id || 'error-booking',
+            customer: {
+              name: 'Error Loading Customer',
+              email: '',
+              phone: ''
+            },
+            service: 'Error Loading Service',
+            date: '',
+            time: '12:00 PM',
+            status: 'error',
+            amount: '$0.00',
+            paymentMethod: '',
+            notes: 'Error processing booking'
+          };
+        }
+      });
 
     return NextResponse.json({
       success: true,

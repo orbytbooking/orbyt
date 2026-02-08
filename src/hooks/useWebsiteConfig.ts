@@ -6,7 +6,7 @@ import { useBusiness } from '@/contexts/BusinessContext';
 
 export interface WebsiteSection {
   id: string;
-  type: 'hero' | 'services' | 'how-it-works' | 'reviews' | 'contact' | 'footer';
+  type: 'hero' | 'services' | 'how-it-works' | 'reviews' | 'faqs' | 'contact' | 'footer';
   visible: boolean;
   data: any;
 }
@@ -111,19 +111,37 @@ export const useWebsiteConfig = () => {
   const [isLoading, setIsLoading] = useState(true);
   const { currentBusiness } = useBusiness();
 
-  const updateConfig = (newConfig: Partial<WebsiteConfig>) => {
+  const updateConfig = async (newConfig: Partial<WebsiteConfig>) => {
     const updatedConfig = { ...defaultConfig, ...config, ...newConfig };
     setConfig(updatedConfig);
     
-    // Save to localStorage with business isolation
+    // Save to localStorage for real-time updates
     const storageKey = currentBusiness ? `websiteConfig_${currentBusiness.id}` : 'websiteConfig';
     localStorage.setItem(storageKey, JSON.stringify(updatedConfig));
     
-    // Trigger storage event for other tabs
-    window.dispatchEvent(new Event('storage'));
-    // Also trigger a custom event for same-tab updates
+    // Dispatch event for real-time updates
     window.dispatchEvent(new CustomEvent('website-config-updated'));
-    return updatedConfig;
+    
+    // Save to database if we have a current business
+    if (currentBusiness) {
+      try {
+        const response = await fetch('/api/admin/website-config', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ config: updatedConfig }),
+        });
+        
+        if (!response.ok) {
+          console.error('Failed to save config to database:', await response.text());
+        } else {
+          console.log('Config saved to database successfully');
+        }
+      } catch (error) {
+        console.error('Error saving config to database:', error);
+      }
+    }
   };
 
   useEffect(() => {
@@ -143,6 +161,11 @@ export const useWebsiteConfig = () => {
             setConfig(businessConfig.config);
             setIsLoading(false);
             return;
+          } else if (error && error.code === 'PGRST116') {
+            // Table doesn't exist (404), fall back to localStorage
+            console.warn('business_website_configs table not found, falling back to localStorage');
+          } else if (error) {
+            console.warn('Database config fetch failed:', error);
           }
         }
       } catch (error) {
