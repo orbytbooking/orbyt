@@ -4,10 +4,21 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Menu, X } from "lucide-react";
+import { Menu, X, Image as ImageIcon } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
-const Navigation = () => {
+interface NavigationProps {
+  branding?: {
+    primaryColor?: string;
+    secondaryColor?: string;
+    logo?: string;
+    companyName?: string;
+    domain?: string;
+  };
+  inline?: boolean; // Add prop for inline positioning
+}
+
+const Navigation = ({ branding, inline = false }: NavigationProps = {}) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { user, isCustomer, loading } = useAuth();
   const router = useRouter();
@@ -64,13 +75,23 @@ const Navigation = () => {
   };
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur-md border-b border-primary/20 shadow-lg">
+    <nav className={`${inline ? 'relative' : 'fixed top-0 left-0 right-0'} z-50 bg-background/95 backdrop-blur-md border-b border-primary/20 shadow-lg`}>
       <div className="container mx-auto px-4">
-        <div className="flex items-center justify-between h-16">
-          <Link href="/builder" className="flex items-center gap-3 cursor-pointer">
-            <img src="/images/logo.png" alt="Orbyt Cleaners" className="h-12 w-12" />
-            <span className="text-xl font-bold gradient-text">Orbyt Cleaners</span>
-          </Link>
+        <div className="flex items-center justify-between h-20">
+          <div className="flex items-center gap-4">
+            <Link href="/builder" className="flex items-center gap-4 cursor-pointer">
+              {branding?.logo && !branding.logo.startsWith('blob:') ? (
+                <img src={branding.logo} alt={branding.companyName || "Orbyt Cleaners"} className="h-12 w-12 rounded-lg object-cover" />
+              ) : (
+                <div className="h-12 w-12 bg-gray-200 rounded-lg flex items-center justify-center">
+                  <ImageIcon className="h-6 w-6 text-gray-400" />
+                </div>
+              )}
+              <span className="text-2xl font-bold gradient-text">
+                {branding?.companyName || "Orbyt Cleaners"}
+              </span>
+            </Link>
+          </div>
           
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-8">

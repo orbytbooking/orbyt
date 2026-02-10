@@ -40,11 +40,12 @@ import FAQs from '@/components/FAQs';
 import Contact from '@/components/Contact';
 import Footer from '@/components/Footer';
 import { useWebsiteConfig } from '@/hooks/useWebsiteConfig';
+import { ImageUpload } from '@/components/admin/ImageUpload';
 
 // Types
 interface WebsiteSection {
   id: string;
-  type: 'hero' | 'services' | 'how-it-works' | 'reviews' | 'faqs' | 'contact' | 'footer';
+  type: 'header' | 'hero' | 'services' | 'how-it-works' | 'reviews' | 'faqs' | 'contact' | 'footer';
   visible: boolean;
   data: any;
 }
@@ -63,6 +64,22 @@ interface WebsiteConfig {
 
 // Default sections
 const defaultSections: WebsiteSection[] = [
+  {
+    id: 'header',
+    type: 'header',
+    visible: true,
+    data: {
+      companyName: 'Orbyt Cleaners',
+      logo: '/images/logo.png',
+      showNavigation: true,
+      navigationLinks: [
+        { text: 'How It Works', url: '#how-it-works' },
+        { text: 'Services', url: '#services' },
+        { text: 'Reviews', url: '#reviews' },
+        { text: 'Contact', url: '#contact' }
+      ]
+    }
+  },
   {
     id: 'hero',
     type: 'hero',
@@ -142,6 +159,30 @@ const defaultSections: WebsiteSection[] = [
       address: '123 Main St, Chicago, IL 60601'
     }
   },
+  {
+    id: 'footer',
+    type: 'footer',
+    visible: true,
+    data: {
+      companyName: 'Orbyt Cleaners',
+      description: 'Professional cleaning services you can trust. Experience the difference with our expert team.',
+      email: 'info@orbyt.com',
+      phone: '+1 234 567 8900',
+      copyright: '© 2024 Orbyt Cleaners. All rights reserved.',
+      socialLinks: {
+        facebook: '#',
+        twitter: '#',
+        instagram: '#',
+        linkedin: '#'
+      },
+      quickLinks: [
+        { text: 'About Us', url: '#about' },
+        { text: 'Services', url: '#services' },
+        { text: 'Contact', url: '#contact' },
+        { text: 'Privacy Policy', url: '/privacy-policy' }
+      ]
+    }
+  },
 ];
 
 // Templates
@@ -169,36 +210,21 @@ const templates = [
 export default function WebsiteBuilderPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const { updateConfig } = useWebsiteConfig(); // Get updateConfig from hook
+  const { config, updateConfig, isLoading } = useWebsiteConfig(); // Get config from hook
   const [viewMode, setViewMode] = useState<'desktop' | 'mobile'>('desktop');
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
-  const [websiteConfig, setWebsiteConfig] = useState<WebsiteConfig>({
-    sections: defaultSections,
-    branding: {
-      primaryColor: '#00D4E8',
-      secondaryColor: '#00BCD4',
-      logo: '/images/logo.png',
-      companyName: 'Orbyt Cleaners',
-      domain: 'orbytcleaner.bookingkoala.com',
-    },
-    template: 'modern',
-  });
-  const [history, setHistory] = useState<WebsiteConfig[]>([websiteConfig]);
+  const [websiteConfig, setWebsiteConfig] = useState<WebsiteConfig | null>(null);
+  const [history, setHistory] = useState<WebsiteConfig[]>([]);
   const [historyIndex, setHistoryIndex] = useState(0);
 
-  // Load saved config
+  // Sync local state with hook config
   useEffect(() => {
-    const saved = localStorage.getItem('websiteConfig');
-    if (saved) {
-      try {
-        const config = JSON.parse(saved);
-        setWebsiteConfig(config);
-        setHistory([config]);
-      } catch (e) {
-        console.error('Failed to load saved config', e);
-      }
+    if (!isLoading && config) {
+      setWebsiteConfig(config);
+      setHistory([config]);
+      setHistoryIndex(0);
     }
-  }, []);
+  }, [config, isLoading]);
 
   // Save config
   const saveConfig = async () => {
@@ -222,7 +248,8 @@ export default function WebsiteBuilderPage() {
 
   // Publish config
   const publishConfig = () => {
-    localStorage.setItem('websiteConfig', JSON.stringify(websiteConfig));
+    // Save to database using the hook
+    updateConfig(websiteConfig);
     // Dispatch custom event to update landing page immediately
     window.dispatchEvent(new CustomEvent('website-config-updated'));
     toast({
@@ -304,6 +331,18 @@ export default function WebsiteBuilderPage() {
   // Get default data for section type
   const getDefaultSectionData = (type: WebsiteSection['type']): any => {
     switch (type) {
+      case 'header':
+        return {
+          companyName: 'Your Company',
+          logo: '/images/logo.png',
+          showNavigation: true,
+          navigationLinks: [
+            { text: 'How It Works', url: '#how-it-works' },
+            { text: 'Services', url: '#services' },
+            { text: 'Reviews', url: '#reviews' },
+            { text: 'Contact', url: '#contact' }
+          ]
+        };
       case 'hero':
         return {
           title: 'Welcome to Our Service',
@@ -359,6 +398,26 @@ export default function WebsiteBuilderPage() {
           phone: '+1 234 567 8900',
           address: '123 Main St, City, State 12345',
         };
+      case 'footer':
+        return {
+          companyName: 'Your Company',
+          description: 'Professional services you can trust. Experience the difference with our expert team.',
+          email: 'info@example.com',
+          phone: '+1 234 567 8900',
+          copyright: '© 2024 Your Company. All rights reserved.',
+          socialLinks: {
+            facebook: '#',
+            twitter: '#',
+            instagram: '#',
+            linkedin: '#'
+          },
+          quickLinks: [
+            { text: 'About Us', url: '#about' },
+            { text: 'Services', url: '#services' },
+            { text: 'Contact', url: '#contact' },
+            { text: 'Privacy Policy', url: '/privacy-policy' }
+          ]
+        };
       default:
         return {};
     }
@@ -386,7 +445,18 @@ export default function WebsiteBuilderPage() {
     }
   };
 
-  const selectedSectionData = websiteConfig.sections.find(s => s.id === selectedSection);
+  const selectedSectionData = websiteConfig?.sections.find(s => s.id === selectedSection);
+
+  if (isLoading || !websiteConfig) {
+    return (
+      <div className="fixed inset-0 bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading website builder...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-gray-50 flex flex-col overflow-hidden">
@@ -424,7 +494,7 @@ export default function WebsiteBuilderPage() {
             <Button variant="ghost" size="sm">
               <HelpCircle className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="sm" onClick={() => window.open('/builder', '_blank')}>
+            <Button variant="outline" size="sm" onClick={() => window.open('/my-website', '_blank')}>
               <Eye className="h-4 w-4 mr-2" />
               Preview
             </Button>
@@ -543,12 +613,14 @@ export default function WebsiteBuilderPage() {
                 <SelectValue placeholder="Add Section" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="header">Header</SelectItem>
                 <SelectItem value="hero">Hero Section</SelectItem>
                 <SelectItem value="how-it-works">How It Works</SelectItem>
                 <SelectItem value="services">Services</SelectItem>
                 <SelectItem value="reviews">Reviews</SelectItem>
                 <SelectItem value="faqs">FAQs</SelectItem>
                 <SelectItem value="contact">Contact</SelectItem>
+                <SelectItem value="footer">Footer</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -559,11 +631,6 @@ export default function WebsiteBuilderPage() {
           <div className={`${viewMode === 'desktop' ? 'w-full' : 'max-w-md mx-auto'}`}>
             {/* Preview of website - Using actual components */}
             <div className="bg-white min-h-screen">
-              {/* Navigation */}
-              <div className="sticky top-0 z-40">
-                <Navigation />
-              </div>
-              
               {/* Render sections using actual components */}
               {websiteConfig.sections.filter(s => s.visible).map((section) => {
                 const isSelected = selectedSection === section.id;
@@ -583,6 +650,9 @@ export default function WebsiteBuilderPage() {
                       setSelectedSection(section.id);
                     }}
                   >
+                    {section.type === 'header' && (
+                      <Navigation branding={websiteConfig.branding} inline={true} />
+                    )}
                     {section.type === 'hero' && (
                       <Hero data={section.data} branding={websiteConfig.branding} />
                     )}
@@ -601,6 +671,9 @@ export default function WebsiteBuilderPage() {
                     {section.type === 'contact' && (
                       <Contact data={section.data} />
                     )}
+                    {section.type === 'footer' && (
+                      <Footer data={section.data} branding={websiteConfig.branding} />
+                    )}
                     {isSelected && (
                       <div className="absolute top-2 left-2 bg-primary text-white px-3 py-1.5 rounded-md text-xs font-semibold z-50 shadow-lg pointer-events-none">
                         Editing: {section.type.replace('-', ' ')}
@@ -614,9 +687,6 @@ export default function WebsiteBuilderPage() {
                   </div>
                 );
               })}
-              
-              {/* Footer */}
-              <Footer />
             </div>
           </div>
         </div>
@@ -640,6 +710,57 @@ export default function WebsiteBuilderPage() {
               <TabsContent value="content" className="space-y-4 mt-4">
                 {selectedSectionData && (
                   <>
+                    {selectedSectionData.type === 'header' && (
+                      <>
+                        <div>
+                          <Label>Company Name</Label>
+                          <Input
+                            value={selectedSectionData.data.companyName || ''}
+                            onChange={(e) => updateSection(selectedSection, { companyName: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>Show Navigation</Label>
+                          <select
+                            value={selectedSectionData.data.showNavigation ? 'true' : 'false'}
+                            onChange={(e) => updateSection(selectedSection, { showNavigation: e.target.value === 'true' })}
+                            className="w-full p-2 border rounded"
+                          >
+                            <option value="true">Show</option>
+                            <option value="false">Hide</option>
+                          </select>
+                        </div>
+                        <div>
+                          <Label>Navigation Links</Label>
+                          <div className="space-y-2">
+                            {selectedSectionData.data.navigationLinks?.map((link: any, index: number) => (
+                              <div key={index} className="flex gap-2">
+                                <Input
+                                  value={link.text || ''}
+                                  onChange={(e) => {
+                                    const newLinks = [...selectedSectionData.data.navigationLinks];
+                                    newLinks[index] = { ...link, text: e.target.value };
+                                    updateSection(selectedSection, { navigationLinks: newLinks });
+                                  }}
+                                  placeholder="Link text"
+                                  className="flex-1"
+                                />
+                                <Input
+                                  value={link.url || ''}
+                                  onChange={(e) => {
+                                    const newLinks = [...selectedSectionData.data.navigationLinks];
+                                    newLinks[index] = { ...link, url: e.target.value };
+                                    updateSection(selectedSection, { navigationLinks: newLinks });
+                                  }}
+                                  placeholder="URL"
+                                  className="flex-1"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
                     {selectedSectionData.type === 'hero' && (
                       <>
                         <div>
@@ -664,32 +785,14 @@ export default function WebsiteBuilderPage() {
                           />
                         </div>
                         <div>
-                          <Label>Background Image URL</Label>
-                          <div className="flex gap-2">
-                            <Input
-                              value={selectedSectionData.data.backgroundImage}
-                              onChange={(e) => updateSection(selectedSection, { backgroundImage: e.target.value })}
-                              placeholder="/images/hero-bg.jpg"
-                            />
-                            <Button variant="outline" size="icon" title="Upload image" onClick={() => {
-                              const url = prompt('Enter image URL:');
-                              if (url) updateSection(selectedSection, { backgroundImage: url });
-                            }}>
-                              <Upload className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          {selectedSectionData.data.backgroundImage && (
-                            <div className="mt-2 rounded overflow-hidden border">
-                              <img 
-                                src={selectedSectionData.data.backgroundImage} 
-                                alt="Preview" 
-                                className="w-full h-32 object-cover"
-                                onError={(e) => {
-                                  (e.target as HTMLImageElement).src = '/placeholder.svg';
-                                }}
-                              />
-                            </div>
-                          )}
+                          <Label>Background Image</Label>
+                          <ImageUpload
+                            onImageUpload={(url) => updateSection(selectedSection, { backgroundImage: url })}
+                            onImageDelete={() => updateSection(selectedSection, { backgroundImage: '' })}
+                            currentImage={selectedSectionData.data.backgroundImage}
+                            type="hero"
+                            maxSize={5}
+                          />
                         </div>
                         <div>
                           <Label>Button 1 Text</Label>
@@ -801,46 +904,22 @@ export default function WebsiteBuilderPage() {
                                   />
                                 </div>
                                 <div>
-                                  <Label className="text-xs">Image URL</Label>
-                                  <div className="flex gap-2">
-                                    <Input
-                                      value={service.image}
-                                      onChange={(e) => {
-                                        const newServices = [...selectedSectionData.data.services];
-                                        newServices[index] = { ...service, image: e.target.value };
-                                        updateSection(selectedSection, { services: newServices });
-                                      }}
-                                      className="text-sm"
-                                      placeholder="https://images.unsplash.com/..."
-                                    />
-                                    <Button 
-                                      variant="outline" 
-                                      size="icon" 
-                                      className="h-8 w-8"
-                                      onClick={() => {
-                                        const url = prompt('Enter image URL:');
-                                        if (url) {
-                                          const newServices = [...selectedSectionData.data.services];
-                                          newServices[index] = { ...service, image: url };
-                                          updateSection(selectedSection, { services: newServices });
-                                        }
-                                      }}
-                                    >
-                                      <Upload className="h-3 w-3" />
-                                    </Button>
-                                  </div>
-                                  {service.image && (
-                                    <div className="mt-2 rounded overflow-hidden border">
-                                      <img 
-                                        src={service.image} 
-                                        alt={service.title} 
-                                        className="w-full h-20 object-cover"
-                                        onError={(e) => {
-                                          (e.target as HTMLImageElement).src = '/placeholder.svg';
-                                        }}
-                                      />
-                                    </div>
-                                  )}
+                                  <Label className="text-xs">Service Image</Label>
+                                  <ImageUpload
+                                    onImageUpload={(url) => {
+                                      const newServices = [...selectedSectionData.data.services];
+                                      newServices[index] = { ...service, image: url };
+                                      updateSection(selectedSection, { services: newServices });
+                                    }}
+                                    onImageDelete={() => {
+                                      const newServices = [...selectedSectionData.data.services];
+                                      newServices[index] = { ...service, image: '' };
+                                      updateSection(selectedSection, { services: newServices });
+                                    }}
+                                    currentImage={service.image}
+                                    type="section"
+                                    maxSize={3}
+                                  />
                                 </div>
                                 <div>
                                   <Label className="text-xs">Features (comma-separated)</Label>
@@ -904,46 +983,22 @@ export default function WebsiteBuilderPage() {
                                 />
                               </div>
                               <div>
-                                <Label className="text-xs">Image URL</Label>
-                                <div className="flex gap-2">
-                                  <Input
-                                    value={step.image}
-                                    onChange={(e) => {
-                                      const newSteps = [...selectedSectionData.data.steps];
-                                      newSteps[index] = { ...step, image: e.target.value };
-                                      updateSection(selectedSection, { steps: newSteps });
-                                    }}
-                                    className="text-sm"
-                                    placeholder="/images/step.jpg"
-                                  />
-                                  <Button 
-                                    variant="outline" 
-                                    size="icon" 
-                                    className="h-8 w-8"
-                                    onClick={() => {
-                                      const url = prompt('Enter image URL:');
-                                      if (url) {
-                                        const newSteps = [...selectedSectionData.data.steps];
-                                        newSteps[index] = { ...step, image: url };
-                                        updateSection(selectedSection, { steps: newSteps });
-                                      }
-                                    }}
-                                  >
-                                    <Upload className="h-3 w-3" />
-                                  </Button>
-                                </div>
-                                {step.image && (
-                                  <div className="mt-2 rounded overflow-hidden border">
-                                    <img 
-                                      src={step.image} 
-                                      alt={`Step ${index + 1}`} 
-                                      className="w-full h-20 object-cover"
-                                      onError={(e) => {
-                                        (e.target as HTMLImageElement).src = '/placeholder.svg';
-                                      }}
-                                    />
-                                  </div>
-                                )}
+                                <Label className="text-xs">Step Image</Label>
+                                <ImageUpload
+                                  onImageUpload={(url) => {
+                                    const newSteps = [...selectedSectionData.data.steps];
+                                    newSteps[index] = { ...step, image: url };
+                                    updateSection(selectedSection, { steps: newSteps });
+                                  }}
+                                  onImageDelete={() => {
+                                    const newSteps = [...selectedSectionData.data.steps];
+                                    newSteps[index] = { ...step, image: '' };
+                                    updateSection(selectedSection, { steps: newSteps });
+                                  }}
+                                  currentImage={step.image}
+                                  type="section"
+                                  maxSize={3}
+                                />
                               </div>
                             </div>
                           ))}
@@ -1004,6 +1059,131 @@ export default function WebsiteBuilderPage() {
                             value={selectedSectionData.data.address}
                             onChange={(e) => updateSection(selectedSection, { address: e.target.value })}
                           />
+                        </div>
+                      </>
+                    )}
+                    {selectedSectionData.type === 'footer' && (
+                      <>
+                        <div>
+                          <Label>Company Name</Label>
+                          <Input
+                            value={selectedSectionData.data.companyName || ''}
+                            onChange={(e) => updateSection(selectedSection, { companyName: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>Description</Label>
+                          <Textarea
+                            value={selectedSectionData.data.description || ''}
+                            onChange={(e) => updateSection(selectedSection, { description: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>Email</Label>
+                          <Input
+                            value={selectedSectionData.data.email || ''}
+                            onChange={(e) => updateSection(selectedSection, { email: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>Phone</Label>
+                          <Input
+                            value={selectedSectionData.data.phone || ''}
+                            onChange={(e) => updateSection(selectedSection, { phone: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>Copyright</Label>
+                          <Input
+                            value={selectedSectionData.data.copyright || ''}
+                            onChange={(e) => updateSection(selectedSection, { copyright: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>Social Links</Label>
+                          <div className="space-y-2">
+                            <div className="flex gap-2">
+                              <Label className="w-20">Facebook</Label>
+                              <Input
+                                value={selectedSectionData.data.socialLinks?.facebook || ''}
+                                onChange={(e) => updateSection(selectedSection, { 
+                                  socialLinks: { 
+                                    ...selectedSectionData.data.socialLinks, 
+                                    facebook: e.target.value 
+                                  } 
+                                })}
+                                placeholder="https://facebook.com/..."
+                              />
+                            </div>
+                            <div className="flex gap-2">
+                              <Label className="w-20">Twitter</Label>
+                              <Input
+                                value={selectedSectionData.data.socialLinks?.twitter || ''}
+                                onChange={(e) => updateSection(selectedSection, { 
+                                  socialLinks: { 
+                                    ...selectedSectionData.data.socialLinks, 
+                                    twitter: e.target.value 
+                                  } 
+                                })}
+                                placeholder="https://twitter.com/..."
+                              />
+                            </div>
+                            <div className="flex gap-2">
+                              <Label className="w-20">Instagram</Label>
+                              <Input
+                                value={selectedSectionData.data.socialLinks?.instagram || ''}
+                                onChange={(e) => updateSection(selectedSection, { 
+                                  socialLinks: { 
+                                    ...selectedSectionData.data.socialLinks, 
+                                    instagram: e.target.value 
+                                  } 
+                                })}
+                                placeholder="https://instagram.com/..."
+                              />
+                            </div>
+                            <div className="flex gap-2">
+                              <Label className="w-20">LinkedIn</Label>
+                              <Input
+                                value={selectedSectionData.data.socialLinks?.linkedin || ''}
+                                onChange={(e) => updateSection(selectedSection, { 
+                                  socialLinks: { 
+                                    ...selectedSectionData.data.socialLinks, 
+                                    linkedin: e.target.value 
+                                  } 
+                                })}
+                                placeholder="https://linkedin.com/..."
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        <div>
+                          <Label>Quick Links</Label>
+                          <div className="space-y-2">
+                            {selectedSectionData.data.quickLinks?.map((link: any, index: number) => (
+                              <div key={index} className="flex gap-2">
+                                <Input
+                                  value={link.text || ''}
+                                  onChange={(e) => {
+                                    const newLinks = [...selectedSectionData.data.quickLinks];
+                                    newLinks[index] = { ...link, text: e.target.value };
+                                    updateSection(selectedSection, { quickLinks: newLinks });
+                                  }}
+                                  placeholder="Link text"
+                                  className="flex-1"
+                                />
+                                <Input
+                                  value={link.url || ''}
+                                  onChange={(e) => {
+                                    const newLinks = [...selectedSectionData.data.quickLinks];
+                                    newLinks[index] = { ...link, url: e.target.value };
+                                    updateSection(selectedSection, { quickLinks: newLinks });
+                                  }}
+                                  placeholder="URL"
+                                  className="flex-1"
+                                />
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </>
                     )}
@@ -1091,48 +1271,27 @@ export default function WebsiteBuilderPage() {
                 </div>
                 <div>
                   <Label>Logo</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={websiteConfig.branding.logo}
-                      onChange={(e) => {
-                        const newConfig = {
-                          ...websiteConfig,
-                          branding: { ...websiteConfig.branding, logo: e.target.value },
-                        };
-                        setWebsiteConfig(newConfig);
-                        addToHistory(newConfig);
-                      }}
-                    />
-                    <Button 
-                      variant="outline" 
-                      size="icon"
-                      onClick={() => {
-                        const url = prompt('Enter logo image URL:');
-                        if (url) {
-                          const newConfig = {
-                            ...websiteConfig,
-                            branding: { ...websiteConfig.branding, logo: url },
-                          };
-                          setWebsiteConfig(newConfig);
-                          addToHistory(newConfig);
-                        }
-                      }}
-                    >
-                      <Upload className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  {websiteConfig.branding.logo && (
-                    <div className="mt-2 rounded overflow-hidden border p-2 bg-gray-50">
-                      <img 
-                        src={websiteConfig.branding.logo} 
-                        alt="Logo Preview" 
-                        className="h-16 w-auto mx-auto"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = '/placeholder.svg';
-                        }}
-                      />
-                    </div>
-                  )}
+                  <ImageUpload
+                    onImageUpload={(url) => {
+                      const newConfig = {
+                        ...websiteConfig,
+                        branding: { ...websiteConfig.branding, logo: url },
+                      };
+                      setWebsiteConfig(newConfig);
+                      addToHistory(newConfig);
+                    }}
+                    onImageDelete={() => {
+                      const newConfig = {
+                        ...websiteConfig,
+                        branding: { ...websiteConfig.branding, logo: '' },
+                      };
+                      setWebsiteConfig(newConfig);
+                      addToHistory(newConfig);
+                    }}
+                    currentImage={websiteConfig.branding.logo}
+                    type="logo"
+                    maxSize={2}
+                  />
                 </div>
               </TabsContent>
 
@@ -1167,4 +1326,3 @@ export default function WebsiteBuilderPage() {
     </div>
   );
 }
-

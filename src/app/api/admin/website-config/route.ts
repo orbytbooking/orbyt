@@ -93,13 +93,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid config data' }, { status: 400 });
     }
 
-    // Upsert website config
+    // Use upsert with on_conflict to handle duplicate key
     const { data: result, error: upsertError } = await supabase
       .from('business_website_configs')
       .upsert({
         business_id: business.id,
         config: config,
         updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'business_id'
       })
       .select('config')
       .single();

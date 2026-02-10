@@ -65,11 +65,23 @@ export default function HowItWorks({ data }: HowItWorksProps) {
                 </div>
                 <div className="aspect-square overflow-hidden relative">
                   <div className="absolute inset-0 bg-gradient-to-t from-primary/20 to-transparent z-10 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <img 
-                    src={step.image} 
-                    alt={step.title}
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                  />
+                  {step.image ? (
+                    <img 
+                      src={step.image} 
+                      alt={step.title}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = '/placeholder.svg';
+                      }}
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                      <div className="text-gray-400 text-center">
+                        <Icon className="w-12 h-12 mx-auto mb-2" />
+                        <span className="text-sm">No image</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="p-6 text-center gradient-card">
                   <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-primary/10 mb-4 group-hover:glow-effect transition-all group-hover:bg-primary/20 border border-primary/20">

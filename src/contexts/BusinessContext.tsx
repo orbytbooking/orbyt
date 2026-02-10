@@ -71,8 +71,6 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
         .select('*')
         .eq('owner_id', user.id)
         .order('created_at', { ascending: false }); // Add ordering to prevent caching
-      
-      console.log('Raw business data from DB:', ownerBusinesses);
 
       // For now, only handle owner businesses (team functionality can be added later)
       if (ownerError) {
@@ -119,15 +117,11 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
           
           setBusinesses(allBusinesses);
           
-          // Set current business (first one or stored preference)
-          if (typeof window !== 'undefined') {
-            const storedBusinessId = localStorage.getItem('currentBusinessId');
-            const businessToSet = allBusinesses.find(b => b.id === storedBusinessId) || allBusinesses[0];
-            
-            if (businessToSet) {
-              setCurrentBusiness(businessToSet);
-              localStorage.setItem('currentBusinessId', businessToSet.id);
-            }
+          // Set current business (first one)
+          const businessToSet = allBusinesses[0];
+          
+          if (businessToSet) {
+            setCurrentBusiness(businessToSet);
           }
           
           setLoading(false);
@@ -138,7 +132,6 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
       // Format businesses
       const allBusinesses: Business[] = (ownerBusinesses || []).map(b => {
-        console.log('Mapping business:', b);
         // Direct assignment to preserve all data
         const mapped: Business = {
           ...b,
@@ -148,23 +141,17 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
           updated_at: b.updated_at || new Date().toISOString(),
           is_active: b.is_active !== undefined ? b.is_active : true,
         };
-        console.log('Mapped business:', mapped);
         return mapped;
       });
 
       setBusinesses(allBusinesses);
-      console.log('Businesses loaded:', allBusinesses);
 
-      // Set current business (first one or stored preference)
-      if (typeof window !== 'undefined') {
-        const storedBusinessId = localStorage.getItem('currentBusinessId');
-        const businessToSet = allBusinesses.find(b => b.id === storedBusinessId) || allBusinesses[0];
+      // Set current business (first one)
+        const businessToSet = allBusinesses[0];
         
         if (businessToSet) {
           setCurrentBusiness(businessToSet);
-          localStorage.setItem('currentBusinessId', businessToSet.id);
         }
-      }
 
     } catch (error: any) {
       console.error('Business fetch error:', error);
@@ -178,7 +165,6 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     const business = businesses.find(b => b.id === businessId);
     if (business) {
       setCurrentBusiness(business);
-      localStorage.setItem('currentBusinessId', businessId);
     }
   };
 
@@ -194,12 +180,15 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Only fetch businesses when auth is loaded and user is available
-    if (!authLoading && user) {
+    // Use a flag to prevent refetching on every tab switch
+    if (!authLoading && user && !businesses.length) {
       fetchBusinesses();
     } else if (!authLoading && !user) {
+      setBusinesses([]);
+      setCurrentBusiness(null);
       setLoading(false);
     }
-  }, [user, authLoading]);
+  }, [user, authLoading, businesses.length]);
 
   const value: BusinessContextType = {
     businesses,
@@ -210,20 +199,6 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     refreshBusinesses: fetchBusinesses,
     hasPermission
   };
-
-  // Debug: Log context value on every render
-  console.log('BusinessContext value:', {
-    businessesCount: businesses.length,
-    currentBusiness: currentBusiness ? {
-      id: currentBusiness.id,
-      name: currentBusiness.name,
-      business_email: currentBusiness.business_email,
-      business_phone: currentBusiness.business_phone,
-      city: currentBusiness.city,
-      zip_code: currentBusiness.zip_code,
-      description: currentBusiness.description
-    } : null
-  });
 
   return (
     <BusinessContext.Provider value={value}>

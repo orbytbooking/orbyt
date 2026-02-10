@@ -1,10 +1,10 @@
 'use client'
 
-import { Facebook, Twitter, Linkedin, Youtube } from "lucide-react";
+import { Facebook, Twitter, Linkedin, Youtube, Image as ImageIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 
-const Footer = () => {
+const Footer = ({ data, branding }: { data?: any; branding?: any }) => {
   const router = useRouter();
   const pathname = usePathname();
 
@@ -31,11 +31,23 @@ const Footer = () => {
         <div className="grid md:grid-cols-2 gap-8 mb-8">
           <div>
             <div className="flex items-center gap-3 mb-4">
-              <img src="/images/logo.png" alt="Orbyt Cleaners" className="h-16 w-16" />
-              <h3 className="text-2xl font-bold gradient-text">Orbyt Cleaners</h3>
+              {branding?.logo && !branding.logo.startsWith('blob:') ? (
+                <img src={branding.logo} alt={branding.companyName || "Orbyt Cleaners"} className="h-16 w-16" />
+              ) : (
+                <div className="h-16 w-16 bg-gray-200 rounded flex items-center justify-center">
+                  <ImageIcon className="h-8 w-8 text-gray-400" />
+                </div>
+              )}
+              <h3 className="text-2xl font-bold gradient-text">{branding?.companyName || "Orbyt Cleaners"}</h3>
             </div>
             <p className="text-navy-foreground/80 mb-4">
-              Call: +1 234 567 890
+              {data?.description || "Professional cleaning services you can trust. Experience the difference with our expert team."}
+            </p>
+            <p className="text-navy-foreground/80 mb-4">
+              Call: {data?.phone || "+1 234 567 8900"}
+            </p>
+            <p className="text-navy-foreground/80">
+              Email: {data?.email || "info@orbyt.com"}
             </p>
           </div>
           
@@ -43,33 +55,16 @@ const Footer = () => {
             <div>
               <h4 className="font-semibold mb-3">Quick Links</h4>
               <ul className="space-y-2 text-navy-foreground/80">
-                <li>
-                  <Link 
-                    href="/builder#how-it-works"
-                    onClick={(e) => handleSectionClick(e, 'how-it-works')} 
-                    className="hover:text-primary transition-colors"
-                  >
-                    How It Works
-                  </Link>
-                </li>
-                <li>
-                  <Link 
-                    href="/builder#services"
-                    onClick={(e) => handleSectionClick(e, 'services')} 
-                    className="hover:text-primary transition-colors"
-                  >
-                    Services
-                  </Link>
-                </li>
-                <li>
-                  <Link 
-                    href="/builder#reviews"
-                    onClick={(e) => handleSectionClick(e, 'reviews')} 
-                    className="hover:text-primary transition-colors"
-                  >
-                    Reviews
-                  </Link>
-                </li>
+                {(data?.quickLinks || []).filter((link: any) => link?.text && link?.url).map((link: any, index: number) => (
+                  <li key={index}>
+                    <Link 
+                      href={link.url || '#'}
+                      className="hover:text-primary transition-colors"
+                    >
+                      {link.text || 'Link'}
+                    </Link>
+                  </li>
+                ))}
               </ul>
             </div>
             <div>
@@ -106,20 +101,20 @@ const Footer = () => {
 
         <div className="flex flex-col md:flex-row justify-between items-center pt-8 border-t border-navy-foreground/20">
           <p className="text-navy-foreground/80 mb-4 md:mb-0">
-            © 2025 Orbyt Cleaners. All rights reserved.
+            {data?.copyright || "© 2024 Orbyt Cleaners. All rights reserved."}
           </p>
           
           <div className="flex gap-4">
-            <Link href="#" className="w-10 h-10 rounded-full bg-navy-foreground/10 flex items-center justify-center hover:bg-primary transition-all hover:scale-110 border border-navy-foreground/20">
+            <Link href={data?.socialLinks?.facebook || '#'} className="w-10 h-10 rounded-full bg-navy-foreground/10 flex items-center justify-center hover:bg-primary transition-all hover:scale-110 border border-navy-foreground/20">
               <Facebook className="w-5 h-5" />
             </Link>
-            <Link href="#" className="w-10 h-10 rounded-full bg-navy-foreground/10 flex items-center justify-center hover:bg-primary transition-all hover:scale-110 border border-navy-foreground/20">
+            <Link href={data?.socialLinks?.twitter || '#'} className="w-10 h-10 rounded-full bg-navy-foreground/10 flex items-center justify-center hover:bg-primary transition-all hover:scale-110 border border-navy-foreground/20">
               <Twitter className="w-5 h-5" />
             </Link>
-            <Link href="#" className="w-10 h-10 rounded-full bg-navy-foreground/10 flex items-center justify-center hover:bg-primary transition-all hover:scale-110 border border-navy-foreground/20">
+            <Link href={data?.socialLinks?.instagram || '#'} className="w-10 h-10 rounded-full bg-navy-foreground/10 flex items-center justify-center hover:bg-primary transition-all hover:scale-110 border border-navy-foreground/20">
               <Linkedin className="w-5 h-5" />
             </Link>
-            <Link href="#" className="w-10 h-10 rounded-full bg-navy-foreground/10 flex items-center justify-center hover:bg-primary transition-all hover:scale-110 border border-navy-foreground/20">
+            <Link href={data?.socialLinks?.linkedin || '#'} className="w-10 h-10 rounded-full bg-navy-foreground/10 flex items-center justify-center hover:bg-primary transition-all hover:scale-110 border border-navy-foreground/20">
               <Youtube className="w-5 h-5" />
             </Link>
           </div>

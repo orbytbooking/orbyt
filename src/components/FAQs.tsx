@@ -44,29 +44,18 @@ interface FAQsProps {
   data?: {
     title?: string;
     subtitle?: string;
+    faqs?: Array<{
+      id: string;
+      question: string;
+      answer: string;
+      order: number;
+    }>;
   };
 }
 
 export default function FAQs({ data }: FAQsProps) {
-  const [faqs, setFaqs] = useState<FAQ[]>(DEFAULT_FAQS);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      const stored = localStorage.getItem(FAQS_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // Sort by order
-          const sorted = [...parsed].sort((a, b) => a.order - b.order);
-          setFaqs(sorted);
-          return;
-        }
-      }
-    } catch (e) {
-      console.error('Error loading FAQs:', e);
-    }
-  }, []);
+  // Use FAQs from website builder data, fallback to defaults
+  const faqs = data?.faqs || DEFAULT_FAQS;
 
   const title = data?.title || 'Frequently Asked Questions';
   const subtitle = data?.subtitle || 'Find answers to common questions about our services and booking process.';

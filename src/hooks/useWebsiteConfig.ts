@@ -6,7 +6,7 @@ import { useBusiness } from '@/contexts/BusinessContext';
 
 export interface WebsiteSection {
   id: string;
-  type: 'hero' | 'services' | 'how-it-works' | 'reviews' | 'faqs' | 'contact' | 'footer';
+  type: 'header' | 'hero' | 'services' | 'how-it-works' | 'reviews' | 'faqs' | 'contact' | 'footer';
   visible: boolean;
   data: any;
 }
@@ -25,6 +25,22 @@ export interface WebsiteConfig {
 
 const defaultConfig: WebsiteConfig = {
   sections: [
+    {
+      id: 'header',
+      type: 'header',
+      visible: true,
+      data: {
+        companyName: 'Orbyt Cleaners',
+        logo: '/images/orbit.png',
+        showNavigation: true,
+        navigationLinks: [
+          { text: 'How It Works', url: '#how-it-works' },
+          { text: 'Services', url: '#services' },
+          { text: 'Reviews', url: '#reviews' },
+          { text: 'Contact', url: '#contact' }
+        ]
+      }
+    },
     {
       id: 'hero',
       type: 'hero',
@@ -85,6 +101,35 @@ const defaultConfig: WebsiteConfig = {
       }
     },
     {
+      id: 'faqs',
+      type: 'faqs',
+      visible: true,
+      data: {
+        title: 'Frequently Asked Questions',
+        subtitle: 'Find answers to common questions about our services and booking process.',
+        faqs: [
+          {
+            id: 'faq-1',
+            question: 'How do I book an appointment?',
+            answer: 'You can book an appointment by clicking the \'Book Now\' button on our homepage and following the simple booking process.',
+            order: 1
+          },
+          {
+            id: 'faq-2',
+            question: 'What payment methods do you accept?',
+            answer: 'We accept all major credit cards, PayPal, and in some cases, cash on delivery. All online payments are processed securely.',
+            order: 2
+          },
+          {
+            id: 'faq-3',
+            question: 'Can I reschedule or cancel my appointment?',
+            answer: 'Yes, you can reschedule or cancel your appointment up to 24 hours before your scheduled time through your account dashboard.',
+            order: 3
+          }
+        ]
+      }
+    },
+    {
       id: 'contact',
       type: 'contact',
       visible: true,
@@ -95,11 +140,36 @@ const defaultConfig: WebsiteConfig = {
         address: '123 Main St, Chicago, IL 60601'
       }
     },
+    {
+      id: 'footer',
+      type: 'footer',
+      visible: true,
+      data: {
+        companyName: 'Orbyt Cleaners',
+        description: 'Professional cleaning services you can trust. Experience the difference with our expert team.',
+        email: 'info@orbyt.com',
+        phone: '+1 234 567 8900',
+        address: '123 Main St, Chicago, IL 60601',
+        socialLinks: {
+          facebook: '#',
+          twitter: '#',
+          instagram: '#',
+          linkedin: '#'
+        },
+        quickLinks: [
+          { text: 'Home', url: '/builder' },
+          { text: 'Services', url: '#services' },
+          { text: 'About', url: '#about' },
+          { text: 'Contact', url: '#contact' }
+        ],
+        copyright: '© 2024 Orbyt Cleaners. All rights reserved.'
+      }
+    },
   ],
   branding: {
     primaryColor: '#00D4E8',
     secondaryColor: '#00BCD4',
-    logo: '/images/logo.png',
+    logo: '/images/orbit.png',
     companyName: 'Orbyt Cleaners',
     domain: 'orbytcleaner.bookingkoala.com',
   },
@@ -107,22 +177,47 @@ const defaultConfig: WebsiteConfig = {
 };
 
 export const useWebsiteConfig = () => {
-  const [config, setConfig] = useState<WebsiteConfig>(defaultConfig);
+  const [config, setConfig] = useState<WebsiteConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [blockUpdates, setBlockUpdates] = useState(false);
   const { currentBusiness } = useBusiness();
 
   const updateConfig = async (newConfig: Partial<WebsiteConfig>) => {
-    const updatedConfig = { ...defaultConfig, ...config, ...newConfig };
-    setConfig(updatedConfig);
+    // If config is null, use newConfig as base
+    if (!config) {
+      const updatedConfig = newConfig as WebsiteConfig;
+      setConfig(updatedConfig);
+      return { success: true };
+    }
+
+    // If newConfig already has sections, use it directly (from updateSection)
+    // Otherwise, do a deep merge
+    let updatedConfig: WebsiteConfig;
     
-    // Save to localStorage for real-time updates
-    const storageKey = currentBusiness ? `websiteConfig_${currentBusiness.id}` : 'websiteConfig';
-    localStorage.setItem(storageKey, JSON.stringify(updatedConfig));
+    if (newConfig.sections) {
+      // This is a full section update from updateSection
+      updatedConfig = {
+        ...config,
+        ...newConfig,
+        branding: { ...config.branding, ...newConfig.branding }
+      };
+    } else {
+      // This is a partial update (like branding changes)
+      updatedConfig = {
+        ...config,
+        ...newConfig,
+        branding: { ...config.branding, ...newConfig.branding }
+      };
+    }
     
-    // Dispatch event for real-time updates
-    window.dispatchEvent(new CustomEvent('website-config-updated'));
+    // First save to database, then update state
+    console.log('updateConfig: saving to database first', updatedConfig);
     
-    // Save to database if we have a current business
+    setIsSaving(true);
+    setSaveError(null);
+    
     if (currentBusiness) {
       try {
         const response = await fetch('/api/admin/website-config', {
@@ -134,13 +229,32 @@ export const useWebsiteConfig = () => {
         });
         
         if (!response.ok) {
-          console.error('Failed to save config to database:', await response.text());
-        } else {
-          console.log('Config saved to database successfully');
+          const error = await response.json().catch(() => ({}));
+          throw new Error(error.error || `Failed to save: ${response.statusText}`);
         }
+        
+        // Only update state after successful database save
+        console.log('Config saved to database successfully, updating state');
+        setConfig(updatedConfig);
+        
+        // Dispatch event for real-time updates
+        window.dispatchEvent(new CustomEvent('website-config-updated'));
+        
+        return { success: true };
       } catch (error) {
         console.error('Error saving config to database:', error);
+        // Don't update state if save failed
+        setSaveError(error instanceof Error ? error.message : 'Failed to save configuration');
+        throw error;
+      } finally {
+        setIsSaving(false);
       }
+    } else {
+      // If no business, update state locally
+      setConfig(updatedConfig);
+      window.dispatchEvent(new CustomEvent('website-config-updated'));
+      setIsSaving(false);
+      return { success: true };
     }
   };
 
@@ -149,7 +263,7 @@ export const useWebsiteConfig = () => {
       setIsLoading(true);
       
       try {
-        // First try to load from database if we have a current business
+        // Load from database if we have a current business
         if (currentBusiness) {
           const { data: businessConfig, error } = await supabase
             .from('business_website_configs')
@@ -158,32 +272,26 @@ export const useWebsiteConfig = () => {
             .single();
 
           if (!error && businessConfig) {
-            setConfig(businessConfig.config);
+            // Ensure header section exists for existing configurations
+            const configWithHeader = ensureHeaderSection(businessConfig.config);
+            setConfig(configWithHeader);
             setIsLoading(false);
             return;
           } else if (error && error.code === 'PGRST116') {
-            // Table doesn't exist (404), fall back to localStorage
-            console.warn('business_website_configs table not found, falling back to localStorage');
+            // Table doesn't exist (404), stay in loading state
+            console.warn('business_website_configs table not found, no config to load');
           } else if (error) {
             console.warn('Database config fetch failed:', error);
+          } else {
+            // No error but no config found, stay in loading state
+            console.log('No business config found for this business');
           }
         }
       } catch (error) {
         console.error('Failed to load config from database:', error);
       }
 
-      // Fallback to localStorage with business isolation
-      const storageKey = currentBusiness ? `websiteConfig_${currentBusiness.id}` : 'websiteConfig';
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          setConfig(parsed);
-        } catch (e) {
-          console.error('Failed to load website config', e);
-        }
-      }
-      
+      // Only set loading to false - config will be null if no business config found
       setIsLoading(false);
     };
 
@@ -191,46 +299,86 @@ export const useWebsiteConfig = () => {
   }, [currentBusiness]);
 
   useEffect(() => {
-    // Listen for storage changes (when builder saves)
-    const handleStorageChange = (e: StorageEvent) => {
-      const storageKey = currentBusiness ? `websiteConfig_${currentBusiness.id}` : 'websiteConfig';
-      if (e.key === storageKey && e.newValue) {
-        try {
-          const parsed = JSON.parse(e.newValue);
-          setConfig(parsed);
-        } catch (e) {
-          console.error('Failed to load website config', e);
-        }
-      }
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-
-    // Also listen for custom event (same-tab updates)
+    // Listen for custom event (same-tab updates)
     const handleCustomEvent = () => {
-      const storageKey = currentBusiness ? `websiteConfig_${currentBusiness.id}` : 'websiteConfig';
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          setConfig(parsed);
-        } catch (e) {
-          console.error('Failed to load website config', e);
-        }
+      console.log('Custom event received, checking if updates are blocked');
+      // Only reload if updates are not blocked
+      if (!blockUpdates && currentBusiness) {
+        console.log('Updates not blocked, reloading config from database');
+        loadConfig();
+      } else {
+        console.log('Updates are blocked, ignoring reload');
       }
     };
 
     window.addEventListener('website-config-updated', handleCustomEvent);
 
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('website-config-updated', handleCustomEvent);
     };
-  }, [currentBusiness]);
+  }, [currentBusiness, blockUpdates]);
+
+  // Helper function to ensure header section exists
+  const ensureHeaderSection = (config: WebsiteConfig): WebsiteConfig => {
+    const hasHeader = config.sections.some(section => section.type === 'header');
+    console.log('ensureHeaderSection - hasHeader:', hasHeader, 'sections count:', config.sections.length);
+    
+    if (!hasHeader) {
+      console.log('Adding header section to existing config');
+      return {
+        ...config,
+        sections: [
+          {
+            id: 'header',
+            type: 'header',
+            visible: true,
+            data: {
+              companyName: config.branding?.companyName || 'Orbyt Cleaners',
+              logo: config.branding?.logo || '/images/orbit.png',
+              showNavigation: true,
+              navigationLinks: [
+                { text: 'How It Works', url: '#how-it-works' },
+                { text: 'Services', url: '#services' },
+                { text: 'Reviews', url: '#reviews' },
+                { text: 'Contact', url: '#contact' }
+              ]
+            }
+          },
+          ...config.sections
+        ]
+      };
+    }
+    return config;
+  };
+
+  // Helper function to reload config
+  const loadConfig = async () => {
+    if (currentBusiness) {
+      console.log('Reloading config from database...');
+      const { data: businessConfig, error } = await supabase
+        .from('business_website_configs')
+        .select('config')
+        .eq('business_id', currentBusiness.id)
+        .single();
+
+      if (!error && businessConfig) {
+        console.log('Config reloaded from database:', businessConfig.config);
+        // Ensure header section exists for existing configurations
+        const configWithHeader = ensureHeaderSection(businessConfig.config);
+        setConfig(configWithHeader);
+      } else if (error) {
+        console.log('Error reloading config:', error);
+      }
+    }
+  };
 
   return { 
     config, 
     isLoading, 
+    isSaving,
+    saveError,
+    blockUpdates,
+    setBlockUpdates,
     updateConfig 
   };
 };

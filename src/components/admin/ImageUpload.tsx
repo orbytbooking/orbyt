@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/components/ui/use-toast';
 import { Upload, X, Image as ImageIcon } from 'lucide-react';
+import { createAuthenticatedFetch } from '@/lib/auth-client';
 
 interface ImageUploadProps {
   onImageUpload: (url: string) => void;
@@ -60,52 +61,24 @@ export function ImageUpload({
       formData.append('file', file);
       formData.append('type', type);
 
-      const xhr = new XMLHttpRequest();
-      
-      // Track progress
-      xhr.upload.addEventListener('progress', (event) => {
-        if (event.lengthComputable) {
-          const percentComplete = (event.loaded / event.total) * 100;
-          setProgress(percentComplete);
-        }
+      const response = await createAuthenticatedFetch('/api/admin/upload-website-image', {
+        method: 'POST',
+        body: formData,
       });
 
-      // Handle completion
-      xhr.addEventListener('load', () => {
-        if (xhr.status === 200) {
-          const response = JSON.parse(xhr.responseText);
-          if (response.success) {
-            onImageUpload(response.url);
-            toast({
-              title: 'Image uploaded successfully',
-              description: 'Your image has been uploaded and is ready to use.',
-            });
-          } else {
-            throw new Error(response.error || 'Upload failed');
-          }
-        } else {
-          throw new Error('Upload failed');
-        }
-        setUploading(false);
-        setProgress(0);
-      });
+      const result = await response.json();
 
-      // Handle errors
-      xhr.addEventListener('error', () => {
+      if (result.success) {
+        onImageUpload(result.url);
         toast({
-          title: 'Upload failed',
-          description: 'There was an error uploading your image. Please try again.',
-          variant: 'destructive',
+          title: 'Image uploaded successfully',
+          description: 'Your image has been uploaded and is ready to use.',
         });
-        setUploading(false);
-        setProgress(0);
-      });
-
-      // Send request
-      xhr.open('POST', '/api/admin/upload-website-image');
-      xhr.setRequestHeader('Authorization', `Bearer ${localStorage.getItem('supabase.auth.token') || ''}`);
-      xhr.send(formData);
-
+      } else {
+        throw new Error(result.error || 'Upload failed');
+      }
+      setUploading(false);
+      setProgress(0);
     } catch (error) {
       console.error('Upload error:', error);
       toast({
@@ -121,14 +94,27 @@ export function ImageUpload({
   const handleDelete = async () => {
     if (!currentImage) return;
 
+    // Check if it's a local default image (starts with /images/)
+    const isLocalImage = currentImage.startsWith('/images/');
+    
+    if (isLocalImage) {
+      // For local default images, just replace with empty string (placeholder)
+      onImageDelete('');
+      toast({
+        title: 'Image removed',
+        description: 'Default image has been replaced with placeholder.',
+      });
+      return;
+    }
+
+    // For uploaded images, delete from storage
     try {
-      const response = await fetch('/api/admin/upload-website-image', {
+      const response = await createAuthenticatedFetch('/api/admin/upload-website-image', {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token') || ''}`,
         },
-        body: JSON.stringify({ fileName: currentImage.split('/').pop() }),
+        body: JSON.stringify({ fileName: currentImage }),
       });
 
       if (response.ok) {
@@ -138,7 +124,8 @@ export function ImageUpload({
           description: 'The image has been removed successfully.',
         });
       } else {
-        throw new Error('Delete failed');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Delete failed');
       }
     } catch (error) {
       console.error('Delete error:', error);
