@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useBusiness } from "@/contexts/BusinessContext";
+import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,6 +26,8 @@ import {
 
 export default function SettingsPage() {
   const { toast } = useToast();
+  const { currentBusiness } = useBusiness(); // Get current business
+  const { config } = useWebsiteConfig();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [companyInfo, setCompanyInfo] = useState({
@@ -151,8 +155,8 @@ export default function SettingsPage() {
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-6">
                 <div className="text-white">
-                  <h3 className="text-xl font-bold mb-1">Orbyt Cleaners</h3>
-                  <p className="text-sm text-white/80 mb-4">Professional Cleaning Services</p>
+                  <h3 className="text-xl font-bold mb-1">{currentBusiness?.name || config?.branding?.companyName || 'Your Business'}</h3>
+                  <p className="text-sm text-white/80 mb-4">Professional Services</p>
                   <div className="flex items-center gap-3">
                     <Button variant="outline" className="bg-white/10 hover:bg-white/20 border-white/20 text-white backdrop-blur-sm">
                       <ExternalLink className="h-4 w-4 mr-2" />

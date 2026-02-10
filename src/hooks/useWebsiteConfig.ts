@@ -23,14 +23,14 @@ export interface WebsiteConfig {
   template: string;
 }
 
-const defaultConfig: WebsiteConfig = {
+const getDefaultConfig = (businessName?: string): WebsiteConfig => ({
   sections: [
     {
       id: 'header',
       type: 'header',
       visible: true,
       data: {
-        companyName: 'Orbyt Cleaners',
+        companyName: businessName || 'Your Business',
         logo: '/images/orbit.png',
         showNavigation: true,
         navigationLinks: [
@@ -145,11 +145,11 @@ const defaultConfig: WebsiteConfig = {
       type: 'footer',
       visible: true,
       data: {
-        companyName: 'Orbyt Cleaners',
-        description: 'Professional cleaning services you can trust. Experience the difference with our expert team.',
-        email: 'info@orbyt.com',
+        companyName: businessName || 'Your Business',
+        description: 'Professional services you can trust. Experience the difference with our expert team.',
+        email: 'info@yourbusiness.com',
         phone: '+1 234 567 8900',
-        address: '123 Main St, Chicago, IL 60601',
+        address: '123 Main St, Your City, State 12345',
         socialLinks: {
           facebook: '#',
           twitter: '#',
@@ -162,7 +162,7 @@ const defaultConfig: WebsiteConfig = {
           { text: 'About', url: '#about' },
           { text: 'Contact', url: '#contact' }
         ],
-        copyright: '© 2024 Orbyt Cleaners. All rights reserved.'
+        copyright: `© 2024 ${businessName || 'Your Business'}. All rights reserved.`
       }
     },
   ],
@@ -170,11 +170,11 @@ const defaultConfig: WebsiteConfig = {
     primaryColor: '#00D4E8',
     secondaryColor: '#00BCD4',
     logo: '/images/orbit.png',
-    companyName: 'Orbyt Cleaners',
-    domain: 'orbytcleaner.bookingkoala.com',
+    companyName: businessName || 'Your Business',
+    domain: 'yourbusiness.bookingkoala.com',
   },
   template: 'modern',
-};
+});
 
 export const useWebsiteConfig = () => {
   const [config, setConfig] = useState<WebsiteConfig | null>(null);
@@ -291,6 +291,13 @@ export const useWebsiteConfig = () => {
         console.error('Failed to load config from database:', error);
       }
 
+      // If no config found and we have a business, create default config with business name
+      if (currentBusiness) {
+        const defaultConfigWithBusiness = getDefaultConfig(currentBusiness.name);
+        const configWithHeader = ensureHeaderSection(defaultConfigWithBusiness);
+        setConfig(configWithHeader);
+      }
+
       // Only set loading to false - config will be null if no business config found
       setIsLoading(false);
     };
@@ -333,7 +340,7 @@ export const useWebsiteConfig = () => {
             type: 'header',
             visible: true,
             data: {
-              companyName: config.branding?.companyName || 'Orbyt Cleaners',
+              companyName: config.branding?.companyName || currentBusiness?.name || 'Your Business',
               logo: config.branding?.logo || '/images/orbit.png',
               showNavigation: true,
               navigationLinks: [

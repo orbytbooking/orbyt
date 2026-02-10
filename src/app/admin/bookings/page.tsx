@@ -73,16 +73,15 @@ interface Booking {
   updated_at?: string;
 }
 
-// Mock providers data
-const mockProviders = [
-  { id: "P001", name: "Sarah Johnson", rating: 4.9, completedJobs: 156, specialties: ["Deep Cleaning", "Standard Cleaning"] },
-  { id: "P002", name: "Michael Chen", rating: 4.8, completedJobs: 142, specialties: ["Office Cleaning", "Carpet Cleaning"] },
-  { id: "P003", name: "Emily Rodriguez", rating: 4.7, completedJobs: 128, specialties: ["Move In/Out", "Deep Cleaning"] },
-  { id: "P004", name: "David Kim", rating: 4.9, completedJobs: 189, specialties: ["Standard Cleaning", "Office Cleaning"] },
-  { id: "P005", name: "Jessica Martinez", rating: 4.6, completedJobs: 95, specialties: ["Carpet Cleaning", "Deep Cleaning"] },
-];
-
-type Provider = typeof mockProviders[number];
+// Provider type definition
+type Provider = {
+  id: string;
+  name: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+};
 
 
 const getStatusBadge = (status: string) => {
@@ -173,6 +172,8 @@ export default function BookingsPage() {
   const [showDetails, setShowDetails] = useState(false);
   const [showProviderDialog, setShowProviderDialog] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [providersLoading, setProvidersLoading] = useState(false);
   const [viewMode, setViewMode] = useState<"list" | "calendar">("calendar");
   const [showSendScheduleDialog, setShowSendScheduleDialog] = useState(false);
 
@@ -209,6 +210,36 @@ export default function BookingsPage() {
     }
     fetchBookings();
   }, [currentBusiness?.id]); // Add dependency on business ID
+
+  // Fetch providers from database
+  useEffect(() => {
+    async function fetchProviders() {
+      if (!currentBusiness?.id) {
+        console.log('Waiting for business context to fetch providers...');
+        return;
+      }
+      
+      setProvidersLoading(true);
+      try {
+        const response = await fetch(`/api/admin/providers?businessId=${currentBusiness.id}`);
+        const data = await response.json();
+        
+        if (data.providers) {
+          setProviders(data.providers);
+          console.log('Successfully fetched providers:', data.providers.length);
+        } else {
+          console.error('No providers data received');
+          setProviders([]);
+        }
+      } catch (error) {
+        console.error('Failed to fetch providers:', error);
+        setProviders([]);
+      } finally {
+        setProvidersLoading(false);
+      }
+    }
+    fetchProviders();
+  }, [currentBusiness?.id]);
 
   // No localStorage sync needed; bookings are live from Supabase.
 
@@ -916,24 +947,39 @@ toast({
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto pr-2 space-y-2">
-            {mockProviders.map((provider) => (
-              <div
-                key={provider.id}
-                className={`border rounded-lg p-3 cursor-pointer transition-all hover:shadow-md ${
-                  selectedProvider?.id === provider.id
-                    ? 'border-cyan-500 bg-cyan-50 dark:bg-cyan-950/20'
-                    : 'border-border hover:border-cyan-300'
-                }`}
-                onClick={() => setSelectedProvider(provider)}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="font-semibold text-base">{provider.name}</h3>
-                  {selectedProvider?.id === provider.id && (
-                    <CheckCircle2 className="h-5 w-5 text-cyan-500 flex-shrink-0" />
-                  )}
-                </div>
+            {providersLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="text-sm text-muted-foreground">Loading providers...</div>
               </div>
-            ))}
+            ) : providers.length === 0 ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="text-sm text-muted-foreground">No providers available</div>
+              </div>
+            ) : (
+              providers.map((provider) => (
+                <div
+                  key={provider.id}
+                  className={`border rounded-lg p-3 cursor-pointer transition-all hover:shadow-md ${
+                    selectedProvider?.id === provider.id
+                      ? 'border-cyan-500 bg-cyan-50 dark:bg-cyan-950/20'
+                      : 'border-border hover:border-cyan-300'
+                  }`}
+                  onClick={() => setSelectedProvider(provider)}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="font-semibold text-base">{provider.name}</h3>
+                      {provider.email && (
+                        <p className="text-xs text-muted-foreground">{provider.email}</p>
+                      )}
+                    </div>
+                    {selectedProvider?.id === provider.id && (
+                      <CheckCircle2 className="h-5 w-5 text-cyan-500 flex-shrink-0" />
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
 
           <DialogFooter className="mt-4">
@@ -962,7 +1008,7 @@ toast({
         open={showSendScheduleDialog}
         onOpenChange={setShowSendScheduleDialog}
         bookings={bookings}
-        providers={mockProviders}
+        providers={providers}
       />
     </div>
   );

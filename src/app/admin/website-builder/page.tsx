@@ -41,6 +41,7 @@ import FAQs from '@/components/FAQs';
 import Contact from '@/components/Contact';
 import Footer from '@/components/Footer';
 import { useWebsiteConfig } from '@/hooks/useWebsiteConfig';
+import { useBusiness } from '@/contexts/BusinessContext';
 import { ImageUpload } from '@/components/admin/ImageUpload';
 
 // Types
@@ -63,14 +64,14 @@ interface WebsiteConfig {
   template: string;
 }
 
-// Default sections
+// Default sections - these will be updated with business name when used
 const defaultSections: WebsiteSection[] = [
   {
     id: 'header',
     type: 'header',
     visible: true,
     data: {
-      companyName: 'Orbyt Cleaners',
+      companyName: 'Your Business', // Will be replaced with actual business name
       logo: '/images/logo.png',
       showNavigation: true,
       navigationLinks: [
@@ -166,11 +167,11 @@ const defaultSections: WebsiteSection[] = [
     type: 'footer',
     visible: true,
     data: {
-      companyName: 'Orbyt Cleaners',
-      description: 'Professional cleaning services you can trust. Experience the difference with our expert team.',
+      companyName: 'Your Business', // Will be replaced with actual business name
+      description: 'Professional services you can trust. Experience the difference with our expert team.',
       email: 'info@orbyt.com',
       phone: '+1 234 567 8900',
-      copyright: '© 2024 Orbyt Cleaners. All rights reserved.',
+      copyright: '© 2024 Your Business. All rights reserved.', // Will be replaced with actual business name
       socialLinks: {
         facebook: '#',
         twitter: '#',
@@ -213,6 +214,7 @@ export default function WebsiteBuilderPage() {
   const router = useRouter();
   const { toast } = useToast();
   const { config, updateConfig, isLoading } = useWebsiteConfig(); // Get config from hook
+  const { currentBusiness } = useBusiness(); // Get current business
   const [viewMode, setViewMode] = useState<'desktop' | 'mobile'>('desktop');
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
   const [websiteConfig, setWebsiteConfig] = useState<WebsiteConfig | null>(null);
@@ -315,14 +317,24 @@ export default function WebsiteBuilderPage() {
 
   // Reset to default
   const resetToDefault = () => {
+    const businessName = currentBusiness?.name || 'Your Business';
     const defaultConfig = {
-      sections: defaultSections,
+      sections: defaultSections.map(section => ({
+        ...section,
+        data: {
+          ...section.data,
+          companyName: section.data.companyName ? businessName : section.data.companyName,
+          ...(section.type === 'footer' && {
+            copyright: `© 2024 ${businessName}. All rights reserved.`
+          })
+        }
+      })),
       branding: {
         primaryColor: '#00D4E8',
         secondaryColor: '#00BCD4',
         logo: '/images/orbit.png',
-        companyName: 'Orbyt Cleaners',
-        domain: 'orbytcleaner.bookingkoala.com',
+        companyName: businessName,
+        domain: `${businessName.toLowerCase().replace(/\s+/g, '')}.bookingkoala.com`,
       },
       template: 'modern',
     };
@@ -353,10 +365,12 @@ export default function WebsiteBuilderPage() {
 
   // Get default data for section type
   const getDefaultSectionData = (type: WebsiteSection['type']): any => {
+    const businessName = currentBusiness?.name || 'Your Business';
+    
     switch (type) {
       case 'header':
         return {
-          companyName: 'Your Company',
+          companyName: businessName,
           logo: '/images/logo.png',
           showNavigation: true,
           navigationLinks: [
@@ -423,11 +437,11 @@ export default function WebsiteBuilderPage() {
         };
       case 'footer':
         return {
-          companyName: 'Your Company',
+          companyName: businessName,
           description: 'Professional services you can trust. Experience the difference with our expert team.',
           email: 'info@example.com',
           phone: '+1 234 567 8900',
-          copyright: '© 2024 Your Company. All rights reserved.',
+          copyright: `© 2024 ${businessName}. All rights reserved.`,
           socialLinks: {
             facebook: '#',
             twitter: '#',

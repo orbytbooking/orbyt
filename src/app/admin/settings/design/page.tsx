@@ -6,11 +6,14 @@ import { useState } from "react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-import { Button } from "@/components/ui/button";
+import { useBusiness } from "@/contexts/BusinessContext";
+import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
 
 import { Input } from "@/components/ui/input";
 
 import { Label } from "@/components/ui/label";
+
+import { Button } from "@/components/ui/button";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -27,7 +30,8 @@ import { JobOpeningsManager } from "@/components/admin/JobOpeningsManager";
 
 
 const WebsiteBuilderTab = () => {
-
+  const { currentBusiness } = useBusiness(); // Get current business
+  const { config } = useWebsiteConfig();
   const [selectedTheme, setSelectedTheme] = useState('modern');
 
   const router = useRouter();
@@ -198,7 +202,7 @@ const WebsiteBuilderTab = () => {
 
                 <div className={`flex-1 flex flex-col items-center justify-center text-center ${currentTheme.colors.text}`}>
 
-                  <h2 className="text-2xl sm:text-3xl font-bold">Orbyt Cleaners</h2>
+                  <h2 className="text-2xl sm:text-3xl font-bold">{currentBusiness?.name || config?.branding?.companyName || 'Your Business'}</h2>
 
                 </div>
 

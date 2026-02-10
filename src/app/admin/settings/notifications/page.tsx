@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { useBusiness } from "@/contexts/BusinessContext";
+import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import { Bell, Mail, MessageSquare, Calendar, Users, Briefcase, AlertCircle, Smartphone } from "lucide-react";
 import {
   Select,
@@ -27,6 +29,8 @@ interface NotificationPreference {
 }
 
 export default function NotificationsSettingsPage() {
+  const { currentBusiness } = useBusiness(); // Get current business
+  const { config } = useWebsiteConfig();
   const [preferences, setPreferences] = useState<NotificationPreference[]>([
     {
       id: 'bookings',
@@ -72,10 +76,10 @@ export default function NotificationsSettingsPage() {
 
   const [emailFrequency, setEmailFrequency] = useState('instant');
   const [quietHours, setQuietHours] = useState(false);
-  const [senderEmail, setSenderEmail] = useState('support@orbytcleaners.com');
-  const [displayName, setDisplayName] = useState('Orbyt Cleaners');
-  const [adminEmail, setAdminEmail] = useState('support@orbytcleaners.com');
-  const [replyToEmail, setReplyToEmail] = useState('support@orbytcleaners.com');
+  const [senderEmail, setSenderEmail] = useState(`support@${currentBusiness?.name?.toLowerCase().replace(/\s+/g, '') || 'business'}.com`);
+  const [displayName, setDisplayName] = useState(currentBusiness?.name || 'Your Business');
+  const [adminEmail, setAdminEmail] = useState(`support@${currentBusiness?.name?.toLowerCase().replace(/\s+/g, '') || 'business'}.com`);
+  const [replyToEmail, setReplyToEmail] = useState(`support@${currentBusiness?.name?.toLowerCase().replace(/\s+/g, '') || 'business'}.com`);
 
   const updatePreference = (id: string, channel: 'email' | 'sms', value: boolean) => {
     setPreferences(prev => prev.map(pref => 
@@ -158,7 +162,7 @@ export default function NotificationsSettingsPage() {
                         type="text"
                         value={displayName}
                         onChange={(e) => setDisplayName(e.target.value)}
-                        placeholder="Orbyt Cleaners"
+                        placeholder={currentBusiness?.name || 'Your Business'}
                       />
                     </div>
 

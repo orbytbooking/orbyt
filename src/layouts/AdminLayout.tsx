@@ -330,7 +330,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                   )}
                   <div>
                     <h2 className={`text-sm font-semibold uppercase tracking-wide ${theme === 'dark' ? 'text-cyan-400' : 'text-black'}`} style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
-                      {currentBusiness?.name || config?.branding?.companyName || 'ORBYT'}
+                      {currentBusiness?.name || config?.branding?.companyName || 'Your Business'}
                     </h2>
                     <p className={`text-xs ${theme === 'dark' ? 'text-cyan-300/60' : 'text-black/60'}`} style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Admin Panel</p>
                   </div>

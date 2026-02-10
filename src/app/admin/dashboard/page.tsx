@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
+import { useBusiness } from "@/contexts/BusinessContext";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
@@ -97,6 +98,7 @@ const Dashboard = () => {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const { config } = useWebsiteConfig();
+  const { currentBusiness } = useBusiness(); // Get current business
   const router = useRouter();
   const { toast } = useToast();
 
@@ -279,7 +281,7 @@ const Dashboard = () => {
       <div className="mb-6 flex flex-col md:flex-row items-start md:items-end justify-between gap-4">
         <div>
           <h1 className="text-5xl font-semibold text-white uppercase tracking-tight mb-2" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
-            {config?.branding?.companyName || 'ORBYT'}
+            {currentBusiness?.name || config?.branding?.companyName || 'Your Business'}
           </h1>
           <p className="text-lg text-gray-400 font-normal" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
             Your Service Business, In Orbit.

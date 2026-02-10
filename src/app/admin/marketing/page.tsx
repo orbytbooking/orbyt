@@ -17,6 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import { supabase, supabaseAdmin } from '@/lib/supabaseClient';
 import { useBusiness } from '@/contexts/BusinessContext';
+import { useWebsiteConfig } from '@/hooks/useWebsiteConfig';
 import Link from "next/link";
 
 type Coupon = {
