@@ -27,6 +27,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabaseClient";
 
 type Booking = {
   id: string;
@@ -51,172 +53,148 @@ type BookingPhotos = {
 
 type BookingPhotosMap = Record<string, BookingPhotos>;
 
-const allBookings: Booking[] = [
-  {
-    id: "BK001",
-    customer: {
-      name: "Sarah Johnson",
-      email: "sarah@example.com",
-      phone: "(555) 123-4567"
-    },
-    service: "Deep Cleaning",
-    date: "2024-12-07",
-    time: "9:00 AM",
-    status: "confirmed",
-    amount: "$250",
-    location: "123 Main St, Downtown",
-    notes: "Please bring eco-friendly cleaning supplies"
-  },
-  {
-    id: "BK002",
-    customer: {
-      name: "Mike Davis",
-      email: "mike@example.com",
-      phone: "(555) 234-5678"
-    },
-    service: "Standard Cleaning",
-    date: "2024-12-07",
-    time: "2:00 PM",
-    status: "confirmed",
-    amount: "$120",
-    location: "456 Oak Ave, Westside"
-  },
-  {
-    id: "BK003",
-    customer: {
-      name: "Emily Chen",
-      email: "emily@example.com",
-      phone: "(555) 345-6789"
-    },
-    service: "Office Cleaning",
-    date: "2024-12-08",
-    time: "10:00 AM",
-    status: "confirmed",
-    amount: "$200",
-    location: "789 Business Park, Suite 200"
-  },
-  {
-    id: "BK004",
-    customer: {
-      name: "Robert Wilson",
-      email: "robert@example.com",
-      phone: "(555) 456-7890"
-    },
-    service: "Carpet Cleaning",
-    date: "2024-12-08",
-    time: "3:00 PM",
-    status: "pending",
-    amount: "$150",
-    location: "321 Elm St, Eastside",
-    notes: "Large living room and two bedrooms"
-  },
-  {
-    id: "BK005",
-    customer: {
-      name: "Lisa Anderson",
-      email: "lisa@example.com",
-      phone: "(555) 567-8901"
-    },
-    service: "Move In/Out Cleaning",
-    date: "2024-12-05",
-    time: "11:00 AM",
-    status: "completed",
-    amount: "$350",
-    location: "555 Pine St, Northside"
-  },
-  {
-    id: "BK006",
-    customer: {
-      name: "David Brown",
-      email: "david@example.com",
-      phone: "(555) 678-9012"
-    },
-    service: "Deep Cleaning",
-    date: "2024-12-04",
-    time: "1:00 PM",
-    status: "completed",
-    amount: "$250",
-    location: "888 Maple Ave, Southside"
-  },
-  {
-    id: "BK007",
-    customer: {
-      name: "Jennifer Lee",
-      email: "jennifer@example.com",
-      phone: "(555) 789-0123"
-    },
-    service: "Standard Cleaning",
-    date: "2024-12-03",
-    time: "9:00 AM",
-    status: "cancelled",
-    amount: "$120",
-    location: "999 Cedar Rd, Eastside"
-  },
-];
+type BookingsData = {
+  provider: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  bookings: Booking[];
+  stats: {
+    total: number;
+    pending: number;
+    confirmed: number;
+    completed: number;
+    cancelled: number;
+  };
+};
 
 const getStatusBadge = (status: string) => {
   const styles = {
-    confirmed: "bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400",
     pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400",
+    confirmed: "bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400",
     completed: "bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400",
     cancelled: "bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400",
   };
 
   const icons = {
-    confirmed: CheckCircle2,
-    pending: Clock,
-    completed: CheckCircle2,
-    cancelled: XCircle,
+    pending: <Clock className="h-3 w-3" />,
+    confirmed: <CheckCircle2 className="h-3 w-3" />,
+    completed: <CheckCircle2 className="h-3 w-3" />,
+    cancelled: <XCircle className="h-3 w-3" />,
   };
-
-  const Icon = icons[status as keyof typeof icons] || AlertCircle;
 
   return (
     <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${styles[status as keyof typeof styles]}`}>
-      <Icon className="h-3 w-3" />
+      {icons[status as keyof typeof icons]}
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>
   );
 };
 
 const ProviderBookings = () => {
-  const [mounted, setMounted] = useState(false);
-  const [bookings, setBookings] = useState<Booking[]>(allBookings);
+  const [bookingsData, setBookingsData] = useState<BookingsData | null>(null);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [bookingPhotos, setBookingPhotos] = useState<BookingPhotosMap>({});
+  const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
+  const [isPhotoDialogOpen, setIsPhotoDialogOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const { toast } = useToast();
 
-  // Load bookings from localStorage on mount
   useEffect(() => {
     setMounted(true);
-    const savedBookings = localStorage.getItem("providerBookings");
-    if (savedBookings) {
+    const fetchBookingsData = async () => {
       try {
-        setBookings(JSON.parse(savedBookings));
-      } catch (error) {
-        console.error("Failed to load bookings", error);
-      }
-    }
+        setLoading(true);
+        
+        // Get the current session token
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session) {
+          throw new Error('No active session');
+        }
 
-    const savedPhotos = localStorage.getItem("providerBookingPhotos");
-    if (savedPhotos) {
-      try {
-        setBookingPhotos(JSON.parse(savedPhotos));
-      } catch (error) {
-        console.error("Failed to load booking photos", error);
-      }
-    }
-  }, []);
+        const response = await fetch(`/api/provider/bookings?status=${statusFilter}&search=${searchQuery}`, {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch bookings data');
+        }
 
-  // Save bookings to localStorage whenever they change
-  useEffect(() => {
-    if (!mounted) return;
-    if (bookings.length > 0) {
-      localStorage.setItem("providerBookings", JSON.stringify(bookings));
+        const data = await response.json();
+        setBookingsData(data);
+      } catch (error) {
+        console.error('Error fetching bookings data:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load bookings data. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchBookingsData();
+  }, [toast, statusFilter, searchQuery]);
+
+  const updateBookingStatus = async (bookingId: string, newStatus: string) => {
+    try {
+      // Get the current session token
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        throw new Error('No active session');
+      }
+
+      const response = await fetch('/api/provider/bookings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          bookingId,
+          status: newStatus,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update booking status');
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        toast({
+          title: "Success",
+          description: `Booking status updated to ${newStatus}`,
+        });
+        
+        // Refresh bookings data
+        const fetchResponse = await fetch(`/api/provider/bookings?status=${statusFilter}&search=${searchQuery}`, {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          }
+        });
+        const data = await fetchResponse.json();
+        setBookingsData(data);
+      }
+    } catch (error) {
+      console.error('Error updating booking:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update booking status. Please try again.",
+        variant: "destructive",
+      });
     }
-    localStorage.setItem("providerBookingPhotos", JSON.stringify(bookingPhotos));
-  }, [bookings, bookingPhotos, mounted]);
+  };
 
   const handlePhotoUpload = (
     bookingId: string,
@@ -245,7 +223,7 @@ const ProviderBookings = () => {
   };
 
   const filterBookings = (status?: string) => {
-    let filtered = bookings;
+    let filtered = bookingsData?.bookings || [];
     
     if (status) {
       filtered = filtered.filter(b => b.status === status);
@@ -264,10 +242,7 @@ const ProviderBookings = () => {
 
   const handleAcceptBooking = (booking: Booking) => {
     // Update booking status to confirmed
-    const updatedBookings = bookings.map(b => 
-      b.id === booking.id ? { ...b, status: "confirmed" as const } : b
-    );
-    setBookings(updatedBookings);
+    updateBookingStatus(booking.id, "confirmed");
     
     toast({
       title: "Booking Accepted",
@@ -278,10 +253,7 @@ const ProviderBookings = () => {
 
   const handleCompleteBooking = (booking: Booking) => {
     // Update booking status to completed
-    const updatedBookings = bookings.map(b => 
-      b.id === booking.id ? { ...b, status: "completed" as const } : b
-    );
-    setBookings(updatedBookings);
+    updateBookingStatus(booking.id, "completed");
     
     toast({
       title: "Booking Completed",
@@ -299,50 +271,50 @@ const ProviderBookings = () => {
     const photosExist = hasPhotos(booking.id);
     
     return (
-    <Card 
-      className="hover:shadow-md transition-shadow cursor-pointer"
-      onClick={() => setSelectedBooking(booking)}
-    >
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-1">
-              <h4 className="font-semibold">{booking.customer.name}</h4>
-              {getStatusBadge(booking.status)}
-              {photosExist && (
-                <span 
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400"
-                  title="Before/After photos attached"
-                >
-                  <Camera className="h-3 w-3" />
-                  Photos
-                </span>
-              )}
+      <Card 
+        className="hover:shadow-md transition-shadow cursor-pointer"
+        onClick={() => setSelectedBooking(booking)}
+      >
+        <CardContent className="p-4">
+          <div className="flex items-start justify-between mb-3">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <h4 className="font-semibold">{booking.customer.name}</h4>
+                {getStatusBadge(booking.status)}
+                {photosExist && (
+                  <span 
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400"
+                    title="Before/After photos attached"
+                  >
+                    <Camera className="h-3 w-3" />
+                    Photos
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground">{booking.service}</p>
             </div>
-            <p className="text-sm text-muted-foreground">{booking.service}</p>
+            <div className="text-right">
+              <p className="font-semibold text-lg">{booking.amount}</p>
+              <p className="text-xs text-muted-foreground">{booking.id}</p>
+            </div>
           </div>
-          <div className="text-right">
-            <p className="font-semibold text-lg">{booking.amount}</p>
-            <p className="text-xs text-muted-foreground">{booking.id}</p>
+          
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Calendar className="h-4 w-4" />
+              <span>{booking.date}</span>
+            </div>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Clock className="h-4 w-4" />
+              <span>{booking.time}</span>
+            </div>
+            <div className="flex items-center gap-2 text-muted-foreground col-span-2">
+              <MapPin className="h-4 w-4" />
+              <span className="truncate">{booking.location}</span>
+            </div>
           </div>
-        </div>
-        
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Calendar className="h-4 w-4" />
-            <span>{booking.date}</span>
-          </div>
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Clock className="h-4 w-4" />
-            <span>{booking.time}</span>
-          </div>
-          <div className="flex items-center gap-2 text-muted-foreground col-span-2">
-            <MapPin className="h-4 w-4" />
-            <span className="truncate">{booking.location}</span>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
     );
   };
 

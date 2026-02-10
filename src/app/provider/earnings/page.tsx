@@ -1,379 +1,383 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   DollarSign, 
   TrendingUp, 
-  Calendar,
+  Calendar, 
   Download,
-  CreditCard,
-  CheckCircle2,
-  ArrowUpDown,
-  ChevronDown,
-  MoreHorizontal,
   Search,
-  Filter
+  Filter,
+  MoreHorizontal,
+  CheckCircle2,
+  CreditCard
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useToast } from "@/components/ui/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabaseClient";
 
-const stats = [
-  {
-    title: "Total Earnings",
-    value: "$3,450",
-    change: "+15.2%",
-    icon: DollarSign,
-    color: "text-green-600",
-    bgColor: "bg-green-100 dark:bg-green-900/20"
-  },
-  {
-    title: "This Month",
-    value: "$1,250",
-    change: "+8.5%",
-    icon: Calendar,
-    color: "text-blue-600",
-    bgColor: "bg-blue-100 dark:bg-blue-900/20"
-  },
-  {
-    title: "Pending Payout",
-    value: "$450",
-    change: "3 jobs",
-    icon: CreditCard,
-    color: "text-orange-600",
-    bgColor: "bg-orange-100 dark:bg-orange-900/20"
-  },
-  {
-    title: "Average per Job",
-    value: "$123",
-    change: "+5.2%",
-    icon: TrendingUp,
-    color: "text-cyan-600",
-    bgColor: "bg-cyan-100 dark:bg-cyan-900/20"
-  },
-];
+type Earning = {
+  id: string;
+  date: string;
+  customer: string;
+  service: string;
+  amount: string;
+  status: string;
+  paymentMethod: string;
+  commission?: number;
+  tips?: number;
+};
 
-const earningsHistory = [
-  {
-    id: "PAY001",
-    date: "2024-12-05",
-    customer: "Lisa Anderson",
-    service: "Move In/Out Cleaning",
-    amount: "$350",
-    status: "paid",
-    paymentMethod: "Bank Transfer"
-  },
-  {
-    id: "PAY002",
-    date: "2024-12-04",
-    customer: "David Brown",
-    service: "Deep Cleaning",
-    amount: "$250",
-    status: "paid",
-    paymentMethod: "Bank Transfer"
-  },
-  {
-    id: "PAY003",
-    date: "2024-12-03",
-    customer: "Michael Wilson",
-    service: "Standard Cleaning",
-    amount: "$120",
-    status: "paid",
-    paymentMethod: "Bank Transfer"
-  },
-  {
-    id: "PAY004",
-    date: "2024-12-02",
-    customer: "Emma Davis",
-    service: "Office Cleaning",
-    amount: "$200",
-    status: "paid",
-    paymentMethod: "Bank Transfer"
-  },
-  {
-    id: "PAY005",
-    date: "2024-12-01",
-    customer: "James Taylor",
-    service: "Carpet Cleaning",
-    amount: "$150",
-    status: "paid",
-    paymentMethod: "Bank Transfer"
-  },
-  {
-    id: "PEND001",
-    customer: {
-      name: "Sarah Johnson",
-      email: "sarah.johnson@example.com",
-      phone: "555-555-5555"
-    },
-    service: "Deep Cleaning",
-    date: "2024-12-07",
-    time: "2:00 PM",
-    status: "pending",
-    amount: "$250",
-    location: "666 Cedar St",
-    paymentMethod: "Pending"
-  },
-  {
-    id: "PEND002",
-    customer: {
-      name: "Mike Davis",
-      email: "mike.davis@example.com",
-      phone: "777-777-7777"
-    },
-    service: "Standard Cleaning",
-    date: "2024-12-07",
-    time: "10:00 AM",
-    status: "pending",
-    amount: "$120",
-    location: "888 Walnut St",
-    paymentMethod: "Pending"
-  },
-  {
-    id: "PEND003",
-    customer: {
-      name: "Robert Wilson",
-      email: "robert.wilson@example.com",
-      phone: "999-999-9999"
-    },
-    service: "Carpet Cleaning",
-    date: "2024-12-08",
-    time: "2:00 PM",
-    status: "pending",
-    amount: "$150",
-    location: "1010 Cherry St",
-    paymentMethod: "Pending"
-  },
-];
+type EarningsData = {
+  earningsHistory: Earning[];
+  stats: {
+    totalEarnings: string;
+    thisMonth: string;
+    pendingPayout: string;
+    averagePerJob: string;
+    completedJobs: number;
+  };
+  monthlyBreakdown: Array<{
+    month: string;
+    earnings: string;
+    jobs: number;
+  }>;
+};
 
-const monthlyBreakdown = [
-  { month: "November 2024", earnings: "$2,200", jobs: 18 },
-  { month: "October 2024", earnings: "$1,950", jobs: 16 },
-  { month: "September 2024", earnings: "$2,100", jobs: 17 },
-  { month: "August 2024", earnings: "$1,800", jobs: 15 },
-];
+// Icon mapping
+const iconMap: Record<string, any> = {
+  DollarSign,
+  Calendar,
+  CreditCard,
+  TrendingUp
+};
 
-const ProviderEarnings = () => {
+const getStatusBadge = (status: string) => {
+  const styles = {
+    paid: "bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400",
+    pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400",
+  };
+
+  return (
+    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${styles[status as keyof typeof styles]}`}>
+      {status === "paid" ? <CheckCircle2 className="h-3 w-3" /> : <CreditCard className="h-3 w-3" />}
+      {status.charAt(0).toUpperCase() + status.slice(1)}
+    </span>
+  );
+};
+
+const ProviderEarningsPage = () => {
+  const [earningsData, setEarningsData] = useState<EarningsData | null>(null);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [periodFilter, setPeriodFilter] = useState("all");
+  const { toast } = useToast();
 
-  const filteredEarnings = earningsHistory.filter((earning) => {
-    const matchesSearch = 
-      (typeof earning.customer === 'string' ? earning.customer : earning.customer.name)
-        .toLowerCase()
-        .includes(searchQuery.toLowerCase()) ||
-      earning.service.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      earning.id.toLowerCase().includes(searchQuery.toLowerCase());
+  useEffect(() => {
+    const fetchEarningsData = async () => {
+      try {
+        setLoading(true);
+        
+        // Get the current session token
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session) {
+          throw new Error('No active session');
+        }
 
-    const matchesStatus = 
-      statusFilter === "all" || earning.status === statusFilter;
+        const response = await fetch(`/api/provider/earnings?period=${periodFilter}&status=${statusFilter}`, {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch earnings data');
+        }
 
-    return matchesSearch && matchesStatus;
-  });
+        const data = await response.json();
+        setEarningsData(data);
+      } catch (error) {
+        console.error('Error fetching earnings data:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load earnings data. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchEarningsData();
+  }, [toast, periodFilter, statusFilter]);
+
+  const filteredEarnings = earningsData?.earningsHistory.filter(earning =>
+    earning.customer.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    earning.service.toLowerCase().includes(searchQuery.toLowerCase())
+  ) || [];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
+        <span className="ml-2 text-muted-foreground">Loading earnings...</span>
+      </div>
+    );
+  }
+
+  if (!earningsData) {
+    return (
+      <div className="flex items-center justify-center min-h-64">
+        <p className="text-muted-foreground">Failed to load earnings data.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      {/* Header with Search and Filter */}
-      <div className="flex flex-col space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">Earnings</h1>
-            <p className="text-muted-foreground">Track your income and payment history</p>
-          </div>
-          <Button variant="outline">
-            <Download className="h-4 w-4 mr-2" />
-            Export Report
-          </Button>
-        </div>
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-bold mb-2">Earnings</h1>
+        <p className="text-muted-foreground">Track your income and payment history</p>
       </div>
 
       {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {stats.map((stat) => {
-          const Icon = stat.icon;
-          return (
-            <Card key={stat.title}>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <p className="text-sm font-medium text-muted-foreground">
-                    {stat.title}
-                  </p>
-                  <div className={`p-2 rounded-lg ${stat.bgColor}`}>
-                    <Icon className={`h-4 w-4 ${stat.color}`} />
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-2xl font-bold">{stat.value}</p>
-                  <p className="text-xs text-muted-foreground">
-                    <span className="text-green-600 font-medium">{stat.change}</span> from last month
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-
-      {/* Main Content Grid */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Earnings History */}
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">Earnings History</h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Recent payments and pending payouts
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="relative w-56">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    type="search"
-                    placeholder="Search earnings..."
-                    className="pl-9 w-full"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-[140px]">
-                    <Filter className="h-4 w-4 mr-2 text-muted-foreground" />
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Statuses</SelectItem>
-                    <SelectItem value="paid">Paid</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                  </SelectContent>
-                </Select>
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm font-medium text-muted-foreground">
+                Total Earnings
+              </p>
+              <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/20">
+                <DollarSign className="h-4 w-4 text-green-600" />
               </div>
             </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Customer</TableHead>
-                    <TableHead>Service</TableHead>
-                    <TableHead>Payment Method</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredEarnings.length > 0 ? (
-                    filteredEarnings.map((earning) => (
-                    <TableRow key={earning.id} className="hover:bg-muted/50">
-                      <TableCell className="font-medium">
-                        <div className="flex flex-col">
-                          <span>{new Date(earning.date).toLocaleDateString()}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {earning.id}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="font-medium">
-                          {typeof earning.customer === 'string' 
-                            ? earning.customer 
-                            : earning.customer.name}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {earning.service}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <CreditCard className="h-4 w-4 text-muted-foreground" />
-                          <span>{earning.paymentMethod}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-bold">
-                        {earning.amount}
-                      </TableCell>
-                      <TableCell>
-                        <span className={`
-                          inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                          ${earning.status === 'paid' 
-                            ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400' 
-                            : 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400'
-                          }
-                        `}>
-                          {earning.status === 'paid' ? 'Paid' : 'Pending'}
-                        </span>
-                      </TableCell>
-                    </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={6} className="h-24 text-center">
-                        No earnings found matching your criteria.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
+            <div className="space-y-1">
+              <p className="text-2xl font-bold">{earningsData.stats.totalEarnings}</p>
+              <p className="text-xs text-muted-foreground">
+                <span className="text-green-600 font-medium">+15.2%</span> from last month
+              </p>
             </div>
           </CardContent>
         </Card>
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm font-medium text-muted-foreground">
+                This Month
+              </p>
+              <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/20">
+                <Calendar className="h-4 w-4 text-blue-600" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <p className="text-2xl font-bold">{earningsData.stats.thisMonth}</p>
+              <p className="text-xs text-muted-foreground">
+                <span className="text-green-600 font-medium">+8.1%</span> from last month
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm font-medium text-muted-foreground">
+                Pending Payout
+              </p>
+              <div className="p-2 rounded-lg bg-yellow-100 dark:bg-yellow-900/20">
+                <CreditCard className="h-4 w-4 text-yellow-600" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <p className="text-2xl font-bold">{earningsData.stats.pendingPayout}</p>
+              <p className="text-xs text-muted-foreground">
+                <span className="text-orange-600 font-medium">Processing</span>
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm font-medium text-muted-foreground">
+                Completed Jobs
+              </p>
+              <div className="p-2 rounded-lg bg-cyan-100 dark:bg-cyan-900/20">
+                <CheckCircle2 className="h-4 w-4 text-cyan-600" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <p className="text-2xl font-bold">{earningsData.stats.completedJobs}</p>
+              <p className="text-xs text-muted-foreground">
+                <span className="text-green-600 font-medium">+12.5%</span> from last month
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
-        {/* Monthly Breakdown */}
+      {/* Filters and Search */}
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search earnings..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <Select value={periodFilter} onValueChange={setPeriodFilter}>
+              <SelectTrigger className="w-full sm:w-48">
+                <SelectValue placeholder="Select period" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Time</SelectItem>
+                <SelectItem value="month">This Month</SelectItem>
+                <SelectItem value="quarter">This Quarter</SelectItem>
+                <SelectItem value="year">This Year</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full sm:w-48">
+                <SelectValue placeholder="Select status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="paid">Paid</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" className="w-full sm:w-auto">
+              <Download className="h-4 w-4 mr-2" />
+              Export
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Earnings History */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Earnings History</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Your complete payment history
+              </p>
+            </div>
+            <Button variant="outline" size="sm">
+              <Filter className="h-4 w-4 mr-2" />
+              More Filters
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date</TableHead>
+                <TableHead>Customer</TableHead>
+                <TableHead>Service</TableHead>
+                <TableHead>Amount</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Payment Method</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredEarnings.length > 0 ? (
+                filteredEarnings.map((earning) => (
+                  <TableRow key={earning.id}>
+                    <TableCell>
+                      {new Date(earning.date).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      {earning.customer}
+                    </TableCell>
+                    <TableCell>
+                      {earning.service}
+                    </TableCell>
+                    <TableCell className="font-semibold">
+                      {earning.amount}
+                    </TableCell>
+                    <TableCell>
+                      {getStatusBadge(earning.status)}
+                    </TableCell>
+                    <TableCell>
+                      {earning.paymentMethod}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                          <DropdownMenuItem>View Details</DropdownMenuItem>
+                          <DropdownMenuItem>Download Receipt</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8">
+                    <div className="flex flex-col items-center">
+                      <DollarSign className="h-12 w-12 text-muted-foreground mb-4" />
+                      <p className="text-muted-foreground">No earnings found</p>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Monthly Breakdown */}
+      {earningsData.monthlyBreakdown && earningsData.monthlyBreakdown.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle>Monthly Breakdown</CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              Earnings by month
+              Earnings trends over the last 6 months
             </p>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {monthlyBreakdown.map((month, index) => (
-                <div key={index} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium">{month.month}</p>
-                    <p className="text-sm font-bold">{month.earnings}</p>
+              {earningsData.monthlyBreakdown.map((month) => (
+                <div key={month.month} className="flex items-center justify-between p-4 rounded-lg border">
+                  <div>
+                    <p className="font-medium">{month.month}</p>
+                    <p className="text-sm text-muted-foreground">{month.jobs} jobs</p>
                   </div>
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{month.jobs} completed jobs</span>
-                    <span>${(parseFloat(month.earnings.replace('$', '').replace(',', '')) / month.jobs).toFixed(0)} avg</span>
+                  <div className="text-right">
+                    <p className="font-semibold text-lg">{month.earnings}</p>
+                    <p className="text-xs text-muted-foreground">Total earnings</p>
                   </div>
-                  {index < monthlyBreakdown.length - 1 && (
-                    <div className="border-b border-border pt-2" />
-                  )}
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
-      </div>
+      )}
     </div>
   );
 };
 
-export default ProviderEarnings;
+export default ProviderEarningsPage;

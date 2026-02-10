@@ -11,9 +11,13 @@ import {
   Star,
   MapPin,
   Phone,
-  Mail
+  Mail,
+  Users
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabaseClient";
 
 type Booking = {
   id: string;
@@ -26,114 +30,58 @@ type Booking = {
   location: string;
 };
 
-const stats = [
-  {
-    title: "Total Earnings",
-    value: "$3,450",
-    change: "+15.2%",
-    icon: DollarSign,
-    color: "text-green-600",
-    bgColor: "bg-green-100 dark:bg-green-900/20"
-  },
-  {
-    title: "Completed Jobs",
-    value: "28",
-    change: "+12.5%",
-    icon: CheckCircle2,
-    color: "text-blue-600",
-    bgColor: "bg-blue-100 dark:bg-blue-900/20"
-  },
-  {
-    title: "Upcoming Bookings",
-    value: "8",
-    change: "+3",
-    icon: Calendar,
-    color: "text-cyan-600",
-    bgColor: "bg-cyan-100 dark:bg-cyan-900/20"
-  },
-  {
-    title: "Average Rating",
-    value: "4.8",
-    change: "+0.2",
-    icon: Star,
-    color: "text-orange-600",
-    bgColor: "bg-orange-100 dark:bg-orange-900/20"
-  },
-];
+type Activity = {
+  id: string;
+  type: "completed" | "payment" | "booking" | "review";
+  message: string;
+  time: string;
+  amount?: string;
+};
 
-const upcomingBookings: Booking[] = [
-  {
-    id: "BK001",
-    customer: "Sarah Johnson",
-    service: "Deep Cleaning",
-    date: "2024-12-07",
-    time: "9:00 AM",
-    status: "confirmed",
-    amount: "$250",
-    location: "123 Main St, Downtown"
-  },
-  {
-    id: "BK002",
-    customer: "Mike Davis",
-    service: "Standard Cleaning",
-    date: "2024-12-07",
-    time: "2:00 PM",
-    status: "confirmed",
-    amount: "$120",
-    location: "456 Oak Ave, Westside"
-  },
-  {
-    id: "BK003",
-    customer: "Emily Chen",
-    service: "Office Cleaning",
-    date: "2024-12-08",
-    time: "10:00 AM",
-    status: "confirmed",
-    amount: "$200",
-    location: "789 Business Park, Suite 200"
-  },
-  {
-    id: "BK004",
-    customer: "Robert Wilson",
-    service: "Carpet Cleaning",
-    date: "2024-12-08",
-    time: "3:00 PM",
-    status: "pending",
-    amount: "$150",
-    location: "321 Elm St, Eastside"
-  },
-];
+type DashboardData = {
+  provider: {
+    id: string;
+    name: string;
+    email: string;
+    rating: number;
+  };
+  stats: Array<{
+    title: string;
+    value: string;
+    change: string;
+    icon: string;
+    color: string;
+    bgColor: string;
+  }>;
+  upcomingBookings: Array<{
+    id: string;
+    customer: string;
+    service: string;
+    date: string;
+    time: string;
+    status: string;
+    amount: string;
+    location: string;
+  }>;
+  recentActivity: Array<{
+    id: string;
+    type: string;
+    message: string;
+    time: string;
+    amount?: string;
+  }>;
+};
 
-const recentActivity = [
-  {
-    id: 1,
-    type: "completed",
-    message: "Completed job for John Doe - Deep Cleaning",
-    time: "2 hours ago",
-    amount: "$250"
-  },
-  {
-    id: 2,
-    type: "payment",
-    message: "Payment received for Standard Cleaning",
-    time: "5 hours ago",
-    amount: "$120"
-  },
-  {
-    id: 3,
-    type: "booking",
-    message: "New booking from Sarah Johnson",
-    time: "1 day ago",
-    amount: "$250"
-  },
-  {
-    id: 4,
-    type: "review",
-    message: "Received 5-star review from Mike Davis",
-    time: "2 days ago",
-    amount: null
-  },
-];
+// Icon mapping
+const iconMap: Record<string, any> = {
+  DollarSign,
+  Calendar,
+  CheckCircle2,
+  Star,
+  TrendingUp,
+  Clock,
+  Users
+};
 
 const getStatusBadge = (status: string) => {
   const styles = {
@@ -150,27 +98,79 @@ const getStatusBadge = (status: string) => {
 };
 
 const ProviderDashboard = () => {
-  const [providerName, setProviderName] = useState("Provider");
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  const { toast } = useToast();
 
   useEffect(() => {
-    const name = localStorage.getItem("providerName");
-    if (name) {
-      setProviderName(name);
-    }
-  }, []);
+    const fetchDashboardData = async () => {
+      try {
+        setLoading(true);
+        
+        // Get the current session token
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session) {
+          throw new Error('No active session');
+        }
+
+        const response = await fetch('/api/provider/dashboard', {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch dashboard data');
+        }
+
+        const data = await response.json();
+        setDashboardData(data);
+      } catch (error) {
+        console.error('Error fetching dashboard data:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load dashboard data. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDashboardData();
+  }, [toast]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
+        <span className="ml-2 text-muted-foreground">Loading dashboard...</span>
+      </div>
+    );
+  }
+
+  if (!dashboardData) {
+    return (
+      <div className="flex items-center justify-center min-h-64">
+        <p className="text-muted-foreground">Failed to load dashboard data.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       {/* Welcome Header */}
       <div>
-        <h1 className="text-3xl font-bold mb-2">Welcome back, {providerName}! 👋</h1>
+        <h1 className="text-3xl font-bold mb-2">Welcome back, {dashboardData.provider.name}! 👋</h1>
         <p className="text-muted-foreground">Here's what's happening with your bookings today.</p>
       </div>
 
       {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {stats.map((stat) => {
-          const Icon = stat.icon;
+        {dashboardData.stats.map((stat) => {
+          const Icon = iconMap[stat.icon];
           return (
             <Card key={stat.title}>
               <CardContent className="p-6">
@@ -213,50 +213,57 @@ const ProviderDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {upcomingBookings.map((booking) => (
-                <div
-                  key={booking.id}
-                  className="p-4 rounded-lg border border-border hover:bg-muted/50 transition-colors"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-semibold">{booking.customer}</h4>
-                        {getStatusBadge(booking.status)}
+              {dashboardData.upcomingBookings.length > 0 ? (
+                dashboardData.upcomingBookings.map((booking) => (
+                  <div
+                    key={booking.id}
+                    className="p-4 rounded-lg border border-border hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="font-semibold">{booking.customer}</h4>
+                          {getStatusBadge(booking.status)}
+                        </div>
+                        <p className="text-sm text-muted-foreground">{booking.service}</p>
                       </div>
-                      <p className="text-sm text-muted-foreground">{booking.service}</p>
+                      <div className="text-right">
+                        <p className="font-semibold text-lg">{booking.amount}</p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="font-semibold text-lg">{booking.amount}</p>
+                    
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Calendar className="h-4 w-4" />
+                        <span>{booking.date}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Clock className="h-4 w-4" />
+                        <span>{booking.time}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-muted-foreground col-span-2">
+                        <MapPin className="h-4 w-4" />
+                        <span>{booking.location}</span>
+                      </div>
                     </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Calendar className="h-4 w-4" />
-                      <span>{booking.date}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Clock className="h-4 w-4" />
-                      <span>{booking.time}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-muted-foreground col-span-2">
-                      <MapPin className="h-4 w-4" />
-                      <span>{booking.location}</span>
-                    </div>
-                  </div>
 
-                  <div className="flex gap-2 mt-4">
-                    <Button size="sm" className="flex-1" style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}>
-                      <Phone className="h-4 w-4 mr-2" />
-                      Contact
-                    </Button>
-                    <Button size="sm" variant="outline" className="flex-1">
-                      View Details
-                    </Button>
+                    <div className="flex gap-2 mt-4">
+                      <Button size="sm" className="flex-1" style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}>
+                        <Phone className="h-4 w-4 mr-2" />
+                        Contact
+                      </Button>
+                      <Button size="sm" variant="outline" className="flex-1">
+                        View Details
+                      </Button>
+                    </div>
                   </div>
+                ))
+              ) : (
+                <div className="text-center py-8">
+                  <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <p className="text-muted-foreground">No upcoming bookings</p>
                 </div>
-              ))}
+              )}
             </div>
           </CardContent>
         </Card>
@@ -271,31 +278,38 @@ const ProviderDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {recentActivity.map((activity) => (
-                <div key={activity.id} className="flex gap-3">
-                  <div className={`
-                    h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0
-                    ${activity.type === 'completed' ? 'bg-green-100 dark:bg-green-900/20' : ''}
-                    ${activity.type === 'payment' ? 'bg-blue-100 dark:bg-blue-900/20' : ''}
-                    ${activity.type === 'booking' ? 'bg-cyan-100 dark:bg-cyan-900/20' : ''}
-                    ${activity.type === 'review' ? 'bg-orange-100 dark:bg-orange-900/20' : ''}
-                  `}>
-                    {activity.type === 'completed' && <CheckCircle2 className="h-4 w-4 text-green-600" />}
-                    {activity.type === 'payment' && <DollarSign className="h-4 w-4 text-blue-600" />}
-                    {activity.type === 'booking' && <Calendar className="h-4 w-4 text-cyan-600" />}
-                    {activity.type === 'review' && <Star className="h-4 w-4 text-orange-600" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{activity.message}</p>
-                    <div className="flex items-center justify-between mt-1">
-                      <p className="text-xs text-muted-foreground">{activity.time}</p>
-                      {activity.amount && (
-                        <p className="text-xs font-semibold text-green-600">{activity.amount}</p>
-                      )}
+              {dashboardData.recentActivity.length > 0 ? (
+                dashboardData.recentActivity.map((activity) => (
+                  <div key={activity.id} className="flex gap-3">
+                    <div className={`
+                      h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0
+                      ${activity.type === 'completed' ? 'bg-green-100 dark:bg-green-900/20' : ''}
+                      ${activity.type === 'payment' ? 'bg-blue-100 dark:bg-blue-900/20' : ''}
+                      ${activity.type === 'booking' ? 'bg-cyan-100 dark:bg-cyan-900/20' : ''}
+                      ${activity.type === 'review' ? 'bg-orange-100 dark:bg-orange-900/20' : ''}
+                    `}>
+                      {activity.type === 'completed' && <CheckCircle2 className="h-4 w-4 text-green-600" />}
+                      {activity.type === 'payment' && <DollarSign className="h-4 w-4 text-blue-600" />}
+                      {activity.type === 'booking' && <Calendar className="h-4 w-4 text-cyan-600" />}
+                      {activity.type === 'review' && <Star className="h-4 w-4 text-orange-600" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{activity.message}</p>
+                      <div className="flex items-center justify-between mt-1">
+                        <p className="text-xs text-muted-foreground">{activity.time}</p>
+                        {activity.amount && (
+                          <p className="text-xs font-semibold text-green-600">{activity.amount}</p>
+                        )}
+                      </div>
                     </div>
                   </div>
+                ))
+              ) : (
+                <div className="text-center py-8">
+                  <Clock className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <p className="text-muted-foreground">No recent activity</p>
                 </div>
-              ))}
+              )}
             </div>
           </CardContent>
         </Card>
