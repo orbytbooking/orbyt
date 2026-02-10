@@ -42,6 +42,7 @@ const iconMap: Record<string, any> = {
 
 type Booking = {
   id: string;
+  provider?: { id: string; name: string; email: string; phone: string } | null;
   customer?: { name: string; email: string; phone: string };
   customerName?: string;
   service: string;
@@ -53,6 +54,20 @@ type Booking = {
   notes?: string;
 };
 
+type Provider = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  availability_status: string;
+  performance_score: number;
+  customer_rating: number;
+  services: any[];
+  hourly_rate: number;
+  last_active_at: string;
+  assignment_count: number;
+};
+
 type DashboardData = {
   stats: {
     totalRevenue: { value: string; change: string; icon: any; trend: string; color: string; bgColor: string };
@@ -62,7 +77,33 @@ type DashboardData = {
   };
   upcomingBookings: Booking[];
   recentBookings: Booking[];
+  availableProviders: Provider[];
   business_id: string;
+};
+
+const getProviderStatusBadge = (status: string) => {
+  const styles = {
+    available: "bg-green-500/20 text-green-300 border border-green-500/30",
+    busy: "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30",
+    unavailable: "bg-red-500/20 text-red-300 border border-red-500/30",
+    on_vacation: "bg-blue-500/20 text-blue-300 border border-blue-500/30",
+  };
+
+  const icons = {
+    available: CheckCircle2,
+    busy: Clock,
+    unavailable: XCircle,
+    on_vacation: AlertCircle,
+  };
+
+  const Icon = icons[status as keyof typeof icons] || CheckCircle2;
+
+  return (
+    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${styles[status as keyof typeof styles]}`} style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>
+      <Icon className="h-3 w-3" />
+      {status.charAt(0).toUpperCase() + status.slice(1)}
+    </span>
+  );
 };
 
 const getStatusBadge = (status: string) => {
@@ -171,15 +212,18 @@ const Dashboard = () => {
     
     return allBookings.filter(Boolean).map((booking) => {
       try {
+        // Use provider name if available, otherwise fall back to customer name
+        const displayName = booking.provider?.name || booking.customer?.name || booking.customerName || 'Unassigned';
+        
         return {
           ...booking,
-          customerName: booking.customer?.name || booking.customerName || 'Unknown Customer',
+          customerName: displayName,
         };
       } catch (error) {
         console.error('Error normalizing booking:', error);
         return {
           ...booking,
-          customerName: 'Error Loading Customer',
+          customerName: 'Error Loading',
         };
       }
     });
@@ -238,7 +282,7 @@ const Dashboard = () => {
   const acceptBooking = () => {
     if (!selectedBooking) return;
     // In a real implementation, this would call an API to update the booking status
-    const name = selectedBooking.customer?.name || selectedBooking.customerName || 'Unknown Customer';
+    const name = selectedBooking.provider?.name || selectedBooking.customer?.name || selectedBooking.customerName || 'Unknown';
     toast({ title: 'Booking accepted', description: `${name} • ${selectedBooking.service} is now confirmed.` });
   };
 
@@ -495,45 +539,47 @@ const Dashboard = () => {
           </CardContent>
         </Card>
 
-        {/* Recent Bookings */}
+        {/* Available Providers */}
         <Card className="lg:col-span-1 glass-card border-cyan-500/20">
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>Recent Bookings</CardTitle>
+            <CardTitle style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>Service Providers</CardTitle>
             <p className="text-sm text-muted-foreground mt-1" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
-              Latest booking requests and appointments
+              Current service providers ready for assignments
             </p>
           </div>
-          <Button variant="outline" size="sm">
-            View All
-          </Button>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {normalizedBookings.slice(0, 5).map((booking) => (
-              <div 
-                key={booking.id}
-                className="p-3 rounded-lg border border-cyan-500/20 hover:bg-white/5 transition-all cursor-pointer glass"
-                onClick={() => setSelectedBooking(booking)}
-                role="button"
-                title={`View ${booking.customerName} • ${booking.service}`}
-              >
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1">
-                    <p className="font-semibold text-sm text-cyan-300" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{booking.customerName}</p>
-                    <p className="text-xs text-gray-400" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{booking.service}</p>
+            {data.availableProviders && data.availableProviders.length > 0 ? (
+              data.availableProviders.map((provider) => (
+                <div 
+                  key={provider.id}
+                  className="p-3 rounded-lg border border-cyan-500/20 hover:bg-white/5 transition-all cursor-pointer glass"
+                  role="button"
+                  title={`View ${provider.name} details`}
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1">
+                      <p className="font-semibold text-sm text-cyan-300" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{provider.name}</p>
+                    </div>
+                    {getProviderStatusBadge(provider.availability_status)}
                   </div>
-                  {getStatusBadge(booking.status)}
-                </div>
-                <div className="flex items-center justify-between text-xs text-gray-400">
-                  <div className="flex items-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    <span style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{booking.date} • {booking.time}</span>
+                  <div className="flex items-center justify-between text-xs text-gray-400">
+                    <div className="flex items-center gap-1">
+                      <Calendar className="h-3 w-3" />
+                      <span style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
+                        {provider.assignment_count} {provider.assignment_count === 1 ? 'Booking' : 'Bookings'}
+                      </span>
+                    </div>
                   </div>
-                  <span className="font-semibold text-cyan-300" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{booking.amount}</span>
                 </div>
+              ))
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>No available providers</p>
               </div>
-            ))}
+            )}
           </div>
         </CardContent>
       </Card>
@@ -560,6 +606,12 @@ const Dashboard = () => {
                 <div className="font-medium uppercase" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{selectedBooking.status}</div>
               </div>
               <div>
+                <div className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Provider</div>
+                <div className="font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>
+                  {selectedBooking.provider?.name || 'Unassigned'}
+                </div>
+              </div>
+              <div>
                 <div className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Customer</div>
                 <div className="font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{selectedBooking.customer?.name || selectedBooking.customerName || 'Unknown Customer'}</div>
               </div>
@@ -576,20 +628,37 @@ const Dashboard = () => {
                 <div className="font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{selectedBooking.amount}</div>
               </div>
             </div>
-            {selectedBooking.customer && (
-              <div className="grid grid-cols-2 gap-3">
+            
+            {/* Provider Contact Details */}
+            {selectedBooking.provider && (
+              <div className="grid grid-cols-2 gap-3 border-t pt-3">
                 <div>
-                  <div className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Email</div>
+                  <div className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Provider Email</div>
+                  <div className="font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{selectedBooking.provider.email || 'N/A'}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Provider Phone</div>
+                  <div className="font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{selectedBooking.provider.phone || 'N/A'}</div>
+                </div>
+              </div>
+            )}
+            
+            {/* Customer Contact Details */}
+            {selectedBooking.customer && (
+              <div className="grid grid-cols-2 gap-3 border-t pt-3">
+                <div>
+                  <div className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Customer Email</div>
                   <div className="font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{selectedBooking.customer?.email || 'N/A'}</div>
                 </div>
                 <div>
-                  <div className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Phone</div>
+                  <div className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Customer Phone</div>
                   <div className="font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{selectedBooking.customer?.phone || 'N/A'}</div>
                 </div>
               </div>
             )}
+            
             {selectedBooking.notes && (
-              <div>
+              <div className="border-t pt-3">
                 <div className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Notes</div>
                 <div className="font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{selectedBooking.notes}</div>
               </div>

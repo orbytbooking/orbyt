@@ -77,6 +77,28 @@ export async function GET() {
       console.warn(`Dashboard API - Found ${problematicBookings.length} bookings with missing required fields:`, problematicBookings);
     }
 
+    // Get providers for business
+    const { data: providers, error: providerError } = await supabase
+      .from('service_providers')
+      .select('*')
+      .eq('business_id', businessId);
+    
+    if (providerError) {
+      console.error('Provider fetch error:', providerError);
+      // Continue without providers - we'll show "Unassigned" for bookings without providers
+    }
+
+    // Get booking assignments to link bookings with providers
+    const { data: bookingAssignments, error: assignmentError } = await supabase
+      .from('booking_assignments')
+      .select('*')
+      .eq('business_id', businessId);
+    
+    if (assignmentError) {
+      console.error('Booking assignments fetch error:', assignmentError);
+      // Continue without assignments - we'll show "Unassigned" for all bookings
+    }
+
     // Get customers
     const { data: customers, error: customerError } = await supabase
       .from('customers')
@@ -86,6 +108,45 @@ export async function GET() {
     if (customerError) {
       return NextResponse.json({ error: customerError.message }, { status: 500 });
     }
+
+    // Create helper maps for efficient lookups
+    const providerMap = new Map();
+    if (providers && Array.isArray(providers)) {
+      providers.forEach(provider => {
+        providerMap.set(provider.id, provider);
+      });
+    }
+
+    const assignmentMap = new Map();
+    if (bookingAssignments && Array.isArray(bookingAssignments)) {
+      bookingAssignments.forEach(assignment => {
+        assignmentMap.set(assignment.booking_id, assignment);
+      });
+    }
+
+    const customerMap = new Map();
+    if (customers && Array.isArray(customers)) {
+      customers.forEach(customer => {
+        customerMap.set(customer.id, customer);
+      });
+    }
+
+    // Helper function to get provider for a booking
+    const getProviderForBooking = (bookingId) => {
+      const assignment = assignmentMap.get(bookingId);
+      if (assignment && assignment.provider_id) {
+        return providerMap.get(assignment.provider_id);
+      }
+      return null;
+    };
+
+    // Helper function to get customer for a booking (for booking details dialog)
+    const getCustomerForBooking = (bookingId) => {
+      if (bookingId && customerMap.has(bookingId)) {
+        return customerMap.get(bookingId);
+      }
+      return null;
+    };
 
     // Calculate current month metrics (using UTC dates)
     const currentMonthBookings = safeBookings.filter(b => {
@@ -195,6 +256,10 @@ export async function GET() {
       .slice(0, 10) // Limit to next 10 bookings
       .map(booking => {
         try {
+          // Get provider for this booking
+          const provider = getProviderForBooking(booking.id);
+          const customer = getCustomerForBooking(booking.customer_id);
+          
           // Use hybrid approach: customer_* fields from bookings table (no joins to avoid schema issues)
           let formattedTime = '12:00 PM';
           if (booking.scheduled_time) {
@@ -213,7 +278,17 @@ export async function GET() {
           
           return {
             id: booking.id || 'unknown',
-            customer: {
+            provider: provider ? {
+              id: provider.id,
+              name: `${provider.first_name || ''} ${provider.last_name || ''}`.trim() || provider.name || 'Unknown Provider',
+              email: provider.email || '',
+              phone: provider.phone || ''
+            } : null,
+            customer: customer ? {
+              name: customer.name || booking.customer_name || 'Unknown Customer',
+              email: customer.email || booking.customer_email || '',
+              phone: customer.phone || booking.customer_phone || ''
+            } : {
               name: booking.customer_name || 'Unknown Customer',
               email: booking.customer_email || '',
               phone: booking.customer_phone || ''
@@ -230,6 +305,7 @@ export async function GET() {
           console.error('Error processing booking:', booking.id, bookingError);
           return {
             id: booking.id || 'error-booking',
+            provider: null,
             customer: {
               name: 'Error Loading Customer',
               email: '',
@@ -251,6 +327,10 @@ export async function GET() {
       .slice(0, 10) // Already ordered by created_at desc
       .map(booking => {
         try {
+          // Get provider for this booking
+          const provider = getProviderForBooking(booking.id);
+          const customer = getCustomerForBooking(booking.customer_id);
+          
           // Use hybrid approach: customer_* fields from bookings table (no joins to avoid schema issues)
           let formattedTime = '12:00 PM';
           if (booking.scheduled_time) {
@@ -269,7 +349,17 @@ export async function GET() {
           
           return {
             id: booking.id || 'unknown',
-            customer: {
+            provider: provider ? {
+              id: provider.id,
+              name: `${provider.first_name || ''} ${provider.last_name || ''}`.trim() || provider.name || 'Unknown Provider',
+              email: provider.email || '',
+              phone: provider.phone || ''
+            } : null,
+            customer: customer ? {
+              name: customer.name || booking.customer_name || 'Unknown Customer',
+              email: customer.email || booking.customer_email || '',
+              phone: customer.phone || booking.customer_phone || ''
+            } : {
               name: booking.customer_name || 'Unknown Customer',
               email: booking.customer_email || '',
               phone: booking.customer_phone || ''
@@ -286,6 +376,7 @@ export async function GET() {
           console.error('Error processing booking:', booking.id, bookingError);
           return {
             id: booking.id || 'error-booking',
+            provider: null,
             customer: {
               name: 'Error Loading Customer',
               email: '',
@@ -302,12 +393,41 @@ export async function GET() {
         }
       });
 
+    // Get booking assignments count for each provider
+    const assignmentCounts = new Map();
+    if (bookingAssignments && Array.isArray(bookingAssignments)) {
+      bookingAssignments.forEach(assignment => {
+        const currentCount = assignmentCounts.get(assignment.provider_id) || 0;
+        assignmentCounts.set(assignment.provider_id, currentCount + 1);
+      });
+    }
+
+    // Get available providers for the Available Providers section
+    const availableProviders = providers && Array.isArray(providers) 
+      ? providers.filter(provider => provider.availability_status === 'available' || !provider.availability_status)
+        .slice(0, 5) // Limit to 5 providers
+        .map(provider => ({
+          id: provider.id,
+          name: `${provider.first_name || ''} ${provider.last_name || ''}`.trim() || provider.name || 'Unknown Provider',
+          email: provider.email || '',
+          phone: provider.phone || '',
+          availability_status: provider.availability_status || 'available',
+          performance_score: provider.performance_score || 0,
+          customer_rating: provider.customer_rating || 0,
+          services: [], // Would need to join with provider_services if needed
+          hourly_rate: provider.hourly_rate || 0,
+          last_active_at: provider.last_active_at,
+          assignment_count: assignmentCounts.get(provider.id) || 0
+        }))
+      : [];
+
     return NextResponse.json({
       success: true,
       data: {
         stats,
         upcomingBookings,
         recentBookings,
+        availableProviders,
         business_id: businessId
       }
     });

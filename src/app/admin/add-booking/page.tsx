@@ -21,7 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
-import { Plus, Minus, Search, X, User, Shirt, Sofa, Droplets, Wind, Trash2, Flower2, Flame, Warehouse, Paintbrush } from "lucide-react";
+import { Plus, Minus, Search, X, User, Shirt, Sofa, Droplets, Wind, Trash2, Flower2, Flame, Warehouse, Paintbrush, CreditCard } from "lucide-react";
 import Image from "next/image";
 import { useBusiness } from "@/contexts/BusinessContext";
 
@@ -111,6 +111,7 @@ const createEmptyBookingForm = () => ({
   lastName: "",
   email: "",
   phone: "",
+  address: "",
   service: "",
   duration: "02",
   durationUnit: "Hours",
@@ -133,9 +134,22 @@ const createEmptyBookingForm = () => ({
   selectedTime: "",
   priority: "Medium",
   paymentMethod: "",
+  cardNumber: "",
   notes: "",
   adjustServiceTotal: false,
   adjustPrice: false,
+  adjustmentAmount: "",
+  adjustmentServiceTotalAmount: "",
+  adjustTime: false,
+  adjustedHours: "00",
+  adjustedMinutes: "00",
+  keyInfoOption: "",
+  keepKeyWithProvider: false,
+  customerNoteForProvider: "",
+  couponCodeTab: "coupon-code",
+  couponCode: "",
+  couponType: "coupon-code",
+  giftCardCode: "",
   excludeCancellationFee: false,
   excludeMinimumFee: false,
   excludeCustomerNotification: false,
@@ -155,6 +169,7 @@ function AddBookingPage() {
     service: false,
     selectedDate: false,
     selectedTime: false,
+    address: false,
   });
   const [frequencies, setFrequencies] = useState<FrequencyRow[]>([]);
   const [extras, setExtras] = useState<Extra[]>([]);
@@ -891,6 +906,7 @@ const handleAddBooking = async (status: string = 'pending') => {
     service: !newBooking.service.trim(),
     selectedDate: !newBooking.selectedDate.trim(),
     selectedTime: !newBooking.selectedTime.trim(),
+    address: !newBooking.address.trim(),
   };
 
   const hasError = Object.values(nextErrors).some(Boolean);
@@ -951,6 +967,7 @@ const handleAddBooking = async (status: string = 'pending') => {
         customer_name: customerName,
         customer_email: customerEmail,
         customer_phone: customerPhone,
+        address: newBooking.address,
         service: newBooking.service,
         frequency: newBooking.frequency,
         date: newBooking.selectedDate,
@@ -1677,6 +1694,17 @@ const handleAddBooking = async (status: string = 'pending') => {
               </div>
             )}
 
+            {/* Zip Code */}
+            <div>
+              <Label htmlFor="zipCode" className="text-sm font-medium mb-2 block">Zip Code</Label>
+              <Input
+                id="zipCode"
+                placeholder="Enter zip code"
+                value={newBooking.zipCode}
+                onChange={(e) => setNewBooking({ ...newBooking, zipCode: e.target.value })}
+              />
+            </div>
+
             {/* Name Fields */}
             <div className="grid gap-4 md:grid-cols-2">
               <div>
@@ -1722,6 +1750,22 @@ const handleAddBooking = async (status: string = 'pending') => {
                   setErrors(prev => ({ ...prev, email: false }));
                 }}
                 className={errors.email ? "border-red-500" : ""}
+                disabled={newBooking.customerType === 'existing'}
+              />
+            </div>
+
+            {/* Address */}
+            <div>
+              <Label htmlFor="address" className="text-sm font-medium mb-2 block">Address</Label>
+              <Input
+                id="address"
+                placeholder="Enter service address"
+                value={newBooking.address}
+                onChange={(e) => {
+                  setNewBooking({ ...newBooking, address: e.target.value });
+                  setErrors(prev => ({ ...prev, address: false }));
+                }}
+                className={errors.address ? "border-red-500" : ""}
                 disabled={newBooking.customerType === 'existing'}
               />
             </div>
@@ -2268,6 +2312,29 @@ const handleAddBooking = async (status: string = 'pending') => {
                     />
                     <Label htmlFor="adjust-service-total" className="text-sm text-white">Do you want to adjust service total?</Label>
                   </div>
+                  
+                  {newBooking.adjustServiceTotal && (
+                    <div className="ml-[28px]">
+                      <div>
+                        <Input
+                          id="adjustment-service-total-amount"
+                          type="number"
+                          placeholder="Enter amount"
+                          value={newBooking.adjustmentServiceTotalAmount}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            // Only allow positive whole numbers (no decimals, no negative)
+                            if (value === '' || (/^\d+$/.test(value) && parseInt(value) >= 0)) {
+                              setNewBooking({ ...newBooking, adjustmentServiceTotalAmount: value });
+                            }
+                          }}
+                          min="0"
+                          step="1"
+                          className="w-32"
+                        />
+                      </div>
+                    </div>
+                  )}
                   <div className="flex items-center space-x-2">
                     <Checkbox
                       id="adjust-price"
@@ -2276,16 +2343,77 @@ const handleAddBooking = async (status: string = 'pending') => {
                     />
                     <Label htmlFor="adjust-price" className="text-sm text-white">Do you want to adjust price?</Label>
                   </div>
-                </div>
-
-                <div>
-                  <Label htmlFor="zipCode" className="text-sm font-medium mb-2 block text-white">Zip Code</Label>
-                  <Input
-                    id="zipCode"
-                    placeholder="Enter zip code"
-                    value={newBooking.zipCode}
-                    onChange={(e) => setNewBooking({ ...newBooking, zipCode: e.target.value })}
-                  />
+                  
+                  {newBooking.adjustPrice && (
+                    <div className="ml-[28px]">
+                      <div>
+                        <Input
+                          id="adjustment-amount"
+                          type="number"
+                          placeholder="Enter amount"
+                          value={newBooking.adjustmentAmount}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            // Only allow positive whole numbers (no decimals, no negative)
+                            if (value === '' || (/^\d+$/.test(value) && parseInt(value) >= 0)) {
+                              setNewBooking({ ...newBooking, adjustmentAmount: value });
+                            }
+                          }}
+                          min="0"
+                          step="1"
+                          className="w-32"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="adjust-time"
+                      checked={newBooking.adjustTime}
+                      onCheckedChange={(checked) => setNewBooking({ ...newBooking, adjustTime: !!checked })}
+                    />
+                    <Label htmlFor="adjust-time" className="text-sm text-white">Do you want to adjust time?</Label>
+                  </div>
+                  
+                  {newBooking.adjustTime && (
+                    <div className="ml-[28px]">
+                      <div className="flex items-center space-x-2">
+                        <Select
+                          value={newBooking.adjustedHours}
+                          onValueChange={(value) => setNewBooking({ ...newBooking, adjustedHours: value })}
+                        >
+                          <SelectTrigger className="w-20">
+                            <SelectValue placeholder="Hours" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Array.from({ length: 25 }, (_, i) => i).map((hour) => (
+                              <SelectItem key={hour} value={hour.toString()}>
+                                {hour.toString().padStart(2, '0')}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        
+                        <span className="text-white">:</span>
+                        
+                        <Select
+                          value={newBooking.adjustedMinutes}
+                          onValueChange={(value) => setNewBooking({ ...newBooking, adjustedMinutes: value })}
+                        >
+                          <SelectTrigger className="w-20">
+                            <SelectValue placeholder="Min" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Array.from({ length: 60 }, (_, i) => i).map((minute) => (
+                              <SelectItem key={minute} value={minute.toString().padStart(2, '0')}>
+                                {minute.toString().padStart(2, '0')}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -2492,6 +2620,169 @@ const handleAddBooking = async (status: string = 'pending') => {
                     
                                       </div>
             </div>
+            
+            {/* Key Information & Job Notes */}
+            <div>
+              <h3 className="text-lg font-semibold mb-2 text-white">Key Information & Job Notes</h3>
+              <p className="text-sm text-gray-400 mb-4">You can turn this description off or modify it at anytime.</p>
+              
+              <div className="space-y-4">
+                {/* Radio buttons for key access */}
+                <div>
+                  <Label className="text-sm font-medium mb-2 block text-white">Key Access</Label>
+                  <RadioGroup
+                    value={newBooking.keyInfoOption}
+                    onValueChange={(value) => setNewBooking({ ...newBooking, keyInfoOption: value })}
+                    className="flex gap-4"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="someone-home" id="someone-home" />
+                      <Label htmlFor="someone-home" className="text-sm text-white">Someone Will Be At Home</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="hide-keys" id="hide-keys" />
+                      <Label htmlFor="hide-keys" className="text-sm text-white">I Will Hide The Keys</Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+                
+                {/* Checkbox for keeping key with provider */}
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="keep-key-with-provider"
+                    checked={newBooking.keepKeyWithProvider}
+                    onCheckedChange={(checked) => setNewBooking({ ...newBooking, keepKeyWithProvider: !!checked })}
+                  />
+                  <Label htmlFor="keep-key-with-provider" className="text-sm text-white">Keep Key With Provider</Label>
+                </div>
+                
+                {/* Customer note for provider */}
+                <div>
+                  <Label className="text-sm font-medium mb-2 block text-white">Customer Note For Provider</Label>
+                  <Textarea
+                    placeholder="Special Notes And Instructions"
+                    value={newBooking.customerNoteForProvider}
+                    onChange={(e) => setNewBooking({ ...newBooking, customerNoteForProvider: e.target.value })}
+                    rows={4}
+                  />
+                </div>
+              </div>
+            </div>
+            
+            {/* Coupon Code & Gift Cards */}
+            <div>
+              <h3 className="text-lg font-semibold mb-4 text-black">Coupon Code & Gift Cards</h3>
+              
+              {/* Tabs */}
+              <div className="flex space-x-4 mb-4 border-b border-gray-200">
+                <button
+                  onClick={() => setNewBooking({ ...newBooking, couponCodeTab: "coupon-code" })}
+                  className={`pb-2 text-base font-semibold ${newBooking.couponCodeTab === "coupon-code" ? "text-blue-600 border-b-2 border-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+                >
+                  Coupon Code
+                </button>
+                <button
+                  onClick={() => setNewBooking({ ...newBooking, couponCodeTab: "gift-card" })}
+                  className={`pb-2 text-base font-semibold ${newBooking.couponCodeTab === "gift-card" ? "text-blue-600 border-b-2 border-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+                >
+                  Gift Cards
+                </button>
+              </div>
+              
+              {/* Tab Content */}
+              <div className="bg-white rounded-lg p-6 shadow-sm">
+                {newBooking.couponCodeTab === "coupon-code" ? (
+                  <div className="space-y-6">
+                    {/* Radio Buttons */}
+                    <RadioGroup
+                      value={newBooking.couponType}
+                      onValueChange={(value) => setNewBooking({ ...newBooking, couponType: value })}
+                      className="flex space-x-6"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem 
+                          value="coupon-code" 
+                          id="coupon-code-radio" 
+                          className="text-blue-600"
+                        />
+                        <Label htmlFor="coupon-code-radio" className="text-sm font-medium text-gray-900">Coupon Code</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem 
+                          value="amount" 
+                          id="amount" 
+                        />
+                        <Label htmlFor="amount" className="text-sm font-medium text-gray-900">Amount</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem 
+                          value="percent" 
+                          id="percent" 
+                        />
+                        <Label htmlFor="percent" className="text-sm font-medium text-gray-900">% Amount</Label>
+                      </div>
+                    </RadioGroup>
+                    
+                    {/* Input Section */}
+                    <div>
+                      <div className="flex items-center space-x-2 mb-2">
+                        <Label htmlFor="coupon-code-input" className="text-sm font-medium text-gray-900">Enter Coupon Code</Label>
+                        <div className="w-4 h-4 rounded-full bg-gray-200 flex items-center justify-center">
+                          <span className="text-gray-500 text-xs">i</span>
+                        </div>
+                      </div>
+                      <div className="flex space-x-2">
+                        <Input
+                          id="coupon-code-input"
+                          placeholder="Enter coupon code"
+                          value={newBooking.couponCode}
+                          onChange={(e) => setNewBooking({ ...newBooking, couponCode: e.target.value })}
+                          className="flex-1 border-gray-300"
+                        />
+                        <Button
+                          onClick={() => {
+                            toast({
+                              title: "Coupon Code Applied",
+                              description: `Coupon code "${newBooking.couponCode}" has been applied.`,
+                            });
+                          }}
+                          className="bg-sky-400 hover:bg-sky-500 text-white px-6"
+                        >
+                          Apply
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    <div>
+                      <Label htmlFor="gift-card-code" className="text-sm font-medium text-gray-900">Gift Card Code</Label>
+                      <div className="flex space-x-2 mt-2">
+                        <Input
+                          id="gift-card-code"
+                          placeholder="Enter gift card code"
+                          value={newBooking.giftCardCode}
+                          onChange={(e) => setNewBooking({ ...newBooking, giftCardCode: e.target.value })}
+                          className="flex-1 border-gray-300"
+                        />
+                        <Button
+                          onClick={() => {
+                            toast({
+                              title: "Gift Card Applied",
+                              description: `Gift card "${newBooking.giftCardCode}" has been applied.`,
+                            });
+                          }}
+                          className="bg-sky-400 hover:bg-sky-500 text-white px-6"
+                        >
+                          Apply
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            
                 <div>
                   <Label htmlFor="payment" className="text-sm font-medium mb-2 block text-white">Payment Method</Label>
                   <Select value={newBooking.paymentMethod} onValueChange={(value) => setNewBooking({ ...newBooking, paymentMethod: value })}>
@@ -2499,21 +2790,39 @@ const handleAddBooking = async (status: string = 'pending') => {
                       <SelectValue placeholder="Select payment method" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Credit Card">Credit Card</SelectItem>
-                      <SelectItem value="Cash">Cash</SelectItem>
-                      <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="Credit Card">New Credit Card</SelectItem>
+                      <SelectItem value="Cash">Cash/Check</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <Label htmlFor="notes" className="text-sm font-medium mb-2 block">Notes (Optional)</Label>
-                  <Input
-                    id="notes"
-                    placeholder="Add any special instructions"
-                    value={newBooking.notes}
-                    onChange={(e) => setNewBooking({ ...newBooking, notes: e.target.value })}
-                  />
-                </div>
+
+                {newBooking.paymentMethod === "Credit Card" && (
+                  <div className="mt-4">
+                    <h4 className="text-sm font-semibold mb-2 text-black">Add new card</h4>
+                    <div className="relative flex items-center">
+                      <CreditCard className="absolute left-3 text-gray-400 w-5 h-5 z-10" />
+                      <Input
+                        id="card-number"
+                        placeholder="Card number"
+                        value={newBooking.cardNumber}
+                        onChange={(e) => setNewBooking({ ...newBooking, cardNumber: e.target.value })}
+                        className="pl-10 pr-32 border-gray-300"
+                      />
+                      <Button
+                        variant="ghost"
+                        className="absolute right-0 top-1/2 -translate-y-1/2 h-full bg-green-900 text-white hover:bg-green-800 rounded-l-none"
+                        onClick={() => {
+                          toast({
+                            title: "Autofill",
+                            description: "Autofill functionality not implemented.",
+                          });
+                        }}
+                      >
+                        Autofill <span className="underline ml-1">link</span>
+                      </Button>
+                    </div>
+                  </div>
+                )}
           </CardContent>
         </Card>
         </div>
