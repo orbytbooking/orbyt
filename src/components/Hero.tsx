@@ -18,6 +18,7 @@ interface HeroProps {
     button1Link?: string;
     button2Text?: string;
     button2Link?: string;
+    serviceTag?: string;
   };
   branding?: {
     primaryColor?: string;
@@ -35,6 +36,7 @@ const Hero = ({
     button1Link: '/book-now',
     button2Text: 'Contact Us',
     button2Link: '#contact',
+    serviceTag: "ORBYT #1 CLEANING SERVICE",
   },
   branding
 }: HeroProps) => {
@@ -85,7 +87,7 @@ const Hero = ({
             <div className="text-center animate-slide-up" style={{ animationDelay: '0.1s' }}>
               <div className="mb-6">
                 <span className="px-6 py-3 bg-white/95 border-2 border-primary rounded-full text-primary font-semibold text-sm tracking-wider shadow-lg">
-                  CHICAGO'S #1 CLEANING SERVICE
+                  {data.serviceTag || "CHICAGO'S #1 CLEANING SERVICE"}
                 </span>
               </div>
               

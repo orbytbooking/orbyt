@@ -93,6 +93,7 @@ const defaultSections: WebsiteSection[] = [
       button1Link: '/book-now',
       button2Text: 'Contact Us',
       button2Link: '#contact',
+      serviceTag: "ORBYT #1 CLEANING SERVICE",
     }
   },
   {
@@ -782,6 +783,13 @@ export default function WebsiteBuilderPage() {
                           <Textarea
                             value={selectedSectionData.data.description}
                             onChange={(e) => updateSection(selectedSection, { description: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>Service Tag</Label>
+                          <Input
+                            value={selectedSectionData.data.serviceTag}
+                            onChange={(e) => updateSection(selectedSection, { serviceTag: e.target.value })}
                           />
                         </div>
                         <div>
