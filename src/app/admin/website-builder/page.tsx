@@ -27,7 +27,8 @@ import {
   HelpCircle,
   Upload,
   X,
-  Check
+  Check,
+  RotateCcw
 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
@@ -312,6 +313,27 @@ export default function WebsiteBuilderPage() {
     }
   };
 
+  // Reset to default
+  const resetToDefault = () => {
+    const defaultConfig = {
+      sections: defaultSections,
+      branding: {
+        primaryColor: '#00D4E8',
+        secondaryColor: '#00BCD4',
+        logo: '/images/orbit.png',
+        companyName: 'Orbyt Cleaners',
+        domain: 'orbytcleaner.bookingkoala.com',
+      },
+      template: 'modern',
+    };
+    setWebsiteConfig(defaultConfig);
+    addToHistory(defaultConfig);
+    toast({
+      title: 'Reset to Default',
+      description: 'Website has been reset to default configuration.',
+    });
+  };
+
   // Add new section
   const addSection = (type: WebsiteSection['type']) => {
     const newSection: WebsiteSection = {
@@ -499,13 +521,17 @@ export default function WebsiteBuilderPage() {
               <Eye className="h-4 w-4 mr-2" />
               Preview
             </Button>
-            <Button variant="outline" size="sm" onClick={saveConfig}>
+            <Button variant="ghost" size="sm" onClick={saveConfig}>
               <Save className="h-4 w-4 mr-2" />
               Save
             </Button>
             <Button size="sm" onClick={publishConfig}>
               <Save className="h-4 w-4 mr-2" />
               Save & Publish
+            </Button>
+            <Button variant="outline" size="sm" onClick={resetToDefault}>
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Reset
             </Button>
           </div>
         </div>
