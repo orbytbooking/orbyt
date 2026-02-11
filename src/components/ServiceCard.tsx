@@ -1,16 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Clock, CheckCircle2, ArrowLeft } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ArrowLeft } from "lucide-react";
+import QuantitySelector from "@/components/QuantitySelector";
 import styles from "./ServiceCard.module.css";
 
 interface ServiceCardProps {
@@ -29,6 +27,8 @@ interface ServiceCardProps {
   onFlip: (cardId: string) => void;
   customization: ServiceCustomization;
   onCustomizationChange: (serviceId: string, customization: ServiceCustomization) => void;
+  availableExtras?: any[];
+  availableVariables?: { [key: string]: any[] };
 }
 
 export interface ServiceCustomization {
@@ -36,12 +36,22 @@ export interface ServiceCustomization {
   squareMeters: string;
   bedroom: string;
   bathroom: string;
-  extras: string[];
+  extras: { name: string; quantity: number }[];
   isPartialCleaning: boolean;
   excludedAreas: string[];
 }
 
-export default function ServiceCard({ service, isSelected, onSelect, flippedCardId, onFlip, customization, onCustomizationChange }: ServiceCardProps) {
+export default function ServiceCard({ 
+  service, 
+  isSelected, 
+  onSelect, 
+  flippedCardId, 
+  onFlip, 
+  customization, 
+  onCustomizationChange,
+  availableExtras = [],
+  availableVariables = {}
+}: ServiceCardProps) {
   const isFlipped = flippedCardId === service.id;
   const [isConfirmed, setIsConfirmed] = useState(isSelected);
 
@@ -85,7 +95,10 @@ export default function ServiceCard({ service, isSelected, onSelect, flippedCard
     onFlip("");
   };
 
-  const EXTRA_OPTIONS = ["Inside Fridge", "Inside Oven", "Inside Cabinets", "Laundry", "Windows"];
+  const EXTRA_OPTIONS = availableExtras?.length > 0 ? availableExtras.map(e => e.name) : [];
+  const SQFT_OPTIONS = availableVariables?.sqft?.map((v: any) => v.name) || availableVariables?.area?.map((v: any) => v.name) || [];
+  const BEDROOM_OPTIONS = availableVariables?.bedroom?.map((v: any) => v.name) || [];
+  const BATHROOM_OPTIONS = availableVariables?.bathroom?.map((v: any) => v.name) || [];
 
   return (
     <div className={styles.cardContainer}>
@@ -129,9 +142,11 @@ export default function ServiceCard({ service, isSelected, onSelect, flippedCard
                   <label className={styles.fieldLabel}>Frequency</label>
                   <Select
                     value={customization.frequency}
-                    onValueChange={(value) =>
-                      onCustomizationChange(service.id, { ...customization, frequency: value })
-                    }
+                    onValueChange={(value) => {
+                      if (value !== customization.frequency) {
+                        onCustomizationChange(service.id, { ...customization, frequency: value });
+                      }
+                    }}
                   >
                     <SelectTrigger className={styles.selectTrigger}>
                       <SelectValue placeholder="Select frequency" />
@@ -150,19 +165,21 @@ export default function ServiceCard({ service, isSelected, onSelect, flippedCard
                   <label className={styles.fieldLabel}>Area Size (Sq Ft)</label>
                   <Select
                     value={customization.squareMeters}
-                    onValueChange={(value) =>
-                      onCustomizationChange(service.id, { ...customization, squareMeters: value })
-                    }
+                    onValueChange={(value) => {
+                      if (value !== customization.squareMeters) {
+                        onCustomizationChange(service.id, { ...customization, squareMeters: value });
+                      }
+                    }}
                   >
                     <SelectTrigger className={styles.selectTrigger}>
                       <SelectValue placeholder="Select area size" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="10-20 sqm">1 – 1249 Sq Ft</SelectItem>
-                      <SelectItem value="21-30 sqm">1250 – 1499 Sq Ft</SelectItem>
-                      <SelectItem value="31-40 sqm">1500 – 1799 Sq Ft</SelectItem>
-                      <SelectItem value="41-50 sqm">1800 – 2099 Sq Ft</SelectItem>
-                      <SelectItem value="51+ sqm">2100 – 2399 Sq Ft</SelectItem>
+                      {SQFT_OPTIONS.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -174,20 +191,21 @@ export default function ServiceCard({ service, isSelected, onSelect, flippedCard
                   <label className={styles.fieldLabel}>Bedroom</label>
                   <Select
                     value={customization.bedroom}
-                    onValueChange={(value) =>
-                      onCustomizationChange(service.id, { ...customization, bedroom: value })
-                    }
+                    onValueChange={(value) => {
+                      if (value !== customization.bedroom) {
+                        onCustomizationChange(service.id, { ...customization, bedroom: value });
+                      }
+                    }}
                   >
                     <SelectTrigger className={styles.selectTrigger}>
                       <SelectValue placeholder="Select bedroom" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="1 Bedroom">1</SelectItem>
-                      <SelectItem value="2 Bedrooms">2</SelectItem>
-                      <SelectItem value="3 Bedrooms">3</SelectItem>
-                      <SelectItem value="4 Bedrooms">4</SelectItem>
-                      <SelectItem value="5 Bedrooms">5</SelectItem>
-                      <SelectItem value="6 Bedrooms">6</SelectItem>
+                      {BEDROOM_OPTIONS.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -196,20 +214,21 @@ export default function ServiceCard({ service, isSelected, onSelect, flippedCard
                   <label className={styles.fieldLabel}>Bathroom</label>
                   <Select
                     value={customization.bathroom}
-                    onValueChange={(value) =>
-                      onCustomizationChange(service.id, { ...customization, bathroom: value })
-                    }
+                    onValueChange={(value) => {
+                      if (value !== customization.bathroom) {
+                        onCustomizationChange(service.id, { ...customization, bathroom: value });
+                      }
+                    }}
                   >
                     <SelectTrigger className={styles.selectTrigger}>
                       <SelectValue placeholder="Select bathroom" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="1 Bathroom">1 </SelectItem>
-                      <SelectItem value="2 Bathrooms">2</SelectItem>
-                      <SelectItem value="3 Bathrooms">3</SelectItem>
-                      <SelectItem value="4 Bathrooms">4</SelectItem>
-                      <SelectItem value="5 Bathrooms">5</SelectItem>
-                      <SelectItem value="6 Bathrooms">6</SelectItem>
+                      {BATHROOM_OPTIONS.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -221,13 +240,15 @@ export default function ServiceCard({ service, isSelected, onSelect, flippedCard
                   <Checkbox
                     id={`partial-${service.id}`}
                     checked={customization.isPartialCleaning}
-                    onCheckedChange={(checked) =>
-                      onCustomizationChange(service.id, {
-                        ...customization,
-                        isPartialCleaning: checked as boolean,
-                        excludedAreas: checked ? customization.excludedAreas : []
-                      })
-                    }
+                    onCheckedChange={(checked) => {
+                      if (checked !== customization.isPartialCleaning) {
+                        onCustomizationChange(service.id, {
+                          ...customization,
+                          isPartialCleaning: checked as boolean,
+                          excludedAreas: checked ? customization.excludedAreas : []
+                        });
+                      }
+                    }}
                   />
                   <label
                     htmlFor={`partial-${service.id}`}
@@ -250,13 +271,16 @@ export default function ServiceCard({ service, isSelected, onSelect, flippedCard
                           checked={customization.excludedAreas?.includes(area) || false}
                           onCheckedChange={(checked) => {
                             const currentExcluded = customization.excludedAreas || [];
-                            const newExcluded = checked
-                              ? [...currentExcluded, area]
-                              : currentExcluded.filter(a => a !== area);
-                            onCustomizationChange(service.id, {
-                              ...customization,
-                              excludedAreas: newExcluded
-                            });
+                            const isCurrentlyExcluded = currentExcluded.includes(area);
+                            if (checked !== isCurrentlyExcluded) {
+                              const newExcluded = checked
+                                ? [...currentExcluded, area]
+                                : currentExcluded.filter(a => a !== area);
+                              onCustomizationChange(service.id, {
+                                ...customization,
+                                excludedAreas: newExcluded
+                              });
+                            }
                           }}
                         />
                         <label
@@ -274,31 +298,44 @@ export default function ServiceCard({ service, isSelected, onSelect, flippedCard
               {/* Row 3: Extras (Full Width, Two Columns) */}
               <div className={styles.formField}>
                 <label className={styles.fieldLabel}>Extras (Optional)</label>
-                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {EXTRA_OPTIONS.map((extra) => (
-                    <div key={extra} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`${service.id}-extra-${extra}`}
-                        checked={customization.extras?.includes(extra) || false}
-                        onCheckedChange={(checked) => {
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {EXTRA_OPTIONS.map((extra) => {
+                    const currentExtra = customization.extras?.find(e => e.name === extra);
+                    const quantity = currentExtra?.quantity || 0;
+                    
+                    return (
+                      <QuantitySelector
+                        key={extra}
+                        extra={extra}
+                        quantity={quantity}
+                        onQuantityChange={(extraName, newQuantity) => {
                           const currentExtras = customization.extras || [];
-                          const newExtras = checked
-                            ? [...currentExtras, extra]
-                            : currentExtras.filter((e) => e !== extra);
+                          let newExtras;
+                          
+                          if (newQuantity === 0) {
+                            // Remove the extra if quantity is 0
+                            newExtras = currentExtras.filter(e => e.name !== extraName);
+                          } else {
+                            // Update or add the extra with new quantity
+                            const existingIndex = currentExtras.findIndex(e => e.name === extraName);
+                            if (existingIndex >= 0) {
+                              newExtras = [...currentExtras];
+                              newExtras[existingIndex] = { name: extraName, quantity: newQuantity };
+                            } else {
+                              newExtras = [...currentExtras, { name: extraName, quantity: newQuantity }];
+                            }
+                          }
+                          
                           onCustomizationChange(service.id, {
                             ...customization,
                             extras: newExtras,
                           });
                         }}
+                        min={0}
+                        max={10}
                       />
-                      <label
-                        htmlFor={`${service.id}-extra-${extra}`}
-                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                      >
-                        {extra}
-                      </label>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>

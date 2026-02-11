@@ -1,16 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Clock, CheckCircle2, ArrowLeft } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ArrowLeft } from "lucide-react";
+import QuantitySelector from "@/components/QuantitySelector";
 import styles from "./ServiceCard.module.css";
 import { 
   getFrequencyDependencies, 
@@ -39,6 +37,7 @@ interface ServiceCardProps {
   serviceCategory?: any; // Add service category prop
   availableExtras?: any[]; // Add available extras prop
   availableVariables?: { [key: string]: any[] }; // Add available variables prop
+  frequencyOptions?: string[]; // Add frequency options prop
 }
 
 export interface ServiceCustomization {
@@ -46,7 +45,7 @@ export interface ServiceCustomization {
   squareMeters: string;
   bedroom: string;
   bathroom: string;
-  extras: string[];
+  extras: { name: string; quantity: number }[];
   isPartialCleaning: boolean;
   excludedAreas: string[];
 }
@@ -68,7 +67,8 @@ export default function FrequencyAwareServiceCard({
   industryId,
   serviceCategory,
   availableExtras = [],
-  availableVariables = {}
+  availableVariables = {},
+  frequencyOptions = []
 }: ServiceCardProps) {
   const isFlipped = flippedCardId === service.id;
   const [isConfirmed, setIsConfirmed] = useState(isSelected);
@@ -93,14 +93,15 @@ export default function FrequencyAwareServiceCard({
 
   // Apply service category dependency-based filtering
   useEffect(() => {
-    if (!serviceCategory) {
-      // If no service category, use default options
+    // Only run if we actually have service category data
+    if (!serviceCategory || (!availableExtras?.length && !availableVariables)) {
+      // If no service category or no available data, use available data or defaults
       setFilteredOptions({
-        bathroomVariables: DEFAULT_BATHROOM_OPTIONS,
-        sqftVariables: DEFAULT_SQFT_OPTIONS,
-        bedroomVariables: DEFAULT_BEDROOM_OPTIONS,
-        excludeParameters: DEFAULT_EXCLUDE_OPTIONS,
-        extras: DEFAULT_EXTRA_OPTIONS,
+        bathroomVariables: availableVariables?.bathroom?.map((v: any) => v.name) || DEFAULT_BATHROOM_OPTIONS,
+        sqftVariables: availableVariables?.sqft?.map((v: any) => v.name) || availableVariables?.area?.map((v: any) => v.name) || DEFAULT_SQFT_OPTIONS,
+        bedroomVariables: availableVariables?.bedroom?.map((v: any) => v.name) || DEFAULT_BEDROOM_OPTIONS,
+        excludeParameters: availableExtras?.length > 0 ? availableExtras.map(e => e.name) : DEFAULT_EXCLUDE_OPTIONS,
+        extras: availableExtras?.length > 0 ? availableExtras.map(e => e.name) : DEFAULT_EXTRA_OPTIONS,
       });
       return;
     }
@@ -114,36 +115,43 @@ export default function FrequencyAwareServiceCard({
       let filteredBedroom: string[] = [];
       let filteredBathroom: string[] = [];
       
-      // Process each variable category
+      // Process each variable category from database
       Object.keys(categoryVariables).forEach(variableCategory => {
         const selectedVariables = categoryVariables[variableCategory];
         if (Array.isArray(selectedVariables) && availableVariables[variableCategory]) {
           const availableVars = availableVariables[variableCategory];
           
-          // Map variable names to default options based on category
+          // Map variable names to actual database variable names
           selectedVariables.forEach(varName => {
-            // Try to match with default options
-            if (DEFAULT_SQFT_OPTIONS.some(option => option.toLowerCase().includes(varName.toLowerCase()) || varName.toLowerCase().includes(option.toLowerCase()))) {
-              const matched = DEFAULT_SQFT_OPTIONS.filter(option => 
-                option.toLowerCase().includes(varName.toLowerCase()) || varName.toLowerCase().includes(option.toLowerCase())
-              );
-              filteredSqft = [...filteredSqft, ...matched];
-            }
-            if (DEFAULT_BEDROOM_OPTIONS.some(option => option.toLowerCase().includes(varName.toLowerCase()) || varName.toLowerCase().includes(option.toLowerCase()))) {
-              const matched = DEFAULT_BEDROOM_OPTIONS.filter(option => 
-                option.toLowerCase().includes(varName.toLowerCase()) || varName.toLowerCase().includes(option.toLowerCase())
-              );
-              filteredBedroom = [...filteredBedroom, ...matched];
-            }
-            if (DEFAULT_BATHROOM_OPTIONS.some(option => option.toLowerCase().includes(varName.toLowerCase()) || varName.toLowerCase().includes(option.toLowerCase()))) {
-              const matched = DEFAULT_BATHROOM_OPTIONS.filter(option => 
-                option.toLowerCase().includes(varName.toLowerCase()) || varName.toLowerCase().includes(option.toLowerCase())
-              );
-              filteredBathroom = [...filteredBathroom, ...matched];
+            // Find matching variable in available variables
+            const matchingVar = availableVars.find((v: any) => v.name === varName);
+            if (matchingVar) {
+              // Use the actual variable name from database
+              if (variableCategory.toLowerCase().includes('sqft') || variableCategory.toLowerCase().includes('area')) {
+                filteredSqft.push(matchingVar.name);
+              } else if (variableCategory.toLowerCase().includes('bedroom')) {
+                filteredBedroom.push(matchingVar.name);
+              } else if (variableCategory.toLowerCase().includes('bathroom')) {
+                filteredBathroom.push(matchingVar.name);
+              }
             }
           });
         }
       });
+      
+      // If no filtered variables from service category, use all available variables or defaults
+      if (filteredSqft.length === 0) {
+        const sqftVars = availableVariables?.sqft?.map((v: any) => v.name) || availableVariables?.area?.map((v: any) => v.name) || [];
+        filteredSqft = sqftVars.length > 0 ? sqftVars : DEFAULT_SQFT_OPTIONS;
+      }
+      if (filteredBedroom.length === 0) {
+        const bedroomVars = availableVariables?.bedroom?.map((v: any) => v.name) || [];
+        filteredBedroom = bedroomVars.length > 0 ? bedroomVars : DEFAULT_BEDROOM_OPTIONS;
+      }
+      if (filteredBathroom.length === 0) {
+        const bathroomVars = availableVariables?.bathroom?.map((v: any) => v.name) || [];
+        filteredBathroom = bathroomVars.length > 0 ? bathroomVars : DEFAULT_BATHROOM_OPTIONS;
+      }
       
       // Remove duplicates
       filteredSqft = [...new Set(filteredSqft)];
@@ -152,29 +160,46 @@ export default function FrequencyAwareServiceCard({
       
       // Filter extras based on service category selection
       const categoryExtras = serviceCategory.extras || [];
-      const filteredExtras = availableExtras
+      let filteredExtras = (availableExtras || [])
         .filter(extra => categoryExtras.includes(extra.id))
         .map(extra => extra.name);
       
-      // Filter exclude parameters
-      const categoryExcludeParams = serviceCategory.selected_exclude_parameters || [];
-      const filteredExclude = DEFAULT_EXCLUDE_OPTIONS.filter(option => 
-        categoryExcludeParams.some(exclude => 
-          option.toLowerCase().includes(exclude.toLowerCase()) || exclude.toLowerCase().includes(option.toLowerCase())
-        )
-      );
+      // If no filtered extras from service category, use all available extras or defaults
+      if (filteredExtras.length === 0) {
+        if (availableExtras?.length > 0) {
+          filteredExtras = availableExtras.map(extra => extra.name);
+        } else {
+          filteredExtras = DEFAULT_EXTRA_OPTIONS;
+        }
+      }
+      
+      // Filter exclude parameters (use available extras as exclude options)
+      const filteredExclude = filteredExtras;
 
-      setFilteredOptions({
+      // Update state with filtered options
+      const newFilteredOptions = {
         bathroomVariables: filteredBathroom.length > 0 ? filteredBathroom : DEFAULT_BATHROOM_OPTIONS,
         sqftVariables: filteredSqft.length > 0 ? filteredSqft : DEFAULT_SQFT_OPTIONS,
         bedroomVariables: filteredBedroom.length > 0 ? filteredBedroom : DEFAULT_BEDROOM_OPTIONS,
         excludeParameters: filteredExclude,
         extras: filteredExtras.length > 0 ? filteredExtras : DEFAULT_EXTRA_OPTIONS,
+      };
+
+      // Prevent unnecessary state updates by comparing with current state
+      setFilteredOptions(prev => {
+        const hasChanged = 
+          JSON.stringify(prev.bathroomVariables) !== JSON.stringify(newFilteredOptions.bathroomVariables) ||
+          JSON.stringify(prev.sqftVariables) !== JSON.stringify(newFilteredOptions.sqftVariables) ||
+          JSON.stringify(prev.bedroomVariables) !== JSON.stringify(newFilteredOptions.bedroomVariables) ||
+          JSON.stringify(prev.excludeParameters) !== JSON.stringify(newFilteredOptions.excludeParameters) ||
+          JSON.stringify(prev.extras) !== JSON.stringify(newFilteredOptions.extras);
+        
+        return hasChanged ? newFilteredOptions : prev;
       });
     };
 
     applyServiceCategoryFilters();
-  }, [serviceCategory, availableExtras, availableVariables]);
+  }, [serviceCategory?.id, JSON.stringify(availableExtras), JSON.stringify(availableVariables)]);
 
   const handleCardClick = () => {
     // Allow flipping any card at any time
@@ -272,19 +297,29 @@ export default function FrequencyAwareServiceCard({
                   <label className={styles.fieldLabel}>Frequency</label>
                   <Select
                     value={customization.frequency}
-                    onValueChange={(value) =>
-                      onCustomizationChange(service.id, { ...customization, frequency: value })
-                    }
+                    onValueChange={(value) => {
+                      if (value !== customization.frequency) {
+                        onCustomizationChange(service.id, { ...customization, frequency: value });
+                      }
+                    }}
                   >
                     <SelectTrigger className={styles.selectTrigger}>
                       <SelectValue placeholder="Select frequency" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="One-Time">One-Time</SelectItem>
-                      <SelectItem value="2x per week">2x per week</SelectItem>
-                      <SelectItem value="Weekly">Weekly</SelectItem>
-                      <SelectItem value="Every Other Week">Every Other Week</SelectItem>
-                      <SelectItem value="Monthly">Monthly</SelectItem>
+                      {frequencyOptions.length > 0 ? frequencyOptions.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      )) : (
+                        <>
+                          <SelectItem value="One-Time">One-Time</SelectItem>
+                          <SelectItem value="2x per week">2x per week</SelectItem>
+                          <SelectItem value="Weekly">Weekly</SelectItem>
+                          <SelectItem value="Every Other Week">Every Other Week</SelectItem>
+                          <SelectItem value="Monthly">Monthly</SelectItem>
+                        </>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -295,9 +330,11 @@ export default function FrequencyAwareServiceCard({
                     <label className={styles.fieldLabel}>Area Size (Sq Ft)</label>
                     <Select
                       value={customization.squareMeters}
-                      onValueChange={(value) =>
-                        onCustomizationChange(service.id, { ...customization, squareMeters: value })
-                      }
+                      onValueChange={(value) => {
+                        if (value !== customization.squareMeters) {
+                          onCustomizationChange(service.id, { ...customization, squareMeters: value });
+                        }
+                      }}
                     >
                       <SelectTrigger className={styles.selectTrigger}>
                         <SelectValue placeholder="Select area size" />
@@ -322,9 +359,11 @@ export default function FrequencyAwareServiceCard({
                     <label className={styles.fieldLabel}>Bedroom</label>
                     <Select
                       value={customization.bedroom}
-                      onValueChange={(value) =>
-                        onCustomizationChange(service.id, { ...customization, bedroom: value })
-                      }
+                      onValueChange={(value) => {
+                        if (value !== customization.bedroom) {
+                          onCustomizationChange(service.id, { ...customization, bedroom: value });
+                        }
+                      }}
                     >
                       <SelectTrigger className={styles.selectTrigger}>
                         <SelectValue placeholder="Select bedroom" />
@@ -346,9 +385,11 @@ export default function FrequencyAwareServiceCard({
                     <label className={styles.fieldLabel}>Bathroom</label>
                     <Select
                       value={customization.bathroom}
-                      onValueChange={(value) =>
-                        onCustomizationChange(service.id, { ...customization, bathroom: value })
-                      }
+                      onValueChange={(value) => {
+                        if (value !== customization.bathroom) {
+                          onCustomizationChange(service.id, { ...customization, bathroom: value });
+                        }
+                      }}
                     >
                       <SelectTrigger className={styles.selectTrigger}>
                         <SelectValue placeholder="Select bathroom" />
@@ -371,13 +412,15 @@ export default function FrequencyAwareServiceCard({
                   <Checkbox
                     id={`partial-${service.id}`}
                     checked={customization.isPartialCleaning}
-                    onCheckedChange={(checked) =>
-                      onCustomizationChange(service.id, {
-                        ...customization,
-                        isPartialCleaning: checked as boolean,
-                        excludedAreas: checked ? customization.excludedAreas : []
-                      })
-                    }
+                    onCheckedChange={(checked) => {
+                      if (checked !== customization.isPartialCleaning) {
+                        onCustomizationChange(service.id, {
+                          ...customization,
+                          isPartialCleaning: checked as boolean,
+                          excludedAreas: checked ? customization.excludedAreas : []
+                        });
+                      }
+                    }}
                   />
                   <label
                     htmlFor={`partial-${service.id}`}
@@ -400,13 +443,16 @@ export default function FrequencyAwareServiceCard({
                           checked={customization.excludedAreas?.includes(area) || false}
                           onCheckedChange={(checked) => {
                             const currentExcluded = customization.excludedAreas || [];
-                            const newExcluded = checked
-                              ? [...currentExcluded, area]
-                              : currentExcluded.filter(a => a !== area);
-                            onCustomizationChange(service.id, {
-                              ...customization,
-                              excludedAreas: newExcluded
-                            });
+                            const isCurrentlyExcluded = currentExcluded.includes(area);
+                            if (checked !== isCurrentlyExcluded) {
+                              const newExcluded = checked
+                                ? [...currentExcluded, area]
+                                : currentExcluded.filter(a => a !== area);
+                              onCustomizationChange(service.id, {
+                                ...customization,
+                                excludedAreas: newExcluded
+                              });
+                            }
                           }}
                         />
                         <label
@@ -426,31 +472,44 @@ export default function FrequencyAwareServiceCard({
               {filteredOptions.extras.length > 0 && (
                 <div className={styles.formField}>
                   <label className={styles.fieldLabel}>Extras (Optional)</label>
-                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {filteredOptions.extras.map((extra) => (
-                      <div key={extra} className="flex items-center space-x-2">
-                        <Checkbox
-                          id={`${service.id}-extra-${extra}`}
-                          checked={customization.extras?.includes(extra) || false}
-                          onCheckedChange={(checked) => {
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {filteredOptions.extras.map((extra) => {
+                      const currentExtra = customization.extras?.find(e => e.name === extra);
+                      const quantity = currentExtra?.quantity || 0;
+                      
+                      return (
+                        <QuantitySelector
+                          key={extra}
+                          extra={extra}
+                          quantity={quantity}
+                          onQuantityChange={(extraName, newQuantity) => {
                             const currentExtras = customization.extras || [];
-                            const newExtras = checked
-                              ? [...currentExtras, extra]
-                              : currentExtras.filter((e) => e !== extra);
+                            let newExtras;
+                            
+                            if (newQuantity === 0) {
+                              // Remove the extra if quantity is 0
+                              newExtras = currentExtras.filter(e => e.name !== extraName);
+                            } else {
+                              // Update or add the extra with new quantity
+                              const existingIndex = currentExtras.findIndex(e => e.name === extraName);
+                              if (existingIndex >= 0) {
+                                newExtras = [...currentExtras];
+                                newExtras[existingIndex] = { name: extraName, quantity: newQuantity };
+                              } else {
+                                newExtras = [...currentExtras, { name: extraName, quantity: newQuantity }];
+                              }
+                            }
+                            
                             onCustomizationChange(service.id, {
                               ...customization,
                               extras: newExtras,
                             });
                           }}
+                          min={0}
+                          max={10}
                         />
-                        <label
-                          htmlFor={`${service.id}-extra-${extra}`}
-                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                        >
-                          {extra}
-                        </label>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

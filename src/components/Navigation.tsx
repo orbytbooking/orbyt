@@ -27,47 +27,40 @@ const Navigation = ({ branding, inline = false }: NavigationProps = {}) => {
   // Handle hash changes and initial page load with hash
   useEffect(() => {
     const handleHashChange = () => {
-      // Only handle if we're on the builder page
-      if (pathname === '/builder') {
+      // Only handle if we're on the website builder page
+      if (pathname === '/my-website') {
         const hash = window.location.hash.substring(1);
         if (hash) {
           const element = document.getElementById(hash);
           if (element) {
-            // Small delay to ensure all components are mounted
-            setTimeout(() => {
-              element.scrollIntoView({ behavior: 'smooth' });
-            }, 100);
+            element.scrollIntoView({ behavior: 'smooth' });
           }
         }
       }
     };
 
     // Initial check
-    if (pathname === '/builder' && window.location.hash) {
+    if (pathname === '/my-website' && window.location.hash) {
       handleHashChange();
     }
 
-    // Listen for hash changes
     window.addEventListener('hashchange', handleHashChange);
-    
-    return () => {
-      window.removeEventListener('hashchange', handleHashChange);
-    };
+    return () => window.removeEventListener('hashchange', handleHashChange);
   }, [pathname]);
 
   // Helper function to handle section click with proper typing
   const handleSectionClick = (e: React.MouseEvent, sectionId: string) => {
     e.preventDefault();
     
-    if (pathname !== '/builder') {
-      // If not on the builder page, navigate to builder with hash
-      router.push(`/builder#${sectionId}`);
+    if (pathname !== '/my-website') {
+      // If not on the website builder page, navigate to website builder with hash
+      router.push(`/my-website#${sectionId}`);
     } else {
-      // If already on builder page, just scroll to the section
+      // If already on website builder page, just scroll to the section
       const element = document.getElementById(sectionId);
       if (element) {
         element.scrollIntoView({ behavior: 'smooth' });
-        window.history.pushState({}, '', `/builder#${sectionId}`);
+        window.history.pushState({}, '', `/my-website#${sectionId}`);
       }
     }
     
@@ -79,16 +72,16 @@ const Navigation = ({ branding, inline = false }: NavigationProps = {}) => {
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-20">
           <div className="flex items-center gap-4">
-            <Link href="/builder" className="flex items-center gap-4 cursor-pointer">
+            <Link href="/my-website" className="flex items-center gap-4 cursor-pointer">
               {branding?.logo && !branding.logo.startsWith('blob:') ? (
-                <img src={branding.logo} alt={branding.companyName || "Orbyt Cleaners"} className="h-12 w-12 rounded-lg object-cover" />
+                <img src={branding.logo} alt={branding.companyName || "Cleaning Service"} className="h-12 w-12 rounded-lg object-cover" />
               ) : (
                 <div className="h-12 w-12 bg-gray-200 rounded-lg flex items-center justify-center">
                   <ImageIcon className="h-6 w-6 text-gray-400" />
                 </div>
               )}
               <span className="text-2xl font-bold gradient-text">
-                {branding?.companyName || "Orbyt Cleaners"}
+                {branding?.companyName || "Cleaning Service"}
               </span>
             </Link>
           </div>
@@ -96,28 +89,28 @@ const Navigation = ({ branding, inline = false }: NavigationProps = {}) => {
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-8">
             <Link 
-              href="/builder#how-it-works"
+              href="/my-website#how-it-works"
               onClick={(e) => handleSectionClick(e, 'how-it-works')}
               className="text-foreground hover:text-primary transition-colors cursor-pointer"
             >
               How It Works
             </Link>
             <Link 
-              href="/builder#services"
+              href="/my-website#services"
               onClick={(e) => handleSectionClick(e, 'services')}
               className="text-foreground hover:text-primary transition-colors cursor-pointer"
             >
               Services
             </Link>
             <Link 
-              href="/builder#reviews"
+              href="/my-website#reviews"
               onClick={(e) => handleSectionClick(e, 'reviews')}
               className="text-foreground hover:text-primary transition-colors cursor-pointer"
             >
               Reviews
             </Link>
             <Link 
-              href="/builder#contact"
+              href="/my-website#contact"
               onClick={(e) => handleSectionClick(e, 'contact')}
               className="text-foreground hover:text-primary transition-colors cursor-pointer"
             >
@@ -156,28 +149,28 @@ const Navigation = ({ branding, inline = false }: NavigationProps = {}) => {
         {mobileMenuOpen && (
           <div className="md:hidden py-4 space-y-4">
             <Link
-              href="/builder#how-it-works"
+              href="/my-website#how-it-works"
               onClick={(e) => handleSectionClick(e, 'how-it-works')}
               className="block text-foreground hover:text-primary transition-colors w-full text-left py-2 px-4"
             >
               How It Works
             </Link>
             <Link
-              href="/builder#services"
+              href="/my-website#services"
               onClick={(e) => handleSectionClick(e, 'services')}
               className="block text-foreground hover:text-primary transition-colors w-full text-left py-2 px-4"
             >
               Services
             </Link>
             <Link
-              href="/builder#reviews"
+              href="/my-website#reviews"
               onClick={(e) => handleSectionClick(e, 'reviews')}
               className="block text-foreground hover:text-primary transition-colors w-full text-left py-2 px-4"
             >
               Reviews
             </Link>
             <Link
-              href="/builder#contact"
+              href="/my-website#contact"
               onClick={(e) => handleSectionClick(e, 'contact')}
               className="block text-foreground hover:text-primary transition-colors w-full text-left py-2 px-4"
             >
@@ -185,7 +178,7 @@ const Navigation = ({ branding, inline = false }: NavigationProps = {}) => {
             </Link>
             <div className="flex flex-col space-y-2 pt-2">
               <Button variant="outline" size="sm" asChild>
-                <Link href={user && isCustomer ? "/builder/customer/dashboard" : "/builder/login"}>
+                <Link href={user && isCustomer ? "/customer/dashboard" : "/login"}>
                   {user && isCustomer ? "My Dashboard" : "Login"}
                 </Link>
               </Button>

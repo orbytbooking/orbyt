@@ -263,12 +263,26 @@ export const useWebsiteConfig = () => {
       setIsLoading(true);
       
       try {
-        // Load from database if we have a current business
+        let businessId = null;
+        let businessName = null;
+        
+        // Try to get business from context first
         if (currentBusiness) {
+          businessId = currentBusiness.id;
+          businessName = currentBusiness.name;
+        } else {
+          // Fallback to localStorage
+          if (typeof window !== 'undefined') {
+            businessId = localStorage.getItem('currentBusinessId');
+          }
+        }
+
+        // Load from database if we have a business ID
+        if (businessId) {
           const { data: businessConfig, error } = await supabase
             .from('business_website_configs')
             .select('config')
-            .eq('business_id', currentBusiness.id)
+            .eq('business_id', businessId)
             .single();
 
           if (!error && businessConfig) {
@@ -287,19 +301,56 @@ export const useWebsiteConfig = () => {
             console.log('No business config found for this business');
           }
         }
+
+        // If no config found and we have a business, create default config with business name
+        if (businessId) {
+          // Try to get business name if we don't have it
+          if (!businessName && typeof window !== 'undefined') {
+            try {
+              // For your specific business ID, use hardcoded name
+              if (businessId === '879ec172-e1dd-475d-b57d-0033fae0b30e') {
+                businessName = 'YOUR_BUSINESS_NAME_HERE'; // Replace with your actual business name
+              } else {
+                // Try to get actual business name
+                const businessResponse = await fetch('/api/businesses');
+                if (businessResponse.ok) {
+                  const businessData = await businessResponse.json();
+                  if (businessData.success && businessData.data && businessData.data.length > 0) {
+                    // Find the current business
+                    const currentBusiness = businessData.data.find((biz: any) => biz.id === businessId);
+                    if (currentBusiness && currentBusiness.name) {
+                      businessName = currentBusiness.name;
+                    }
+                  }
+                }
+                
+                // If we still don't have business name, fall back to industry name
+                if (!businessName) {
+                  const response = await fetch(`/api/industries?business_id=${businessId}`);
+                  if (response.ok) {
+                    const data = await response.json();
+                    if (data.industries && data.industries.length > 0) {
+                      businessName = data.industries[0].name;
+                    }
+                  }
+                }
+              }
+            } catch (error) {
+              console.error('Error fetching business name:', error);
+            }
+          }
+          
+          const defaultConfigWithBusiness = getDefaultConfig(businessName || 'Cleaning Service');
+          const configWithHeader = ensureHeaderSection(defaultConfigWithBusiness);
+          setConfig(configWithHeader);
+        }
+
+        // Only set loading to false - config will be null if no business config found
+        setIsLoading(false);
       } catch (error) {
         console.error('Failed to load config from database:', error);
+        setIsLoading(false);
       }
-
-      // If no config found and we have a business, create default config with business name
-      if (currentBusiness) {
-        const defaultConfigWithBusiness = getDefaultConfig(currentBusiness.name);
-        const configWithHeader = ensureHeaderSection(defaultConfigWithBusiness);
-        setConfig(configWithHeader);
-      }
-
-      // Only set loading to false - config will be null if no business config found
-      setIsLoading(false);
     };
 
     loadConfig();

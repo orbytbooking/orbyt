@@ -27,6 +27,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Navigation from "@/components/Navigation";
 import FrequencyAwareServiceCard, { ServiceCustomization } from "@/components/FrequencyAwareServiceCard";
+import { serviceCategoriesService } from "@/lib/serviceCategories";
 import {
   Booking,
   readStoredBookings,
@@ -267,7 +268,10 @@ const toFormCustomization = (customization: ServiceCustomization | null) => ({
   squareMeters: customization?.squareMeters ?? "",
   bedroom: customization?.bedroom ?? "",
   bathroom: customization?.bathroom ?? "",
-  extras: (customization?.extras ?? []).join(", "),
+  extras: (customization?.extras ?? [])
+    .filter(extra => extra.quantity > 0)
+    .map(extra => extra.quantity > 1 ? `${extra.name} (${extra.quantity})` : extra.name)
+    .join(", "),
 });
 
 function BookingPageContent() {
@@ -292,6 +296,13 @@ function BookingPageContent() {
   const [storedAddress, setStoredAddress] = useState<StoredAddress | null>(null);
   const { customerName, customerEmail, accountLoading } = useCustomerAccount();
   const [pricingRows, setPricingRows] = useState<PricingTier[]>([]);
+  
+  // Industry configuration state
+  const [allExtras, setAllExtras] = useState<any[]>([]);
+  const [allServiceCategories, setAllServiceCategories] = useState<any[]>([]);
+  const [allVariables, setAllVariables] = useState<{ [key: string]: any[] }>({});
+  const [allFrequencyOptions, setAllFrequencyOptions] = useState<string[]>([]);
+  const [currentBusiness, setCurrentBusiness] = useState<any>(null);
 
   // Handle phone number input to ensure it's a valid number
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>, field: any) => {
@@ -378,6 +389,8 @@ function BookingPageContent() {
           return;
         }
 
+        setCurrentBusiness({ id: currentBusinessId });
+
         // Fetch industries from the database
         const response = await fetch(`/api/industries?business_id=${currentBusinessId}`);
         const data = await response.json();
@@ -396,6 +409,14 @@ function BookingPageContent() {
             id: ind.id
           }));
           setIndustryOptions(industryOptionsWithIds);
+          
+          // Fetch industry configuration for the first industry (or Home Cleaning if available)
+          const homeCleaningIndustry = data.industries.find((ind: any) => ind.name === "Home Cleaning");
+          const targetIndustry = homeCleaningIndustry || data.industries[0];
+          
+          if (targetIndustry) {
+            await fetchIndustryConfiguration(targetIndustry.id);
+          }
         } else {
           setIndustries([]);
           setIndustryOptions([]);
@@ -403,6 +424,70 @@ function BookingPageContent() {
       } catch (error) {
         console.error('Error fetching industries:', error);
         setIndustryOptions(buildOptions(DEFAULT_INDUSTRIES));
+      }
+    };
+
+    const fetchIndustryConfiguration = async (industryId: string) => {
+      try {
+        // Fetch extras
+        const extrasResponse = await fetch(`/api/extras?industryId=${industryId}`);
+        if (extrasResponse.ok) {
+          const extrasData = await extrasResponse.json();
+          if (extrasData.extras) {
+            const visibleExtras = extrasData.extras.filter(
+              (e: any) => e && (e.display === "frontend-backend-admin" || e.display === "Both" || e.display === "Booking")
+            );
+            const formattedExtras = visibleExtras.map((e: any) => ({
+              id: e.id,
+              name: e.name,
+              icon: e.icon,
+              time: e.time_minutes,
+              serviceCategory: e.service_category || '',
+              price: e.price,
+              display: e.display,
+              qtyBased: e.qty_based,
+              maximumQuantity: e.maximum_quantity,
+              exemptFromDiscount: e.exempt_from_discount,
+              description: e.description,
+            }));
+            setAllExtras(formattedExtras);
+          }
+        }
+
+        // Fetch service categories
+        const categories = await serviceCategoriesService.getServiceCategoriesByIndustry(industryId);
+        setAllServiceCategories(categories);
+
+        // Fetch variables
+        const variablesResponse = await fetch(`/api/variables?industryId=${industryId}`);
+        if (variablesResponse.ok) {
+          const variablesData = await variablesResponse.json();
+          if (variablesData.variables) {
+            const variablesMap: { [key: string]: any[] } = {};
+            variablesData.variables.forEach((variable: any) => {
+              if (!variablesMap[variable.variable_category]) {
+                variablesMap[variable.variable_category] = [];
+              }
+              variablesMap[variable.variable_category].push(variable);
+            });
+            setAllVariables(variablesMap);
+          }
+        }
+
+        // Fetch frequency options from service categories or use defaults
+        const frequencyOptions = [...new Set(
+          categories
+            .filter(cat => cat.selected_frequencies && Array.isArray(cat.selected_frequencies))
+            .flatMap(cat => cat.selected_frequencies)
+        )];
+        
+        if (frequencyOptions.length > 0) {
+          setAllFrequencyOptions(frequencyOptions);
+        } else {
+          setAllFrequencyOptions(["One-Time", "2x per week", "Weekly", "Every Other Week", "Monthly"]);
+        }
+      } catch (error) {
+        console.error('Error fetching industry configuration:', error);
       }
     };
 
@@ -476,7 +561,7 @@ function BookingPageContent() {
       }
     }
     if (customerEmail) form.setValue("email", customerEmail);
-  }, [accountLoading, customerName, customerEmail, form]);
+  }, [accountLoading, customerName, customerEmail]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -491,7 +576,7 @@ function BookingPageContent() {
     } catch {
       // ignore invalid stored address
     }
-  }, [form]);
+  }, []);
 
   useEffect(() => {
     if (addressPreference === "existing") {
@@ -503,7 +588,7 @@ function BookingPageContent() {
         form.setValue("addressPreference", "new");
       }
     }
-  }, [addressPreference, storedAddress, form]);
+  }, [addressPreference, storedAddress]);
 
   // Initialize payment form
   const paymentForm = useForm<z.infer<typeof paymentSchema>>({
@@ -550,7 +635,7 @@ function BookingPageContent() {
       }));
       if (selectedService?.id === serviceId) {
         setServiceCustomization(customization);
-        form.setValue("customization", toFormCustomization(customization), { shouldValidate: true });
+        form.setValue("customization", toFormCustomization(customization), { shouldValidate: false });
       }
     }
   };
@@ -597,6 +682,7 @@ function BookingPageContent() {
       return;
     }
 
+    // Prevent multiple executions by setting prefilledBookingId first
     setPrefilledBookingId(bookingIdParam);
     if (consumedStoredPayload) {
       clearStoredBookAgainPayload();
@@ -611,15 +697,32 @@ function BookingPageContent() {
     const existingCustomization = getCardCustomization(service.id);
     const presetCustomization = sourceBooking.customization ?? {};
 
-    const normalizeExtrasArray = (value: unknown): string[] => {
+    const normalizeExtrasArray = (value: unknown): { name: string; quantity: number }[] => {
       if (Array.isArray(value)) {
-        return value.filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+        // Handle new format: { name: string; quantity: number }[]
+        if (value.length > 0 && typeof value[0] === 'object' && 'name' in value[0]) {
+          return value.filter((v): v is { name: string; quantity: number } => 
+            typeof v === 'object' && v !== null && 'name' in v && 'quantity' in v
+          );
+        }
+        // Handle old format: string[]
+        return value.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+          .map(name => ({ name, quantity: 1 }));
       }
       if (typeof value === "string") {
+        // Parse string format like "Inside Fridge (2), Inside Oven"
         return value
           .split(",")
           .map((v) => v.trim())
-          .filter((v) => v.length > 0);
+          .filter((v) => v.length > 0)
+          .map(item => {
+            // Check if item has quantity in parentheses like "Inside Fridge (2)"
+            const match = item.match(/^(.+)\s*\((\d+)\)$/);
+            if (match) {
+              return { name: match[1].trim(), quantity: parseInt(match[2], 10) };
+            }
+            return { name: item, quantity: 1 };
+          });
       }
       return [];
     };
@@ -648,37 +751,43 @@ function BookingPageContent() {
     };
 
     setServiceCustomization(rebookCustomization);
-    form.setValue("customization", toFormCustomization(rebookCustomization), { shouldValidate: true });
+    
+    // Batch form value updates to minimize re-renders
+    try {
+      form.setValue("customization", toFormCustomization(rebookCustomization), { shouldValidate: false });
+      form.setValue("service", sourceBooking.service);
+      if (sourceBooking.address) {
+        form.setValue("address", sourceBooking.address);
+        form.setValue("addressPreference", "new");
+      }
+      form.setValue("notes", sourceBooking.notes ?? "");
+      if (sourceBooking.time) {
+        form.setValue("time", sourceBooking.time);
+      }
+
+      const parsedDate = new Date(`${sourceBooking.date}T00:00:00`);
+      if (!Number.isNaN(parsedDate.getTime())) {
+        form.setValue("date", parsedDate);
+      }
+
+      if (sourceBooking.contact) {
+        // Convert contact to string before sanitizing
+        form.setValue("phone", Number(sanitizePhoneNumber(String(sourceBooking.contact))));
+      }
+    } catch (error) {
+      console.warn("Error setting form values:", error);
+    }
+
     setCardCustomizations((prev) => ({
       ...prev,
       [service.id]: rebookCustomization,
     }));
 
-    form.setValue("service", sourceBooking.service);
-    if (sourceBooking.address) {
-      form.setValue("address", sourceBooking.address);
-      form.setValue("addressPreference", "new");
-    }
-    form.setValue("notes", sourceBooking.notes ?? "");
-    if (sourceBooking.time) {
-      form.setValue("time", sourceBooking.time);
-    }
-
-    const parsedDate = new Date(`${sourceBooking.date}T00:00:00`);
-    if (!Number.isNaN(parsedDate.getTime())) {
-      form.setValue("date", parsedDate);
-    }
-
-    if (sourceBooking.contact) {
-      // Convert contact to string before sanitizing
-      form.setValue("phone", Number(sanitizePhoneNumber(String(sourceBooking.contact))));
-    }
-
     toast({
       title: "Details loaded",
       description: "Review the pre-filled booking and make any adjustments you need.",
     });
-  }, [bookingIdParam, prefilledBookingId, form, toast]);
+  }, [bookingIdParam, prefilledBookingId]);
 
   useEffect(() => {
     if (currentStep === "success") {
@@ -722,7 +831,11 @@ function BookingPageContent() {
         squareMeters: serviceCustomization.squareMeters,
         bedroom: serviceCustomization.bedroom,
         bathroom: serviceCustomization.bathroom,
-        extras: serviceCustomization.extras && serviceCustomization.extras.length > 0 ? serviceCustomization.extras : ["None"],
+        extras: serviceCustomization.extras && serviceCustomization.extras.length > 0
+          ? serviceCustomization.extras
+              .filter(extra => extra.quantity > 0)
+              .map(extra => extra.quantity > 1 ? `${extra.name} (${extra.quantity})` : extra.name)
+          : ["None"],
         isPartialCleaning: serviceCustomization.isPartialCleaning,
         excludedAreas: serviceCustomization.excludedAreas,
       },
@@ -742,8 +855,8 @@ function BookingPageContent() {
     if (service && customization) {
       setSelectedService(service);
       setServiceCustomization(customization);
-      form.setValue("service", serviceName, { shouldValidate: true });
-      form.setValue("customization", toFormCustomization(customization), { shouldValidate: true });
+      form.setValue("service", serviceName, { shouldValidate: false });
+      form.setValue("customization", toFormCustomization(customization), { shouldValidate: false });
       
       // Scroll to customer form after a short delay
       setTimeout(() => {
@@ -989,9 +1102,12 @@ function BookingPageContent() {
                   {serviceCustomization.extras &&
                     Array.isArray(serviceCustomization.extras) &&
                     serviceCustomization.extras.length > 0 &&
-                    !(serviceCustomization.extras.length === 1 && serviceCustomization.extras[0] === "None") && (
+                    serviceCustomization.extras.some(extra => extra.quantity > 0) && (
                       <div className={styles.summaryItem}>
-                        <strong>Extras:</strong> {serviceCustomization.extras.join(", ")}
+                        <strong>Extras:</strong> {serviceCustomization.extras
+                          .filter(extra => extra.quantity > 0)
+                          .map(extra => extra.quantity > 1 ? `${extra.name} (${extra.quantity})` : extra.name)
+                          .join(", ")}
                       </div>
                     )}
                   <div className={styles.summaryItem}>
@@ -1195,6 +1311,10 @@ function BookingPageContent() {
                       customization={getCardCustomization(service.id)}
                       onCustomizationChange={handleCustomizationChange}
                       industryId={selectedIndustryId}
+                      serviceCategory={allServiceCategories.find(cat => cat.name === service.name)}
+                      availableExtras={allExtras}
+                      availableVariables={allVariables}
+                      frequencyOptions={allFrequencyOptions}
                     />
                   ))}
                 </div>

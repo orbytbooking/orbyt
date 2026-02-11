@@ -32,13 +32,13 @@ const Footer = ({ data, branding }: { data?: any; branding?: any }) => {
           <div>
             <div className="flex items-center gap-3 mb-4">
               {branding?.logo && !branding.logo.startsWith('blob:') ? (
-                <img src={branding.logo} alt={branding.companyName || "Orbyt Cleaners"} className="h-16 w-16" />
+                <img src={branding.logo} alt={branding.companyName || "Cleaning Service"} className="h-16 w-16" />
               ) : (
                 <div className="h-16 w-16 bg-gray-200 rounded flex items-center justify-center">
                   <ImageIcon className="h-8 w-8 text-gray-400" />
                 </div>
               )}
-              <h3 className="text-2xl font-bold gradient-text">{branding?.companyName || "Orbyt Cleaners"}</h3>
+              <h3 className="text-2xl font-bold gradient-text">{branding?.companyName || "Cleaning Service"}</h3>
             </div>
             <p className="text-navy-foreground/80 mb-4">
               {data?.description || "Professional cleaning services you can trust. Experience the difference with our expert team."}
@@ -101,7 +101,7 @@ const Footer = ({ data, branding }: { data?: any; branding?: any }) => {
 
         <div className="flex flex-col md:flex-row justify-between items-center pt-8 border-t border-navy-foreground/20">
           <p className="text-navy-foreground/80 mb-4 md:mb-0">
-            {data?.copyright || "© 2024 Orbyt Cleaners. All rights reserved."}
+            {data?.copyright || `© 2024 ${branding?.companyName || "Cleaning Service"}. All rights reserved.`}
           </p>
           
           <div className="flex gap-4">

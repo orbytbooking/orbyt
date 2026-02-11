@@ -1056,14 +1056,6 @@ export default function CustomerProfilePage() {
                   <p className="text-muted-foreground mb-4">
                     Upload your first file to get started
                   </p>
-                  <Button 
-                    onClick={() => setIsUploadDialogOpen(true)}
-                    className="text-white"
-                    style={{ background: "linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)" }}
-                  >
-                    <Upload className="h-4 w-4 mr-2" />
-                    Upload File
-                  </Button>
                 </div>
               ) : (
                 <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-4">

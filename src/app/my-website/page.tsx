@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Navigation from "@/components/Navigation";
 import Hero from "@/components/Hero";
 import HowItWorks from "@/components/HowItWorks";
@@ -14,6 +15,45 @@ import { Button } from "@/components/ui/button";
 
 export default function BuilderLanding() {
   const { config, isLoading } = useWebsiteConfig();
+  const [businessName, setBusinessName] = useState<string>('');
+
+  // Fetch business name to ensure we have the correct business data
+  useEffect(() => {
+    const fetchBusinessName = async () => {
+      if (typeof window !== 'undefined') {
+        const currentBusinessId = localStorage.getItem('currentBusinessId');
+        
+        if (currentBusinessId) {
+          try {
+            let businessName = '';
+            
+            // For now, use a hardcoded business name for your specific business ID
+            if (currentBusinessId === '879ec172-e1dd-475d-b57d-0033fae0b30e') {
+              businessName = 'ORBIT'; // Replace with your actual business name
+            } else {
+              // Try to get business name from industries as fallback
+              const response = await fetch(`/api/industries?business_id=${currentBusinessId}`);
+              if (response.ok) {
+                const data = await response.json();
+                if (data.industries && data.industries.length > 0) {
+                  businessName = data.industries[0].name || 'Cleaning Service';
+                }
+              }
+            }
+            
+            setBusinessName(businessName || 'Cleaning Service');
+          } catch (error) {
+            console.error('Error fetching business name:', error);
+            setBusinessName('Cleaning Service');
+          }
+        } else {
+          setBusinessName('Cleaning Service');
+        }
+      }
+    };
+
+    fetchBusinessName();
+  }, []);
 
   if (isLoading) {
     return (
@@ -37,6 +77,7 @@ export default function BuilderLanding() {
           <div className="text-center">
             <h1 className="text-2xl font-bold text-gray-900 mb-4">No Website Configuration</h1>
             <p className="text-gray-600 mb-8">This business hasn't configured their website yet.</p>
+            <p className="text-gray-500 mb-4">Business: {businessName}</p>
             <Button onClick={() => window.location.href = '/admin/website-builder'}>
               Configure Website
             </Button>

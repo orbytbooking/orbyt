@@ -683,7 +683,7 @@ This coupon can be applied to any service booking. Simply enter the code at chec
 We look forward to serving you again soon!
 
 Warm regards,
-Orbyt Cleaners`);
+Our Cleaning Service`);
         break;
       case 'advertisement':
         setCampaignSubject('🌟 Discover Our Premium Cleaning Services');
@@ -708,7 +708,7 @@ Book your service today and experience the difference!
 Visit our website or call us to schedule.
 
 Thank you,
-Orbyt Cleaners`);
+Our Cleaning Service`);
         break;
       default:
         setCampaignSubject('');

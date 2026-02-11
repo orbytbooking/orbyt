@@ -36,16 +36,16 @@ export interface Section {
   section_items?: SectionItem[];
 }
 
-// Mock data to replace Supabase calls
-const mockConfig: LandingPageConfig = {
+// Default fallback data
+const defaultConfig: LandingPageConfig = {
   id: '1',
   primary_color: '#2563eb',
   secondary_color: '#1e40af',
   accent_color: '#00BCD4',
-  business_name: 'Orbyt Cleaners',
-  business_tagline: 'Professional Cleaning Services in Chicago',
+  business_name: 'Cleaning Service',
+  business_tagline: 'Professional Cleaning Services',
   phone: '(555) 123-4567',
-  email: 'info@orbytcleaners.com',
+  email: 'info@cleaningservice.com',
   address: '123 Clean St, Chicago, IL 60601',
   logo_url: '/logo.png'
 };
@@ -254,13 +254,101 @@ export const useLandingPageData = () => {
   return useQuery({
     queryKey: ['landing-page-data'],
     queryFn: async () => {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Get current business ID from localStorage
+      if (typeof window === 'undefined') {
+        return {
+          config: defaultConfig,
+          sections: mockSections
+        };
+      }
+
+      const currentBusinessId = localStorage.getItem('currentBusinessId');
       
-      return {
-        config: mockConfig,
-        sections: mockSections
-      };
+      if (!currentBusinessId) {
+        console.log('No business ID found, using default config');
+        return {
+          config: defaultConfig,
+          sections: mockSections
+        };
+      }
+
+      try {
+        // Fetch business data first to get the actual business name
+        let businessName = 'Cleaning Service';
+        
+        if (typeof window !== 'undefined') {
+          const currentBusinessId = localStorage.getItem('currentBusinessId');
+          
+          if (currentBusinessId) {
+            try {
+              // For your specific business ID, use hardcoded name
+              if (currentBusinessId === '879ec172-e1dd-475d-b57d-0033fae0b30e') {
+                businessName = 'YOUR_BUSINESS_NAME_HERE'; // Replace with your actual business name
+              } else {
+                // First try to get actual business name
+                const businessResponse = await fetch('/api/businesses');
+                if (businessResponse.ok) {
+                  const businessData = await businessResponse.json();
+                  if (businessData.success && businessData.data && businessData.data.length > 0) {
+                    // Find the current business
+                    const currentBusiness = businessData.data.find((biz: any) => biz.id === currentBusinessId);
+                    if (currentBusiness && currentBusiness.name) {
+                      businessName = currentBusiness.name;
+                    }
+                  }
+                }
+                
+                // If we still don't have business name, fall back to industry name
+                if (businessName === 'Cleaning Service') {
+                  const industriesResponse = await fetch(`/api/industries?business_id=${currentBusinessId}`);
+                  if (industriesResponse.ok) {
+                    const industriesData = await industriesResponse.json();
+                    if (industriesData.industries && industriesData.industries.length > 0) {
+                      // Get the first industry (prioritize cleaning-related industries)
+                      const cleaningIndustries = industriesData.industries.filter((ind: any) => 
+                        ind.name.toLowerCase().includes('cleaning') || 
+                        ind.name.toLowerCase().includes('home') ||
+                        ind.name.toLowerCase().includes('maid') ||
+                        ind.name.toLowerCase().includes('janitorial')
+                      );
+                      
+                      const targetIndustry = cleaningIndustries[0] || industriesData.industries[0];
+                      businessName = targetIndustry.name || 'Cleaning Service';
+                    }
+                  }
+                }
+              }
+            } catch (error) {
+              console.error('Error fetching business name:', error);
+            }
+          }
+        }
+
+        // Create config with the business name
+        const config: LandingPageConfig = {
+          id: '1',
+          primary_color: '#2563eb',
+          secondary_color: '#1e40af',
+          accent_color: '#00BCD4',
+          business_name: businessName,
+          business_tagline: 'Professional Cleaning Services',
+          phone: '(555) 123-4567',
+          email: 'info@cleaningservice.com',
+          address: '123 Clean St, Chicago, IL 60601',
+          logo_url: '/logo.png'
+        };
+
+        return {
+          config,
+          sections: mockSections
+        };
+      } catch (error) {
+        console.error('Error fetching landing page data:', error);
+        return {
+          config: defaultConfig,
+          sections: mockSections
+        };
+      }
     },
     staleTime: 1000 * 60 * 5, // Cache for 5 minutes
   });

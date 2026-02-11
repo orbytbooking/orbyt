@@ -42,7 +42,7 @@ const TermsAndConditions = () => {
                   1. Agreement to Terms
                 </h2>
                 <p className="text-muted-foreground leading-relaxed">
-                  Welcome to Orbyt Cleaners. By accessing our website and using our services, 
+                  Welcome to our cleaning service. By accessing our website and using our services, 
                   you agree to be bound by these Terms and Conditions. Please read them carefully. 
                   If you do not agree with any part of these terms, you may not use our services.
                 </p>
@@ -57,7 +57,7 @@ const TermsAndConditions = () => {
                   2. Services Provided
                 </h2>
                 <p className="text-muted-foreground leading-relaxed mb-4">
-                  Orbyt Cleaners provides professional cleaning services including but not limited to:
+                  Our cleaning service provides professional cleaning services including but not limited to:
                 </p>
                 <ul className="space-y-2 text-muted-foreground ml-6">
                   <li className="flex items-start gap-2">
@@ -190,7 +190,7 @@ const TermsAndConditions = () => {
                 <h2 className="text-2xl font-bold mb-4">6. Liability and Insurance</h2>
                 <div className="space-y-4 text-muted-foreground">
                   <p className="leading-relaxed">
-                    Orbyt Cleaners is fully insured and bonded. We take utmost care in providing 
+                    Our cleaning service is fully insured and bonded. We take utmost care in providing 
                     our services, but we are not liable for:
                   </p>
                   <ul className="space-y-2 ml-6">
@@ -237,7 +237,7 @@ const TermsAndConditions = () => {
                 <h2 className="text-2xl font-bold mb-4">8. Intellectual Property</h2>
                 <p className="text-muted-foreground leading-relaxed">
                   All content on this website, including text, graphics, logos, images, and software, 
-                  is the property of Orbyt Cleaners and is protected by copyright and trademark laws. 
+                  is the property of our cleaning service and is protected by copyright and trademark laws. 
                   You may not reproduce, distribute, or use any content without our express written permission.
                 </p>
               </section>
@@ -289,9 +289,9 @@ const TermsAndConditions = () => {
                   If you have any questions about these Terms and Conditions, please contact us:
                 </p>
                 <div className="bg-muted/50 rounded-lg p-6 space-y-2">
-                  <p className="font-medium text-foreground">Orbyt Cleaners</p>
+                  <p className="font-medium text-foreground">Our Cleaning Service</p>
                   <p className="text-muted-foreground">Phone: +1 234 567 890</p>
-                  <p className="text-muted-foreground">Email: info@orbytcleaners.com</p>
+                  <p className="text-muted-foreground">Email: info@cleaningservice.com</p>
                   <p className="text-muted-foreground">Address: Chicago, Illinois, USA</p>
                 </div>
               </section>
