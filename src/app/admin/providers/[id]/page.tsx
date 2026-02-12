@@ -495,6 +495,22 @@ export default function ProviderProfilePage() {
           </Link>
           <h2 className="text-xl font-semibold text-white">{provider.name}</h2>
         </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            className="border-cyan-500/30 text-cyan-300 hover:text-white hover:bg-cyan-500/20"
+            onClick={() => {
+              toast({
+                title: "Provider Portal Access",
+                description: `Accessing provider portal for ${provider.name}. Provider can log in at /provider/login`,
+              });
+              // In a real implementation, this could generate a magic link or open provider portal
+            }}
+          >
+            <UserCog className="h-4 w-4 mr-2" />
+            Provider Portal
+          </Button>
+        </div>
       </div>
 
       <Card>

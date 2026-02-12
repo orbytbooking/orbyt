@@ -61,7 +61,6 @@ export async function GET(request: NextRequest) {
       .from('provider_availability')
       .select('*')
       .eq('provider_id', provider.id)
-      .eq('business_id', provider.business_id) // CRITICAL: Filter by business ID
       .order('day_of_week', { ascending: true })
       .order('start_time', { ascending: true });
 
@@ -149,8 +148,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Convert date to day of week (0 = Sunday, 1 = Monday, etc.)
-    const bookingDate = new Date(date);
-    const dayOfWeek = bookingDate.getDay();
+    // Use UTC to avoid timezone issues
+    const bookingDate = new Date(date + 'T00:00:00Z');
+    const dayOfWeek = bookingDate.getUTCDay();
+    
+    console.log('🔍 API Date calculation:');
+    console.log(`  - Input date: ${date}`);
+    console.log(`  - UTC Date: ${bookingDate.toUTCString()}`);
+    console.log(`  - getUTCDay(): ${dayOfWeek} (0=Sunday, 6=Saturday)`);
 
     // Create availability slot in database
     const { data: newSlot, error: insertError } = await supabaseAdmin
@@ -171,11 +176,32 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       console.error('Error creating availability slot:', insertError);
+      console.error('Error details:', {
+        message: insertError.message,
+        details: insertError.details,
+        hint: insertError.hint,
+        code: insertError.code
+      });
       return NextResponse.json(
-        { error: 'Failed to create availability slot' },
+        { 
+          error: 'Failed to create availability slot',
+          details: insertError.message,
+          code: insertError.code
+        },
         { status: 500 }
       );
     }
+
+    // Sync availability update to admin dashboard
+    // Update provider's last_active_at to trigger admin refresh
+    await supabaseAdmin
+      .from('service_providers')
+      .update({
+        updated_at: new Date().toISOString(),
+        last_active_at: new Date().toISOString()
+      })
+      .eq('id', provider.id)
+      .eq('business_id', provider.business_id);
 
     return NextResponse.json(newSlot);
 
@@ -259,7 +285,7 @@ export async function DELETE(request: NextRequest) {
       .delete()
       .eq('id', slotId)
       .eq('provider_id', provider.id)
-      .eq('business_id', provider.business_id); // CRITICAL: Filter by business ID
+      .eq('business_id', provider.business_id);
 
     if (deleteError) {
       console.error('Error deleting availability slot:', deleteError);
@@ -268,6 +294,17 @@ export async function DELETE(request: NextRequest) {
         { status: 500 }
       );
     }
+
+    // Sync availability update to admin dashboard
+    // Update provider's last_active_at to trigger admin refresh
+    await supabaseAdmin
+      .from('service_providers')
+      .update({
+        updated_at: new Date().toISOString(),
+        last_active_at: new Date().toISOString()
+      })
+      .eq('id', provider.id)
+      .eq('business_id', provider.business_id);
 
     return NextResponse.json({ success: true });
 

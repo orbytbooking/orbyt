@@ -285,18 +285,34 @@ const ProvidersPage = () => {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>Service Providers</CardTitle>
-            <Button
-              className="relative overflow-hidden group text-white border-cyan-400/50 hover:border-cyan-400 transition-all duration-300"
-              variant="outline"
-              onClick={() => router.push("/admin/add-provider")}
-            >
-              <span className="absolute inset-0 w-0 bg-gradient-to-r from-cyan-400/20 to-cyan-300/20 group-hover:w-full transition-all duration-300 ease-in-out"></span>
-              <span className="relative z-10 flex items-center">
-                <Plus className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform" />
-                <span className="group-hover:translate-x-1 transition-transform">Add Provider</span>
-              </span>
-            </Button>
+            <div className="flex items-center gap-4">
+              <CardTitle>Service Providers</CardTitle>
+              <div className="text-sm text-muted-foreground">
+                Manage providers and access provider portal features
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                className="border-cyan-500/30 text-cyan-300 hover:text-white hover:bg-cyan-500/20"
+                onClick={() => window.open('/provider/login', '_blank')}
+                title="Open Provider Portal Login"
+              >
+                <UserCog className="h-4 w-4 mr-2" />
+                Provider Portal
+              </Button>
+              <Button
+                className="relative overflow-hidden group text-white border-cyan-400/50 hover:border-cyan-400 transition-all duration-300"
+                variant="outline"
+                onClick={() => router.push("/admin/add-provider")}
+              >
+                <span className="absolute inset-0 w-0 bg-gradient-to-r from-cyan-400/20 to-cyan-300/20 group-hover:w-full transition-all duration-300 ease-in-out"></span>
+                <span className="relative z-10 flex items-center">
+                  <Plus className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform" />
+                  <span className="group-hover:translate-x-1 transition-transform">Add Provider</span>
+                </span>
+              </Button>
+            </div>
           </div>
           <div className="flex items-center gap-2 mt-4">
             <div className="relative flex-1 max-w-sm">
@@ -388,6 +404,12 @@ const ProvidersPage = () => {
                         <DropdownMenuItem onClick={() => router.push(`/admin/providers/${provider.id}?tab=profile`)}>
                           Edit Provider
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => router.push(`/admin/providers/${provider.id}?tab=dashboard`)}>
+                          View Provider Dashboard
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => router.push(`/admin/providers/${provider.id}?tab=schedule`)}>
+                          Manage Schedule
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => {
                           toast({
                             title: "View Jobs",
@@ -395,6 +417,18 @@ const ProvidersPage = () => {
                           });
                         }}>
                           View Jobs
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => {
+                          // Open provider portal in new tab (if provider has login credentials)
+                          toast({
+                            title: "Provider Portal",
+                            description: `Access provider portal features for ${provider.name}`,
+                          });
+                          // In a real implementation, this would generate a login link or open provider portal
+                        }}>
+                          <UserCog className="h-4 w-4 mr-2" />
+                          Access Provider Portal
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem 

@@ -17,7 +17,9 @@ import {
   ChevronLeft,
   ChevronRight,
   UserPlus,
-  Plus
+  Plus,
+  UserCog,
+  LayoutDashboard
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -138,15 +140,17 @@ const Dashboard = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const { config } = useWebsiteConfig();
   const { currentBusiness } = useBusiness(); // Get current business
   const router = useRouter();
   const { toast } = useToast();
 
   // Fetch dashboard data from API
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async (showToast = false) => {
     try {
-      setLoading(true);
+      setIsRefreshing(true);
       setError(null);
       
       const response = await fetch('/api/admin/dashboard');
@@ -157,19 +161,53 @@ const Dashboard = () => {
       const result = await response.json();
       if (result.success) {
         setData(result.data);
+        setLastRefresh(new Date());
+        if (showToast) {
+          toast({
+            title: "Dashboard Updated",
+            description: "Synced with latest provider portal data",
+          });
+        }
       } else {
         throw new Error(result.error || 'Unknown error');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       console.error('Dashboard fetch error:', err);
+      if (showToast) {
+        toast({
+          title: "Refresh Failed",
+          description: "Could not sync with provider portal",
+          variant: "destructive",
+        });
+      }
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
   useEffect(() => {
     fetchDashboardData();
+    
+    // Set up auto-refresh every 30 seconds to sync with provider portal updates
+    // This ensures bookings, availability, and provider status changes from provider portal
+    // are reflected in the admin dashboard in near real-time
+    const refreshInterval = setInterval(() => {
+      fetchDashboardData(false); // Silent refresh
+    }, 30000); // Refresh every 30 seconds
+
+    return () => clearInterval(refreshInterval);
+  }, []);
+
+  // Listen for focus events to refresh when admin returns to tab
+  useEffect(() => {
+    const handleFocus = () => {
+      fetchDashboardData(false); // Silent refresh on focus
+    };
+    
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
   }, []);
 
   // Get all bookings for calendar (remove duplicates)
@@ -302,7 +340,7 @@ const Dashboard = () => {
       <div className="space-y-6">
         <div className="text-center py-8">
           <div className="text-red-600">Error: {error}</div>
-          <Button onClick={fetchDashboardData} className="mt-4">Retry</Button>
+          <Button onClick={() => fetchDashboardData(false)} className="mt-4">Retry</Button>
         </div>
       </div>
     );
@@ -332,6 +370,19 @@ const Dashboard = () => {
           </p>
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
+          <Button
+            onClick={() => fetchDashboardData(true)}
+            variant="outline"
+            className="border-cyan-500/30 text-cyan-300 hover:text-white hover:bg-cyan-500/20"
+            title="Refresh dashboard data (syncs with provider portal updates)"
+            disabled={isRefreshing}
+          >
+            <Clock className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Syncing...' : 'Refresh'}
+          </Button>
+          <div className="text-xs text-muted-foreground hidden md:block">
+            Last sync: {lastRefresh.toLocaleTimeString()}
+          </div>
           <Button
             onClick={() => router.push('/admin/add-booking')}
             className="text-white"
@@ -377,6 +428,71 @@ const Dashboard = () => {
           );
         })}
       </div>
+
+      {/* Provider Portal Quick Access */}
+      <Card className="glass-card border-cyan-500/20">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>Provider Portal</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
+                Quick access to provider portal features and management
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              className="border-cyan-500/30 text-cyan-300 hover:text-white hover:bg-cyan-500/20"
+              onClick={() => router.push('/admin/providers')}
+            >
+              <UserCog className="h-4 w-4 mr-2" />
+              Manage Providers
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-3">
+            <Button
+              variant="outline"
+              className="h-auto p-4 flex flex-col items-start border-cyan-500/20 hover:border-cyan-500/40 hover:bg-white/5 transition-all"
+              onClick={() => router.push('/admin/providers')}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <UserCog className="h-5 w-5 text-cyan-400" />
+                <span className="font-semibold text-white" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>All Providers</span>
+              </div>
+              <p className="text-xs text-muted-foreground text-left" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
+                View and manage all service providers
+              </p>
+            </Button>
+            <Button
+              variant="outline"
+              className="h-auto p-4 flex flex-col items-start border-cyan-500/20 hover:border-cyan-500/40 hover:bg-white/5 transition-all"
+              onClick={() => router.push('/admin/add-provider')}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <UserPlus className="h-5 w-5 text-cyan-400" />
+                <span className="font-semibold text-white" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Add Provider</span>
+              </div>
+              <p className="text-xs text-muted-foreground text-left" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
+                Invite a new provider to join your team
+              </p>
+            </Button>
+            <Button
+              variant="outline"
+              className="h-auto p-4 flex flex-col items-start border-cyan-500/20 hover:border-cyan-500/40 hover:bg-white/5 transition-all"
+              onClick={() => window.open('/provider/login', '_blank')}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <LayoutDashboard className="h-5 w-5 text-cyan-400" />
+                <span className="font-semibold text-white" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Provider Portal</span>
+              </div>
+              <p className="text-xs text-muted-foreground text-left" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
+                Access provider portal login page
+              </p>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Calendar and Recent Bookings Row */}
       <div className="grid gap-6 lg:grid-cols-3">
@@ -552,32 +668,52 @@ const Dashboard = () => {
         <CardContent>
           <div className="space-y-3">
             {data.availableProviders && data.availableProviders.length > 0 ? (
-              data.availableProviders.map((provider) => (
-                <div 
-                  key={provider.id}
-                  className="p-3 rounded-lg border border-cyan-500/20 hover:bg-white/5 transition-all cursor-pointer glass"
-                  role="button"
-                  title={`View ${provider.name} details`}
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex-1">
-                      <p className="font-semibold text-sm text-cyan-300" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{provider.name}</p>
+              <>
+                {data.availableProviders.map((provider) => (
+                  <div 
+                    key={provider.id}
+                    className="p-3 rounded-lg border border-cyan-500/20 hover:bg-white/5 hover:border-cyan-500/40 transition-all cursor-pointer glass"
+                    role="button"
+                    title={`View ${provider.name} details`}
+                    onClick={() => router.push(`/admin/providers/${provider.id}`)}
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1">
+                        <p className="font-semibold text-sm text-cyan-300 hover:text-cyan-200 transition-colors" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{provider.name}</p>
+                      </div>
+                      {getProviderStatusBadge(provider.availability_status)}
                     </div>
-                    {getProviderStatusBadge(provider.availability_status)}
-                  </div>
-                  <div className="flex items-center justify-between text-xs text-gray-400">
-                    <div className="flex items-center gap-1">
-                      <Calendar className="h-3 w-3" />
-                      <span style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
-                        {provider.assignment_count} {provider.assignment_count === 1 ? 'Booking' : 'Bookings'}
-                      </span>
+                    <div className="flex items-center justify-between text-xs text-gray-400">
+                      <div className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        <span style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
+                          {provider.assignment_count} {provider.assignment_count === 1 ? 'Booking' : 'Bookings'}
+                        </span>
+                      </div>
                     </div>
                   </div>
+                ))}
+                <div className="pt-2 border-t border-cyan-500/20">
+                  <Button
+                    variant="outline"
+                    className="w-full border-cyan-500/30 text-cyan-300 hover:text-white hover:bg-cyan-500/20 hover:border-cyan-500/50"
+                    onClick={() => router.push('/admin/providers')}
+                  >
+                    View All Providers
+                  </Button>
                 </div>
-              ))
+              </>
             ) : (
               <div className="text-center py-8">
-                <p className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>No available providers</p>
+                <p className="text-muted-foreground mb-4" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>No available providers</p>
+                <Button
+                  variant="outline"
+                  className="border-cyan-500/30 text-cyan-300 hover:text-white hover:bg-cyan-500/20"
+                  onClick={() => router.push('/admin/add-provider')}
+                >
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Add Provider
+                </Button>
               </div>
             )}
           </div>

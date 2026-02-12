@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { Eye, EyeOff, User, Lock, ArrowLeft } from "lucide-react";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseProviderClient } from "@/lib/supabaseProviderClient";
 
 export default function ProviderLoginPage() {
   const router = useRouter();
@@ -35,7 +35,7 @@ export default function ProviderLoginPage() {
     
     try {
       // Sign in with Supabase Auth
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await getSupabaseProviderClient().auth.signInWithPassword({
         email,
         password,
       });
@@ -70,12 +70,12 @@ export default function ProviderLoginPage() {
           variant: "destructive",
         });
         // Sign out the user
-        await supabase.auth.signOut();
+        await getSupabaseProviderClient().auth.signOut();
         return;
       }
 
       // Get provider details
-      const { data: providerData, error: providerError } = await supabase
+      const { data: providerData, error: providerError } = await getSupabaseProviderClient()
         .from('service_providers')
         .select(`
           *,
@@ -101,7 +101,7 @@ export default function ProviderLoginPage() {
           description: `Your provider account is currently ${providerData.status}. Please contact your administrator.`,
           variant: "destructive",
         });
-        await supabase.auth.signOut();
+        await getSupabaseProviderClient().auth.signOut();
         return;
       }
 
@@ -217,6 +217,16 @@ export default function ProviderLoginPage() {
               </p>
               <p className="text-xs text-gray-500">
                 You need an invitation to create a provider account.
+              </p>
+              <p className="text-xs text-gray-500 pt-2 border-t border-gray-200">
+                Business owner or admin?{' '}
+                <button
+                  type="button"
+                  onClick={() => router.push("/auth/login")}
+                  className="text-cyan-600 hover:underline font-medium"
+                >
+                  Sign in to your business account
+                </button>
               </p>
             </div>
           </form>

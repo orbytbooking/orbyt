@@ -30,6 +30,7 @@ import {
   AlertCircle,
   CheckCircle2
 } from "lucide-react";
+import { createAuthenticatedFetch } from '@/lib/auth-provider-client';
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -90,22 +91,41 @@ const ProviderProfile = () => {
   const [stripeAccountEmail, setStripeAccountEmail] = useState('');
   const [stripeAccountId, setStripeAccountId] = useState('');
   const [isProviderStripeConnectEnabled, setIsProviderStripeConnectEnabled] = useState(false);
+  const [providerName, setProviderName] = useState('');
+  const [email, setEmail] = useState('');
+  const [profileImage, setProfileImage] = useState('');
+  const { toast } = useToast();
 
-  // Load saved Stripe account info on component mount
+  // Load provider profile and Stripe account info from database
   useEffect(() => {
-    const savedStripeAccount = localStorage.getItem('providerStripeAccount');
-    if (savedStripeAccount) {
-      const { accountId, email, isConnected } = JSON.parse(savedStripeAccount);
-      setStripeAccountId(accountId || '');
-      setStripeAccountEmail(email || '');
-      setIsStripeConnected(!!isConnected);
+    const loadProviderProfile = async () => {
+      try {
+        setIsLoading(true);
+        const response = await createAuthenticatedFetch('/api/provider/profile');
+        
+        if (response.ok) {
+          const data = await response.json();
+          setProviderName(data.firstName || '');
+          setEmail(data.email || '');
+          setProfileImage(data.profileImageUrl || '');
+          setStripeAccountId(data.stripeAccountId || '');
+          setStripeAccountEmail(data.stripeAccountEmail || '');
+          setIsStripeConnected(data.stripeIsConnected || false);
+          setIsProviderStripeConnectEnabled(data.stripeConnectEnabled || false);
+        } else {
+          console.error('Failed to load provider profile');
+        }
+      } catch (error) {
+        console.error('Error loading provider profile:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (mounted) {
+      loadProviderProfile();
     }
-    
-    const savedProviderStripeEnabled = localStorage.getItem('providerStripeConnectEnabled');
-    if (savedProviderStripeEnabled) {
-      setIsProviderStripeConnectEnabled(savedProviderStripeEnabled === 'true');
-    }
-  }, []);
+  }, [mounted]);
 
   // Handle Stripe Connect button click
   const handleStripeConnect = async () => {
@@ -122,12 +142,15 @@ const ProviderProfile = () => {
         isConnected: true
       };
       
-      // Save to local storage
-      localStorage.setItem('providerStripeAccount', JSON.stringify({
-        accountId: mockStripeAccount.accountId,
-        email: mockStripeAccount.email,
-        isConnected: true
-      }));
+      // Save to database
+      await createAuthenticatedFetch('/api/provider/profile', {
+        method: 'PUT',
+        body: JSON.stringify({
+          stripeAccountId: mockStripeAccount.accountId,
+          stripeAccountEmail: mockStripeAccount.email,
+          stripeIsConnected: true
+        })
+      });
       
       // Update state
       setStripeAccountId(mockStripeAccount.accountId);
@@ -152,10 +175,19 @@ const ProviderProfile = () => {
   };
   
   // Handle disconnecting Stripe
-  const handleDisconnectStripe = () => {
-    // Clear saved Stripe account info
-    localStorage.removeItem('providerStripeAccount');
-    setStripeAccountId('');
+  const handleDisconnectStripe = async () => {
+    try {
+      // Clear Stripe account info from database
+      await createAuthenticatedFetch('/api/provider/profile', {
+        method: 'PUT',
+        body: JSON.stringify({
+          stripeAccountId: '',
+          stripeAccountEmail: '',
+          stripeIsConnected: false
+        })
+      });
+      
+      setStripeAccountId('');
     setStripeAccountEmail('');
     setIsStripeConnected(false);
     
@@ -164,40 +196,89 @@ const ProviderProfile = () => {
       description: 'Your Stripe account has been disconnected.',
       variant: 'default',
     });
+    } catch (error) {
+      console.error('Error disconnecting Stripe:', error);
+      toast({
+        title: 'Disconnection Failed',
+        description: 'There was an error disconnecting your Stripe account. Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
   
   // Handle provider stripe toggle
-  const handleProviderStripeToggle = (checked: boolean) => {
-    setIsProviderStripeConnectEnabled(checked);
-    localStorage.setItem('providerStripeConnectEnabled', String(checked));
-    
-    if (!checked) {
-      // If turning off, clear any saved provider stripe ID
-      setStripeAccountId('');
-      localStorage.removeItem('providerStripeAccount');
+  const handleProviderStripeToggle = async (checked: boolean) => {
+    try {
+      setIsProviderStripeConnectEnabled(checked);
+      
+      // Update database
+      await createAuthenticatedFetch('/api/provider/profile', {
+        method: 'PUT',
+        body: JSON.stringify({
+          stripeConnectEnabled: checked
+        })
+      });
+      
+      if (!checked) {
+        // If turning off, clear any saved provider stripe ID
+        setStripeAccountId('');
+        setStripeAccountEmail('');
+        setIsStripeConnected(false);
+        
+        // Also update database to clear Stripe info
+        await createAuthenticatedFetch('/api/provider/profile', {
+          method: 'PUT',
+          body: JSON.stringify({
+            stripeAccountId: '',
+            stripeAccountEmail: '',
+            stripeIsConnected: false
+          })
+        });
+      }
+    } catch (error) {
+      console.error('Error toggling Stripe Connect:', error);
+      toast({
+        title: 'Update Failed',
+        description: 'There was an error updating your Stripe settings. Please try again.',
+        variant: 'destructive',
+      });
     }
   };
   
   // Handle saving provider stripe account ID
-  const handleSaveStripeAccountId = () => {
+  const handleSaveStripeAccountId = async () => {
     if (!stripeAccountId.trim()) return;
     
-    // Save to local storage
-    localStorage.setItem('providerStripeAccount', JSON.stringify({
-      accountId: stripeAccountId,
-      email: '', // No email for manual entry
-      isConnected: true
-    }));
-    
-    toast({
-      title: 'Stripe Account ID Saved',
-      description: 'The Stripe account ID has been saved successfully.',
-      variant: 'default',
-    });
+    try {
+      // Save to database
+      await createAuthenticatedFetch('/api/provider/profile', {
+        method: 'PUT',
+        body: JSON.stringify({
+          stripeAccountId: stripeAccountId,
+          stripeAccountEmail: '', // No email for manual entry
+          stripeIsConnected: true
+        })
+      });
+      
+      // Update local state
+      setIsStripeConnected(true);
+      
+      toast({
+        title: 'Stripe Account ID Saved',
+        description: 'The Stripe account ID has been saved successfully.',
+        variant: 'default',
+      });
+    } catch (error) {
+      console.error('Error saving Stripe Account ID:', error);
+      toast({
+        title: 'Save Failed',
+        description: 'There was an error saving your Stripe Account ID. Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
-  const [providerName, setProviderName] = useState("John Smith");
   
   // Notification settings state
   const [notificationSettings, setNotificationSettings] = useState({
@@ -218,13 +299,11 @@ const ProviderProfile = () => {
       [key]: !prev[key]
     }));
   };
-  const [email, setEmail] = useState("provider@orbitbooking.com");
+  
   const [phone, setPhone] = useState("(555) 123-4567");
   const [location, setLocation] = useState("New York, NY");
   const [bio, setBio] = useState("Professional cleaning service provider. Specialized in residential and commercial cleaning.");
-  const [profileImage, setProfileImage] = useState<string | null>(null);
-  const { toast } = useToast();
-
+  
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -254,22 +333,38 @@ const ProviderProfile = () => {
     }
   };
 
-  useEffect(() => {
-    const name = localStorage.getItem("providerName");
-    const storedEmail = localStorage.getItem("providerEmail");
-    const storedImage = localStorage.getItem("providerProfileImage");
-    if (name) setProviderName(name);
-    if (storedEmail) setEmail(storedEmail);
-    if (storedImage) setProfileImage(storedImage);
-  }, []);
+  // Profile data is loaded from database in the loadProviderProfile function
+  // This effect is intentionally empty as data loading is handled by loadProviderProfile
 
-  const handleSaveProfile = () => {
-    localStorage.setItem("providerName", providerName);
-    toast({
-      title: "Profile Updated",
-      description: "Your profile has been successfully updated.",
-    });
-    setIsEditing(false);
+  const handleSaveProfile = async () => {
+    try {
+      setIsSaving(true);
+      
+      // Save to database
+      await createAuthenticatedFetch('/api/provider/profile', {
+        method: 'PUT',
+        body: JSON.stringify({
+          firstName: providerName,
+          profileImageUrl: profileImage
+        })
+      });
+      
+      toast({
+        title: "Profile Updated",
+        description: "Your profile has been successfully updated.",
+      });
+      
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Error saving profile:', error);
+      toast({
+        title: "Update Failed",
+        description: "There was an error updating your profile. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -288,7 +383,15 @@ const ProviderProfile = () => {
       reader.onloadend = () => {
         const base64String = reader.result as string;
         setProfileImage(base64String);
-        localStorage.setItem("providerProfileImage", base64String);
+        // Save to database
+        createAuthenticatedFetch('/api/provider/profile', {
+          method: 'PUT',
+          body: JSON.stringify({
+            profileImageUrl: base64String
+          })
+        }).catch(error => {
+          console.error('Error saving profile image:', error);
+        });
         toast({
           title: "Profile Image Updated",
           description: "Your profile image has been successfully updated.",

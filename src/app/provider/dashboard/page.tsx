@@ -16,8 +16,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
-import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseProviderClient } from "@/lib/supabaseProviderClient";
 
 type Booking = {
   id: string;
@@ -100,7 +99,6 @@ const getStatusBadge = (status: string) => {
 const ProviderDashboard = () => {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const { user } = useAuth();
   const { toast } = useToast();
 
   useEffect(() => {
@@ -109,7 +107,7 @@ const ProviderDashboard = () => {
         setLoading(true);
         
         // Get the current session token
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await getSupabaseProviderClient().auth.getSession();
         
         if (!session) {
           throw new Error('No active session');
@@ -140,7 +138,8 @@ const ProviderDashboard = () => {
     };
 
     fetchDashboardData();
-  }, [toast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (loading) {
     return (

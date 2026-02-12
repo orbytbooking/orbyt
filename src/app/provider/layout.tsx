@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseProviderClient } from "@/lib/supabaseProviderClient";
 import { Providers } from "@/app/providers";
 
 const navigation = [
@@ -43,16 +43,16 @@ export default function ProviderLayout({
 
   useEffect(() => {
     const checkAuth = async () => {
-      // Skip auth check for invite page
-      if (pathname === "/provider/invite") {
+      // Skip auth check for invite page and provider login page (use dedicated provider login only)
+      if (pathname === "/provider/invite" || pathname === "/provider/login") {
         return;
       }
 
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await getSupabaseProviderClient().auth.getSession();
         
         if (!session) {
-          router.push("/auth/login");
+          router.push("/provider/login");
           return;
         }
 
@@ -71,45 +71,45 @@ export default function ProviderLayout({
         }
       } catch (error) {
         console.error('Auth check error:', error);
-        router.push("/auth/login");
+        router.push("/provider/login");
       }
     };
 
     checkAuth();
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      // Skip auth redirect for invite page
-      if (pathname === "/provider/invite") {
+    const { data: { subscription } } = getSupabaseProviderClient().auth.onAuthStateChange((_event, session) => {
+      // Skip auth redirect for invite and login pages
+      if (pathname === "/provider/invite" || pathname === "/provider/login") {
         return;
       }
       
       if (!session) {
-        router.push("/auth/login");
+        router.push("/provider/login");
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [router]);
+  }, [router, pathname]);
 
   const handleLogout = async () => {
     try {
-      await supabase.auth.signOut();
+      await getSupabaseProviderClient().auth.signOut();
       toast({
         title: "Logged Out",
         description: "You have been successfully logged out.",
       });
       
-      router.push("/auth/login");
+      router.push("/provider/login");
     } catch (error) {
       console.error('Logout error:', error);
-      router.push("/auth/login");
+      router.push("/provider/login");
     }
   };
 
   return (
     <Providers>
-      {pathname === "/provider/invite" ? (
+      {pathname === "/provider/invite" || pathname === "/provider/login" ? (
         // For invite page, render without sidebar
         <div className="min-h-screen bg-background">
           {children}

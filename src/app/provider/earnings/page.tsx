@@ -20,7 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseProviderClient } from "@/lib/supabaseProviderClient";
 
 type Earning = {
   id: string;
@@ -86,7 +86,7 @@ const ProviderEarningsPage = () => {
         setLoading(true);
         
         // Get the current session token
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await getSupabaseProviderClient().auth.getSession();
         
         if (!session) {
           throw new Error('No active session');

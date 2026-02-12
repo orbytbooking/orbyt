@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +10,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { 
   Settings, 
@@ -23,9 +31,10 @@ import {
   Phone,
   Mail,
   Save,
-  Loader2
+  Loader2,
+  ExternalLink
 } from "lucide-react";
-import { supabase } from '@/lib/supabaseClient';
+import { getSupabaseProviderClient } from '@/lib/supabaseProviderClient';
 import { getProviderSession, handleAuthError, authenticatedFetch } from '@/lib/providerAuth';
 
 interface Industry {
@@ -81,6 +90,7 @@ interface ProviderSettings {
     advanceBookingDays: number;
     minimumNoticeHours: number;
     acceptEmergencyBookings: boolean;
+    timezone: string;
     workingHours: {
       [key: string]: { enabled: boolean; startTime: string; endTime: string };
     };
@@ -111,6 +121,13 @@ export default function ProviderSettingsPage() {
   const [frequencies, setFrequencies] = useState<Frequency[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   
+  // Auto-detect user's timezone
+  const [userTimezone, setUserTimezone] = useState<string>(
+    typeof window !== 'undefined' && 'Intl' in window 
+      ? Intl.DateTimeFormat().resolvedOptions().timeZone 
+      : 'Asia/Manila' // Default fallback
+  );
+  
   const [settings, setSettings] = useState<ProviderSettings>({
     notifications: {
       email: true,
@@ -124,12 +141,13 @@ export default function ProviderSettingsPage() {
       advanceBookingDays: 7,
       minimumNoticeHours: 2,
       acceptEmergencyBookings: false,
+      timezone: "Asia/Manila",
       workingHours: {
-        monday: { enabled: true, startTime: "09:00", endTime: "17:00" },
-        tuesday: { enabled: true, startTime: "09:00", endTime: "17:00" },
-        wednesday: { enabled: true, startTime: "09:00", endTime: "17:00" },
-        thursday: { enabled: true, startTime: "09:00", endTime: "17:00" },
-        friday: { enabled: true, startTime: "09:00", endTime: "17:00" },
+        monday: { enabled: false, startTime: "09:00", endTime: "17:00" },
+        tuesday: { enabled: false, startTime: "09:00", endTime: "17:00" },
+        wednesday: { enabled: false, startTime: "09:00", endTime: "17:00" },
+        thursday: { enabled: false, startTime: "09:00", endTime: "17:00" },
+        friday: { enabled: false, startTime: "09:00", endTime: "17:00" },
         saturday: { enabled: false, startTime: "09:00", endTime: "17:00" },
         sunday: { enabled: false, startTime: "09:00", endTime: "17:00" },
       },
@@ -200,8 +218,20 @@ export default function ProviderSettingsPage() {
               advanceBookingDays: data.preferences.advance_booking_days,
               minimumNoticeHours: data.preferences.minimum_booking_notice_hours,
               acceptEmergencyBookings: data.preferences.accepts_emergency_bookings,
+              workingHours: data.workingHours || prev.availability.workingHours
             }
           }));
+          console.log('Settings updated with workingHours:', data.workingHours);
+        } else if (data.workingHours) {
+          // No preferences but have working hours
+          setSettings(prev => ({
+            ...prev,
+            availability: {
+              ...prev.availability,
+              workingHours: data.workingHours
+            }
+          }));
+          console.log('Settings updated with workingHours only:', data.workingHours);
         }
       } else {
         console.error('Failed to fetch settings:', response.status);
@@ -268,22 +298,33 @@ export default function ProviderSettingsPage() {
       console.log('=== SAVING PROVIDER SETTINGS ===');
       
       // Save settings via API
+      console.log('🔍 Debug save settings:');
+      console.log('  - Settings to save:', JSON.stringify(settings, null, 2));
+      
       const response = await authenticatedFetch('/api/provider/settings', {
         method: 'PUT',
         body: JSON.stringify(settings)
       });
       
+      console.log('  - Response status:', response.status);
+      console.log('  - Response ok:', response.ok);
+      
       if (response.ok) {
         const data = await response.json();
         console.log('Settings saved successfully:', data);
         
+        // Generate availability slots from working hours
+        await generateAvailabilitySlots();
+        
         toast({
           title: "Settings Saved",
-          description: "Your preferences have been updated successfully.",
+          description: "Your preferences and availability have been updated successfully.",
         });
       } else {
+        const errorText = await response.text();
         console.error('Failed to save settings:', response.status);
-        throw new Error('Failed to save settings');
+        console.error('Error response:', errorText);
+        throw new Error(`Failed to save settings: ${response.status} - ${errorText}`);
       }
     } catch (error) {
       console.error('Error saving settings:', error);
@@ -294,6 +335,57 @@ export default function ProviderSettingsPage() {
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Generate availability slots from working hours settings
+  const generateAvailabilitySlots = async () => {
+    try {
+      console.log('=== GENERATING AVAILABILITY SLOTS FROM SETTINGS ===');
+      console.log('Working hours:', settings.availability.workingHours);
+      console.log('Working hours JSON:', JSON.stringify(settings.availability.workingHours, null, 2));
+      
+      const response = await authenticatedFetch('/api/provider/generate-slots-from-settings', {
+        method: 'POST',
+        body: JSON.stringify({
+          workingHours: settings.availability.workingHours
+        })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Availability slots generated successfully:', data);
+        
+        if (data.errors && data.errors.length > 0) {
+          console.warn('Some errors occurred:', data.errors);
+          toast({
+            title: "Availability Updated",
+            description: `Generated slots for ${data.results.length} days. Some errors occurred.`,
+            variant: "default",
+          });
+        } else {
+          toast({
+            title: "Availability Updated", 
+            description: `Generated availability slots for ${data.results.length} days.`,
+            variant: "default",
+          });
+        }
+      } else {
+        const errorText = await response.text();
+        console.error('Failed to generate availability slots:', response.status, errorText);
+        toast({
+          title: "Warning",
+          description: "Settings saved but failed to update availability slots.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error generating availability slots:', error);
+      toast({
+        title: "Warning", 
+        description: "Settings saved but failed to update availability slots.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -518,6 +610,27 @@ export default function ProviderSettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {/* Prominent link to full availability management */}
+              <Card className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold text-blue-900 dark:text-blue-100">Manage Your Calendar</h3>
+                      <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                        Add, edit, and remove specific time slots in your availability calendar
+                      </p>
+                    </div>
+                    <Link href="/provider/availability">
+                      <Button className="bg-blue-600 hover:bg-blue-700 text-white">
+                        <Calendar className="h-4 w-4 mr-2" />
+                        Manage Calendar
+                        <ExternalLink className="h-4 w-4 ml-2" />
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+
               <div className="space-y-4">
                 <h3 className="text-lg font-medium">Booking Preferences</h3>
                 <div className="grid grid-cols-2 gap-4">
@@ -550,6 +663,40 @@ export default function ProviderSettingsPage() {
                     />
                   </div>
                 </div>
+                <div className="grid gap-4">
+                  <div>
+                    <Label htmlFor="timezone">Timezone</Label>
+                    <Select value={settings.availability.timezone || userTimezone} onValueChange={(value) =>
+                      setSettings(prev => ({
+                        ...prev,
+                        availability: { ...prev.availability, timezone: value }
+                      }))
+                    }>
+                      <SelectTrigger id="timezone">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Asia/Manila">Asia/Manila (GMT+8)</SelectItem>
+                        <SelectItem value="Asia/Tokyo">Asia/Tokyo (GMT+9)</SelectItem>
+                        <SelectItem value="Asia/Shanghai">Asia/Shanghai (GMT+8)</SelectItem>
+                        <SelectItem value="Asia/Singapore">Asia/Singapore (GMT+8)</SelectItem>
+                        <SelectItem value="Asia/Hong_Kong">Asia/Hong Kong (GMT+8)</SelectItem>
+                        <SelectItem value="Asia/Seoul">Asia/Seoul (GMT+9)</SelectItem>
+                        <SelectItem value="UTC">UTC (GMT+0)</SelectItem>
+                        <SelectItem value="America/New_York">America/New_York (GMT-5)</SelectItem>
+                        <SelectItem value="America/Los_Angeles">America/Los Angeles (GMT-8)</SelectItem>
+                        <SelectItem value="America/Chicago">America/Chicago (GMT-6)</SelectItem>
+                        <SelectItem value="Europe/London">Europe/London (GMT+0)</SelectItem>
+                        <SelectItem value="Europe/Paris">Europe/Paris (GMT+1)</SelectItem>
+                        <SelectItem value="Europe/Berlin">Europe/Berlin (GMT+1)</SelectItem>
+                        <SelectItem value="Australia/Sydney">Australia/Sydney (GMT+11)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Automatically detected: {userTimezone}
+                    </p>
+                  </div>
+                </div>
                 <div className="flex items-center justify-between">
                   <div>
                     <Label>Accept Emergency Bookings</Label>
@@ -575,18 +722,27 @@ export default function ProviderSettingsPage() {
                       <div className="flex items-center gap-3">
                         <Switch
                           checked={hours.enabled}
-                          onCheckedChange={(checked) =>
-                            setSettings(prev => ({
-                              ...prev,
-                              availability: {
-                                ...prev.availability,
-                                workingHours: {
-                                  ...prev.availability.workingHours,
-                                  [day]: { ...hours, enabled: checked }
+                          onCheckedChange={(checked) => {
+                            console.log(`🔍 Toggle ${day}: ${hours.enabled} -> ${checked}`);
+                            setSettings(prev => {
+                              const newWorkingHours = {
+                                ...prev.availability.workingHours,
+                                [day]: { 
+                                  ...prev.availability.workingHours[day], 
+                                  enabled: checked 
                                 }
-                              }
-                            }))
-                          }
+                              };
+                              console.log(`🔍 New working hours for ${day}:`, newWorkingHours[day]);
+                              console.log(`🔍 All working hours:`, newWorkingHours);
+                              return {
+                                ...prev,
+                                availability: {
+                                  ...prev.availability,
+                                  workingHours: newWorkingHours
+                                }
+                              };
+                            });
+                          }}
                         />
                         <Label className="capitalize">{day}</Label>
                       </div>
@@ -595,35 +751,51 @@ export default function ProviderSettingsPage() {
                           <Input
                             type="time"
                             value={hours.startTime}
-                            onChange={(e) =>
-                              setSettings(prev => ({
-                                ...prev,
-                                availability: {
-                                  ...prev.availability,
-                                  workingHours: {
-                                    ...prev.availability.workingHours,
-                                    [day]: { ...hours, startTime: e.target.value }
+                            onChange={(e) => {
+                              console.log(`🔍 Start time change for ${day}: ${hours.startTime} -> ${e.target.value}`);
+                              setSettings(prev => {
+                                const newWorkingHours = {
+                                  ...prev.availability.workingHours,
+                                  [day]: { 
+                                    ...prev.availability.workingHours[day], 
+                                    startTime: e.target.value 
                                   }
-                                }
-                              }))
-                            }
+                                };
+                                console.log(`🔍 Updated ${day} start time:`, newWorkingHours[day]);
+                                return {
+                                  ...prev,
+                                  availability: {
+                                    ...prev.availability,
+                                    workingHours: newWorkingHours
+                                  }
+                                };
+                              });
+                            }}
                           />
                           <span>to</span>
                           <Input
                             type="time"
                             value={hours.endTime}
-                            onChange={(e) =>
-                              setSettings(prev => ({
-                                ...prev,
-                                availability: {
-                                  ...prev.availability,
-                                  workingHours: {
-                                    ...prev.availability.workingHours,
-                                    [day]: { ...hours, endTime: e.target.value }
+                            onChange={(e) => {
+                              console.log(`🔍 End time change for ${day}: ${hours.endTime} -> ${e.target.value}`);
+                              setSettings(prev => {
+                                const newWorkingHours = {
+                                  ...prev.availability.workingHours,
+                                  [day]: { 
+                                    ...prev.availability.workingHours[day], 
+                                    endTime: e.target.value 
                                   }
-                                }
-                              }))
-                            }
+                                };
+                                console.log(`🔍 Updated ${day} end time:`, newWorkingHours[day]);
+                                return {
+                                  ...prev,
+                                  availability: {
+                                    ...prev.availability,
+                                    workingHours: newWorkingHours
+                                  }
+                                };
+                              });
+                            }}
                           />
                         </div>
                       )}

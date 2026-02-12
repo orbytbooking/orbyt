@@ -60,6 +60,18 @@ export default function LoginPage() {
       if (data.user) {
         // Get user role from metadata
         const userRole = data.user.user_metadata?.role || 'owner'; // Default to owner for backward compatibility
+
+        // Redirect providers to use their dedicated login page (they should not use CRM/admin login)
+        if (userRole === 'provider') {
+          await supabase.auth.signOut();
+          toast({
+            title: "Use Provider Portal",
+            description: "Please sign in using the Provider Login page.",
+            variant: "destructive",
+          });
+          setTimeout(() => router.push("/provider/login"), 500);
+          return;
+        }
         
         // Check if user has completed onboarding by looking for their business
         // For providers, they don't need a business to access their dashboard
@@ -126,7 +138,13 @@ export default function LoginPage() {
               <img src="/images/orbit.png" alt="Orbit Booking" className="h-20 w-20" />
             </div>
             <h1 className="text-3xl font-bold mb-2" style={{ color: '#0C2B4E' }}>Orbyt Booking</h1>
-            <p className="text-muted-foreground text-sm">Sign in to your account</p>
+            <p className="text-muted-foreground text-sm">Business owner / admin sign in</p>
+            <p className="text-xs text-muted-foreground mt-2">
+              Are you a service provider?{' '}
+              <Link href="/provider/login" className="text-primary hover:underline font-medium">
+                Sign in at Provider Portal →
+              </Link>
+            </p>
           </div>
 
           {/* Login Form */}
@@ -245,15 +263,25 @@ export default function LoginPage() {
           </Form>
         </div>
 
-        {/* Back to Website */}
-        <p className="text-center text-sm text-muted-foreground mt-6">
-          <Link 
-            href="/"
-            className="text-primary hover:underline font-medium"
-          >
-            ← Back to Website
-          </Link>
-        </p>
+        {/* Provider login link and Back to Website */}
+        <div className="text-center space-y-2 mt-6">
+          <p className="text-sm text-muted-foreground">
+            <Link 
+              href="/provider/login" 
+              className="text-primary hover:underline font-medium"
+            >
+              Provider? Sign in here
+            </Link>
+          </p>
+          <p className="text-sm text-muted-foreground">
+            <Link 
+              href="/"
+              className="text-primary hover:underline font-medium"
+            >
+              ← Back to Website
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   );

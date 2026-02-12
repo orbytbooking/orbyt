@@ -1,5 +1,5 @@
 // Shared authentication utilities for provider modules
-import { supabase } from './supabaseClient';
+import { getSupabaseProviderClient } from './supabaseProviderClient';
 
 export interface ProviderSession {
   session: any;
@@ -11,7 +11,7 @@ export interface ProviderSession {
  * Get authenticated provider session with proper error handling
  */
 export async function getProviderSession(): Promise<ProviderSession> {
-  const { data: { session }, error } = await supabase.auth.getSession();
+  const { data: { session }, error } = await getSupabaseProviderClient().auth.getSession();
   
   if (error) {
     throw new Error(`Session error: ${error.message}`);

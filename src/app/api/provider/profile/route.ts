@@ -92,6 +92,11 @@ export async function GET(request: NextRequest) {
       memberSince: provider.created_at,
       status: provider.status,
       providerType: provider.provider_type,
+      profileImageUrl: provider.profile_image_url,
+      stripeAccountId: provider.stripe_account_id,
+      stripeAccountEmail: provider.stripe_account_email,
+      stripeIsConnected: provider.stripe_is_connected || false,
+      stripeConnectEnabled: provider.stripe_connect_enabled || false,
       reviews: transformedReviews
     };
 
@@ -143,7 +148,18 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const { firstName, lastName, phone, address, specialization } = await request.json();
+    const { 
+      firstName, 
+      lastName, 
+      phone, 
+      address, 
+      specialization,
+      profileImageUrl,
+      stripeAccountId,
+      stripeAccountEmail,
+      stripeIsConnected,
+      stripeConnectEnabled
+    } = await request.json();
 
     // Update provider profile
     const { data: updatedProvider, error: updateError } = await supabaseAdmin
@@ -154,6 +170,11 @@ export async function PUT(request: NextRequest) {
         phone,
         address,
         specialization,
+        profile_image_url: profileImageUrl,
+        stripe_account_id: stripeAccountId,
+        stripe_account_email: stripeAccountEmail,
+        stripe_is_connected: stripeIsConnected,
+        stripe_connect_enabled: stripeConnectEnabled,
         updated_at: new Date().toISOString()
       })
       .eq('user_id', user.id)
