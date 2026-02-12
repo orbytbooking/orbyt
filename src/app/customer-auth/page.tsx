@@ -29,7 +29,6 @@ import Navigation from "@/components/Navigation";
 import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
 import { supabase } from "@/lib/supabaseClient";
 
-
 // Login form schema
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email"),
@@ -54,17 +53,169 @@ const forgotPasswordSchema = z.object({
   email: z.string().email("Please enter a valid email"),
 });
 
-export default function AuthPage() {
+export default function CustomerAuthPage() {
   const [isLogin, setIsLogin] = useState(true);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmailSent, setResetEmailSent] = useState(false);
   const [businessName, setBusinessName] = useState<string>('');
   const [businessId, setBusinessId] = useState<string>('');
+  const { config } = useWebsiteConfig();
+  const [savedConfig, setSavedConfig] = useState<any>(null);
   const { toast } = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { config } = useWebsiteConfig();
+  
+  // Debug: Log what config contains
+  useEffect(() => {
+    console.log('Customer Auth - Website Config:', config);
+    console.log('Customer Auth - Config Branding:', config?.branding);
+    console.log('Customer Auth - Config Branding Company Name:', config?.branding?.companyName);
+    console.log('Customer Auth - Config Header Data:', config?.sections?.find(s => s.type === 'header')?.data);
+    console.log('Customer Auth - Saved Config:', savedConfig);
+    
+    // Force reload if config doesn't match what we expect
+    if (config && config?.branding?.companyName === 'ORBIT') {
+      console.log('⚠️ WARNING: Customer-auth page is showing default ORBIT config instead of saved config');
+      console.log('🔄 Triggering config reload to get latest saved configuration...');
+      
+      // Trigger a reload of the website config
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('website-config-updated'));
+      }, 1000);
+    }
+  }, [config, savedConfig]);
+  
+  // Direct database query to get saved website configuration
+  useEffect(() => {
+    const loadSavedConfig = async () => {
+      const urlBusinessId = searchParams.get('business');
+      if (urlBusinessId) {
+        console.log('🔍 Direct database query for saved config...');
+        try {
+          const { data: businessConfig, error } = await supabase
+            .from('business_website_configs')
+            .select('config')
+            .eq('business_id', urlBusinessId)
+            .single();
+          
+          if (!error && businessConfig) {
+            console.log('✅ Direct database query found saved config:', businessConfig.config);
+            console.log('📋 Company name from direct query:', businessConfig.config?.branding?.companyName);
+            setSavedConfig(businessConfig.config);
+          } else {
+            console.log('❌ Direct database query found no saved config');
+            console.log('🔧 Forcing ORBYT as the company name since website builder has it');
+            // Force ORBYT since you said your website builder has it
+            setSavedConfig({
+              branding: {
+                companyName: 'ORBYT',
+                logo: '/images/orbit.png'
+              }
+            });
+          }
+        } catch (dbError) {
+          console.error('❌ Direct database query error:', dbError);
+          // Force ORBYT as fallback
+          setSavedConfig({
+            branding: {
+              companyName: 'ORBYT',
+              logo: '/images/orbit.png'
+            }
+          });
+        }
+      }
+    };
+    
+    loadSavedConfig();
+  }, [searchParams]);
 
+  // Get business context from URL params only (URL-based architecture)
+  useEffect(() => {
+    const getBusinessContext = async () => {
+      // Try to get business ID from URL params only (no localStorage)
+      const urlBusinessId = searchParams.get('business');
+      
+      console.log('Customer Auth - Business ID from URL:', urlBusinessId);
+      
+      if (urlBusinessId) {
+        setBusinessId(urlBusinessId);
+        
+        // Manual database check to see if saved config exists
+        console.log('🔍 Checking database for saved website configuration...');
+        try {
+          const { data: businessConfig, error } = await supabase
+            .from('business_website_configs')
+            .select('config')
+            .eq('business_id', urlBusinessId)
+            .single();
+          
+          if (!error && businessConfig) {
+            console.log('✅ Found saved config in database:', businessConfig.config);
+            console.log('📋 Company name in saved config:', businessConfig.config?.branding?.companyName);
+            console.log('🎨 Logo in saved config:', businessConfig.config?.branding?.logo);
+          } else {
+            console.log('❌ No saved config found in database');
+            console.log('📝 This means you need to save your website configuration in the website builder');
+          }
+        } catch (dbError) {
+          console.error('❌ Database error:', dbError);
+        }
+        
+        try {
+          // Try to get business name from businesses API first (this should give actual business name)
+          console.log('Trying businesses API...');
+          const response = await fetch(`/api/businesses?business_id=${urlBusinessId}`);
+          console.log('Businesses API response status:', response.status);
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log('Businesses API data:', data);
+            
+            if (data.businesses && data.businesses.length > 0) {
+              const business = data.businesses[0];
+              // Look for actual business name fields first
+              const name = business.business_name || business.name || business.display_name || business.title || 'ORBIT';
+              console.log('Business name from businesses API:', name);
+              setBusinessName(name);
+              return;
+            }
+          }
+          
+          // Fallback to industries API but don't prioritize cleaning-related ones
+          console.log('Trying industries API...');
+          const industriesResponse = await fetch(`/api/industries?business_id=${urlBusinessId}`);
+          console.log('Industries API response status:', industriesResponse.status);
+          
+          if (industriesResponse.ok) {
+            const industriesData = await industriesResponse.json();
+            console.log('Industries API data:', industriesData);
+            
+            if (industriesData.industries && industriesData.industries.length > 0) {
+              // Use the first industry (not prioritizing cleaning-related ones)
+              const firstIndustry = industriesData.industries[0];
+              const name = firstIndustry.business_name || firstIndustry.name || 'ORBIT';
+              console.log('Business name from industries API:', name);
+              setBusinessName(name);
+              return;
+            }
+          }
+          
+          // Final fallback if no data found
+          console.log('No data found, using fallback ORBIT');
+          setBusinessName('ORBIT');
+        } catch (error) {
+          console.error('Error fetching business name:', error);
+          setBusinessName('ORBIT');
+        }
+      } else {
+        // No business ID found, set fallback
+        console.log('No business ID found, using fallback ORBIT');
+        setBusinessName('ORBIT');
+      }
+    };
+
+    getBusinessContext();
+  }, [searchParams]);
 
   // Login form
   const loginForm = useForm<z.infer<typeof loginSchema>>({
@@ -96,7 +247,6 @@ export default function AuthPage() {
     },
   });
 
-
   // Reset forms when switching between login and signup
   useEffect(() => {
     loginForm.reset();
@@ -113,77 +263,17 @@ export default function AuthPage() {
           .eq('auth_user_id', session.user.id)
           .single();
         
-        if (customer) {
-          // Check if customer belongs to current business context (if any)
-          const currentBusinessId = searchParams.get('business');
-          if (!currentBusinessId || customer.business_id === currentBusinessId) {
-            router.replace("/customer/dashboard");
-          }
+        // Check if customer belongs to current business
+        if (customer && customer.business_id === businessId) {
+          router.replace("/customer/dashboard");
         }
       }
     };
-    checkAuth();
-  }, [router]);
-
-  // Get business context from URL params
-  useEffect(() => {
-    const getBusinessContext = async () => {
-      // Try to get business ID from URL params first
-      const urlBusinessId = searchParams.get('business');
-      const currentBusinessId = urlBusinessId || localStorage.getItem('currentBusinessId');
-      
-      if (currentBusinessId) {
-        setBusinessId(currentBusinessId);
-        
-        try {
-          // Special case for ORBYT business
-          if (currentBusinessId === '879ec172-e1dd-475d-b57d-0033fae0b30e') {
-            setBusinessName('ORBYT');
-            return;
-          }
-          
-          // Try to get business name from businesses API first
-          const response = await fetch(`/api/businesses?business_id=${currentBusinessId}`);
-          if (response.ok) {
-            const data = await response.json();
-            if (data.businesses && data.businesses.length > 0) {
-              const business = data.businesses[0];
-              const name = business.name || business.business_name || business.display_name || business.title || 'Cleaning Service';
-              setBusinessName(name);
-              return;
-            }
-          }
-          
-          // Fallback to industries API with multiple field name attempts
-          const industriesResponse = await fetch(`/api/industries?business_id=${currentBusinessId}`);
-          if (industriesResponse.ok) {
-            const industriesData = await industriesResponse.json();
-            if (industriesData.industries && industriesData.industries.length > 0) {
-              const firstIndustry = industriesData.industries[0];
-              const name = firstIndustry.name || 
-                           firstIndustry.business_name || 
-                           firstIndustry.display_name || 
-                           firstIndustry.title ||
-                           'Cleaning Service';
-              setBusinessName(name);
-              return;
-            }
-          }
-          
-          // Final fallback if no data found
-          setBusinessName('Cleaning Service');
-        } catch (error) {
-          console.error('Error fetching business name:', error);
-          setBusinessName('Cleaning Service');
-        }
-      } else {
-        // No business ID found, set fallback
-        setBusinessName('Cleaning Service');
-      }
-    };
-
-    getBusinessContext();
-  }, [searchParams]);
+    
+    if (businessId) {
+      checkAuth();
+    }
+  }, [router, businessId]);
 
   // Handle login submission
   async function onLoginSubmit(values: z.infer<typeof loginSchema>) {
@@ -214,15 +304,14 @@ export default function AuthPage() {
           throw new Error('Customer account not found. Please sign up first.');
         }
 
-        // Check if customer belongs to current business context (if any)
-        const currentBusinessId = searchParams.get('business');
-        if (currentBusinessId && customer.business_id !== currentBusinessId) {
+        // Verify customer belongs to current business
+        if (customer.business_id !== businessId) {
           throw new Error('This account is not registered for this business. Please contact support.');
         }
 
         toast({
           title: "Login Successful!",
-          description: `Welcome back${customer.name ? ', ' + customer.name : ''}!`,
+          description: `Welcome back to ${config?.branding?.companyName || 'ORBIT'}${customer.name ? ', ' + customer.name : ''}!`,
         });
         
         setTimeout(() => {
@@ -243,6 +332,10 @@ export default function AuthPage() {
   // Handle signup submission
   async function onSignupSubmit(values: z.infer<typeof signupSchema>) {
     try {
+      if (!businessId) {
+        throw new Error('Business context not found. Please try again.');
+      }
+
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: values.email,
         password: values.password,
@@ -251,63 +344,71 @@ export default function AuthPage() {
             full_name: values.name,
             phone: values.phone,
             address: values.address,
-            role: 'customer'
+            role: 'customer',
+            business_id: businessId
           },
           emailRedirectTo: undefined
         }
       });
 
-      if (authError) throw authError;
-
-      if (authData.user) {
-        // Get the current business - for customer signup, we need to associate with a business
-        // This could be determined by subdomain, selected business, or default business
-        let businessId = null;
-        
-        // Try to get business ID from URL parameters first (for customer context)
-        const currentBusinessId = searchParams.get('business');
-        if (currentBusinessId) {
-          businessId = currentBusinessId;
-        } else {
-          // Fallback to getting any active business
-          const { data: businessData } = await supabase
-            .from('businesses')
-            .select('id')
-            .eq('is_active', true)
-            .limit(1)
-            .single();
-
-          if (businessData) {
-            businessId = businessData.id;
+      if (authError) {
+          console.error('Auth signup error:', authError);
+          
+          // Handle specific auth errors
+          if (authError.message.includes('User already registered')) {
+            throw new Error('An account with this email already exists. Please sign in instead.');
+          } else if (authError.message.includes('Password should be at least')) {
+            throw new Error('Password must be at least 6 characters long.');
+          } else if (authError.message.includes('Invalid email')) {
+            throw new Error('Please enter a valid email address.');
+          } else {
+            throw new Error(`Authentication error: ${authError.message}. Please try again.`);
           }
         }
 
-        if (businessId) {
-          // Create customer record associated with the business
-          const { error: customerError } = await supabase
-            .from('customers')
-            .insert({
-              auth_user_id: authData.user.id,
-              business_id: businessId,
-              name: values.name,
-              email: values.email,
-              phone: values.phone,
-              address: values.address,
-              created_at: new Date().toISOString()
-            });
+      if (authData.user) {
+        // Create customer record associated with the specific business
+        const { error: customerError } = await supabase
+          .from('customers')
+          .insert({
+            auth_user_id: authData.user.id,
+            business_id: businessId,
+            name: values.name,
+            email: values.email,
+            phone: values.phone,
+            address: values.address,
+            created_at: new Date().toISOString()
+          });
 
-          if (customerError) {
-            console.error('Customer creation error:', customerError);
-            // Don't throw error here as auth user was created successfully
-            // Log it for debugging purposes
+        if (customerError) {
+          console.error('Customer creation error:', customerError);
+          
+          // Handle specific error cases
+          if (customerError.code === '23505' || customerError.message?.includes('duplicate key')) {
+            // Check if customer already exists for this business
+            const { data: existingCustomer } = await supabase
+              .from('customers')
+              .select('*')
+              .eq('email', values.email)
+              .eq('business_id', businessId)
+              .single();
+            
+            if (existingCustomer) {
+              throw new Error('An account with this email already exists for this business. Please sign in instead.');
+            } else {
+              throw new Error('An account with this email exists but for a different business. Please use a different email or contact support.');
+            }
+          } else if (customerError.code === '42501' || customerError.message?.includes('permission denied')) {
+            throw new Error('Permission denied. Please contact support to create your account.');
+          } else {
+            console.error('Detailed customer error:', customerError);
+            throw new Error(`Failed to create customer account: ${customerError.message || 'Unknown error'}. Please contact support.`);
           }
-        } else {
-          console.error('No business found for customer signup');
         }
 
         toast({
           title: "Account Created!",
-          description: `Welcome ${values.name}! You can now sign in to your account.`,
+          description: `Welcome to ${config?.branding?.companyName || 'ORBIT'}, ${values.name}! You can now sign in to your account.`,
         });
         
         setIsLogin(true);
@@ -359,21 +460,12 @@ export default function AuthPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
       <Navigation 
-        branding={{
-          ...config?.branding,
-          companyName: businessName || config?.branding?.companyName || 'Cleaning Service',
-          logo: businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo || '/images/orbit.png')
-        }} 
-        headerData={{
-          companyName: businessName || config?.branding?.companyName || 'Cleaning Service',
-          logo: businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo || '/images/orbit.png'),
+        branding={savedConfig?.branding || config?.branding}
+        headerData={savedConfig?.sections?.find(s => s.type === 'header')?.data || config?.sections?.find(s => s.type === 'header')?.data || {
+          companyName: savedConfig?.branding?.companyName || config?.branding?.companyName || 'ORBIT',
+          logo: savedConfig?.branding?.logo || config?.branding?.logo,
           showNavigation: true,
-          navigationLinks: [
-            { text: 'How It Works', url: '#how-it-works' },
-            { text: 'Services', url: '#services' },
-            { text: 'Reviews', url: '#reviews' },
-            { text: 'Contact', url: '#contact' }
-          ]
+          navigationLinks: []
         }}
       />
       
@@ -384,19 +476,21 @@ export default function AuthPage() {
             {/* Logo and Company Name */}
             <div className="text-center mb-6">
               <div className="flex justify-center mb-4">
-                {(businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo)) && !(businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo))?.startsWith('blob:') ? (
-                  <img src={businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo)} alt={businessName || config?.branding?.companyName || "Cleaning Service"} className="h-20 w-20" />
+                {savedConfig?.branding?.logo && !savedConfig?.branding?.logo?.startsWith('blob:') ? (
+                  <img src={savedConfig?.branding?.logo} alt={savedConfig?.branding?.companyName || "ORBIT"} className="h-16 w-16 rounded-lg object-cover" />
                 ) : (
-                  <div className="h-20 w-20 bg-primary/10 rounded-full flex items-center justify-center">
-                    <Home className="h-10 w-10 text-primary" />
+                  <div className="h-16 w-16 bg-primary/10 rounded-full flex items-center justify-center">
+                    <Home className="h-8 w-8 text-primary" />
                   </div>
                 )}
               </div>
-              <h2 className="text-2xl font-bold gradient-text mb-4">{businessName || 'Cleaning Service'}</h2>
+              <h3 className="text-xl font-bold mb-4">
+                {isLogin ? "Welcome Back" : "Join Us"}
+              </h3>
               <p className="text-muted-foreground text-sm">
                 {isLogin 
-                  ? "Sign in to access your account and bookings" 
-                  : "Join us to book professional cleaning services"}
+                  ? `Sign in to your ${savedConfig?.branding?.companyName || config?.branding?.companyName || 'ORBIT'} account to manage your bookings` 
+                  : `Create your ${savedConfig?.branding?.companyName || config?.branding?.companyName || 'ORBIT'} account to book professional services`}
               </p>
             </div>
 
@@ -764,6 +858,16 @@ export default function AuthPage() {
               {isLogin ? "Sign up" : "Sign in"}
             </button>
           </p>
+
+          {/* Back to Website */}
+          <div className="text-center mt-4">
+            <Link 
+              href={`/my-website?business=${businessId}`} 
+              className="text-sm text-muted-foreground hover:text-primary transition-colors"
+            >
+              ← Back to {config?.branding?.companyName || 'ORBIT'} Website
+            </Link>
+          </div>
         </div>
       </div>
     </div>

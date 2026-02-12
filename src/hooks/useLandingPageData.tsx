@@ -281,40 +281,34 @@ export const useLandingPageData = () => {
           
           if (currentBusinessId) {
             try {
-              // For your specific business ID, use hardcoded name
-              if (currentBusinessId === '879ec172-e1dd-475d-b57d-0033fae0b30e') {
-                businessName = 'YOUR_BUSINESS_NAME_HERE'; // Replace with your actual business name
-              } else {
-                // First try to get actual business name
-                const businessResponse = await fetch('/api/businesses');
-                if (businessResponse.ok) {
-                  const businessData = await businessResponse.json();
-                  if (businessData.success && businessData.data && businessData.data.length > 0) {
-                    // Find the current business
-                    const currentBusiness = businessData.data.find((biz: any) => biz.id === currentBusinessId);
-                    if (currentBusiness && currentBusiness.name) {
-                      businessName = currentBusiness.name;
-                    }
+              // Try to get actual business name from database
+              const businessResponse = await fetch(`/api/businesses?business_id=${currentBusinessId}`);
+              if (businessResponse.ok) {
+                const businessData = await businessResponse.json();
+                if (businessData.businesses && businessData.businesses.length > 0) {
+                  const currentBusiness = businessData.businesses.find((biz: any) => biz.id === currentBusinessId);
+                  if (currentBusiness && currentBusiness.name) {
+                    businessName = currentBusiness.name;
                   }
                 }
+              }
                 
-                // If we still don't have business name, fall back to industry name
-                if (businessName === 'Cleaning Service') {
-                  const industriesResponse = await fetch(`/api/industries?business_id=${currentBusinessId}`);
-                  if (industriesResponse.ok) {
-                    const industriesData = await industriesResponse.json();
-                    if (industriesData.industries && industriesData.industries.length > 0) {
-                      // Get the first industry (prioritize cleaning-related industries)
-                      const cleaningIndustries = industriesData.industries.filter((ind: any) => 
-                        ind.name.toLowerCase().includes('cleaning') || 
-                        ind.name.toLowerCase().includes('home') ||
-                        ind.name.toLowerCase().includes('maid') ||
-                        ind.name.toLowerCase().includes('janitorial')
-                      );
-                      
-                      const targetIndustry = cleaningIndustries[0] || industriesData.industries[0];
-                      businessName = targetIndustry.name || 'Cleaning Service';
-                    }
+              // If we still don't have business name, fall back to industry name
+              if (businessName === 'Cleaning Service') {
+                const industriesResponse = await fetch(`/api/industries?business_id=${currentBusinessId}`);
+                if (industriesResponse.ok) {
+                  const industriesData = await industriesResponse.json();
+                  if (industriesData.industries && industriesData.industries.length > 0) {
+                    // Get the first industry (prioritize cleaning-related industries)
+                    const cleaningIndustries = industriesData.industries.filter((ind: any) => 
+                      ind.name.toLowerCase().includes('cleaning') || 
+                      ind.name.toLowerCase().includes('home') ||
+                      ind.name.toLowerCase().includes('maid') ||
+                      ind.name.toLowerCase().includes('janitorial')
+                    );
+                    
+                    const targetIndustry = cleaningIndustries[0] || industriesData.industries[0];
+                    businessName = targetIndustry.name || 'Cleaning Service';
                   }
                 }
               }

@@ -103,7 +103,7 @@ const defaultSections: WebsiteSection[] = [
     type: 'how-it-works',
     visible: true,
     data: {
-      title: 'How It Works?',
+      title: 'How It Works',
       steps: [
         { title: 'Book Appointment', description: 'Use our simple platform to book an appointment with verified top providers.', image: '/images/book-appointment.jpg' },
         { title: 'Get Confirmation', description: 'You will receive a confirmation from us when your appointment is confirmed.', image: '/images/get-confirmation.jpg' },
@@ -270,8 +270,20 @@ export default function WebsiteBuilderPage() {
         s.id === sectionId ? { ...s, data: { ...s.data, ...updates } } : s
       ),
     };
+
+    // If updating header logo, also update global branding for real-time sync
+    if (sectionId === 'header' && updates.logo !== undefined) {
+      newConfig.branding = {
+        ...newConfig.branding,
+        logo: updates.logo
+      };
+    }
+
     setWebsiteConfig(newConfig);
     addToHistory(newConfig);
+    
+    // Save to database for real-time updates
+    updateConfig(newConfig);
   };
 
   // Toggle section visibility
@@ -584,7 +596,14 @@ export default function WebsiteBuilderPage() {
                       ? 'border-primary bg-primary/5'
                       : 'hover:border-primary/50'
                   }`}
-                  onClick={() => setSelectedSection(section.id)}
+                  onClick={() => {
+                  setSelectedSection(section.id);
+                  // Jump directly to section without smooth scrolling
+                  const sectionElement = document.getElementById(section.type === 'how-it-works' ? 'how-it-works' : section.type);
+                  if (sectionElement) {
+                    sectionElement.scrollIntoView({ behavior: 'auto', block: 'start' });
+                  }
+                }}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-medium capitalize">{section.type.replace('-', ' ')}</span>
@@ -692,28 +711,32 @@ export default function WebsiteBuilderPage() {
                     }}
                   >
                     {section.type === 'header' && (
-                      <Navigation branding={websiteConfig.branding} inline={true} />
+                      <div id="header">
+                        <Navigation branding={websiteConfig.branding} headerData={section.data} inline={true} />
+                      </div>
                     )}
                     {section.type === 'hero' && (
-                      <Hero data={section.data} branding={websiteConfig.branding} />
+                      <div id="hero"><Hero data={section.data} branding={websiteConfig.branding} /></div>
                     )}
                     {section.type === 'how-it-works' && (
-                      <HowItWorks data={section.data} />
+                      <div id="how-it-works"><HowItWorks data={section.data} /></div>
                     )}
                     {section.type === 'services' && (
-                      <ServicesSection data={section.data} />
+                      <div id="services"><ServicesSection data={section.data} /></div>
                     )}
                     {section.type === 'reviews' && (
-                      <Reviews data={section.data} />
+                      <div id="reviews"><Reviews data={section.data} /></div>
                     )}
                     {section.type === 'faqs' && (
-                      <FAQs data={section.data} />
+                      <div id="faqs"><FAQs data={section.data} /></div>
                     )}
                     {section.type === 'contact' && (
-                      <Contact data={section.data} />
+                      <div id="contact"><Contact data={section.data} /></div>
                     )}
                     {section.type === 'footer' && (
-                      <Footer data={section.data} branding={websiteConfig.branding} />
+                      <div id="footer">
+                        <Footer data={section.data} branding={websiteConfig.branding} headerData={websiteConfig.sections.find(s => s.type === 'header')?.data} />
+                      </div>
                     )}
                     {isSelected && (
                       <div className="absolute top-2 left-2 bg-primary text-white px-3 py-1.5 rounded-md text-xs font-semibold z-50 shadow-lg pointer-events-none">
@@ -758,6 +781,16 @@ export default function WebsiteBuilderPage() {
                           <Input
                             value={selectedSectionData.data.companyName || ''}
                             onChange={(e) => updateSection(selectedSection, { companyName: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>Header Logo</Label>
+                          <ImageUpload
+                            onImageUpload={(url) => updateSection(selectedSection, { logo: url })}
+                            onImageDelete={() => updateSection(selectedSection, { logo: '' })}
+                            currentImage={selectedSectionData.data.logo}
+                            type="logo"
+                            maxSize={2}
                           />
                         </div>
                         <div>
@@ -1302,44 +1335,6 @@ export default function WebsiteBuilderPage() {
                       }}
                     />
                   </div>
-                </div>
-                <div>
-                  <Label>Company Name</Label>
-                  <Input
-                    value={websiteConfig.branding.companyName}
-                    onChange={(e) => {
-                      const newConfig = {
-                        ...websiteConfig,
-                        branding: { ...websiteConfig.branding, companyName: e.target.value },
-                      };
-                      setWebsiteConfig(newConfig);
-                      addToHistory(newConfig);
-                    }}
-                  />
-                </div>
-                <div>
-                  <Label>Logo</Label>
-                  <ImageUpload
-                    onImageUpload={(url) => {
-                      const newConfig = {
-                        ...websiteConfig,
-                        branding: { ...websiteConfig.branding, logo: url },
-                      };
-                      setWebsiteConfig(newConfig);
-                      addToHistory(newConfig);
-                    }}
-                    onImageDelete={() => {
-                      const newConfig = {
-                        ...websiteConfig,
-                        branding: { ...websiteConfig.branding, logo: '' },
-                      };
-                      setWebsiteConfig(newConfig);
-                      addToHistory(newConfig);
-                    }}
-                    currentImage={websiteConfig.branding.logo}
-                    type="logo"
-                    maxSize={2}
-                  />
                 </div>
               </TabsContent>
 

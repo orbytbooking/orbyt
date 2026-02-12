@@ -19,7 +19,7 @@ export type CustomerAccount = {
   };
 };
 
-export const useCustomerAccount = () => {
+export const useCustomerAccount = (requireAuth: boolean = true) => {
   const router = useRouter();
   const [account, setAccount] = useState<CustomerAccount | null>(null);
   const [accountLoading, setAccountLoading] = useState(true);
@@ -30,11 +30,17 @@ export const useCustomerAccount = () => {
         const { data: { session } } = await supabase.auth.getSession();
         
         if (!session?.user) {
-          router.replace("/login");
+          if (requireAuth) {
+            router.replace("/login");
+          } else {
+            // Don't redirect if auth is not required, just set account to null
+            setAccount(null);
+          }
           setAccountLoading(false);
           return;
         }
 
+        // Only try to fetch customer data if we have a session
         const { data: customer, error } = await supabase
           .from('customers')
           .select('id, name, email, phone, address, avatar, email_notifications, sms_notifications, push_notifications, businesses(name)')
@@ -42,9 +48,15 @@ export const useCustomerAccount = () => {
           .single();
 
         if (error || !customer) {
-          console.error('Error loading customer account:', error);
-          await supabase.auth.signOut();
-          router.replace("/login");
+          // Only log error if we expect to find customer data (when user is logged in)
+          if (requireAuth) {
+            console.error('Error loading customer account:', error);
+            await supabase.auth.signOut();
+            router.replace("/login");
+          } else {
+            // For booking page, user might not be a customer yet, so don't log error
+            setAccount(null);
+          }
           setAccountLoading(false);
           return;
         }
@@ -65,7 +77,12 @@ export const useCustomerAccount = () => {
         });
       } catch (error) {
         console.error('Error in loadCustomerAccount:', error);
-        router.replace("/login");
+        if (requireAuth) {
+          router.replace("/login");
+        } else {
+          // Don't redirect if auth is not required, just set account to null
+          setAccount(null);
+        }
       } finally {
         setAccountLoading(false);
       }
@@ -76,7 +93,9 @@ export const useCustomerAccount = () => {
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT' || !session) {
         setAccount(null);
-        router.replace("/login");
+        if (requireAuth) {
+          router.replace("/login");
+        }
       } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         loadCustomerAccount();
       }
@@ -85,7 +104,7 @@ export const useCustomerAccount = () => {
     return () => {
       authListener.subscription.unsubscribe();
     };
-  }, [router]);
+  }, [router, requireAuth]);
 
   const updateAccount = useCallback(async (updates: Partial<CustomerAccount>) => {
     if (!account) return;

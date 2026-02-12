@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -23,6 +24,9 @@ import { useCustomerAccount } from "@/hooks/useCustomerAccount";
 import { CustomerSidebar } from "@/components/customer/CustomerSidebar";
 
 const CustomerDashboard = () => {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const businessId = searchParams.get('business');
   const { bookings, loading: bookingsLoading } = useCustomerBookings();
   const { customerName, customerEmail, customerAccount, accountLoading, handleLogout } = useCustomerAccount();
   const [calendarMonth, setCalendarMonth] = useState(() => {
@@ -168,7 +172,7 @@ const CustomerDashboard = () => {
                   </p>
                   <div className="mt-6 flex flex-wrap gap-3">
                     <Button size="lg" asChild>
-                      <Link href="/book-now">
+                      <Link href={`/book-now${businessId ? `?business=${businessId}` : ''}`}>
                         Book a Service
                       </Link>
                     </Button>

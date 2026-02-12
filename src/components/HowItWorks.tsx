@@ -34,7 +34,7 @@ interface HowItWorksProps {
 
 export default function HowItWorks({ data }: HowItWorksProps) {
   const steps = data?.steps || defaultSteps;
-  const title = data?.title || 'How It Works?';
+  const title = data?.title || 'How It Works';
   return (
     <section id="how-it-works" className="py-16 bg-gradient-to-b from-white to-gray-50">
       <div className="absolute top-0 left-1/4 w-64 h-64 bg-primary/5 rounded-full blur-3xl" />
@@ -46,7 +46,7 @@ export default function HowItWorks({ data }: HowItWorksProps) {
             <span className="text-primary font-semibold text-sm">SIMPLE PROCESS</span>
           </div>
           <h2 className="text-4xl md:text-5xl font-bold mb-4">
-            {title.includes('?') ? title : `${title}?`}
+            {title}
           </h2>
         </div>
         

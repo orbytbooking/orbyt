@@ -43,13 +43,20 @@ const Hero = ({
   const router = useRouter();
   const { user, isCustomer } = useAuth();
 
+  // Get business context for booking form
+  const getBookingUrl = () => {
+    if (typeof window !== 'undefined') {
+      const currentBusinessId = localStorage.getItem('currentBusinessId');
+      if (currentBusinessId) {
+        return `/book-now?business=${currentBusinessId}`;
+      }
+    }
+    return '/book-now';
+  };
+
   const handleBookNowClick = (e: React.MouseEvent) => {
     e.preventDefault();
-    if (user && isCustomer) {
-      router.push("/customer/dashboard");
-    } else {
-      router.push("/login");
-    }
+    router.push(getBookingUrl());
   };
   return (
     <section 
