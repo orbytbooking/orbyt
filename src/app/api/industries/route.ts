@@ -1,15 +1,20 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 
-// Create Supabase client with service role to bypass RLS
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://aezwtsnvttquqkzjhoak.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFlend0c252dHRxdXFrempob2FrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NzYxNzcwMiwiZXhwIjoyMDgzMTkzNzAyfQ.MW8hx4BcMKDG3-fxNcIrmcbdu2xIfYjIxIunqPmN3D0';
+function createSupabaseServiceClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  if (!supabaseUrl) throw new Error('NEXT_PUBLIC_SUPABASE_URL is not set');
+  if (!supabaseServiceKey) throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set');
+
+  return createClient(supabaseUrl, supabaseServiceKey);
+}
 
 // GET - Fetch all industries for a business
 export async function GET(request: NextRequest) {
   try {
+    const supabase = createSupabaseServiceClient();
     const { searchParams } = new URL(request.url);
     const businessId = searchParams.get('business_id');
 
@@ -42,6 +47,7 @@ export async function GET(request: NextRequest) {
 // POST - Add a new industry
 export async function POST(request: NextRequest) {
   try {
+    const supabase = createSupabaseServiceClient();
     const body = await request.json();
     const { name, description, business_id, is_custom = false } = body;
 
@@ -84,6 +90,7 @@ export async function POST(request: NextRequest) {
 // DELETE - Remove an industry
 export async function DELETE(request: NextRequest) {
   try {
+    const supabase = createSupabaseServiceClient();
     const { searchParams } = new URL(request.url);
     const industryId = searchParams.get('id');
 

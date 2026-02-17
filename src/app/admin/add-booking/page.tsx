@@ -24,6 +24,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { Plus, Minus, Search, X, User, Shirt, Sofa, Droplets, Wind, Trash2, Flower2, Flame, Warehouse, Paintbrush, CreditCard } from "lucide-react";
 import Image from "next/image";
 import { useBusiness } from "@/contexts/BusinessContext";
+import { getTodayLocalDate, formatDateLocal } from "@/lib/date-utils";
 
 type Extra = {
   id: string;
@@ -196,6 +197,10 @@ function AddBookingPage() {
   const [providerWageType, setProviderWageType] = useState<'percentage' | 'fixed' | 'hourly'>('hourly');
   const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>([]);
   const [isFirstAppointment, setIsFirstAppointment] = useState(true);
+  const [availableTimeSlots, setAvailableTimeSlots] = useState<string[]>([]);
+  const [loadingTimeSlots, setLoadingTimeSlots] = useState(false);
+  const [filteredProvidersByDate, setFilteredProvidersByDate] = useState<Provider[]>([]);
+  const [loadingProviders, setLoadingProviders] = useState(false);
 
   // Load frequencies from API
   useEffect(() => {
@@ -1098,24 +1103,179 @@ const handleAddBooking = async (status: string = 'pending') => {
     });
   };
 
-  // Filter available providers based on selected date and time
+  // Filter providers based on selected date - only show providers with availability on that date
   useEffect(() => {
-    if (newBooking.selectedDate && newBooking.selectedTime) {
-      // Filter providers who are available
-      const available = allProviders.filter(provider => provider.available);
-      setAvailableProviders(available);
-      
-      // Auto-select first available provider
-      if (available.length > 0 && !selectedProvider) {
-        setSelectedProvider(available[0]);
-        setNewBooking(prev => ({ ...prev, serviceProvider: available[0].id }));
+    const filterProvidersByDate = async () => {
+      if (!newBooking.selectedDate || allProviders.length === 0) {
+        setFilteredProvidersByDate([]);
+        // Clear selected provider if date is cleared
+        if (!newBooking.selectedDate && selectedProvider) {
+          setSelectedProvider(null);
+          setNewBooking(prev => ({ ...prev, serviceProvider: '', selectedTime: '' }));
+          setAvailableTimeSlots([]);
+        }
+        return;
       }
-    } else {
-      setAvailableProviders([]);
-      setSelectedProvider(null);
-      setNewBooking(prev => ({ ...prev, serviceProvider: '' }));
-    }
-  }, [newBooking.selectedDate, newBooking.selectedTime]);
+
+      try {
+        setLoadingProviders(true);
+        const availableProvidersList: Provider[] = [];
+
+        console.log(`🔍 Filtering ${allProviders.length} providers for date: ${newBooking.selectedDate}`);
+
+        // Check each provider for availability on the selected date
+        for (const provider of allProviders) {
+          try {
+            const url = `/api/admin/providers/${provider.id}/available-slots?date=${newBooking.selectedDate}&businessId=${currentBusiness?.id || ''}`;
+            console.log(`  Checking provider ${provider.name} (${provider.id})...`);
+            
+            const response = await fetch(url);
+
+            if (response.ok) {
+              const data = await response.json();
+              console.log(`    Response: ${data.availableSlots?.length || 0} slots found`);
+              // If provider has any available slots on this date, include them
+              if (data.availableSlots && data.availableSlots.length > 0) {
+                console.log(`    ✅ Provider ${provider.name} is available`);
+                availableProvidersList.push(provider);
+              } else {
+                console.log(`    ❌ Provider ${provider.name} has no available slots`);
+              }
+            } else {
+              const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+              console.error(`    ❌ Failed to check availability for ${provider.name}:`, response.status, errorData);
+            }
+          } catch (error) {
+            console.error(`    ❌ Error checking availability for provider ${provider.id}:`, error);
+          }
+        }
+
+        console.log(`📊 Found ${availableProvidersList.length} available providers out of ${allProviders.length} total`);
+        setFilteredProvidersByDate(availableProvidersList);
+
+        // If currently selected provider is not in the filtered list, clear selection
+        if (selectedProvider && !availableProvidersList.some(p => p.id === selectedProvider.id)) {
+          setSelectedProvider(null);
+          setNewBooking(prev => ({ ...prev, serviceProvider: '', selectedTime: '' }));
+          setAvailableTimeSlots([]);
+        }
+      } catch (error) {
+        console.error('Error filtering providers by date:', error);
+        setFilteredProvidersByDate([]);
+      } finally {
+        setLoadingProviders(false);
+      }
+    };
+
+    filterProvidersByDate();
+  }, [newBooking.selectedDate, allProviders, selectedProvider, currentBusiness?.id]);
+
+  // Fetch available time slots when provider and date are selected
+  useEffect(() => {
+    const fetchAvailableSlots = async () => {
+      if (!selectedProvider || !newBooking.selectedDate) {
+        setAvailableTimeSlots([]);
+        // Only clear time if provider is cleared, not if just date is missing
+        if (!selectedProvider) {
+          setNewBooking(prev => ({ ...prev, selectedTime: '' }));
+        }
+        return;
+      }
+
+      try {
+        setLoadingTimeSlots(true);
+        const url = `/api/admin/providers/${selectedProvider.id}/available-slots?date=${newBooking.selectedDate}&businessId=${currentBusiness?.id || ''}`;
+        console.log('Fetching available slots:', url);
+        
+        const response = await fetch(url);
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log('✅ Available slots response:', data);
+          console.log(`   Found ${data.availableSlots?.length || 0} slots for provider ${selectedProvider.name} on ${newBooking.selectedDate}`);
+          setAvailableTimeSlots(data.availableSlots || []);
+          
+          // Clear selected time if it's not in available slots
+          if (newBooking.selectedTime && data.availableSlots && !data.availableSlots.includes(newBooking.selectedTime)) {
+            console.log(`   Clearing selected time ${newBooking.selectedTime} - not in available slots`);
+            setNewBooking(prev => ({ ...prev, selectedTime: '' }));
+          }
+          
+          if (!data.availableSlots || data.availableSlots.length === 0) {
+            console.warn(`⚠️ No available slots found for provider ${selectedProvider.name} on ${newBooking.selectedDate}`);
+          }
+        } else {
+          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+          console.error('❌ Failed to fetch available slots:', response.status, errorData);
+          console.error(`   Provider: ${selectedProvider.name} (${selectedProvider.id})`);
+          console.error(`   Date: ${newBooking.selectedDate}`);
+          console.error(`   Business ID: ${currentBusiness?.id || 'none'}`);
+          setAvailableTimeSlots([]);
+        }
+      } catch (error) {
+        console.error('Error fetching available slots:', error);
+        setAvailableTimeSlots([]);
+      } finally {
+        setLoadingTimeSlots(false);
+      }
+    };
+
+    fetchAvailableSlots();
+  }, [selectedProvider, newBooking.selectedDate, currentBusiness?.id]);
+
+  // Filter available providers based on selected date and time
+  // Only runs when both date AND time are selected
+  useEffect(() => {
+    const filterProviders = async () => {
+      // Only filter providers when both date and time are selected
+      if (!newBooking.selectedDate || !newBooking.selectedTime) {
+        // Don't clear selected provider if user manually selected one
+        // Only clear if we're filtering and no providers match
+        return;
+      }
+
+      // Check which providers are available for the selected date and time
+      const availableProvidersList: Provider[] = [];
+
+      for (const provider of allProviders) {
+        try {
+          const response = await fetch(
+            `/api/admin/providers/${provider.id}/available-slots?date=${newBooking.selectedDate}`
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.availableSlots && data.availableSlots.includes(newBooking.selectedTime)) {
+              availableProvidersList.push(provider);
+            }
+          }
+        } catch (error) {
+          console.error(`Error checking availability for provider ${provider.id}:`, error);
+        }
+      }
+
+      setAvailableProviders(availableProvidersList);
+
+      // Only auto-select or clear if user hasn't manually selected a provider
+      // Check if currently selected provider is still available
+      if (selectedProvider) {
+        const isStillAvailable = availableProvidersList.some(p => p.id === selectedProvider.id);
+        if (!isStillAvailable && availableProvidersList.length > 0) {
+          // Current provider not available, but others are - suggest switching
+          // Don't auto-switch, just update available list
+        } else if (!isStillAvailable && availableProvidersList.length === 0) {
+          // No providers available for this time slot
+          // Keep selection but show warning in UI
+        }
+      } else if (availableProvidersList.length > 0) {
+        // Auto-select first available provider if none selected
+        setSelectedProvider(availableProvidersList[0]);
+        setNewBooking(prev => ({ ...prev, serviceProvider: availableProvidersList[0].id }));
+      }
+    };
+
+    filterProviders();
+  }, [newBooking.selectedDate, newBooking.selectedTime, allProviders, selectedProvider]);
 
 
   const handleAssignProvider = (provider: Provider) => {
@@ -1125,6 +1285,30 @@ const handleAddBooking = async (status: string = 'pending') => {
     setProviderWage(provider.wage?.toString() || '');
     setProviderWageType(provider.wageType || 'hourly');
     setShowAllProvidersModal(false);
+    
+    // Clear selected time if provider/date changes and time is no longer available
+    if (newBooking.selectedDate && newBooking.selectedTime) {
+      // Check if the selected time is still available for this provider
+      // The useEffect will fetch slots and clear if needed
+      const checkTimeAvailability = async () => {
+        try {
+          const response = await fetch(
+            `/api/admin/providers/${provider.id}/available-slots?date=${newBooking.selectedDate}`
+          );
+          if (response.ok) {
+            const data = await response.json();
+            if (data.availableSlots && !data.availableSlots.includes(newBooking.selectedTime)) {
+              // Time not available, clear it
+              setNewBooking(prev => ({ ...prev, selectedTime: '' }));
+            }
+          }
+        } catch (error) {
+          console.error('Error checking time availability:', error);
+        }
+      };
+      checkTimeAvailability();
+    }
+    
     toast({
       title: 'Provider Assigned',
       description: `${provider.name} has been assigned to this booking.`,
@@ -2461,55 +2645,150 @@ const handleAddBooking = async (status: string = 'pending') => {
                       id="selected-date"
                       type="date"
                       value={newBooking.selectedDate}
-                      onChange={(e) => setNewBooking({ ...newBooking, selectedDate: e.target.value })}
+                      onChange={(e) => setNewBooking({ ...newBooking, selectedDate: e.target.value, selectedTime: '' })}
+                      min={getTodayLocalDate()}
                     />
                   </div>
                   <div>
-                    <Label htmlFor="selected-time" className="text-sm font-medium mb-2 block text-white">Select Arrival Time</Label>
-                    <Select value={newBooking.selectedTime} onValueChange={(value) => setNewBooking({ ...newBooking, selectedTime: value })}>
+                    <Label htmlFor="selected-time" className="text-sm font-medium mb-2 block text-white">
+                      Select Arrival Time
+                      {selectedProvider && newBooking.selectedDate && (
+                        <span className="text-xs text-gray-400 ml-2">
+                          {loadingTimeSlots ? 'Loading...' : `${availableTimeSlots.length} slots available`}
+                        </span>
+                      )}
+                    </Label>
+                    <Select 
+                      value={newBooking.selectedTime} 
+                      onValueChange={(value) => setNewBooking({ ...newBooking, selectedTime: value })}
+                      disabled={!selectedProvider || !newBooking.selectedDate || loadingTimeSlots}
+                    >
                       <SelectTrigger>
-                        <SelectValue placeholder="--:-- --" />
+                        <SelectValue placeholder={
+                          !selectedProvider 
+                            ? "Select provider first" 
+                            : !newBooking.selectedDate 
+                            ? "Select date first"
+                            : loadingTimeSlots
+                            ? "Loading slots..."
+                            : availableTimeSlots.length === 0
+                            ? "No slots available for this date"
+                            : "--:-- --"
+                        } />
                       </SelectTrigger>
                       <SelectContent className="max-h-[200px]">
-                        <SelectItem value="06:00">06:00 AM</SelectItem>
-                        <SelectItem value="06:30">06:30 AM</SelectItem>
-                        <SelectItem value="07:00">07:00 AM</SelectItem>
-                        <SelectItem value="07:30">07:30 AM</SelectItem>
-                        <SelectItem value="08:00">08:00 AM</SelectItem>
-                        <SelectItem value="08:30">08:30 AM</SelectItem>
-                        <SelectItem value="09:00">09:00 AM</SelectItem>
-                        <SelectItem value="09:30">09:30 AM</SelectItem>
-                        <SelectItem value="10:00">10:00 AM</SelectItem>
-                        <SelectItem value="10:30">10:30 AM</SelectItem>
-                        <SelectItem value="11:00">11:00 AM</SelectItem>
-                        <SelectItem value="11:30">11:30 AM</SelectItem>
-                        <SelectItem value="12:00">12:00 PM</SelectItem>
-                        <SelectItem value="12:30">12:30 PM</SelectItem>
-                        <SelectItem value="13:00">01:00 PM</SelectItem>
-                        <SelectItem value="13:30">01:30 PM</SelectItem>
-                        <SelectItem value="14:00">02:00 PM</SelectItem>
-                        <SelectItem value="14:30">02:30 PM</SelectItem>
-                        <SelectItem value="15:00">03:00 PM</SelectItem>
-                        <SelectItem value="15:30">03:30 PM</SelectItem>
-                        <SelectItem value="16:00">04:00 PM</SelectItem>
-                        <SelectItem value="16:30">04:30 PM</SelectItem>
-                        <SelectItem value="17:00">05:00 PM</SelectItem>
-                        <SelectItem value="17:30">05:30 PM</SelectItem>
-                        <SelectItem value="18:00">06:00 PM</SelectItem>
-                        <SelectItem value="18:30">06:30 PM</SelectItem>
-                        <SelectItem value="19:00">07:00 PM</SelectItem>
-                        <SelectItem value="19:30">07:30 PM</SelectItem>
-                        <SelectItem value="20:00">08:00 PM</SelectItem>
-                        <SelectItem value="20:30">08:30 PM</SelectItem>
-                        <SelectItem value="21:00">09:00 PM</SelectItem>
-                        <SelectItem value="21:30">09:30 PM</SelectItem>
-                        <SelectItem value="22:00">10:00 PM</SelectItem>
-                        <SelectItem value="22:30">10:30 PM</SelectItem>
-                        <SelectItem value="23:00">11:00 PM</SelectItem>
-                        <SelectItem value="23:30">11:30 PM</SelectItem>
+                        {selectedProvider && newBooking.selectedDate ? (
+                          loadingTimeSlots ? (
+                            <SelectItem value="loading" disabled>
+                              Loading available slots...
+                            </SelectItem>
+                          ) : availableTimeSlots.length > 0 ? (
+                            availableTimeSlots.map((time) => {
+                              const [hours, minutes] = time.split(':').map(Number);
+                              const period = hours >= 12 ? 'PM' : 'AM';
+                              const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+                              const displayTime = `${displayHours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${period}`;
+                              return (
+                                <SelectItem key={time} value={time}>
+                                  {displayTime}
+                                </SelectItem>
+                              );
+                            })
+                          ) : (
+                            <SelectItem value="no-slots" disabled>
+                              No time slots available for this date
+                            </SelectItem>
+                          )
+                        ) : (
+                          <SelectItem value="select-provider" disabled>
+                            Please select a provider and date first
+                          </SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
+                    {selectedProvider && newBooking.selectedDate && availableTimeSlots.length === 0 && !loadingTimeSlots && (
+                      <p className="text-xs text-yellow-400 mt-1">
+                        No available time slots for {selectedProvider.name} on this date. Please select a different date or provider.
+                      </p>
+                    )}
                   </div>
+                </div>
+
+                {/* Provider Selection */}
+                <div>
+                  <Label htmlFor="provider-select" className="text-sm font-medium mb-2 block text-white">
+                    Select Provider {
+                      newBooking.selectedDate 
+                        ? (loadingProviders 
+                            ? '(Checking availability...)' 
+                            : `(${filteredProvidersByDate.length} available on ${formatDateLocal(newBooking.selectedDate)})`)
+                        : allProviders.length > 0 && `(${allProviders.length} total)`
+                    }
+                  </Label>
+                  <div className="flex gap-2">
+                    <Select
+                      value={selectedProvider?.id || undefined}
+                      onValueChange={(value) => {
+                        const provider = filteredProvidersByDate.find(p => p.id === value);
+                        if (provider) {
+                          handleAssignProvider(provider);
+                        }
+                      }}
+                      disabled={!newBooking.selectedDate || loadingProviders}
+                    >
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder={
+                          !newBooking.selectedDate 
+                            ? "Select date first" 
+                            : loadingProviders
+                            ? "Checking availability..."
+                            : filteredProvidersByDate.length === 0
+                            ? "No providers available on this date"
+                            : "Select a provider..."
+                        } />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {filteredProvidersByDate.map((provider) => (
+                          <SelectItem key={provider.id} value={provider.id}>
+                            {provider.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {selectedProvider && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedProvider(null);
+                          setNewBooking(prev => ({ ...prev, serviceProvider: '', selectedTime: '' }));
+                          setAvailableTimeSlots([]);
+                        }}
+                        className="text-xs"
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                  {selectedProvider && (
+                    <p className="text-xs text-gray-400 mt-1">
+                      Selected: {selectedProvider.name}
+                      {newBooking.selectedDate && availableTimeSlots.length > 0 && (
+                        <span className="ml-2">• {availableTimeSlots.length} slots available</span>
+                      )}
+                    </p>
+                  )}
+                  {!newBooking.selectedDate && (
+                    <p className="text-xs text-yellow-400 mt-1">
+                      Please select a date first to see available providers
+                    </p>
+                  )}
+                  {newBooking.selectedDate && !loadingProviders && filteredProvidersByDate.length === 0 && (
+                    <p className="text-xs text-yellow-400 mt-1">
+                      No providers have availability on {formatDateLocal(newBooking.selectedDate)}. Please select a different date.
+                    </p>
+                  )}
                 </div>
 
                     {/* Available Provider Display */}

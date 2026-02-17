@@ -123,15 +123,36 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
     const response = await fetch(
       `/api/industries?business_id=${currentBusiness.id}`
     );
-    const data = await response.json();
 
+    // Check if response is ok before trying to parse JSON
     if (!response.ok) {
-      throw new Error(data.error || "Failed to fetch industries");
+      // Try to get error message from response
+      let errorMessage = `Failed to fetch industries: ${response.status} ${response.statusText}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorMessage;
+      } catch {
+        // If JSON parsing fails, use the status text
+      }
+      console.error("Error fetching industries:", errorMessage);
+      setIndustries([]);
+      return;
     }
 
-    setIndustries(data.industries || []);
+    const data = await response.json();
+
+    if (data.industries && Array.isArray(data.industries)) {
+      setIndustries(data.industries);
+    } else {
+      setIndustries([]);
+    }
   } catch (error) {
-    console.error("Error fetching industries:", error);
+    // Handle network errors, JSON parsing errors, etc.
+    if (error instanceof TypeError && error.message === 'Failed to fetch') {
+      console.error("Error fetching industries: Network error - API endpoint may be unavailable");
+    } else {
+      console.error("Error fetching industries:", error);
+    }
     setIndustries([]);
   }
 };

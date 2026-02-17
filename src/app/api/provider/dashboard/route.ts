@@ -76,6 +76,8 @@ export async function GET(request: NextRequest) {
         customer_email,
         customer_phone,
         service,
+        scheduled_date,
+        scheduled_time,
         date,
         time,
         status,
@@ -87,8 +89,8 @@ export async function GET(request: NextRequest) {
       `)
       .eq('provider_id', provider.id)
       .eq('business_id', provider.business_id) // CRITICAL: Filter by business ID
-      .order('date', { ascending: true })
-      .order('time', { ascending: true });
+      .order('scheduled_date', { ascending: true })
+      .order('scheduled_time', { ascending: true });
 
     if (bookingsError) {
       console.error('Error fetching bookings:', bookingsError);
@@ -134,8 +136,8 @@ export async function GET(request: NextRequest) {
       id: booking.id,
       customer: booking.customer_name || 'Unknown Customer',
       service: booking.service || 'Service',
-      date: booking.date,
-      time: booking.time,
+      date: booking.scheduled_date || booking.date || '',
+      time: booking.scheduled_time || booking.time || '',
       status: booking.status,
       amount: `$${booking.total_price || 0}`,
       location: `${booking.address || ''}${booking.apt_no ? `, ${booking.apt_no}` : ''}${booking.zip_code ? `, ${booking.zip_code}` : ''}`

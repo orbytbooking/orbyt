@@ -115,11 +115,16 @@ export async function POST(request: Request) {
     }
 
     // Prepare booking data with only fields that exist in database schema
+    // If provider is assigned, set status to 'confirmed' automatically
+    const finalStatus = bookingData.service_provider_id 
+      ? (bookingData.status === 'pending' ? 'confirmed' : bookingData.status)
+      : (bookingData.status || 'pending');
+    
     const bookingWithBusiness = {
       business_id: businessId,
       provider_id: bookingData.service_provider_id || null,
       service_id: null, // You may need to map service to service_id
-      status: bookingData.status || 'pending',
+      status: finalStatus,
       scheduled_date: bookingData.date || null,
       scheduled_time: bookingData.time || null,
       address: bookingData.address || 'Default Address', // REQUIRED FIELD - you need to collect this
@@ -141,6 +146,15 @@ export async function POST(request: Request) {
     };
 
     // Insert booking directly
+    console.log('📝 Creating booking with data:', {
+      business_id: businessId,
+      provider_id: bookingWithBusiness.provider_id,
+      status: bookingWithBusiness.status,
+      customer_name: bookingWithBusiness.customer_name,
+      date: bookingWithBusiness.scheduled_date || bookingWithBusiness.date,
+      time: bookingWithBusiness.scheduled_time || bookingWithBusiness.time
+    });
+    
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
       .insert(bookingWithBusiness)
@@ -148,13 +162,22 @@ export async function POST(request: Request) {
       .single();
 
     if (bookingError) {
+      console.error('❌ Booking creation error:', bookingError);
       return NextResponse.json({ error: bookingError.message }, { status: 500 });
     }
+
+    console.log('✅ Booking created successfully:', {
+      id: booking.id,
+      provider_id: booking.provider_id,
+      status: booking.status
+    });
 
     return NextResponse.json({
       success: true,
       data: booking,
-      message: 'Booking created successfully'
+      message: booking.provider_id 
+        ? 'Booking created successfully and assigned to provider'
+        : 'Booking created successfully'
     });
 
   } catch (error) {

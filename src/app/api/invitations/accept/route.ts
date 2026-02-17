@@ -3,14 +3,11 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
   try {
-    // Temporarily hardcode service role key to bypass environment variable issue
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://aezwtsnvttquqkzjhoak.supabase.co';
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFlend0c252dHRxdXFrempob2FrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NzYxNzcwMiwiZXhwIjoyMDgzMTkzNzAyfQ.MW8hx4BcMKDG3-fxNcIrmcbdu2xIfYjIxIunqPmN3D0';
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    console.log('=== ENVIRONMENT DEBUG ===');
-    console.log('Supabase URL:', supabaseUrl);
-    console.log('Service key length:', supabaseServiceKey.length);
-    console.log('Service key starts with eyJ:', supabaseServiceKey.startsWith('eyJ'));
+    if (!supabaseUrl) throw new Error('NEXT_PUBLIC_SUPABASE_URL is not set');
+    if (!supabaseServiceKey) throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set');
 
     // Create Supabase client with service role to bypass RLS
     const supabase = createClient(supabaseUrl, supabaseServiceKey, {
@@ -124,46 +121,56 @@ export async function POST(request: NextRequest) {
     console.log('Provider record created successfully:', providerData.id);
     const providerId = providerData.id;
 
-    // Try to create Supabase auth user (if it fails, we still have the provider record)
-    console.log('Attempting to create Supabase auth user...');
+    // Create Supabase auth user via Admin API so the user is created in auth.users and can log in immediately
+    console.log('Creating Supabase auth user via Admin API...');
     let authUserCreated = false;
-    
-    try {
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: `${firstName} ${lastName}`,
-            role: 'provider',
-            provider_type: providerType,
-            invitation_id: invitationId,
-            business_id: businessId,
-            specialization: 'General Services',
-            phone: phone,
-            address: address,
-            invited_by: invitation?.invited_by || null,
-            accepted_invitation_at: new Date().toISOString()
-          }
-        }
-      });
 
-      if (authError) {
-        console.error('Auth creation failed (but provider was created):', authError);
-        // Don't return error here - we'll continue with provider record only
-      } else {
-        console.log('Auth user created successfully:', authData.user?.id);
-        authUserCreated = true;
-        
-        // Update provider record with the actual auth user ID
-        await supabase
-          .from('service_providers')
-          .update({ user_id: authData.user?.id })
-          .eq('id', providerId);
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: {
+        full_name: `${firstName} ${lastName}`,
+        role: 'provider',
+        provider_type: providerType,
+        invitation_id: invitationId,
+        business_id: businessId,
+        specialization: 'General Services',
+        phone: phone ?? undefined,
+        address: address ?? undefined,
+        invited_by: invitation?.invited_by ?? undefined,
+        accepted_invitation_at: new Date().toISOString()
       }
-    } catch (authError: any) {
-      console.error('Auth creation exception (but provider was created):', authError);
-      // Continue without auth user
+    });
+
+    if (authError) {
+      console.error('Auth user creation failed:', authError);
+      // If user already exists (e.g. duplicate email), try to update provider with existing user
+      if (authError.message?.toLowerCase().includes('already been registered') || authError.message?.toLowerCase().includes('already exists')) {
+        const { data: existingUsers } = await supabase.auth.admin.listUsers();
+        const existing = existingUsers?.users?.find((u: { email?: string }) => u.email?.toLowerCase() === email?.toLowerCase());
+        if (existing?.id) {
+          await supabase
+            .from('service_providers')
+            .update({ user_id: existing.id })
+            .eq('id', providerId);
+          authUserCreated = true;
+          console.log('Linked provider to existing auth user:', existing.id);
+        }
+      }
+      if (!authUserCreated) {
+        return NextResponse.json(
+          { error: authError.message || 'Failed to create login account. Provider profile was created.' },
+          { status: 400 }
+        );
+      }
+    } else if (authData?.user?.id) {
+      authUserCreated = true;
+      console.log('Auth user created successfully:', authData.user.id);
+      await supabase
+        .from('service_providers')
+        .update({ user_id: authData.user.id })
+        .eq('id', providerId);
     }
 
     // Update invitation status using service role to bypass RLS

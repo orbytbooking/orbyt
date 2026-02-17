@@ -1,21 +1,20 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 
-// Temporarily hardcode service role key to bypass environment variable issue
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://aezwtsnvttquqkzjhoak.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFlend0c252dHRxdXFrempob2FrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NzYxNzcwMiwiZXhwIjoyMDgzMTkzNzAyfQ.MW8hx4BcMKDG3-fxNcIrmcbdu2xIfYjIxIunqPmN3D0';
+function createSupabaseServiceClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-console.log('=== VALIDATE API ENVIRONMENT DEBUG ===');
-console.log('Supabase URL:', supabaseUrl);
-console.log('Service key length:', supabaseServiceKey.length);
-console.log('Service key starts with eyJ:', supabaseServiceKey.startsWith('eyJ'));
+  if (!supabaseUrl) throw new Error('NEXT_PUBLIC_SUPABASE_URL is not set');
+  if (!supabaseServiceKey) throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set');
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
+  return createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -28,14 +27,7 @@ export async function GET(request: NextRequest) {
     console.log('Token:', token);
     console.log('Email:', email);
     console.log('Headers:', Object.fromEntries(request.headers));
-    console.log('Environment check:');
-    console.log('- NEXT_PUBLIC_SUPABASE_URL:', process.env.NEXT_PUBLIC_SUPABASE_URL ? 'SET' : 'NOT SET');
-    console.log('- NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY:', process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY ? 'SET' : 'NOT SET');
-    console.log('- NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY length:', process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY?.length || 0);
-    console.log('- NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY starts with eyJ:', process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY?.startsWith('eyJ'));
-    console.log('- NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY available:', !!process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY);
-    console.log('- supabase available:', !!supabase);
-    console.log('Starting database query...');
+    const supabase = createSupabaseServiceClient();
 
     if (!token || !email) {
       return NextResponse.json(

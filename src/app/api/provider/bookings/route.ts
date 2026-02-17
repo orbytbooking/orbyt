@@ -61,6 +61,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get provider's bookings with customer info
+    console.log(`📋 Fetching bookings for provider ${provider.id} (business: ${provider.business_id})`);
     const { data: bookings, error: bookingsError } = await supabaseAdmin
       .from('bookings')
       .select(`
@@ -72,11 +73,23 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false });
 
     if (bookingsError) {
-      console.error('Error fetching bookings:', bookingsError);
+      console.error('❌ Error fetching bookings:', bookingsError);
       return NextResponse.json(
         { error: 'Failed to fetch bookings' },
         { status: 500 }
       );
+    }
+
+    console.log(`✅ Found ${bookings?.length || 0} bookings for provider ${provider.id}`);
+    if (bookings && bookings.length > 0) {
+      console.log('   Bookings:', bookings.map(b => ({
+        id: b.id,
+        customer: b.customer_name,
+        date: b.scheduled_date || b.date,
+        time: b.scheduled_time || b.time,
+        status: b.status,
+        provider_id: b.provider_id
+      })));
     }
 
     // Transform data to match frontend expectations
@@ -96,7 +109,25 @@ export async function GET(request: NextRequest) {
       notes: booking.notes
     })) || [];
 
-    return NextResponse.json(transformedBookings);
+    // Calculate stats
+    const stats = {
+      total: transformedBookings.length,
+      pending: transformedBookings.filter(b => b.status === 'pending').length,
+      confirmed: transformedBookings.filter(b => b.status === 'confirmed').length,
+      completed: transformedBookings.filter(b => b.status === 'completed').length,
+      cancelled: transformedBookings.filter(b => b.status === 'cancelled').length,
+    };
+
+    // Return format expected by frontend
+    return NextResponse.json({
+      provider: {
+        id: provider.id,
+        name: `${provider.first_name || ''} ${provider.last_name || ''}`.trim() || provider.name || 'Provider',
+        email: provider.email || ''
+      },
+      bookings: transformedBookings,
+      stats
+    });
 
   } catch (error) {
     console.error('Bookings API error:', error);

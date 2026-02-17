@@ -74,63 +74,105 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
       // For now, only handle owner businesses (team functionality can be added later)
       if (ownerError) {
-        console.error('Owner businesses error:', ownerError);
-        // If the error is about missing table or column, handle gracefully
-        if (ownerError.message.includes('relation') || ownerError.message.includes('does not exist')) {
-          console.log('Businesses table not found, user may not have completed onboarding');
+        // Check if error object is empty or malformed (sometimes Supabase returns empty error objects)
+        const errorKeys = Object.keys(ownerError || {});
+        const hasErrorContent = ownerError && (
+          ownerError.message || 
+          ownerError.code || 
+          ownerError.details || 
+          ownerError.hint ||
+          errorKeys.length > 0
+        );
+        
+        // If error is empty but we have data, treat as success (sometimes Supabase returns empty error with data)
+        if (!hasErrorContent && ownerBusinesses) {
+          console.warn('Received empty error object but data was returned, treating as success');
+          // Continue processing the data below
+        } else if (!hasErrorContent && !ownerBusinesses) {
+          // Empty error with no data - might be RLS policy or network issue
+          console.warn('Received empty error object with no data, this might indicate an RLS policy issue');
+          console.warn('User ID:', user.id);
           setBusinesses([]);
           setLoading(false);
           return;
-        }
-        // Handle missing is_active column specifically
-        if (ownerError.message.includes('column') && ownerError.message.includes('is_active')) {
-          console.log('is_active column missing, try running the migration script');
-          // Try without is_active column
-          const { data: fallbackBusinesses, error: fallbackError } = await supabase
-            .from('businesses')
-            .select('*')
-            .eq('owner_id', user.id);
+        } else {
+          // Real error with content - log and handle
+          console.error('Owner businesses error:', {
+            error: ownerError,
+            message: ownerError?.message || 'No error message',
+            code: ownerError?.code || 'No error code',
+            details: ownerError?.details || 'No error details',
+            hint: ownerError?.hint || 'No error hint',
+            userId: user.id,
+            errorType: typeof ownerError,
+            errorKeys: errorKeys
+          });
           
-          if (fallbackError) {
-            throw fallbackError;
+          const errorMessage = ownerError?.message || String(ownerError) || 'Unknown error';
+          
+          // If the error is about missing table or column, handle gracefully
+          if (errorMessage.includes('relation') || errorMessage.includes('does not exist')) {
+            console.log('Businesses table not found, user may not have completed onboarding');
+            setBusinesses([]);
+            setLoading(false);
+            return;
+          }
+          // Handle missing is_active column specifically
+          if (errorMessage.includes('column') && errorMessage.includes('is_active')) {
+            console.log('is_active column missing, try running the migration script');
+            // Try without is_active column
+            const { data: fallbackBusinesses, error: fallbackError } = await supabase
+              .from('businesses')
+              .select('*')
+              .eq('owner_id', user.id);
+            
+            if (fallbackError) {
+              throw fallbackError;
+            }
+            
+            const allBusinesses: Business[] = (fallbackBusinesses || []).map(b => ({ 
+              id: b.id,
+              name: b.name,
+              address: b.address,
+              category: b.category,
+              plan: b.plan || 'starter',
+              subdomain: b.subdomain,
+              domain: b.domain,
+              created_at: b.created_at || new Date().toISOString(),
+              updated_at: b.updated_at || new Date().toISOString(),
+              is_active: b.is_active !== undefined ? b.is_active : true,
+              business_email: b.business_email,
+              business_phone: b.business_phone,
+              city: b.city,
+              zip_code: b.zip_code,
+              website: b.website,
+              description: b.description,
+              role: 'owner' as const
+            }));
+            
+            setBusinesses(allBusinesses);
+            
+            // Set current business (first one)
+            const businessToSet = allBusinesses[0];
+            
+            if (businessToSet) {
+              setCurrentBusiness(businessToSet);
+            }
+            
+            setLoading(false);
+            return;
           }
           
-          const allBusinesses: Business[] = (fallbackBusinesses || []).map(b => ({ 
-            id: b.id,
-            name: b.name,
-            address: b.address,
-            category: b.category,
-            plan: b.plan || 'starter',
-            subdomain: b.subdomain,
-            domain: b.domain,
-            created_at: b.created_at || new Date().toISOString(),
-            updated_at: b.updated_at || new Date().toISOString(),
-            is_active: b.is_active !== undefined ? b.is_active : true,
-            business_email: b.business_email,
-            business_phone: b.business_phone,
-            city: b.city,
-            zip_code: b.zip_code,
-            website: b.website,
-            description: b.description,
-            role: 'owner' as const
-          }));
-          
-          setBusinesses(allBusinesses);
-          
-          // Set current business (first one)
-          const businessToSet = allBusinesses[0];
-          
-          if (businessToSet) {
-            setCurrentBusiness(businessToSet);
+          // Only throw if we have a real error and no data
+          if (!ownerBusinesses || ownerBusinesses.length === 0) {
+            throw ownerError;
           }
-          
-          setLoading(false);
-          return;
+          // If we have data despite error, log warning but continue
+          console.warn('Error occurred but data was returned, continuing with data');
         }
-        throw ownerError;
       }
 
-      // Format businesses
+      // Format businesses (process data even if there was a minor error)
       const allBusinesses: Business[] = (ownerBusinesses || []).map(b => {
         // Direct assignment to preserve all data
         const mapped: Business = {
@@ -154,8 +196,19 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
         }
 
     } catch (error: any) {
-      console.error('Business fetch error:', error);
-      setError(error.message || 'Failed to fetch businesses');
+      // Improved error logging
+      const errorDetails = {
+        error,
+        message: error?.message || String(error) || 'Unknown error',
+        code: error?.code || 'No error code',
+        details: error?.details || 'No error details',
+        stack: error?.stack || 'No stack trace'
+      };
+      console.error('Business fetch error:', errorDetails);
+      
+      // Set user-friendly error message
+      const errorMessage = error?.message || String(error) || 'Failed to fetch businesses';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

@@ -15,21 +15,22 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight as ChevronRightIcon, Calendar as CalendarIcon, Search as SearchIcon, Mail, Phone, Star, User as UserIcon, UserMinus, ShieldBan, ShieldCheck, BellOff, BellRing, X, Upload, File, Download, Trash2, FileText, Image as ImageIcon, FileVideo, FileAudio } from "lucide-react";
+import { ChevronLeft, ChevronRight as ChevronRightIcon, Calendar as CalendarIcon, Search as SearchIcon, Mail, Phone, Star, User as UserIcon, UserMinus, UserCog, ShieldBan, ShieldCheck, BellOff, BellRing, X, Upload, File, Download, Trash2, FileText, Image as ImageIcon, FileVideo, FileAudio } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { getDayOfWeekUTC, getTodayLocalDate } from "@/lib/date-utils";
+import { useBusiness } from "@/contexts/BusinessContext";
 
 const PROVIDERS_STORAGE_KEY = "adminProviders";
 const BOOKINGS_STORAGE_KEY = "adminBookings";
 const PROVIDER_SETTINGS_KEY = "adminProviderSettings"; // map id -> settings
 const PROVIDER_AVATARS_KEY = "adminProviderAvatars"; // map id -> dataURL
-const PROVIDER_SCHEDULES_KEY = "adminProviderSchedules"; // map id -> schedule slots
 const PROVIDER_FILES_KEY = "adminProviderFiles"; // map id -> files
 
 type ProviderStatus = "active" | "inactive" | "suspended";
 
 type Provider = {
   id: string;
-  user_id: string;
+  user_id: string | null;
   first_name: string;
   last_name: string;
   email: string;
@@ -55,6 +56,17 @@ type ScheduleSlot = {
   endDate?: string; // for date range
 };
 
+type ProviderAvailability = {
+  id: string;
+  provider_id: string;
+  day_of_week: number; // 0 = Sunday, 1 = Monday, etc.
+  start_time: string; // HH:MM:SS format
+  end_time: string; // HH:MM:SS format
+  is_available: boolean;
+  effective_date: string | null;
+  expiry_date: string | null;
+};
+
 type ProviderFile = {
   id: string;
   name: string;
@@ -68,6 +80,7 @@ export default function ProviderProfilePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { currentBusiness } = useBusiness();
   const [provider, setProvider] = useState<Provider | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -78,7 +91,11 @@ export default function ProviderProfilePage() {
     newPassword: '',
     confirmPassword: ''
   });
-  
+  const [showCreateAuthDialog, setShowCreateAuthDialog] = useState(false);
+  const [createAuthPassword, setCreateAuthPassword] = useState('');
+  const [createAuthConfirm, setCreateAuthConfirm] = useState('');
+  const [creatingAuth, setCreatingAuth] = useState(false);
+
   // Password strength indicator
   const getPasswordStrength = (password: string) => {
     if (!password) return { strength: 0, color: 'bg-gray-200', text: '' };
@@ -179,14 +196,15 @@ export default function ProviderProfilePage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Schedule management state
-  const [scheduleSlots, setScheduleSlots] = useState<ScheduleSlot[]>([]);
+  const [providerAvailability, setProviderAvailability] = useState<ProviderAvailability[]>([]);
+  const [loadingAvailability, setLoadingAvailability] = useState(false);
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false);
   const [scheduleType, setScheduleType] = useState<'single' | 'range'>('single');
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleEndDate, setScheduleEndDate] = useState('');
   const [scheduleStartTime, setScheduleStartTime] = useState('');
   const [scheduleEndTime, setScheduleEndTime] = useState('');
-  const [editingSlot, setEditingSlot] = useState<ScheduleSlot | null>(null);
+  const [editingAvailabilityId, setEditingAvailabilityId] = useState<string | null>(null);
 
   // File management state
   const [providerFiles, setProviderFiles] = useState<ProviderFile[]>([]);
@@ -227,6 +245,86 @@ export default function ProviderProfilePage() {
     fetchProvider();
   }, [id, toast]);
 
+  // Fetch bookings for this provider
+  useEffect(() => {
+    const fetchProviderBookings = async () => {
+      if (!id || !provider || !currentBusiness?.id) {
+        console.log('Waiting for provider, id, or business context...', { id, provider: !!provider, business: !!currentBusiness?.id });
+        return;
+      }
+
+      try {
+        console.log(`📋 Fetching bookings for provider ${id} in business ${currentBusiness.id}`);
+        // Fetch bookings from database where provider_id matches and business_id matches
+        const { data: bookings, error } = await supabase
+          .from('bookings')
+          .select('*')
+          .eq('provider_id', id)
+          .eq('business_id', currentBusiness.id)
+          .order('scheduled_date', { ascending: true })
+          .order('scheduled_time', { ascending: true });
+
+        if (error) {
+          console.error('Error fetching provider bookings:', error);
+          return;
+        }
+
+        // Transform bookings to match the expected format
+        const transformedBookings: Booking[] = (bookings || []).map((booking: any) => ({
+          id: booking.id,
+          customer: {
+            name: booking.customer_name || 'Unknown',
+            email: booking.customer_email || '',
+            phone: booking.customer_phone || ''
+          },
+          service: booking.service || 'Service',
+          date: booking.scheduled_date || booking.date || '',
+          time: booking.scheduled_time || booking.time || '',
+          address: booking.address || '',
+          status: booking.status || 'pending',
+          amount: `$${booking.total_price || booking.amount || 0}`,
+          provider: {
+            id: booking.provider_id,
+            name: provider.name
+          }
+        }));
+
+        console.log(`✅ Found ${transformedBookings.length} bookings for provider ${id} in business ${currentBusiness.id}`);
+        setAllBookings(transformedBookings);
+      } catch (error) {
+        console.error('Error fetching provider bookings:', error);
+      }
+    };
+
+    fetchProviderBookings();
+  }, [id, provider, currentBusiness?.id]);
+
+  // Fetch provider availability from database
+  useEffect(() => {
+    const fetchProviderAvailability = async () => {
+      if (!id || !currentBusiness?.id) return;
+      setLoadingAvailability(true);
+      try {
+        const response = await fetch(
+          `/api/admin/providers/${id}/availability?businessId=${encodeURIComponent(currentBusiness.id)}`
+        );
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          console.error('Error fetching provider availability:', result);
+          return;
+        }
+        const availability = result.availability || result.data || result || [];
+        setProviderAvailability(Array.isArray(availability) ? availability : []);
+      } catch (error) {
+        console.error('Error fetching provider availability:', error);
+      } finally {
+        setLoadingAvailability(false);
+      }
+    };
+
+    fetchProviderAvailability();
+  }, [id, currentBusiness?.id]);
+
   const persistSettings = (next: Partial<ProviderSettings>) => {
     if (!id || typeof id !== 'string') return;
     const updated: ProviderSettings = { ...settings, ...next } as ProviderSettings;
@@ -264,7 +362,7 @@ export default function ProviderProfilePage() {
     reader.readAsDataURL(f);
   };
 
-  const handleAddTimeSlot = () => {
+  const handleAddTimeSlot = async () => {
     if (!scheduleDate || !scheduleStartTime || !scheduleEndTime) {
       toast({ title: "Error", description: "Please fill in all required fields.", variant: "destructive" });
       return;
@@ -275,75 +373,156 @@ export default function ProviderProfilePage() {
       return;
     }
 
-    let updatedSlots: ScheduleSlot[];
-
-    if (editingSlot) {
-      // Update existing slot
-      updatedSlots = scheduleSlots.map(slot => 
-        slot.id === editingSlot.id 
-          ? {
-              ...slot,
-              date: scheduleDate,
-              startTime: scheduleStartTime,
-              endTime: scheduleEndTime,
-              type: scheduleType,
-              endDate: scheduleType === 'range' ? scheduleEndDate : undefined,
-            }
-          : slot
-      );
-    } else {
-      // Add new slot
-      const newSlot: ScheduleSlot = {
-        id: Date.now().toString(),
-        date: scheduleDate,
-        startTime: scheduleStartTime,
-        endTime: scheduleEndTime,
-        type: scheduleType,
-        endDate: scheduleType === 'range' ? scheduleEndDate : undefined,
-      };
-      updatedSlots = [...scheduleSlots, newSlot];
+    if (!id || !currentBusiness?.id) {
+      toast({ title: "Error", description: "Missing provider or business context.", variant: "destructive" });
+      return;
     }
 
-    setScheduleSlots(updatedSlots);
+    const normalizeTime = (t: string) => (t.length === 5 ? `${t}:00` : t);
+    const startTime = scheduleStartTime;
+    const endTime = scheduleEndTime;
+    if (startTime >= endTime) {
+      toast({ title: "Error", description: "End time must be after start time.", variant: "destructive" });
+      return;
+    }
 
-    // Save to localStorage
-    try {
-      const raw = localStorage.getItem(PROVIDER_SCHEDULES_KEY);
-      const map = raw ? (JSON.parse(raw) as Record<string, ScheduleSlot[]>) : {};
-      if (typeof id === 'string') {
-        map[id] = updatedSlots;
-        localStorage.setItem(PROVIDER_SCHEDULES_KEY, JSON.stringify(map));
+    const buildDateRange = (start: string, end: string): string[] => {
+      const [sy, sm, sd] = start.split('-').map(Number);
+      const [ey, em, ed] = end.split('-').map(Number);
+      const cur = new Date(Date.UTC(sy, sm - 1, sd));
+      const last = new Date(Date.UTC(ey, em - 1, ed));
+      const out: string[] = [];
+      while (cur.getTime() <= last.getTime()) {
+        out.push(cur.toISOString().slice(0, 10));
+        cur.setUTCDate(cur.getUTCDate() + 1);
+        if (out.length > 31) break;
       }
-      toast({ 
-        title: "Success", 
-        description: editingSlot ? "Time slot updated successfully." : "Time slot added successfully." 
-      });
-      
+      return out;
+    };
+
+    const dates =
+      scheduleType === 'range'
+        ? buildDateRange(scheduleDate, scheduleEndDate)
+        : [scheduleDate];
+
+    if (scheduleType === 'range') {
+      // Guard against accidental huge ranges
+      const [sy, sm, sd] = scheduleDate.split('-').map(Number);
+      const [ey, em, ed] = scheduleEndDate.split('-').map(Number);
+      const startD = new Date(Date.UTC(sy, sm - 1, sd));
+      const endD = new Date(Date.UTC(ey, em - 1, ed));
+      const diffDays = Math.floor((endD.getTime() - startD.getTime()) / 86400000) + 1;
+      if (diffDays > 31) {
+        toast({ title: "Error", description: "Date range too large (max 31 days).", variant: "destructive" });
+        return;
+      }
+    }
+
+    try {
+      setLoadingAvailability(true);
+
+      if (editingAvailabilityId) {
+        // Update a single existing availability entry
+        const dateStr = scheduleDate;
+        const payload = {
+          businessId: currentBusiness.id,
+          availabilityId: editingAvailabilityId,
+          patch: {
+            day_of_week: getDayOfWeekUTC(dateStr),
+            start_time: normalizeTime(scheduleStartTime),
+            end_time: normalizeTime(scheduleEndTime),
+            effective_date: dateStr,
+            expiry_date: dateStr,
+            is_available: true,
+          },
+        };
+
+        const response = await fetch(`/api/admin/providers/${id}/availability`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(result?.error || 'Failed to update availability');
+        }
+
+        toast({ title: "Success", description: "Availability updated successfully." });
+      } else {
+        // Create one availability entry per date (single date or range)
+        const items = dates.map(dateStr => ({
+          day_of_week: getDayOfWeekUTC(dateStr),
+          start_time: normalizeTime(scheduleStartTime),
+          end_time: normalizeTime(scheduleEndTime),
+          effective_date: dateStr,
+          expiry_date: dateStr,
+          is_available: true,
+        }));
+
+        const response = await fetch(`/api/admin/providers/${id}/availability`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ businessId: currentBusiness.id, items }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(result?.error || 'Failed to create availability');
+        }
+
+        toast({ title: "Success", description: "Availability added successfully." });
+      }
+
+      // Refresh availability from DB
+      const refresh = await fetch(
+        `/api/admin/providers/${id}/availability?businessId=${encodeURIComponent(currentBusiness.id)}`
+      );
+      const refreshed = await refresh.json().catch(() => ({}));
+      if (refresh.ok) {
+        const availability = refreshed.availability || refreshed.data || refreshed || [];
+        setProviderAvailability(Array.isArray(availability) ? availability : []);
+      }
+
       // Reset form
       setScheduleDate('');
       setScheduleEndDate('');
       setScheduleStartTime('');
       setScheduleEndTime('');
-      setEditingSlot(null);
+      setEditingAvailabilityId(null);
+      setScheduleType('single');
       setIsScheduleDialogOpen(false);
-    } catch {
-      toast({ title: "Error", description: "Failed to save time slot.", variant: "destructive" });
+    } catch (e: any) {
+      console.error(e);
+      toast({ title: "Error", description: e?.message || "Failed to save availability.", variant: "destructive" });
+    } finally {
+      setLoadingAvailability(false);
     }
   };
 
   const handleEditTimeSlot = (slot: ScheduleSlot) => {
-    setEditingSlot(slot);
-    setScheduleType(slot.type);
-    setScheduleDate(slot.date);
-    setScheduleEndDate(slot.endDate || '');
-    setScheduleStartTime(slot.startTime);
-    setScheduleEndTime(slot.endTime);
+    // Availability slots come from DB and are rendered with id prefix
+    if (slot.id.startsWith('avail-')) {
+      setEditingAvailabilityId(slot.id.replace('avail-', ''));
+      setScheduleType('single');
+      setScheduleDate(slot.date);
+      setScheduleEndDate('');
+      setScheduleStartTime(slot.startTime);
+      setScheduleEndTime(slot.endTime);
+      setIsScheduleDialogOpen(true);
+      return;
+    }
+
+    // Legacy/manual slots are no longer managed here
+    toast({
+      title: "Not supported",
+      description: "This item can't be edited here. Please edit provider availability instead.",
+      variant: "destructive",
+    });
     setIsScheduleDialogOpen(true);
   };
 
   const handleCloseDialog = () => {
     setIsScheduleDialogOpen(false);
-    setEditingSlot(null);
+    setEditingAvailabilityId(null);
     setScheduleDate('');
     setScheduleEndDate('');
     setScheduleStartTime('');
@@ -351,35 +530,73 @@ export default function ProviderProfilePage() {
     setScheduleType('single');
   };
 
-  const handleDeleteTimeSlot = (slotId: string) => {
-    const updatedSlots = scheduleSlots.filter(slot => slot.id !== slotId);
-    setScheduleSlots(updatedSlots);
+  const handleDeleteTimeSlot = async (slotId: string) => {
+    if (!slotId.startsWith('avail-')) {
+      toast({ title: "Not supported", description: "This item can't be deleted here.", variant: "destructive" });
+      return;
+    }
+    if (!id || !currentBusiness?.id) {
+      toast({ title: "Error", description: "Missing provider or business context.", variant: "destructive" });
+      return;
+    }
 
+    const availabilityId = slotId.replace('avail-', '');
     try {
-      const raw = localStorage.getItem(PROVIDER_SCHEDULES_KEY);
-      const map = raw ? (JSON.parse(raw) as Record<string, ScheduleSlot[]>) : {};
-      if (typeof id === 'string') {
-        map[id] = updatedSlots;
-        localStorage.setItem(PROVIDER_SCHEDULES_KEY, JSON.stringify(map));
+      setLoadingAvailability(true);
+      const response = await fetch(`/api/admin/providers/${id}/availability`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ businessId: currentBusiness.id, availabilityId }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result?.error || 'Failed to delete availability');
       }
-      toast({ title: "Success", description: "Time slot deleted successfully." });
-    } catch {
-      toast({ title: "Error", description: "Failed to delete time slot.", variant: "destructive" });
+
+      toast({ title: "Success", description: "Availability deleted successfully." });
+
+      const refresh = await fetch(
+        `/api/admin/providers/${id}/availability?businessId=${encodeURIComponent(currentBusiness.id)}`
+      );
+      const refreshed = await refresh.json().catch(() => ({}));
+      if (refresh.ok) {
+        const availability = refreshed.availability || refreshed.data || refreshed || [];
+        setProviderAvailability(Array.isArray(availability) ? availability : []);
+      }
+    } catch (e: any) {
+      console.error(e);
+      toast({ title: "Error", description: e?.message || "Failed to delete availability.", variant: "destructive" });
+    } finally {
+      setLoadingAvailability(false);
     }
   };
 
   const getScheduleSlotsForDate = (dateStr: string): ScheduleSlot[] => {
-    return scheduleSlots.filter(slot => {
-      if (slot.type === 'single') {
-        return slot.date === dateStr;
-      } else {
-        // For date range, check if dateStr is between start and end date
-        const checkDate = new Date(dateStr);
-        const startDate = new Date(slot.date);
-        const endDate = new Date(slot.endDate || slot.date);
-        return checkDate >= startDate && checkDate <= endDate;
-      }
-    });
+    // Get availability slots from database based on day of week
+    const dayOfWeek = getDayOfWeekUTC(dateStr); // match backend logic
+
+    // Check if date is within effective_date and expiry_date range
+    const availabilitySlots: ScheduleSlot[] = providerAvailability
+      .filter(av => {
+        if (av.day_of_week !== dayOfWeek || !av.is_available) return false;
+        
+        // Check effective_date
+        if (av.effective_date && dateStr < av.effective_date) return false;
+        
+        // Check expiry_date
+        if (av.expiry_date && dateStr > av.expiry_date) return false;
+        
+        return true;
+      })
+      .map(av => ({
+        id: `avail-${av.id}`,
+        date: dateStr,
+        startTime: av.start_time.substring(0, 5), // Convert HH:MM:SS to HH:MM
+        endTime: av.end_time.substring(0, 5),
+        type: 'single' as const
+      }));
+
+    return availabilitySlots;
   };
 
   const handleFileUpload: React.ChangeEventHandler<HTMLInputElement> = (e) => {
@@ -763,6 +980,22 @@ export default function ProviderProfilePage() {
               <CardTitle>Profile</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {provider && !provider.user_id && (
+                <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="font-medium text-amber-200">No login account</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      This provider has no auth user. They cannot sign in until you create a login account.
+                    </p>
+                  </div>
+                  <Button
+                    onClick={() => setShowCreateAuthDialog(true)}
+                    className="bg-amber-600 hover:bg-amber-700 text-white shrink-0"
+                  >
+                    Create login account
+                  </Button>
+                </div>
+              )}
               <div className="flex items-start gap-6">
                 <div className="h-28 w-28 rounded-full bg-muted flex items-center justify-center overflow-hidden">
                   {avatarUrl ? (
@@ -821,7 +1054,8 @@ export default function ProviderProfilePage() {
                 </div>
               </div>
 
-              {/* Password Section */}
+              {/* Password Section - only when provider has a login account */}
+              {provider.user_id && (
               <div className="border-t pt-4">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-medium">Password Management</h3>
@@ -881,6 +1115,7 @@ export default function ProviderProfilePage() {
                   </div>
                 )}
               </div>
+              )}
               <div className="flex items-center justify-end pt-2 mt-2 border-t">
                 <Button
                   className="text-white"
@@ -987,14 +1222,52 @@ export default function ProviderProfilePage() {
         <TabsContent value="schedule">
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-semibold text-white">Schedule</h2>
-              <Button 
-                className="text-white" 
-                style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)' }}
-                onClick={() => setIsScheduleDialogOpen(true)}
-              >
-                Manage Schedule
-              </Button>
+              <div>
+                <h2 className="text-2xl font-semibold text-white">Schedule</h2>
+                <p className="text-sm text-white/70 mt-1">
+                  This schedule is the provider’s real booking availability (saved in the database) {loadingAvailability && '(loading...)'}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button 
+                  variant="outline"
+                  className="text-white border-white/20 hover:bg-white/10"
+                  onClick={() => {
+                    // Refresh availability from API
+                    const fetchAvailability = async () => {
+                      if (!id || !currentBusiness?.id) return;
+                      setLoadingAvailability(true);
+                      try {
+                        const response = await fetch(
+                          `/api/admin/providers/${id}/availability?businessId=${encodeURIComponent(currentBusiness.id)}`
+                        );
+                        const result = await response.json().catch(() => ({}));
+                        if (response.ok) {
+                          const availability = result.availability || result.data || result || [];
+                          setProviderAvailability(Array.isArray(availability) ? availability : []);
+                          toast({ title: "Refreshed", description: "Availability updated from database." });
+                        } else {
+                          console.error('Error refreshing availability:', result);
+                        }
+                      } catch (error) {
+                        console.error('Error refreshing availability:', error);
+                      } finally {
+                        setLoadingAvailability(false);
+                      }
+                    };
+                    fetchAvailability();
+                  }}
+                >
+                  Refresh Availability
+                </Button>
+                <Button 
+                  className="text-white" 
+                  style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)' }}
+                  onClick={() => setIsScheduleDialogOpen(true)}
+                >
+                  Manage Availability
+                </Button>
+              </div>
             </div>
             
             <div className="backdrop-blur-md bg-black/40 border border-white/10 rounded-lg p-6 shadow-xl">
@@ -1111,11 +1384,11 @@ export default function ProviderProfilePage() {
             <Dialog open={isScheduleDialogOpen} onOpenChange={handleCloseDialog}>
               <DialogContent className="sm:max-w-[600px]">
                 <DialogHeader>
-                  <DialogTitle>{editingSlot ? 'Edit Time Slot' : 'Manage Provider Schedule'}</DialogTitle>
+                  <DialogTitle>{editingAvailabilityId ? 'Edit Availability' : 'Manage Provider Availability'}</DialogTitle>
                   <DialogDescription>
-                    {editingSlot 
-                      ? `Edit the time slot for ${provider.name}.`
-                      : `Set available time slots for ${provider.name}. These will appear on the calendar.`
+                    {editingAvailabilityId 
+                      ? `Edit booking availability for ${provider.name}. This affects the booking form.`
+                      : `Add booking availability for ${provider.name}. This affects the booking form.`
                     }
                   </DialogDescription>
                 </DialogHeader>
@@ -1145,6 +1418,7 @@ export default function ProviderProfilePage() {
                         type="date"
                         value={scheduleDate}
                         onChange={(e) => setScheduleDate(e.target.value)}
+                        min={getTodayLocalDate()}
                       />
                     </div>
 
@@ -1206,34 +1480,9 @@ export default function ProviderProfilePage() {
                     </div>
                   </div>
 
-                  {/* Current Schedule Slots */}
-                  {scheduleSlots.length > 0 && (
-                    <div className="space-y-2">
-                      <Label>Current Schedule Slots</Label>
-                      <div className="max-h-[200px] overflow-y-auto space-y-2 border rounded-lg p-3">
-                        {scheduleSlots.map(slot => (
-                          <div key={slot.id} className="flex items-center justify-between p-2 bg-muted rounded">
-                            <div className="text-sm">
-                              <div className="font-medium">
-                                {slot.type === 'single' ? slot.date : `${slot.date} - ${slot.endDate}`}
-                              </div>
-                              <div className="text-muted-foreground">
-                                {slot.startTime} - {slot.endTime}
-                              </div>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDeleteTimeSlot(slot.id)}
-                              className="h-8 w-8"
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  <div className="text-xs text-muted-foreground">
+                    Tip: click an availability block on the calendar to edit it.
+                  </div>
                 </div>
 
                 <DialogFooter>
@@ -1245,7 +1494,7 @@ export default function ProviderProfilePage() {
                     className="text-white"
                     style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)' }}
                   >
-                    {editingSlot ? 'Update Time Slot' : 'Add Time Slot'}
+                    {editingAvailabilityId ? 'Update Availability' : 'Add Availability'}
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -1660,6 +1909,90 @@ export default function ProviderProfilePage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Create login account for provider with null user_id */}
+      <Dialog open={showCreateAuthDialog} onOpenChange={setShowCreateAuthDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create login account</DialogTitle>
+            <DialogDescription>
+              Set a temporary password for {provider?.first_name} {provider?.last_name}. They can sign in at the provider portal with their email and this password, then change it.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div>
+              <Label>Password (min 8 characters)</Label>
+              <Input
+                type="password"
+                value={createAuthPassword}
+                onChange={(e) => setCreateAuthPassword(e.target.value)}
+                placeholder="Temporary password"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label>Confirm password</Label>
+              <Input
+                type="password"
+                value={createAuthConfirm}
+                onChange={(e) => setCreateAuthConfirm(e.target.value)}
+                placeholder="Confirm"
+                className="mt-1"
+              />
+              {createAuthConfirm && createAuthPassword !== createAuthConfirm && (
+                <p className="text-xs text-red-500 mt-1">Passwords do not match</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateAuthDialog(false)} disabled={creatingAuth}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+              disabled={creatingAuth || createAuthPassword.length < 8 || createAuthPassword !== createAuthConfirm}
+              onClick={async () => {
+                if (!provider?.id) return;
+                setCreatingAuth(true);
+                try {
+                  const res = await fetch(`/api/admin/providers/${provider.id}/create-auth-user`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: createAuthPassword }),
+                  });
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.error || 'Failed to create login account');
+                  toast({
+                    title: 'Login account created',
+                    description: data.message || 'Provider can now sign in with their email and the password you set.',
+                  });
+                  setShowCreateAuthDialog(false);
+                  setCreateAuthPassword('');
+                  setCreateAuthConfirm('');
+                  setProvider((p) => p ? { ...p, user_id: data.userId } : p);
+                } catch (e: unknown) {
+                  toast({
+                    title: 'Error',
+                    description: e instanceof Error ? e.message : 'Failed to create login account',
+                    variant: 'destructive',
+                  });
+                } finally {
+                  setCreatingAuth(false);
+                }
+              }}
+            >
+              {creatingAuth ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                  Creating...
+                </>
+              ) : (
+                'Create login account'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,13 +1,19 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://aezwtsnvttquqkzjhoak.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFlend0c252dHRxdXFrempob2FrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NzYxNzcwMiwiZXhwIjoyMDgzMTkzNzAyfQ.MW8hx4BcMKDG3-fxNcIrmcbdu2xIfYjIxIunqPmN3D0';
+function createSupabaseServiceClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  if (!supabaseUrl) throw new Error('NEXT_PUBLIC_SUPABASE_URL is not set');
+  if (!supabaseServiceKey) throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set');
+
+  return createClient(supabaseUrl, supabaseServiceKey);
+}
 
 export async function GET(request: NextRequest) {
   try {
+    const supabase = createSupabaseServiceClient();
     const { searchParams } = new URL(request.url);
     const industryId = searchParams.get('industryId');
     const businessId = searchParams.get('businessId');
@@ -68,6 +74,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = createSupabaseServiceClient();
     const body = await request.json();
     const {
       business_id,
@@ -176,6 +183,7 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    const supabase = createSupabaseServiceClient();
     const body = await request.json();
     const { id, ...updateData } = body;
 
@@ -247,6 +255,7 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const supabase = createSupabaseServiceClient();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const permanent = searchParams.get('permanent') === 'true';

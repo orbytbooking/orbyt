@@ -31,6 +31,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createAuthenticatedFetch } from "@/lib/auth-provider-client";
+import { dateToLocalString } from "@/lib/date-utils";
 
 type TimeSlot = {
   id: string;
@@ -98,6 +99,7 @@ const ManageAvailability = () => {
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [newSlotStart, setNewSlotStart] = useState("9:00 AM");
   const [newSlotEnd, setNewSlotEnd] = useState("10:00 AM");
+  const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -170,8 +172,8 @@ const ManageAvailability = () => {
     const lastDay = new Date(year, month + 1, 0);
     
     // Get the day of week for the first day (0 = Sunday, 6 = Saturday)
-    // Use UTC day to match server-side calculation and slot matching
-    const startingDayOfWeek = firstDay.getUTCDay();
+    // Use LOCAL day to match calendar display (calendar shows dates in user's timezone)
+    const startingDayOfWeek = firstDay.getDay();
     
     // Calculate total cells needed
     const daysInMonth = lastDay.getDate();
@@ -220,38 +222,44 @@ const ManageAvailability = () => {
 
   // Get time slots for a specific date (based on day of week AND effective date range)
   const getSlotsForDate = (date: Date) => {
-    // Use UTC day to match server-side calculation
-    const dayOfWeek = date.getUTCDay(); // 0 = Sunday, 1 = Monday, etc.
-    const dateString = date.toISOString().split('T')[0]; // YYYY-MM-DD format
+    // Get date string in YYYY-MM-DD format using local timezone
+    // This ensures the date string matches what the user sees in the calendar
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateString = `${year}-${month}-${day}`;
+    
+    // Calculate day of week using UTC to match server-side calculation
+    // Parse date string as UTC to ensure consistent day-of-week calculation
+    const [yearNum, monthNum, dayNum] = dateString.split('-').map(Number);
+    const utcDate = new Date(Date.UTC(yearNum, monthNum - 1, dayNum));
+    const dayOfWeek = utcDate.getUTCDay(); // 0 = Sunday, 1 = Monday, etc.
     const dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dayOfWeek];
     
-    console.log(`🔍 getSlotsForDate for ${date.toDateString()} (${dayName}):`);
-    console.log(`  - Date: ${date.toString()}`);
+    console.log(`🔍 getSlotsForDate for ${date.toDateString()}:`);
     console.log(`  - Local Date: ${date.toLocaleString()}`);
-    console.log(`  - Date String: ${dateString}`);
-    console.log(`  - getUTCDay(): ${dayOfWeek} (${dayName})`);
+    console.log(`  - Date String (YYYY-MM-DD): ${dateString}`);
+    console.log(`  - UTC Day of Week: ${dayOfWeek} (${dayName})`);
     console.log(`  - Looking for slots with day_of_week: ${dayOfWeek}`);
     
     // Filter slots that match BOTH:
     // 1. The day of week, AND
     // 2. Either have no effective_date (recurring) OR the date falls within effective_date to expiry_date range
     const matchingSlots = timeSlots.filter(slot => {
+      if (!slot.is_available) return false;
       // Must match day of week
       if (slot.day_of_week !== dayOfWeek) return false;
       
       // If no effective_date, this is a recurring slot (matches all dates)
       if (!slot.effective_date) return true;
       
-      // If there's an effective_date, check if the current date matches it
-      if (slot.effective_date === dateString) return true;
-      
       // If there's an expiry_date, check if current date is within range
       if (slot.expiry_date) {
         return dateString >= slot.effective_date && dateString <= slot.expiry_date;
       }
-      
-      // If only effective_date exists but doesn't match, don't show this slot
-      return false;
+
+      // If only effective_date exists, treat as recurring from that date onward
+      return dateString >= slot.effective_date;
     });
     
     console.log(`  - Total slots in state: ${timeSlots.length}`);
@@ -291,7 +299,21 @@ const ManageAvailability = () => {
 
   // Open dialog to add new time slot
   const openAddSlotDialog = (date: Date) => {
-    setSelectedDate(date.toISOString().split('T')[0]);
+    // Use local YYYY-MM-DD so the chosen day matches the calendar cell
+    setSelectedDate(dateToLocalString(date));
+    setEditingSlotId(null);
+    setNewSlotStart("9:00 AM");
+    setNewSlotEnd("10:00 AM");
+    setIsAddSlotDialogOpen(true);
+  };
+
+  const openEditSlotDialog = (slot: TimeSlot) => {
+    // Prefer effective_date if present; otherwise keep current selectedDate
+    const date = slot.effective_date || selectedDate;
+    if (date) setSelectedDate(date);
+    setEditingSlotId(slot.id);
+    setNewSlotStart(slot.start);
+    setNewSlotEnd(slot.end);
     setIsAddSlotDialogOpen(true);
   };
 
@@ -332,17 +354,17 @@ const ManageAvailability = () => {
       console.log(`  - Effective date for API: ${selectedDate}`);
 
       const response = await createAuthenticatedFetch('/api/provider/availability', {
-        method: 'POST',
-        body: JSON.stringify({
-          date: selectedDate,
-          startTime: startTime24,
-          endTime: endTime24,
-        }),
+        method: editingSlotId ? 'PUT' : 'POST',
+        body: JSON.stringify(
+          editingSlotId
+            ? { slotId: editingSlotId, date: selectedDate, startTime: startTime24, endTime: endTime24 }
+            : { date: selectedDate, startTime: startTime24, endTime: endTime24 }
+        ),
       });
 
       if (response.ok) {
         const newSlot = await response.json();
-        console.log('✅ Slot created successfully:', newSlot);
+        console.log(`✅ Slot ${editingSlotId ? 'updated' : 'created'} successfully:`, newSlot);
         
         // Convert to display format
         const displaySlot = {
@@ -356,13 +378,18 @@ const ManageAvailability = () => {
         console.log(`  - Display start: ${displaySlot.start}`);
         console.log(`  - Display end: ${displaySlot.end}`);
         
-        setTimeSlots([...timeSlots, displaySlot]);
+        if (editingSlotId) {
+          setTimeSlots(timeSlots.map(s => (s.id === editingSlotId ? { ...s, ...displaySlot } : s)));
+        } else {
+          setTimeSlots([...timeSlots, displaySlot]);
+        }
         setIsAddSlotDialogOpen(false);
         setNewSlotStart("9:00 AM");
         setNewSlotEnd("10:00 AM");
+        setEditingSlotId(null);
 
         toast({
-          title: "Time Slot Added",
+          title: editingSlotId ? "Time Slot Updated" : "Time Slot Added",
           description: "Your availability has been updated.",
         });
 
@@ -560,14 +587,19 @@ const ManageAvailability = () => {
                   const daySlots = getSlotsForDate(day);
                   const isToday = day.toDateString() === new Date().toDateString();
                   
-                  // Add debugging for calendar rendering
-                  const dayOfWeek = day.getUTCDay();
-                  const dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dayOfWeek];
+                  // Calendar display uses local day-of-week (matches visual position)
+                  const localDayOfWeek = day.getDay();
+                  const localDayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][localDayOfWeek];
                   const calendarDayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayIndex];
+                  
+                  // Verify calendar position matches actual day
+                  if (localDayOfWeek !== dayIndex) {
+                    console.warn(`⚠️ Calendar mismatch: Date ${day.getDate()} is ${localDayName} but positioned at ${calendarDayName} (index ${dayIndex})`);
+                  }
                   
                   console.log(`📅 Calendar Cell: ${day.toDateString()}`);
                   console.log(`  - Calendar position: ${calendarDayName} (index ${dayIndex})`);
-                  console.log(`  - Actual day: ${dayName} (getUTCDay: ${dayOfWeek})`);
+                  console.log(`  - Local day: ${localDayName} (getDay: ${localDayOfWeek})`);
                   console.log(`  - Date: ${day.getDate()}`);
                   console.log(`  - Slots found: ${daySlots.length}`);
 
@@ -614,6 +646,10 @@ const ManageAvailability = () => {
                             <div
                               key={slot.id}
                               className={`${colorClass} border-l-4 rounded p-1.5 text-[10px] group hover:shadow-md transition-shadow`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openEditSlotDialog(slot);
+                              }}
                             >
                               <div className="flex items-start justify-between gap-1">
                                 <div className="flex-1 min-w-0">
@@ -651,7 +687,7 @@ const ManageAvailability = () => {
         <Dialog open={isAddSlotDialogOpen} onOpenChange={setIsAddSlotDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Time Slot</DialogTitle>
+            <DialogTitle>{editingSlotId ? 'Edit Time Slot' : 'Add Time Slot'}</DialogTitle>
             <DialogDescription>
               Add a new available time slot for {selectedDate && new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
             </DialogDescription>
@@ -697,7 +733,7 @@ const ManageAvailability = () => {
               style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}
             >
               <Plus className="h-4 w-4 mr-2" />
-              Add Slot
+              {editingSlotId ? 'Update Slot' : 'Add Slot'}
             </Button>
           </DialogFooter>
         </DialogContent>

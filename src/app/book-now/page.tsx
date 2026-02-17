@@ -787,9 +787,14 @@ function BookingPageContent() {
     }
 
     const bookingDate = bookingData.date instanceof Date ? bookingData.date : new Date(bookingData.date);
-    const formattedDate = Number.isNaN(bookingDate.getTime())
-      ? new Date().toISOString().split("T")[0]
-      : bookingDate.toISOString().split("T")[0];
+    // Format date using local timezone to match calendar display
+    let formattedDate: string;
+    if (Number.isNaN(bookingDate.getTime())) {
+      const today = new Date();
+      formattedDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    } else {
+      formattedDate = `${bookingDate.getFullYear()}-${String(bookingDate.getMonth() + 1).padStart(2, '0')}-${String(bookingDate.getDate()).padStart(2, '0')}`;
+    }
 
     const newBooking: Booking = {
       id: `CB-${Date.now().toString(36).toUpperCase()}`,
@@ -1622,7 +1627,14 @@ function BookingPageContent() {
                                       field.onChange(date);
                                       setCalendarOpen(false);
                                     }}
-                                    disabled={(date) => date < new Date() || date < new Date("1900-01-01")}
+                                    disabled={(date) => {
+                                      // Compare dates using local timezone (ignore time component)
+                                      const today = new Date();
+                                      today.setHours(0, 0, 0, 0);
+                                      const compareDate = new Date(date);
+                                      compareDate.setHours(0, 0, 0, 0);
+                                      return compareDate < today || compareDate < new Date("1900-01-01");
+                                    }}
                                     initialFocus
                                   />
                                 </PopoverContent>

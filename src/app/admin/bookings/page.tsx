@@ -199,13 +199,60 @@ export default function BookingsPage() {
       }
       
       setLoading(true);
-      const { data, error } = await supabase.from('bookings').select('*').eq('business_id', currentBusiness?.id).order('date', { ascending: false });
+      // Fetch bookings
+      const { data: bookingsData, error } = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('business_id', currentBusiness?.id)
+        .order('date', { ascending: false });
+      
       if (error) {
         console.error('Failed to fetch bookings from Supabase', error);
         setBookings([]);
-      } else {
-        setBookings(data || []);
+        setLoading(false);
+        return;
       }
+      
+      // Fetch providers to get names for bookings with provider_id
+      const providerIds = [...new Set((bookingsData || [])
+        .filter(b => b.provider_id)
+        .map(b => b.provider_id)
+      )];
+      
+      let providersMap: Record<string, any> = {};
+      if (providerIds.length > 0) {
+        const { data: providersData } = await supabase
+          .from('service_providers')
+          .select('id, first_name, last_name, name')
+          .in('id', providerIds)
+          .eq('business_id', currentBusiness?.id);
+        
+        if (providersData) {
+          providersMap = providersData.reduce((acc: Record<string, any>, provider: any) => {
+            const name = provider.name || `${provider.first_name || ''} ${provider.last_name || ''}`.trim();
+            acc[provider.id] = { ...provider, displayName: name };
+            return acc;
+          }, {});
+        }
+      }
+      
+      // Map bookings to include provider name
+      const bookingsWithProvider = (bookingsData || []).map((booking: any) => {
+        let providerName = booking.assignedProvider || null;
+        
+        // If booking has provider_id, get name from providers map
+        if (booking.provider_id && providersMap[booking.provider_id]) {
+          providerName = providersMap[booking.provider_id].displayName;
+        }
+        
+        return {
+          ...booking,
+          assignedProvider: providerName,
+          provider_id: booking.provider_id || null
+        };
+      });
+      
+      setBookings(bookingsWithProvider);
       setLoading(false);
     }
     fetchBookings();
@@ -260,6 +307,7 @@ export default function BookingsPage() {
 
   const getUnassignedBookings = () => {
     return bookings.filter(booking => 
+      !booking.provider_id && 
       !booking.assignedProvider && 
       ['confirmed', 'pending'].includes(booking.status)
     );
@@ -347,33 +395,52 @@ toast({
 
 
   const handleAssignProvider = async () => {
-  if (!selectedProvider || !selectedBooking) return;
-  const { error } = await supabase.from('bookings').update({ assignedProvider: selectedProvider.name }).eq('id', selectedBooking.id);
-  if (error) {
-    toast({
-      title: "Error",
-      description: `Failed to assign provider: ${error.message}`,
-      variant: "destructive",
+    if (!selectedProvider || !selectedBooking) return;
+    
+    // Update both provider_id (database field) and assignedProvider (display field)
+    const providerName = selectedProvider.name || `${selectedProvider.first_name || ''} ${selectedProvider.last_name || ''}`.trim();
+    const { error } = await supabase
+      .from('bookings')
+      .update({ 
+        provider_id: selectedProvider.id,
+        assignedProvider: providerName,
+        status: 'confirmed' // Auto-confirm when provider is assigned
+      })
+      .eq('id', selectedBooking.id);
+    
+    if (error) {
+      toast({
+        title: "Error",
+        description: `Failed to assign provider: ${error.message}`,
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    setBookings((prev) => {
+      const updated = prev.map((booking) =>
+        booking.id === selectedBooking.id
+          ? { 
+              ...booking, 
+              provider_id: selectedProvider.id,
+              assignedProvider: providerName,
+              status: 'confirmed'
+            }
+          : booking
+      );
+      const activeSelection = updated.find((booking) => booking.id === selectedBooking.id) || null;
+      setSelectedBooking(activeSelection);
+      return updated;
     });
-    return;
-  }
-  setBookings((prev) => {
-    const updated = prev.map((booking) =>
-      booking.id === selectedBooking.id
-        ? { ...booking, assignedProvider: selectedProvider.name }
-        : booking
-    );
-    const activeSelection = updated.find((booking) => booking.id === selectedBooking.id) || null;
-    setSelectedBooking(activeSelection);
-    return updated;
-  });
-  toast({
-    title: "Provider Assigned",
-    description: `${selectedProvider.name} has been assigned to booking ${selectedBooking.id}`,
-  });
-  setShowProviderDialog(false);
-  setSelectedProvider(null);
-};
+    
+    toast({
+      title: "Provider Assigned",
+      description: `${providerName} has been assigned to booking ${selectedBooking.id}`,
+    });
+    
+    setShowProviderDialog(false);
+    setSelectedProvider(null);
+  };
 
 
   // Calendar functions
@@ -858,10 +925,12 @@ toast({
                     <span className="text-sm text-muted-foreground">Amount:</span>
                     <span className="text-sm font-bold">{selectedBooking.amount}</span>
                   </div>
-                  {(selectedBooking as any).assignedProvider && (
+                  {(selectedBooking.provider_id || (selectedBooking as any).assignedProvider) && (
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Assigned Provider:</span>
-                      <span className="text-sm font-medium text-cyan-600">{(selectedBooking as any).assignedProvider}</span>
+                      <span className="text-sm font-medium text-cyan-600">
+                        {(selectedBooking as any).assignedProvider || 'Provider Assigned'}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -879,8 +948,8 @@ toast({
 
               {/* Actions */}
               <div className="space-y-2 pt-2">
-                {/* Assign Provider Button - Only visible for confirmed bookings */}
-                {selectedBooking.status === "confirmed" && (
+                {/* Assign Provider Button - Only show if no provider is assigned */}
+                {selectedBooking.status === "confirmed" && !selectedBooking.provider_id && !selectedBooking.assignedProvider && (
                   <Button 
                     className="w-full"
                     style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}
@@ -889,6 +958,28 @@ toast({
                     <UserPlus className="h-4 w-4 mr-2" />
                     Assign Provider
                   </Button>
+                )}
+                
+                {/* Show provider info if already assigned */}
+                {selectedBooking.provider_id && (
+                  <div className="p-3 bg-cyan-50 dark:bg-cyan-950/20 rounded-lg border border-cyan-200 dark:border-cyan-800">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Assigned Provider</p>
+                        <p className="text-sm font-semibold text-cyan-700 dark:text-cyan-300">
+                          {selectedBooking.assignedProvider || 'Provider Assigned'}
+                        </p>
+                      </div>
+                      <Button 
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowProviderDialog(true)}
+                        className="text-xs"
+                      >
+                        Change Provider
+                      </Button>
+                    </div>
+                  </div>
                 )}
 
                 {/* Status Action Buttons */}
