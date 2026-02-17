@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { useRouter, useSearchParams } from "next/navigation";
+import { getSupabaseCustomerClient } from "@/lib/supabaseCustomerClient";
 
 export type CustomerAccount = {
   id: string;
@@ -21,8 +21,11 @@ export type CustomerAccount = {
 
 export const useCustomerAccount = (requireAuth: boolean = true) => {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const businessId = searchParams?.get('business');
   const [account, setAccount] = useState<CustomerAccount | null>(null);
   const [accountLoading, setAccountLoading] = useState(true);
+  const supabase = getSupabaseCustomerClient();
 
   useEffect(() => {
     const loadCustomerAccount = async () => {
@@ -31,7 +34,11 @@ export const useCustomerAccount = (requireAuth: boolean = true) => {
         
         if (!session?.user) {
           if (requireAuth) {
-            router.replace("/login");
+            // Redirect to customer-auth with business context if available
+            const redirectUrl = businessId 
+              ? `/customer-auth?business=${businessId}` 
+              : "/login";
+            router.replace(redirectUrl);
           } else {
             // Don't redirect if auth is not required, just set account to null
             setAccount(null);
@@ -40,11 +47,24 @@ export const useCustomerAccount = (requireAuth: boolean = true) => {
           return;
         }
 
-        // Only try to fetch customer data if we have a session
+        // Require business context for customer account loading
+        if (!businessId) {
+          if (requireAuth) {
+            console.error('Business context required for customer account');
+            router.replace("/login");
+          } else {
+            setAccount(null);
+          }
+          setAccountLoading(false);
+          return;
+        }
+
+        // Only try to fetch customer data if we have a session and business context
         const { data: customer, error } = await supabase
           .from('customers')
           .select('id, name, email, phone, address, avatar, email_notifications, sms_notifications, push_notifications, businesses(name)')
           .eq('auth_user_id', session.user.id)
+          .eq('business_id', businessId)
           .single();
 
         if (error || !customer) {
@@ -52,7 +72,10 @@ export const useCustomerAccount = (requireAuth: boolean = true) => {
           if (requireAuth) {
             console.error('Error loading customer account:', error);
             await supabase.auth.signOut();
-            router.replace("/login");
+            const redirectUrl = businessId 
+              ? `/customer-auth?business=${businessId}` 
+              : "/login";
+            router.replace(redirectUrl);
           } else {
             // For booking page, user might not be a customer yet, so don't log error
             setAccount(null);
@@ -78,7 +101,10 @@ export const useCustomerAccount = (requireAuth: boolean = true) => {
       } catch (error) {
         console.error('Error in loadCustomerAccount:', error);
         if (requireAuth) {
-          router.replace("/login");
+          const redirectUrl = businessId 
+            ? `/customer-auth?business=${businessId}` 
+            : "/login";
+          router.replace(redirectUrl);
         } else {
           // Don't redirect if auth is not required, just set account to null
           setAccount(null);
@@ -94,7 +120,10 @@ export const useCustomerAccount = (requireAuth: boolean = true) => {
       if (event === 'SIGNED_OUT' || !session) {
         setAccount(null);
         if (requireAuth) {
-          router.replace("/login");
+          const redirectUrl = businessId 
+            ? `/customer-auth?business=${businessId}` 
+            : "/login";
+          router.replace(redirectUrl);
         }
       } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         loadCustomerAccount();
@@ -104,7 +133,7 @@ export const useCustomerAccount = (requireAuth: boolean = true) => {
     return () => {
       authListener.subscription.unsubscribe();
     };
-  }, [router, requireAuth]);
+  }, [router, requireAuth, businessId]);
 
   const updateAccount = useCallback(async (updates: Partial<CustomerAccount>) => {
     if (!account) return;
@@ -168,12 +197,18 @@ export const useCustomerAccount = (requireAuth: boolean = true) => {
     try {
       await supabase.auth.signOut();
       setAccount(null);
-      router.replace("/login");
+      const redirectUrl = businessId 
+        ? `/customer-auth?business=${businessId}` 
+        : "/login";
+      router.replace(redirectUrl);
     } catch (error) {
       console.error('Error logging out:', error);
-      router.replace("/login");
+      const redirectUrl = businessId 
+        ? `/customer-auth?business=${businessId}` 
+        : "/login";
+      router.replace(redirectUrl);
     }
-  }, [router]);
+  }, [router, businessId]);
 
   const customerName = account?.name || '';
   const customerEmail = account?.email || '';

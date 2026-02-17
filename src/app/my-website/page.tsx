@@ -24,6 +24,8 @@ import Footer from "@/components/Footer";
 
 import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
 
+import { useBusiness } from "@/contexts/BusinessContext";
+
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { Button } from "@/components/ui/button";
@@ -34,6 +36,8 @@ export default function BuilderLanding() {
 
   const { config, isLoading } = useWebsiteConfig();
 
+  const { currentBusiness } = useBusiness();
+
   const [businessName, setBusinessName] = useState<string>('');
 
   const router = useRouter();
@@ -42,149 +46,90 @@ export default function BuilderLanding() {
 
 
 
-  // Fetch business data using URL-based context like customer-auth
+  // Business ID: URL first (for shared links), then currentBusiness (for admin preview) - no localStorage
+
+  const urlBusinessId = searchParams.get('business');
+
+  const businessId = urlBusinessId || currentBusiness?.id || null;
 
   useEffect(() => {
 
     const fetchBusinessData = async () => {
 
-      if (typeof window !== 'undefined') {
+      if (typeof window === 'undefined' || !businessId) return;
 
-        // Get business ID from URL params first (like customer-auth)
+      try {
 
-        const urlBusinessId = searchParams.get('business');
+        let businessName = '';
 
-        const currentBusinessId = urlBusinessId || localStorage.getItem('currentBusinessId');
+        // Try to get business name from businesses API first
 
-        
+        const response = await fetch(`/api/businesses?business_id=${businessId}`);
 
-        console.log('URL business ID:', urlBusinessId);
+        if (response.ok) {
 
-        console.log('localStorage business ID:', localStorage.getItem('currentBusinessId'));
+          const data = await response.json();
 
-        console.log('Using business ID:', currentBusinessId);
+          if (data.businesses && data.businesses.length > 0) {
 
-        
-
-        if (currentBusinessId) {
-
-          try {
-
-            let businessName = '';
-
-            
-
-            // Try to get business name from businesses API first
-
-            const response = await fetch(`/api/businesses?business_id=${currentBusinessId}`);
-
-            if (response.ok) {
-
-              const data = await response.json();
-
-              if (data.businesses && data.businesses.length > 0) {
-
-                businessName = data.businesses[0].name;
-
-                console.log('Business name from businesses API:', businessName);
-
-              }
-
-            }
-
-            
-
-            // Fallback to industries API if businesses API fails
-
-            if (!businessName) {
-
-              const industriesResponse = await fetch(`/api/industries?business_id=${currentBusinessId}`);
-
-              if (industriesResponse.ok) {
-
-                const industriesData = await industriesResponse.json();
-
-                if (industriesData.industries && industriesData.industries.length > 0) {
-
-                  const firstIndustry = industriesData.industries[0];
-
-                  businessName = firstIndustry.name || 
-
-                               firstIndustry.business_name || 
-
-                               firstIndustry.display_name || 
-
-                               firstIndustry.title ||
-
-                               'Cleaning Service';
-
-                  console.log('Business name from industries API:', businessName);
-
-                }
-
-              }
-
-            }
-
-            
-
-            setBusinessName(businessName || 'Cleaning Service');
-
-          } catch (error) {
-
-            console.error('Error fetching business name:', error);
-
-            setBusinessName('Cleaning Service');
+            businessName = data.businesses[0].name;
 
           }
 
-        } else {
+        }
 
-          // Set default business ID for testing
+        // Fallback to industries API if businesses API fails
 
-          const defaultBusinessId = '879ec172-e1dd-475d-b57d-0033fae0b30e';
+        if (!businessName) {
 
-          localStorage.setItem('currentBusinessId', defaultBusinessId);
+          const industriesResponse = await fetch(`/api/industries?business_id=${businessId}`);
 
-          setBusinessName('Cleaning Service');
+          if (industriesResponse.ok) {
 
-          console.log('Set default business ID:', defaultBusinessId);
+            const industriesData = await industriesResponse.json();
 
-          
+            if (industriesData.industries && industriesData.industries.length > 0) {
 
-          // Update URL to show business context
+              const firstIndustry = industriesData.industries[0];
 
-          const newUrl = `/my-website?business=${defaultBusinessId}`;
+              businessName = firstIndustry.name || 
 
-          window.history.replaceState({}, '', newUrl);
+                firstIndustry.business_name || 
+
+                firstIndustry.display_name || 
+
+                firstIndustry.title ||
+
+                'Cleaning Service';
+
+            }
+
+          }
 
         }
 
-        
+        setBusinessName(businessName || 'Cleaning Service');
 
-        // Update URL to show business context if we have a business ID
+      } catch (error) {
 
-        if (currentBusinessId && !urlBusinessId) {
+        console.error('Error fetching business name:', error);
 
-          const newUrl = `/my-website?business=${currentBusinessId}`;
-
-          window.history.replaceState({}, '', newUrl);
-
-          console.log('Updated URL to:', newUrl);
-
-        }
+        setBusinessName('Cleaning Service');
 
       }
 
     };
 
-
-
     fetchBusinessData();
 
-  }, [searchParams]);
+  }, [businessId]);
 
-
+  // Sync URL when we have business from context but not in URL (e.g. admin preview)
+  useEffect(() => {
+    if (businessId && !urlBusinessId && typeof window !== 'undefined') {
+      router.replace(`/my-website?business=${businessId}`, { scroll: false });
+    }
+  }, [businessId, urlBusinessId, router]);
 
   if (isLoading) {
 
@@ -282,7 +227,7 @@ export default function BuilderLanding() {
 
           case 'hero':
 
-            return <div key={section.id} id="hero"><Hero data={section.data} branding={config.branding} /></div>;
+            return <div key={section.id} id="hero"><Hero data={section.data} branding={config.branding} businessId={businessId ?? undefined} /></div>;
 
           case 'how-it-works':
 

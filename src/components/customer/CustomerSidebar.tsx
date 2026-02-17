@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -68,6 +68,11 @@ type CustomerSidebarProps = {
 
 export const CustomerSidebar = ({ customerName, customerEmail, initials, businessName, onLogout }: CustomerSidebarProps) => {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const businessId = searchParams?.get("business") ?? "";
+
+  const hrefWithBusiness = (path: string) =>
+    businessId ? `${path}${path.includes("?") ? "&" : "?"}business=${businessId}` : path;
 
   return (
     <aside className="order-2 bg-background/90 border-t border-border px-6 py-6 lg:order-1 lg:border-t-0 lg:border-r lg:min-h-screen flex flex-col">
@@ -78,11 +83,12 @@ export const CustomerSidebar = ({ customerName, customerEmail, initials, busines
       <nav className="flex flex-row gap-2 overflow-x-auto pb-4 lg:flex-col lg:gap-3 lg:pb-6 flex-1">
         {customerNavItems.map((item) => {
           const Icon = item.icon;
+          const href = hrefWithBusiness(item.href);
           const isActive = pathname === item.href;
           return (
             <Link
               key={item.label}
-              href={item.href}
+              href={href}
               className={cn(
                 "flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition hover:bg-primary/5",
                 isActive ? "bg-primary/5 text-foreground" : "text-muted-foreground hover:text-foreground",
@@ -112,7 +118,7 @@ export const CustomerSidebar = ({ customerName, customerEmail, initials, busines
           <DropdownMenuLabel>My Account</DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
-            <Link href="/customer/profile">Profile Settings</Link>
+            <Link href={hrefWithBusiness("/customer/profile")}>Profile Settings</Link>
           </DropdownMenuItem>
           <DropdownMenuItem
             className="text-destructive focus:text-destructive"

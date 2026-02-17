@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Menu, X, Image as ImageIcon } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCustomerAccount } from "@/hooks/useCustomerAccount";
 
 interface NavigationProps {
   branding?: {
@@ -27,6 +28,7 @@ interface NavigationProps {
 const Navigation = ({ branding, inline = false, headerData }: NavigationProps = {}) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { user, isCustomer, loading } = useAuth();
+  const { customerAccount } = useCustomerAccount(false);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -67,6 +69,32 @@ const Navigation = ({ branding, inline = false, headerData }: NavigationProps = 
     return '/login';
   };
 
+  // Get business context for website URL
+  const getBusinessWebsiteUrl = () => {
+    // Try URL parameters first
+    const urlBusinessId = searchParams.get('business');
+    if (urlBusinessId) {
+      return `/my-website?business=${urlBusinessId}`;
+    }
+    
+    return '/my-website';
+  };
+
+  // Check if current page should use customer auth
+  const shouldUseCustomerAuth = () => {
+    return pathname.startsWith('/my-website') || 
+           pathname.startsWith('/login') || 
+           pathname.startsWith('/customer-auth') ||
+           pathname.startsWith('/book-now');
+  };
+
+  // On customer-facing pages, also check customer auth (separate Supabase client from business auth)
+  const isCustomerLoggedIn = shouldUseCustomerAuth() ? Boolean(customerAccount) : (user && isCustomer);
+  const getDashboardUrl = () => {
+    const urlBusinessId = searchParams.get('business');
+    return urlBusinessId ? `/customer/dashboard?business=${urlBusinessId}` : "/customer/dashboard";
+  };
+
   // Handle hash changes and initial page load with hash
   useEffect(() => {
     const handleHashChange = () => {
@@ -101,8 +129,8 @@ const Navigation = ({ branding, inline = false, headerData }: NavigationProps = 
       element.scrollIntoView({ behavior: 'smooth' });
       window.history.pushState({}, '', `${pathname}#${sectionId}`);
     } else {
-      // If section doesn't exist on current page, navigate to /my-website with hash
-      router.push(`/my-website#${sectionId}`);
+      // If section doesn't exist on current page, navigate to business-specific website with hash
+      router.push(`${getBusinessWebsiteUrl()}#${sectionId}`);
     }
     
     setMobileMenuOpen(false);
@@ -113,7 +141,7 @@ const Navigation = ({ branding, inline = false, headerData }: NavigationProps = 
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-20">
           <div className="flex items-center gap-4">
-            <Link href="/my-website" className="flex items-center gap-4 cursor-pointer">
+            <Link href={getBusinessWebsiteUrl()} className="flex items-center gap-4 cursor-pointer">
               {(headerData?.logo || branding?.logo) && !(headerData?.logo || branding?.logo)?.startsWith('blob:') ? (
                 <img src={headerData?.logo || branding?.logo} alt={headerData?.companyName || branding?.companyName || "ORBIT"} className="h-12 w-12 rounded-lg object-cover" />
               ) : (
@@ -133,7 +161,7 @@ const Navigation = ({ branding, inline = false, headerData }: NavigationProps = 
               {headerData?.navigationLinks?.map((link, index) => (
                 <Link 
                   key={index}
-                  href={link.url.startsWith('#') ? `/my-website${link.url}` : link.url}
+                  href={link.url.startsWith('#') ? `${getBusinessWebsiteUrl()}${link.url}` : link.url}
                   onClick={(e) => {
                     if (link.url.startsWith('#')) {
                       const sectionId = link.url.substring(1);
@@ -149,28 +177,28 @@ const Navigation = ({ branding, inline = false, headerData }: NavigationProps = 
               {!headerData?.navigationLinks && (
                 <>
                   <Link 
-                    href="/my-website#how-it-works"
+                    href={`${getBusinessWebsiteUrl()}#how-it-works`}
                     onClick={(e) => handleSectionClick(e, 'how-it-works')}
                     className="text-foreground hover:text-primary transition-colors cursor-pointer"
                   >
                     How It Works
                   </Link>
                   <Link 
-                    href="/my-website#services"
+                    href={`${getBusinessWebsiteUrl()}#services`}
                     onClick={(e) => handleSectionClick(e, 'services')}
                     className="text-foreground hover:text-primary transition-colors cursor-pointer"
                   >
                     Services
                   </Link>
                   <Link 
-                    href="/my-website#reviews"
+                    href={`${getBusinessWebsiteUrl()}#reviews`}
                     onClick={(e) => handleSectionClick(e, 'reviews')}
                     className="text-foreground hover:text-primary transition-colors cursor-pointer"
                   >
                     Reviews
                   </Link>
                   <Link 
-                    href="/my-website#contact"
+                    href={`${getBusinessWebsiteUrl()}#contact`}
                     onClick={(e) => handleSectionClick(e, 'contact')}
                     className="text-foreground hover:text-primary transition-colors cursor-pointer"
                   >
@@ -180,7 +208,7 @@ const Navigation = ({ branding, inline = false, headerData }: NavigationProps = 
               )}
               <Button variant="outline" size="sm" asChild>
                 <Link 
-                  href={isEditorMode ? '#' : (user && isCustomer ? "/customer/dashboard" : (pathname === '/my-website' ? getCustomerAuthUrl() : getLoginUrl()))}
+                  href={isEditorMode ? '#' : (isCustomerLoggedIn ? getDashboardUrl() : (shouldUseCustomerAuth() ? getCustomerAuthUrl() : getLoginUrl()))}
                   onClick={(e) => {
                     if (isEditorMode) {
                       e.preventDefault();
@@ -188,7 +216,7 @@ const Navigation = ({ branding, inline = false, headerData }: NavigationProps = 
                     }
                   }}
                 >
-                  {user && isCustomer ? "My Dashboard" : "Login"}
+                  {isCustomerLoggedIn ? "My Dashboard" : "Login"}
                 </Link>
               </Button>
               <Button 
@@ -220,7 +248,7 @@ const Navigation = ({ branding, inline = false, headerData }: NavigationProps = 
             {headerData?.navigationLinks?.map((link, index) => (
               <Link
                 key={index}
-                href={link.url.startsWith('#') ? `/my-website${link.url}` : link.url}
+                href={link.url.startsWith('#') ? `${getBusinessWebsiteUrl()}${link.url}` : link.url}
                 onClick={(e) => {
                   if (link.url.startsWith('#')) {
                     const sectionId = link.url.substring(1);
@@ -237,7 +265,7 @@ const Navigation = ({ branding, inline = false, headerData }: NavigationProps = 
             {!headerData?.navigationLinks && (
               <>
                 <Link
-                  href="/my-website#how-it-works"
+                  href={`${getBusinessWebsiteUrl()}#how-it-works`}
                   onClick={(e) => {
                     handleSectionClick(e, 'how-it-works');
                     setMobileMenuOpen(false);
@@ -247,7 +275,7 @@ const Navigation = ({ branding, inline = false, headerData }: NavigationProps = 
                   How It Works
                 </Link>
                 <Link
-                  href="/my-website#services"
+                  href={`${getBusinessWebsiteUrl()}#services`}
                   onClick={(e) => {
                     handleSectionClick(e, 'services');
                     setMobileMenuOpen(false);
@@ -257,7 +285,7 @@ const Navigation = ({ branding, inline = false, headerData }: NavigationProps = 
                   Services
                 </Link>
                 <Link
-                  href="/my-website#reviews"
+                  href={`${getBusinessWebsiteUrl()}#reviews`}
                   onClick={(e) => {
                     handleSectionClick(e, 'reviews');
                     setMobileMenuOpen(false);
@@ -267,7 +295,7 @@ const Navigation = ({ branding, inline = false, headerData }: NavigationProps = 
                   Reviews
                 </Link>
                 <Link
-                  href="/my-website#contact"
+                  href={`${getBusinessWebsiteUrl()}#contact`}
                   onClick={(e) => {
                     handleSectionClick(e, 'contact');
                     setMobileMenuOpen(false);
@@ -281,7 +309,7 @@ const Navigation = ({ branding, inline = false, headerData }: NavigationProps = 
             <div className="flex flex-col space-y-2 pt-2">
               <Button variant="outline" size="sm" asChild>
                 <Link 
-                  href={isEditorMode ? '#' : (user && isCustomer ? "/customer/dashboard" : (pathname === '/my-website' ? getCustomerAuthUrl() : getLoginUrl()))}
+                  href={isEditorMode ? '#' : (isCustomerLoggedIn ? getDashboardUrl() : (shouldUseCustomerAuth() ? getCustomerAuthUrl() : getLoginUrl()))}
                   onClick={(e) => {
                     if (isEditorMode) {
                       e.preventDefault();
@@ -289,7 +317,7 @@ const Navigation = ({ branding, inline = false, headerData }: NavigationProps = 
                     }
                   }}
                 >
-                  {user && isCustomer ? "My Dashboard" : "Login"}
+                  {isCustomerLoggedIn ? "My Dashboard" : "Login"}
                 </Link>
               </Button>
               <Button 

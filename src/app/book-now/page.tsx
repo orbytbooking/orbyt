@@ -772,9 +772,10 @@ function BookingPageContent() {
 
   useEffect(() => {
     if (currentStep === "success") {
-      router.push("/customer/appointments");
+      const bid = searchParams.get("business");
+      router.push(bid ? `/customer/appointments?business=${bid}` : "/customer/appointments");
     }
-  }, [currentStep, router]);
+  }, [currentStep, router, searchParams]);
 
   const addBookingToStorage = useCallback(() => {
     if (!bookingData || !serviceCustomization || !selectedService) {
@@ -823,11 +824,12 @@ function BookingPageContent() {
       },
     };
 
-    const existing = readStoredBookings();
-    persistBookings([newBooking, ...existing]);
+    const currentBusinessId = searchParams.get("business") ?? null;
+    const existing = readStoredBookings(currentBusinessId);
+    persistBookings([newBooking, ...existing], currentBusinessId);
     setRecentBookingId(newBooking.id);
     return newBooking;
-  }, [bookingData, serviceCustomization, selectedService, toast]);
+  }, [bookingData, serviceCustomization, selectedService, toast, searchParams]);
 
   // Handle service selection
   const handleServiceSelect = (serviceName: string, customization?: ServiceCustomization) => {

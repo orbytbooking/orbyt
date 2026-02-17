@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useCallback, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Clock, History, Search, Star } from "lucide-react";
 
 import { CustomerSidebar } from "@/components/customer/CustomerSidebar";
@@ -47,6 +47,8 @@ const formatCurrency = (value: number) => {
 
 const CustomerAppointmentsHistoryPage = () => {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const businessId = searchParams?.get("business") ?? "";
   const { bookings, loading: bookingsLoading, updateBookings } = useCustomerBookings();
   const { customerName, customerEmail, customerAccount, accountLoading, handleLogout } = useCustomerAccount();
   const { toast } = useToast();
@@ -129,8 +131,9 @@ const CustomerAppointmentsHistoryPage = () => {
   );
 
   const handleViewDetails = useCallback((booking: Booking) => {
-    router.push(`/customer/appointments/${booking.id}`);
-  }, [router]);
+    const q = businessId ? `?business=${businessId}` : "";
+    router.push(`/customer/appointments/${booking.id}${q}`);
+  }, [router, businessId]);
 
   const handleAddTip = useCallback((booking: Booking) => {
     setActiveTipBooking(booking);
@@ -145,8 +148,10 @@ const CustomerAppointmentsHistoryPage = () => {
 
   const handleBookAgain = useCallback((booking: Booking) => {
     persistBookAgainPayload(booking);
-    router.push(`/book-now?bookingId=${booking.id}`);
-  }, [router]);
+    const params = new URLSearchParams({ bookingId: booking.id });
+    if (businessId) params.set("business", businessId);
+    router.push(`/book-now?${params.toString()}`);
+  }, [router, businessId]);
 
   const handleSubmitReview = useCallback(() => {
     if (!activeBooking) return;

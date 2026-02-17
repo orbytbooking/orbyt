@@ -24,6 +24,8 @@ interface HeroProps {
     primaryColor?: string;
     companyName?: string;
   };
+  /** Business ID from URL for book-now link (no localStorage) */
+  businessId?: string;
 }
 
 const Hero = ({ 
@@ -38,20 +40,15 @@ const Hero = ({
     button2Link: '#contact',
     serviceTag: "ORBYT #1 CLEANING SERVICE",
   },
-  branding
+  branding,
+  businessId,
 }: HeroProps) => {
   const router = useRouter();
   const { user, isCustomer } = useAuth();
 
-  // Get business context for booking form
+  // Get business context from URL/prop only (no localStorage)
   const getBookingUrl = () => {
-    if (typeof window !== 'undefined') {
-      const currentBusinessId = localStorage.getItem('currentBusinessId');
-      if (currentBusinessId) {
-        return `/book-now?business=${currentBusinessId}`;
-      }
-    }
-    return '/book-now';
+    return businessId ? `/book-now?business=${businessId}` : '/book-now';
   };
 
   const handleBookNowClick = (e: React.MouseEvent) => {

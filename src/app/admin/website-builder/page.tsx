@@ -543,7 +543,16 @@ export default function WebsiteBuilderPage() {
             <Button variant="ghost" size="sm">
               <HelpCircle className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="sm" onClick={() => window.open('/my-website', '_blank')}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const url = currentBusiness
+                  ? `/my-website?business=${currentBusiness.id}`
+                  : '/my-website';
+                window.open(url, '_blank');
+              }}
+            >
               <Eye className="h-4 w-4 mr-2" />
               Preview
             </Button>

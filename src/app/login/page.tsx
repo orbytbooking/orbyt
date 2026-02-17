@@ -27,7 +27,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Navigation from "@/components/Navigation";
 import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseCustomerClient } from "@/lib/supabaseCustomerClient";
 
 
 // Login form schema
@@ -64,6 +64,12 @@ export default function AuthPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { config } = useWebsiteConfig();
+  const supabase = getSupabaseCustomerClient();
+
+  // Helper for consistent logo logic
+  const getLogo = () => {
+    return businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo || '/images/orbit.png');
+  };
 
 
   // Login form
@@ -105,25 +111,25 @@ export default function AuthPage() {
 
   useEffect(() => {
     const checkAuth = async () => {
+      const currentBusinessId = searchParams.get('business');
+      if (!currentBusinessId) return;
+      
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         const { data: customer } = await supabase
           .from('customers')
           .select('id, business_id')
           .eq('auth_user_id', session.user.id)
+          .eq('business_id', currentBusinessId)
           .single();
         
-        if (customer) {
-          // Check if customer belongs to current business context (if any)
-          const currentBusinessId = searchParams.get('business');
-          if (!currentBusinessId || customer.business_id === currentBusinessId) {
-            router.replace("/customer/dashboard");
-          }
+        if (customer && customer.business_id === currentBusinessId) {
+          router.replace(`/customer/dashboard?business=${currentBusinessId}`);
         }
       }
     };
     checkAuth();
-  }, [router]);
+  }, [router, searchParams]);
 
   // Get business context from URL params
   useEffect(() => {
@@ -204,19 +210,34 @@ export default function AuthPage() {
       }
 
       if (data.user) {
-        const { data: customer } = await supabase
+        // Get business context from URL params
+        const currentBusinessId = searchParams.get('business');
+        
+        if (!currentBusinessId) {
+          throw new Error('Business context not found. Please access login from the business website.');
+        }
+
+        // Get customer record for this specific business (requires RLS policy "Customers can view own data")
+        const { data: customer, error: customerError } = await supabase
           .from('customers')
           .select('id, name, business_id')
           .eq('auth_user_id', data.user.id)
+          .eq('business_id', currentBusinessId)
           .single();
 
-        if (!customer) {
-          throw new Error('Customer account not found. Please sign up first.');
+        if (customerError || !customer) {
+          console.error('Customer lookup error:', customerError);
+          const isPermissionOrNoRows = customerError?.code === 'PGRST116' || customerError?.code === '42501';
+          if (isPermissionOrNoRows) {
+            throw new Error(
+              'Your account exists but could not be loaded. If you just signed up, the database may need the customer login policy. Please contact support or try again later.'
+            );
+          }
+          throw new Error('Customer account not found for this business. Please sign up first.');
         }
 
-        // Check if customer belongs to current business context (if any)
-        const currentBusinessId = searchParams.get('business');
-        if (currentBusinessId && customer.business_id !== currentBusinessId) {
+        // Verify customer belongs to current business
+        if (customer.business_id !== currentBusinessId) {
           throw new Error('This account is not registered for this business. Please contact support.');
         }
 
@@ -226,7 +247,7 @@ export default function AuthPage() {
         });
         
         setTimeout(() => {
-          router.push("/customer/dashboard");
+          router.push(`/customer/dashboard?business=${currentBusinessId}`);
         }, 500);
       }
       
@@ -260,49 +281,53 @@ export default function AuthPage() {
       if (authError) throw authError;
 
       if (authData.user) {
-        // Get the current business - for customer signup, we need to associate with a business
-        // This could be determined by subdomain, selected business, or default business
-        let businessId = null;
-        
-        // Try to get business ID from URL parameters first (for customer context)
+        // Get the current business from URL parameters (required for business isolation)
         const currentBusinessId = searchParams.get('business');
-        if (currentBusinessId) {
-          businessId = currentBusinessId;
-        } else {
-          // Fallback to getting any active business
-          const { data: businessData } = await supabase
-            .from('businesses')
-            .select('id')
-            .eq('is_active', true)
-            .limit(1)
-            .single();
+        
+        if (!currentBusinessId) {
+          throw new Error('Business context not found. Please access signup from the business website.');
+        }
 
-          if (businessData) {
-            businessId = businessData.id;
+        // Check if customer already exists for this business
+        const { data: existingCustomer } = await supabase
+          .from('customers')
+          .select('*')
+          .or(`email.eq.${values.email},auth_user_id.eq.${authData.user.id}`)
+          .eq('business_id', currentBusinessId)
+          .maybeSingle();
+
+        if (existingCustomer) {
+          if (existingCustomer.auth_user_id === authData.user.id) {
+            throw new Error('You already have an account for this business. Please sign in instead.');
+          } else {
+            throw new Error('An account with this email already exists for this business. Please sign in instead.');
           }
         }
 
-        if (businessId) {
-          // Create customer record associated with the business
-          const { error: customerError } = await supabase
-            .from('customers')
-            .insert({
-              auth_user_id: authData.user.id,
-              business_id: businessId,
-              name: values.name,
-              email: values.email,
-              phone: values.phone,
-              address: values.address,
-              created_at: new Date().toISOString()
-            });
+        // Create customer record associated with the business
+        const { error: customerError } = await supabase
+          .from('customers')
+          .insert({
+            auth_user_id: authData.user.id,
+            business_id: currentBusinessId,
+            name: values.name,
+            email: values.email,
+            phone: values.phone,
+            address: values.address,
+            created_at: new Date().toISOString()
+          });
 
-          if (customerError) {
-            console.error('Customer creation error:', customerError);
-            // Don't throw error here as auth user was created successfully
-            // Log it for debugging purposes
+        if (customerError) {
+          console.error('Customer creation error:', customerError);
+          
+          // Handle specific error cases
+          if (customerError.code === '23505' || customerError.message?.includes('duplicate key')) {
+            throw new Error('An account with this email already exists for this business. Please sign in instead.');
+          } else if (customerError.code === '42501' || customerError.message?.includes('permission denied')) {
+            throw new Error('Permission denied. Please contact support to create your account.');
+          } else {
+            throw new Error(`Failed to create customer account: ${customerError.message || 'Unknown error'}. Please contact support.`);
           }
-        } else {
-          console.error('No business found for customer signup');
         }
 
         toast({
@@ -362,13 +387,13 @@ export default function AuthPage() {
         branding={{
           ...config?.branding,
           companyName: businessName || config?.branding?.companyName || 'Cleaning Service',
-          logo: businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo || '/images/orbit.png')
+          logo: getLogo()
         }} 
         headerData={{
           companyName: businessName || config?.branding?.companyName || 'Cleaning Service',
-          logo: businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo || '/images/orbit.png'),
-          showNavigation: true,
-          navigationLinks: [
+          logo: getLogo(),
+          showNavigation: config?.sections?.find(s => s.type === 'header')?.data?.showNavigation ?? true,
+          navigationLinks: config?.sections?.find(s => s.type === 'header')?.data?.navigationLinks || [
             { text: 'How It Works', url: '#how-it-works' },
             { text: 'Services', url: '#services' },
             { text: 'Reviews', url: '#reviews' },
@@ -384,8 +409,8 @@ export default function AuthPage() {
             {/* Logo and Company Name */}
             <div className="text-center mb-6">
               <div className="flex justify-center mb-4">
-                {(businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo)) && !(businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo))?.startsWith('blob:') ? (
-                  <img src={businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo)} alt={businessName || config?.branding?.companyName || "Cleaning Service"} className="h-20 w-20" />
+                {getLogo() && !getLogo()?.startsWith('blob:') ? (
+                  <img src={getLogo()} alt={businessName || config?.branding?.companyName || "Cleaning Service"} className="h-20 w-20" />
                 ) : (
                   <div className="h-20 w-20 bg-primary/10 rounded-full flex items-center justify-center">
                     <Home className="h-10 w-10 text-primary" />

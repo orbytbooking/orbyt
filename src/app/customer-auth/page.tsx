@@ -27,7 +27,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Navigation from "@/components/Navigation";
 import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseCustomerClient } from "@/lib/supabaseCustomerClient";
 
 // Login form schema
 const loginSchema = z.object({
@@ -64,7 +64,8 @@ export default function CustomerAuthPage() {
   const { toast } = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
-  
+  const supabase = getSupabaseCustomerClient();
+
   // Debug: Log what config contains
   useEffect(() => {
     console.log('Customer Auth - Website Config:', config);
@@ -255,24 +256,25 @@ export default function CustomerAuthPage() {
 
   useEffect(() => {
     const checkAuth = async () => {
+      if (!businessId) return;
+      
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         const { data: customer } = await supabase
           .from('customers')
           .select('id, business_id')
           .eq('auth_user_id', session.user.id)
+          .eq('business_id', businessId)
           .single();
         
         // Check if customer belongs to current business
         if (customer && customer.business_id === businessId) {
-          router.replace("/customer/dashboard");
+          router.replace(`/customer/dashboard?business=${businessId}`);
         }
       }
     };
     
-    if (businessId) {
-      checkAuth();
-    }
+    checkAuth();
   }, [router, businessId]);
 
   // Handle login submission
@@ -294,28 +296,42 @@ export default function CustomerAuthPage() {
       }
 
       if (data.user) {
-        const { data: customer } = await supabase
+        // Verify business context exists
+        if (!businessId) {
+          throw new Error('Business context not found. Please try again.');
+        }
+
+        // Query customer record for this specific business (requires RLS policy "Customers can view own data")
+        const { data: customer, error: customerError } = await supabase
           .from('customers')
           .select('id, name, business_id')
           .eq('auth_user_id', data.user.id)
+          .eq('business_id', businessId)
           .single();
 
-        if (!customer) {
-          throw new Error('Customer account not found. Please sign up first.');
+        if (customerError || !customer) {
+          console.error('Customer lookup error:', customerError);
+          const isPermissionOrNoRows = customerError?.code === 'PGRST116' || customerError?.code === '42501';
+          if (isPermissionOrNoRows) {
+            throw new Error(
+              'Your account exists but could not be loaded. If you just signed up, the database may need the customer login policy. Please contact support or try again later.'
+            );
+          }
+          throw new Error('Customer account not found for this business. Please sign up first.');
         }
-
-        // Verify customer belongs to current business
+        
+        // Double-check business match (should always be true at this point)
         if (customer.business_id !== businessId) {
           throw new Error('This account is not registered for this business. Please contact support.');
         }
 
         toast({
           title: "Login Successful!",
-          description: `Welcome back to ${config?.branding?.companyName || 'ORBIT'}${customer.name ? ', ' + customer.name : ''}!`,
+          description: `Welcome back to ${savedConfig?.branding?.companyName || config?.branding?.companyName || 'ORBIT'}${customer.name ? ', ' + customer.name : ''}!`,
         });
         
         setTimeout(() => {
-          router.push("/customer/dashboard");
+          router.push(`/customer/dashboard?business=${businessId}`);
         }, 500);
       }
       
@@ -367,8 +383,26 @@ export default function CustomerAuthPage() {
         }
 
       if (authData.user) {
+        // Check if customer already exists for this business (by email or auth_user_id)
+        const { data: existingCustomer } = await supabase
+          .from('customers')
+          .select('*')
+          .or(`email.eq.${values.email},auth_user_id.eq.${authData.user.id}`)
+          .eq('business_id', businessId)
+          .maybeSingle();
+
+        if (existingCustomer) {
+          if (existingCustomer.auth_user_id === authData.user.id) {
+            // User already has a customer record for this business
+            throw new Error('You already have an account for this business. Please sign in instead.');
+          } else {
+            // Email already exists for this business with different auth user
+            throw new Error('An account with this email already exists for this business. Please sign in instead.');
+          }
+        }
+
         // Create customer record associated with the specific business
-        const { error: customerError } = await supabase
+        const { data: newCustomer, error: customerError } = await supabase
           .from('customers')
           .insert({
             auth_user_id: authData.user.id,
@@ -378,37 +412,75 @@ export default function CustomerAuthPage() {
             phone: values.phone,
             address: values.address,
             created_at: new Date().toISOString()
-          });
+          })
+          .select()
+          .single();
 
         if (customerError) {
           console.error('Customer creation error:', customerError);
+          console.error('Error details:', {
+            code: customerError.code,
+            message: customerError.message,
+            details: customerError.details,
+            hint: customerError.hint
+          });
           
           // Handle specific error cases
           if (customerError.code === '23505' || customerError.message?.includes('duplicate key')) {
             // Check if customer already exists for this business
-            const { data: existingCustomer } = await supabase
+            const { data: duplicateCustomer } = await supabase
               .from('customers')
               .select('*')
               .eq('email', values.email)
               .eq('business_id', businessId)
-              .single();
+              .maybeSingle();
             
-            if (existingCustomer) {
+            if (duplicateCustomer) {
               throw new Error('An account with this email already exists for this business. Please sign in instead.');
             } else {
-              throw new Error('An account with this email exists but for a different business. Please use a different email or contact support.');
+              // Check if auth_user_id already exists for this business
+              const { data: authDuplicateCustomer } = await supabase
+                .from('customers')
+                .select('*')
+                .eq('auth_user_id', authData.user.id)
+                .eq('business_id', businessId)
+                .maybeSingle();
+              
+              if (authDuplicateCustomer) {
+                throw new Error('You already have an account for this business. Please sign in instead.');
+              } else {
+                throw new Error('An account with this email exists but for a different business. Please use a different email or contact support.');
+              }
             }
           } else if (customerError.code === '42501' || customerError.message?.includes('permission denied')) {
-            throw new Error('Permission denied. Please contact support to create your account.');
+            throw new Error('Permission denied. Please contact support to create your account. Error: ' + customerError.message);
           } else {
             console.error('Detailed customer error:', customerError);
             throw new Error(`Failed to create customer account: ${customerError.message || 'Unknown error'}. Please contact support.`);
           }
         }
 
+        // Verify customer record was created successfully
+        if (!newCustomer) {
+          console.error('Customer record was not returned after insert');
+          // Try to fetch it to see if it exists
+          const { data: verifyCustomer } = await supabase
+            .from('customers')
+            .select('*')
+            .eq('auth_user_id', authData.user.id)
+            .eq('business_id', businessId)
+            .single();
+          
+          if (!verifyCustomer) {
+            throw new Error('Customer account was created but could not be verified. Please try logging in or contact support.');
+          }
+        }
+
+        console.log('Customer record created successfully:', newCustomer);
+
         toast({
           title: "Account Created!",
-          description: `Welcome to ${config?.branding?.companyName || 'ORBIT'}, ${values.name}! You can now sign in to your account.`,
+          description: `Welcome to ${savedConfig?.branding?.companyName || config?.branding?.companyName || 'ORBIT'}, ${values.name}! You can now sign in to your account.`,
         });
         
         setIsLogin(true);

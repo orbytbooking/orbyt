@@ -1,6 +1,12 @@
 export const BOOKINGS_STORAGE_KEY = "customerBookings";
 export const BOOK_AGAIN_STORAGE_KEY = "bookAgainBooking";
 
+/** Storage key for bookings scoped by business (business isolation) */
+function getBookingsStorageKey(businessId?: string | null): string {
+  if (businessId) return `${BOOKINGS_STORAGE_KEY}_${businessId}`;
+  return BOOKINGS_STORAGE_KEY;
+}
+
 export type BookingStatus = "scheduled" | "completed" | "canceled";
 
 export type Booking = {
@@ -192,35 +198,43 @@ const normalizeBooking = (booking: Booking | Partial<Booking>) => {
   } as Booking;
 };
 
-export const persistBookings = (bookings: Booking[]) => {
+export const persistBookings = (bookings: Booking[], businessId?: string | null) => {
   if (typeof window === "undefined") return;
-  localStorage.setItem(BOOKINGS_STORAGE_KEY, JSON.stringify(bookings.map(normalizeBooking)));
+  const key = getBookingsStorageKey(businessId);
+  localStorage.setItem(key, JSON.stringify(bookings.map(normalizeBooking)));
 };
 
-export const readStoredBookings = (): Booking[] => {
+/**
+ * Read bookings from storage. When businessId is provided, uses business-scoped key
+ * so each business sees only its own bookings (business isolation).
+ * When businessId is missing, uses legacy key for backward compatibility.
+ */
+export const readStoredBookings = (businessId?: string | null): Booking[] => {
   if (typeof window === "undefined") {
-    return defaultBookings;
+    return businessId ? [] : defaultBookings;
   }
 
-  const stored = localStorage.getItem(BOOKINGS_STORAGE_KEY);
+  const key = getBookingsStorageKey(businessId);
+  const stored = localStorage.getItem(key);
   if (!stored) {
-    persistBookings(defaultBookings);
-    return defaultBookings;
+    const fallback = businessId ? [] : defaultBookings;
+    if (!businessId) persistBookings(defaultBookings);
+    return fallback;
   }
 
   try {
     const parsed = JSON.parse(stored) as (Booking | Partial<Booking>)[];
     if (Array.isArray(parsed) && parsed.length > 0) {
       const normalized = parsed.map((booking) => normalizeBooking(booking));
-      persistBookings(normalized);
+      persistBookings(normalized, businessId);
       return normalized;
     }
-    persistBookings(defaultBookings);
-    return defaultBookings;
+    const fallback = businessId ? [] : defaultBookings;
+    if (!businessId) persistBookings(defaultBookings);
+    return fallback;
   } catch (error) {
     console.warn("Failed to parse stored bookings", error);
-    persistBookings(defaultBookings);
-    return defaultBookings;
+    return businessId ? [] : defaultBookings;
   }
 };
 

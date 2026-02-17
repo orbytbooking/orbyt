@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Clock, LayoutDashboard, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,8 @@ import { Input } from "@/components/ui/input";
 
 const CustomerAppointmentsPage = () => {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const businessId = searchParams?.get("business") ?? "";
   const { bookings, loading: bookingsLoading, updateBookings } = useCustomerBookings();
   const { customerName, customerEmail, customerAccount, accountLoading, handleLogout } = useCustomerAccount();
   const [search, setSearch] = useState("");
@@ -63,7 +65,9 @@ const CustomerAppointmentsPage = () => {
   };
 
   const handleEditBooking = (booking: Booking) => {
-    router.push(`/book-now?bookingId=${booking.id}`);
+    const params = new URLSearchParams({ bookingId: booking.id });
+    if (businessId) params.set("business", businessId);
+    router.push(`/book-now?${params.toString()}`);
   };
 
   if (bookingsLoading || accountLoading) {
@@ -114,7 +118,9 @@ const CustomerAppointmentsPage = () => {
                 </div>
               </div>
               <Button asChild>
-                <Link href="/book-now">Book a new appointment</Link>
+                <Link href={businessId ? `/book-now?business=${businessId}` : "/book-now"}>
+                  Book a new appointment
+                </Link>
               </Button>
             </div>
 

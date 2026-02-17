@@ -1,4 +1,7 @@
+'use client';
+
 import { useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "next/navigation";
 
 export interface LandingPageConfig {
   id: string;
@@ -251,10 +254,13 @@ const mockSections: Section[] = [
 ];
 
 export const useLandingPageData = () => {
+  const searchParams = useSearchParams();
+  const urlBusinessId = searchParams?.get('business') ?? null;
+
   return useQuery({
-    queryKey: ['landing-page-data'],
+    queryKey: ['landing-page-data', urlBusinessId],
     queryFn: async () => {
-      // Get current business ID from localStorage
+      // Use business ID from URL only (no localStorage for business isolation)
       if (typeof window === 'undefined') {
         return {
           config: defaultConfig,
@@ -262,10 +268,7 @@ export const useLandingPageData = () => {
         };
       }
 
-      const currentBusinessId = localStorage.getItem('currentBusinessId');
-      
-      if (!currentBusinessId) {
-        console.log('No business ID found, using default config');
+      if (!urlBusinessId) {
         return {
           config: defaultConfig,
           sections: mockSections
@@ -273,52 +276,36 @@ export const useLandingPageData = () => {
       }
 
       try {
-        // Fetch business data first to get the actual business name
         let businessName = 'Cleaning Service';
-        
-        if (typeof window !== 'undefined') {
-          const currentBusinessId = localStorage.getItem('currentBusinessId');
-          
-          if (currentBusinessId) {
-            try {
-              // Try to get actual business name from database
-              const businessResponse = await fetch(`/api/businesses?business_id=${currentBusinessId}`);
-              if (businessResponse.ok) {
-                const businessData = await businessResponse.json();
-                if (businessData.businesses && businessData.businesses.length > 0) {
-                  const currentBusiness = businessData.businesses.find((biz: any) => biz.id === currentBusinessId);
-                  if (currentBusiness && currentBusiness.name) {
-                    businessName = currentBusiness.name;
-                  }
-                }
-              }
-                
-              // If we still don't have business name, fall back to industry name
-              if (businessName === 'Cleaning Service') {
-                const industriesResponse = await fetch(`/api/industries?business_id=${currentBusinessId}`);
-                if (industriesResponse.ok) {
-                  const industriesData = await industriesResponse.json();
-                  if (industriesData.industries && industriesData.industries.length > 0) {
-                    // Get the first industry (prioritize cleaning-related industries)
-                    const cleaningIndustries = industriesData.industries.filter((ind: any) => 
-                      ind.name.toLowerCase().includes('cleaning') || 
-                      ind.name.toLowerCase().includes('home') ||
-                      ind.name.toLowerCase().includes('maid') ||
-                      ind.name.toLowerCase().includes('janitorial')
-                    );
-                    
-                    const targetIndustry = cleaningIndustries[0] || industriesData.industries[0];
-                    businessName = targetIndustry.name || 'Cleaning Service';
-                  }
-                }
-              }
-            } catch (error) {
-              console.error('Error fetching business name:', error);
+
+        const businessResponse = await fetch(`/api/businesses?business_id=${urlBusinessId}`);
+        if (businessResponse.ok) {
+          const businessData = await businessResponse.json();
+          if (businessData.businesses && businessData.businesses.length > 0) {
+            const currentBusiness = businessData.businesses.find((biz: any) => biz.id === urlBusinessId);
+            if (currentBusiness?.name) {
+              businessName = currentBusiness.name;
             }
           }
         }
 
-        // Create config with the business name
+        if (businessName === 'Cleaning Service') {
+          const industriesResponse = await fetch(`/api/industries?business_id=${urlBusinessId}`);
+          if (industriesResponse.ok) {
+            const industriesData = await industriesResponse.json();
+            if (industriesData.industries?.length > 0) {
+              const cleaningIndustries = industriesData.industries.filter((ind: any) =>
+                ind.name?.toLowerCase().includes('cleaning') ||
+                ind.name?.toLowerCase().includes('home') ||
+                ind.name?.toLowerCase().includes('maid') ||
+                ind.name?.toLowerCase().includes('janitorial')
+              );
+              const targetIndustry = cleaningIndustries[0] || industriesData.industries[0];
+              businessName = targetIndustry.name || 'Cleaning Service';
+            }
+          }
+        }
+
         const config: LandingPageConfig = {
           id: '1',
           primary_color: '#2563eb',
