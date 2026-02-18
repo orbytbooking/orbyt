@@ -132,10 +132,10 @@ export async function syncBookingStatusToAdmin(update: BookingStatusUpdate) {
  */
 export async function calculateProviderEarnings(bookingId: string, providerId: string, businessId: string) {
   try {
-    // Get booking details
+    // Get booking details including provider wage override
     const { data: booking, error: bookingError } = await supabaseAdmin
       .from('bookings')
-      .select('total_price, service_id')
+      .select('total_price, service_id, provider_wage, provider_wage_type, scheduled_date, scheduled_time, notes')
       .eq('id', bookingId)
       .eq('provider_id', providerId)
       .eq('business_id', businessId)
@@ -143,63 +143,134 @@ export async function calculateProviderEarnings(bookingId: string, providerId: s
 
     if (bookingError || !booking) throw bookingError;
 
-    // Get provider pay rate for this service
-    const { data: payRate, error: payRateError } = await supabaseAdmin
-      .from('provider_pay_rates')
-      .select('*')
-      .eq('provider_id', providerId)
-      .eq('business_id', businessId)
-      .eq('service_id', booking.service_id)
-      .eq('is_active', true)
-      .single();
-
-    if (payRateError) {
-      console.warn('No specific pay rate found, using default');
-    }
-
-    // Calculate earnings
-    let grossAmount = booking.total_price;
+    const grossAmount = booking.total_price;
     let commissionAmount = 0;
     let netAmount = 0;
+    let payRateType = 'percentage';
+    let usedBookingWage = false;
 
-    if (payRate) {
-      if (payRate.rate_type === 'percentage') {
-        commissionAmount = (grossAmount * (payRate.percentage_rate || 0)) / 100;
-        netAmount = grossAmount - commissionAmount;
-      } else if (payRate.rate_type === 'flat') {
-        netAmount = payRate.flat_rate || 0;
+    // Priority 1: Use booking-specific provider_wage if set (per-booking override)
+    if (booking.provider_wage !== null && booking.provider_wage !== undefined && booking.provider_wage_type) {
+      usedBookingWage = true;
+      payRateType = booking.provider_wage_type;
+
+      if (booking.provider_wage_type === 'percentage') {
+        // Percentage of booking total
+        netAmount = (grossAmount * booking.provider_wage) / 100;
         commissionAmount = grossAmount - netAmount;
-      } else if (payRate.rate_type === 'hourly') {
-        // Would need duration info, for now use flat rate
-        netAmount = payRate.hourly_rate || 0;
+      } else if (booking.provider_wage_type === 'fixed') {
+        // Fixed dollar amount
+        netAmount = booking.provider_wage;
+        commissionAmount = grossAmount - netAmount;
+      } else if (booking.provider_wage_type === 'hourly') {
+        // Hourly rate - need to calculate hours from duration
+        // Try to extract duration from notes or use default
+        let hours = 1; // Default to 1 hour
+        const durationMatch = booking.notes?.match(/(\d+)\s*(?:hour|hr|h)/i);
+        if (durationMatch) {
+          hours = parseFloat(durationMatch[1]) || 1;
+        }
+        netAmount = booking.provider_wage * hours;
         commissionAmount = grossAmount - netAmount;
       }
     } else {
-      // Default 80/20 split
-      commissionAmount = grossAmount * 0.2;
-      netAmount = grossAmount * 0.8;
+      // Priority 2: Use provider's default pay rate from provider_pay_rates table
+      const { data: payRate, error: payRateError } = await supabaseAdmin
+        .from('provider_pay_rates')
+        .select('*')
+        .eq('provider_id', providerId)
+        .eq('business_id', businessId)
+        .eq('service_id', booking.service_id)
+        .eq('is_active', true)
+        .single();
+
+      if (payRateError) {
+        console.warn('No specific pay rate found, using default');
+      }
+
+      if (payRate) {
+        payRateType = payRate.rate_type;
+        if (payRate.rate_type === 'percentage') {
+          commissionAmount = (grossAmount * (payRate.percentage_rate || 0)) / 100;
+          netAmount = grossAmount - commissionAmount;
+        } else if (payRate.rate_type === 'flat') {
+          netAmount = payRate.flat_rate || 0;
+          commissionAmount = grossAmount - netAmount;
+        } else if (payRate.rate_type === 'hourly') {
+          // Try to extract duration from notes or use default
+          let hours = 1;
+          const durationMatch = booking.notes?.match(/(\d+)\s*(?:hour|hr|h)/i);
+          if (durationMatch) {
+            hours = parseFloat(durationMatch[1]) || 1;
+          }
+          netAmount = (payRate.hourly_rate || 0) * hours;
+          commissionAmount = grossAmount - netAmount;
+        }
+      } else {
+        // Priority 3: Default 80/20 split if no pay rate configured
+        payRateType = 'percentage';
+        commissionAmount = grossAmount * 0.2;
+        netAmount = grossAmount * 0.8;
+      }
+    }
+
+    // Ensure amounts are valid
+    if (netAmount < 0) netAmount = 0;
+    if (commissionAmount < 0) commissionAmount = 0;
+    if (netAmount + commissionAmount > grossAmount) {
+      // Adjust if total exceeds gross
+      netAmount = Math.max(0, grossAmount - commissionAmount);
     }
 
     // Record earnings
+    const earningsData: any = {
+      provider_id: providerId,
+      business_id: businessId,
+      booking_id: bookingId,
+      service_id: booking.service_id,
+      gross_amount: grossAmount,
+      commission_amount: commissionAmount,
+      net_amount: netAmount,
+      pay_rate_type: payRateType,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    // Store the actual rate values used for transparency
+    if (usedBookingWage && booking.provider_wage !== null) {
+      if (booking.provider_wage_type === 'percentage') {
+        earningsData.percentage_rate_used = booking.provider_wage;
+      } else if (booking.provider_wage_type === 'fixed') {
+        earningsData.flat_rate_used = booking.provider_wage;
+      } else if (booking.provider_wage_type === 'hourly') {
+        earningsData.hourly_rate_used = booking.provider_wage;
+        // Try to extract and store hours worked
+        let hours = 1;
+        const durationMatch = booking.notes?.match(/(\d+)\s*(?:hour|hr|h)/i);
+        if (durationMatch) {
+          hours = parseFloat(durationMatch[1]) || 1;
+        }
+        earningsData.hours_worked = hours;
+      }
+    }
+
     const { error: earningsError } = await supabaseAdmin
       .from('provider_earnings')
-      .insert({
-        provider_id: providerId,
-        business_id: businessId,
-        booking_id: bookingId,
-        service_id: booking.service_id,
-        gross_amount: grossAmount,
-        commission_rate: payRate?.rate_type || 'percentage',
-        commission_amount: commissionAmount,
-        net_amount: netAmount,
-        status: 'pending',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      });
+      .insert(earningsData);
 
     if (earningsError) throw earningsError;
 
-    return { success: true, earnings: { grossAmount, commissionAmount, netAmount } };
+    console.log(`✅ Provider earnings calculated: ${usedBookingWage ? 'Used booking-specific wage' : 'Used provider default pay rate'}`, {
+      bookingId,
+      providerId,
+      grossAmount,
+      netAmount,
+      commissionAmount,
+      payRateType
+    });
+
+    return { success: true, earnings: { grossAmount, commissionAmount, netAmount, usedBookingWage } };
   } catch (error) {
     console.error('Error calculating earnings:', error);
     return { success: false, error };

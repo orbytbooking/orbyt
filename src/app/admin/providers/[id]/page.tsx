@@ -15,16 +15,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight as ChevronRightIcon, Calendar as CalendarIcon, Search as SearchIcon, Mail, Phone, Star, User as UserIcon, UserMinus, UserCog, ShieldBan, ShieldCheck, BellOff, BellRing, X, Upload, File, Download, Trash2, FileText, Image as ImageIcon, FileVideo, FileAudio } from "lucide-react";
+import { ChevronLeft, ChevronRight as ChevronRightIcon, Calendar as CalendarIcon, Search as SearchIcon, Mail, Phone, Star, User as UserIcon, UserMinus, UserCog, ShieldBan, ShieldCheck, BellOff, BellRing, X, Upload, File, Download, Trash2, FileText, Image as ImageIcon, FileVideo, FileAudio, FolderOpen } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { getDayOfWeekUTC, getTodayLocalDate } from "@/lib/date-utils";
 import { useBusiness } from "@/contexts/BusinessContext";
+import { AdminProviderDrive } from "@/components/drive/AdminProviderDrive";
 
 const PROVIDERS_STORAGE_KEY = "adminProviders";
 const BOOKINGS_STORAGE_KEY = "adminBookings";
 const PROVIDER_SETTINGS_KEY = "adminProviderSettings"; // map id -> settings
 const PROVIDER_AVATARS_KEY = "adminProviderAvatars"; // map id -> dataURL
-const PROVIDER_FILES_KEY = "adminProviderFiles"; // map id -> files
 
 type ProviderStatus = "active" | "inactive" | "suspended";
 
@@ -70,10 +70,11 @@ type ProviderAvailability = {
 type ProviderFile = {
   id: string;
   name: string;
-  size: number;
+  size: number | string;
   type: string;
   uploadedAt: string;
-  dataUrl: string;
+  dataUrl?: string;
+  url?: string;
 };
 
 export default function ProviderProfilePage() {
@@ -206,9 +207,12 @@ export default function ProviderProfilePage() {
   const [scheduleEndTime, setScheduleEndTime] = useState('');
   const [editingAvailabilityId, setEditingAvailabilityId] = useState<string | null>(null);
 
-  // File management state
+  // File management state (same data as provider portal My Drive)
   const [providerFiles, setProviderFiles] = useState<ProviderFile[]>([]);
+  const [loadingDriveFiles, setLoadingDriveFiles] = useState(false);
+  const [uploadingDriveFile, setUploadingDriveFile] = useState(false);
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
+  const [previewFile, setPreviewFile] = useState<{ url: string; name: string; size: number | string; uploadedAt: string } | null>(null);
   const fileUploadRef = useRef<HTMLInputElement | null>(null);
   const [isProviderStripeConnectEnabled, setIsProviderStripeConnectEnabled] = useState(false);
 
@@ -323,6 +327,38 @@ export default function ProviderProfilePage() {
     };
 
     fetchProviderAvailability();
+  }, [id, currentBusiness?.id]);
+
+  // Fetch provider drive files (same as provider portal My Drive)
+  useEffect(() => {
+    const fetchProviderDriveFiles = async () => {
+      if (!id || !currentBusiness?.id) return;
+      setLoadingDriveFiles(true);
+      try {
+        const res = await fetch(
+          `/api/admin/providers/${id}/drive?businessId=${encodeURIComponent(currentBusiness.id)}`
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setProviderFiles([]);
+          return;
+        }
+        const list = (data.files || []).map((f: { id: string; name: string; type: string; fileType?: string; size?: string; sizeBytes?: number; uploadedAt: string; url?: string }) => ({
+          id: f.id,
+          name: f.name,
+          size: f.sizeBytes ?? (f.size as string) ?? 0,
+          type: f.type === 'folder' ? 'folder' : (f.fileType || 'other'),
+          uploadedAt: f.uploadedAt,
+          url: f.url,
+        }));
+        setProviderFiles(list);
+      } catch {
+        setProviderFiles([]);
+      } finally {
+        setLoadingDriveFiles(false);
+      }
+    };
+    fetchProviderDriveFiles();
   }, [id, currentBusiness?.id]);
 
   const persistSettings = (next: Partial<ProviderSettings>) => {
@@ -599,77 +635,83 @@ export default function ProviderProfilePage() {
     return availabilitySlots;
   };
 
-  const handleFileUpload: React.ChangeEventHandler<HTMLInputElement> = (e) => {
+  const handleFileUpload: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
     const files = e.target.files;
-    if (!files || files.length === 0) return;
+    if (!files || files.length === 0 || !id || !currentBusiness?.id) return;
 
-    Array.from(files).forEach(file => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const newFile: ProviderFile = {
-          id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-          name: file.name,
-          size: file.size,
-          type: file.type,
-          uploadedAt: new Date().toISOString(),
-          dataUrl: String(reader.result || ""),
-        };
-
-        const updatedFiles = [...providerFiles, newFile];
-        setProviderFiles(updatedFiles);
-
-        try {
-          const raw = localStorage.getItem(PROVIDER_FILES_KEY);
-          const map = raw ? (JSON.parse(raw) as Record<string, ProviderFile[]>) : {};
-          if (typeof id === 'string') {
-            map[id] = updatedFiles;
-            localStorage.setItem(PROVIDER_FILES_KEY, JSON.stringify(map));
-          }
-          toast({ title: "Success", description: `${file.name} uploaded successfully.` });
-        } catch {
-          toast({ title: "Error", description: "Failed to upload file.", variant: "destructive" });
+    setUploadingDriveFile(true);
+    try {
+      for (const file of Array.from(files)) {
+        const formData = new FormData();
+        formData.set('file', file);
+        formData.set('businessId', currentBusiness.id);
+        const res = await fetch(`/api/admin/providers/${id}/drive/upload`, {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast({ title: "Upload failed", description: data.error || file.name, variant: "destructive" });
+          continue;
         }
-      };
-      reader.readAsDataURL(file);
-    });
-
-    if (fileUploadRef.current) {
-      fileUploadRef.current.value = '';
+        const f = data.file;
+        setProviderFiles(prev => [...prev, {
+          id: f.id,
+          name: f.name,
+          size: f.sizeBytes ?? f.size ?? 0,
+          type: f.fileType || f.type || 'other',
+          uploadedAt: f.uploadedAt,
+          url: f.url,
+        }]);
+        toast({ title: "Success", description: `${file.name} uploaded.` });
+      }
+    } finally {
+      setUploadingDriveFile(false);
+      if (fileUploadRef.current) fileUploadRef.current.value = '';
     }
   };
 
   const handleDownloadFile = (file: ProviderFile) => {
-    const link = document.createElement('a');
-    link.href = file.dataUrl;
-    link.download = file.name;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toast({ title: "Success", description: `${file.name} downloaded.` });
+    if (file.url) {
+      window.open(file.url, '_blank');
+      toast({ title: "Opened", description: `${file.name}.` });
+    } else if (file.dataUrl) {
+      const link = document.createElement('a');
+      link.href = file.dataUrl;
+      link.download = file.name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast({ title: "Success", description: `${file.name} downloaded.` });
+    }
   };
 
-  const handleDeleteFile = (fileId: string) => {
-    const updatedFiles = providerFiles.filter(f => f.id !== fileId);
-    setProviderFiles(updatedFiles);
-
+  const handleDeleteFile = async (fileId: string) => {
+    if (!id || !currentBusiness?.id) return;
     try {
-      const raw = localStorage.getItem(PROVIDER_FILES_KEY);
-      const map = raw ? (JSON.parse(raw) as Record<string, ProviderFile[]>) : {};
-      if (typeof id === 'string') {
-        map[id] = updatedFiles;
-        localStorage.setItem(PROVIDER_FILES_KEY, JSON.stringify(map));
+      const res = await fetch(
+        `/api/admin/providers/${id}/drive?businessId=${encodeURIComponent(currentBusiness.id)}&fileId=${encodeURIComponent(fileId)}`,
+        { method: 'DELETE' }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Error", description: data.error || "Failed to delete file.", variant: "destructive" });
+        return;
       }
-      toast({ title: "Success", description: "File deleted successfully." });
+      setProviderFiles(prev => prev.filter(f => f.id !== fileId));
+      toast({ title: "Success", description: "File deleted." });
     } catch {
       toast({ title: "Error", description: "Failed to delete file.", variant: "destructive" });
     }
   };
 
   const getFileIcon = (fileType: string) => {
-    if (fileType.startsWith('image/')) return <ImageIcon className="h-8 w-8" />;
-    if (fileType.startsWith('video/')) return <FileVideo className="h-8 w-8" />;
-    if (fileType.startsWith('audio/')) return <FileAudio className="h-8 w-8" />;
-    if (fileType.includes('pdf') || fileType.includes('document')) return <FileText className="h-8 w-8" />;
+    const t = (fileType || '').toLowerCase();
+    if (t === 'folder') return <FolderOpen className="h-8 w-8" />;
+    if (t.startsWith('image/') || t === 'image') return <ImageIcon className="h-8 w-8" />;
+    if (t.startsWith('video/') || t === 'video') return <FileVideo className="h-8 w-8" />;
+    if (t.startsWith('audio/')) return <FileAudio className="h-8 w-8" />;
+    if (t.includes('pdf') || t.includes('document')) return <FileText className="h-8 w-8" />;
     return <File className="h-8 w-8" />;
   };
 
@@ -1223,8 +1265,8 @@ export default function ProviderProfilePage() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-semibold text-white">Schedule</h2>
-                <p className="text-sm text-white/70 mt-1">
+                <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">Schedule</h2>
+                <p className="text-sm text-slate-600 dark:text-white/70 mt-1">
                   This schedule is the provider’s real booking availability (saved in the database) {loadingAvailability && '(loading...)'}
                 </p>
               </div>
@@ -1270,9 +1312,9 @@ export default function ProviderProfilePage() {
               </div>
             </div>
             
-            <div className="backdrop-blur-md bg-black/40 border border-white/10 rounded-lg p-6 shadow-xl">
+            <div className="backdrop-blur-md bg-white/80 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-lg p-6 shadow-xl">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-semibold text-white">
+                <h3 className="text-xl font-semibold text-slate-900 dark:text-white">
                   {new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(currentDate)}
                 </h3>
                 <div className="flex items-center gap-2">
@@ -1281,7 +1323,7 @@ export default function ProviderProfilePage() {
                     size="icon"
                     onClick={() => setCurrentDate(new Date())}
                     title="Today"
-                    className="bg-black/30 border-white/10 text-white hover:bg-black/50"
+                    className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 dark:bg-black/30 dark:border-white/10 dark:text-white dark:hover:bg-black/50"
                   >
                     <CalendarIcon className="h-4 w-4" />
                   </Button>
@@ -1290,7 +1332,7 @@ export default function ProviderProfilePage() {
                     size="icon"
                     onClick={() => setCurrentDate(d => new Date(d.getFullYear(), d.getMonth()-1, 1))}
                     aria-label="Previous"
-                    className="bg-black/30 border-white/10 text-white hover:bg-black/50"
+                    className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 dark:bg-black/30 dark:border-white/10 dark:text-white dark:hover:bg-black/50"
                   >
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
@@ -1299,7 +1341,7 @@ export default function ProviderProfilePage() {
                     size="icon"
                     onClick={() => setCurrentDate(d => new Date(d.getFullYear(), d.getMonth()+1, 1))}
                     aria-label="Next"
-                    className="bg-black/30 border-white/10 text-white hover:bg-black/50"
+                    className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 dark:bg-black/30 dark:border-white/10 dark:text-white dark:hover:bg-black/50"
                   >
                     <ChevronRightIcon className="h-4 w-4" />
                   </Button>
@@ -1322,7 +1364,7 @@ export default function ProviderProfilePage() {
                 return (
                   <div className="grid grid-cols-7 gap-2">
                     {dayNames.map(d => (
-                      <div key={d} className="text-center font-semibold text-sm text-white/70 py-2">{d}</div>
+                      <div key={d} className="text-center font-semibold text-sm text-slate-600 dark:text-white/70 py-2">{d}</div>
                     ))}
                     {Array.from({length: startEmpty}).map((_,i)=>(<div key={`empty-${i}`} className="h-24" />))}
                     {Array.from({length: days}).map((_,i)=>{
@@ -1333,14 +1375,14 @@ export default function ProviderProfilePage() {
                       return (
                         <div 
                           key={key} 
-                          className={`h-24 backdrop-blur-sm rounded-lg p-2 transition-all ${
+                          className={`h-24 backdrop-blur-sm rounded-lg p-2 transition-all border ${
                             isToday 
-                              ? 'bg-cyan-500/20 border-2 border-cyan-400' 
-                              : 'bg-black/20 border border-white/5 hover:bg-black/30'
+                              ? 'bg-cyan-50 border-cyan-400 dark:bg-cyan-500/20 dark:border-cyan-400' 
+                              : 'bg-white border-slate-200 hover:bg-slate-50 dark:bg-black/20 dark:border-white/5 dark:hover:bg-black/30'
                           }`}
                         >
                           <div className="flex flex-col h-full">
-                            <div className={`text-sm font-medium mb-1 ${isToday ? 'text-cyan-300' : 'text-white/90'}`}>
+                            <div className={`text-sm font-medium mb-1 ${isToday ? 'text-cyan-700 dark:text-cyan-300' : 'text-slate-900 dark:text-white/90'}`}>
                               {day}
                             </div>
                             <div className="flex-1 overflow-hidden space-y-1">
@@ -1812,83 +1854,13 @@ export default function ProviderProfilePage() {
         </TabsContent>
 
         <TabsContent value="drive">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-semibold text-white">My drive</h2>
-              <Button 
-                className="text-white" 
-                style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)' }}
-                onClick={() => fileUploadRef.current?.click()}
-              >
-                <Upload className="h-4 w-4 mr-2" />
-                Upload File
-              </Button>
-              <input
-                ref={fileUploadRef}
-                type="file"
-                multiple
-                onChange={handleFileUpload}
-                className="hidden"
-              />
+          {provider?.id && currentBusiness?.id ? (
+            <AdminProviderDrive providerId={provider.id} businessId={currentBusiness.id} />
+          ) : (
+            <div className="text-sm text-muted-foreground">
+              Select a business to view this provider’s drive.
             </div>
-
-            <div className="backdrop-blur-md bg-black/40 border border-white/10 rounded-lg p-6 shadow-xl">
-              {providerFiles.length === 0 ? (
-                <div className="text-center py-12">
-                  <Upload className="h-16 w-16 mx-auto text-white/30 mb-4" />
-                  <p className="text-white/70 text-lg mb-2">No files uploaded</p>
-                  <p className="text-white/50 text-sm">Click the Upload File button to add files</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {providerFiles.map(file => (
-                    <div 
-                      key={file.id} 
-                      className="backdrop-blur-sm bg-white/5 border border-white/10 rounded-lg p-4 hover:bg-white/10 transition-all"
-                    >
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="text-cyan-400">
-                          {getFileIcon(file.type)}
-                        </div>
-                        <div className="flex gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-white/70 hover:text-white hover:bg-white/10"
-                            onClick={() => handleDownloadFile(file)}
-                            title="Download"
-                          >
-                            <Download className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                            onClick={() => handleDeleteFile(file.id)}
-                            title="Delete"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-1">
-                        <p className="text-white font-medium text-sm truncate" title={file.name}>
-                          {file.name}
-                        </p>
-                        <p className="text-white/50 text-xs">
-                          {formatFileSize(file.size)}
-                        </p>
-                        <p className="text-white/40 text-xs">
-                          {new Date(file.uploadedAt).toLocaleDateString()}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+          )}
         </TabsContent>
 
         <TabsContent value="reviews">

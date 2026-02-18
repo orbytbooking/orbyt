@@ -923,7 +923,13 @@ toast({
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-muted-foreground">Amount:</span>
-                    <span className="text-sm font-bold">{selectedBooking.amount}</span>
+                    <span className="text-sm font-bold">
+                      {(() => {
+                        const amount = (selectedBooking as any).total_price ?? selectedBooking.amount;
+                        const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+                        return numAmount > 0 ? `$${numAmount.toFixed(2)}` : '$0.00';
+                      })()}
+                    </span>
                   </div>
                   {(selectedBooking.provider_id || (selectedBooking as any).assignedProvider) && (
                     <div className="flex justify-between">

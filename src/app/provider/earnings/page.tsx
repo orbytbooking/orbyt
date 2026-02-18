@@ -11,13 +11,21 @@ import {
   Filter,
   MoreHorizontal,
   CheckCircle2,
-  CreditCard
+  CreditCard,
+  Eye
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSupabaseProviderClient } from "@/lib/supabaseProviderClient";
@@ -32,6 +40,10 @@ type Earning = {
   paymentMethod: string;
   commission?: number;
   tips?: number;
+  bookingId?: string;
+  grossAmount?: string;
+  payRateType?: string;
+  wageUsed?: string;
 };
 
 type EarningsData = {
@@ -78,6 +90,7 @@ const ProviderEarningsPage = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [periodFilter, setPeriodFilter] = useState("all");
+  const [selectedEarning, setSelectedEarning] = useState<Earning | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -299,7 +312,11 @@ const ProviderEarningsPage = () => {
             <TableBody>
               {filteredEarnings.length > 0 ? (
                 filteredEarnings.map((earning) => (
-                  <TableRow key={earning.id}>
+                  <TableRow
+                    key={earning.id}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => setSelectedEarning(earning)}
+                  >
                     <TableCell>
                       {new Date(earning.date).toLocaleDateString()}
                     </TableCell>
@@ -318,16 +335,23 @@ const ProviderEarningsPage = () => {
                     <TableCell>
                       {earning.paymentMethod}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuItem>View Details</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setSelectedEarning(earning)}>
+                            <Eye className="h-4 w-4 mr-2" />
+                            View Details
+                          </DropdownMenuItem>
                           <DropdownMenuItem>Download Receipt</DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -348,6 +372,77 @@ const ProviderEarningsPage = () => {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Earnings Details Dialog */}
+      <Dialog open={!!selectedEarning} onOpenChange={(open) => !open && setSelectedEarning(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Earning Details</DialogTitle>
+            <DialogDescription>
+              Full details for this payment
+            </DialogDescription>
+          </DialogHeader>
+          {selectedEarning && (
+            <div className="space-y-4 pt-2">
+              <div className="grid gap-3 rounded-lg border p-4 bg-muted/30">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Earning ID</span>
+                  <span className="font-medium font-mono">{selectedEarning.id}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Date</span>
+                  <span className="font-medium">
+                    {new Date(selectedEarning.date).toLocaleString(undefined, {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Customer</span>
+                  <span className="font-medium">{selectedEarning.customer}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Service</span>
+                  <span className="font-medium">{selectedEarning.service}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Amount (your pay)</span>
+                  <span className="font-semibold text-lg">{selectedEarning.amount}</span>
+                </div>
+                {selectedEarning.grossAmount && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Job total</span>
+                    <span className="font-medium">{selectedEarning.grossAmount}</span>
+                  </div>
+                )}
+                {selectedEarning.wageUsed && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Wage used</span>
+                    <span className="font-medium">{selectedEarning.wageUsed}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Status</span>
+                  {getStatusBadge(selectedEarning.status)}
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Payment method</span>
+                  <span className="font-medium">{selectedEarning.paymentMethod}</span>
+                </div>
+                {selectedEarning.bookingId && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Booking ID</span>
+                    <span className="font-mono text-xs truncate max-w-[180px]" title={selectedEarning.bookingId}>
+                      {selectedEarning.bookingId}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Monthly Breakdown */}
       {earningsData.monthlyBreakdown && earningsData.monthlyBreakdown.length > 0 && (

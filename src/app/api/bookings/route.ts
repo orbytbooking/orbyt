@@ -120,7 +120,18 @@ export async function POST(request: Request) {
       ? (bookingData.status === 'pending' ? 'confirmed' : bookingData.status)
       : (bookingData.status || 'pending');
     
-    const bookingWithBusiness = {
+    // Parse provider wage if provided
+    let providerWage = null;
+    let providerWageType = null;
+    if (bookingData.provider_wage && bookingData.provider_wage_type) {
+      const wageValue = parseFloat(bookingData.provider_wage);
+      if (!isNaN(wageValue) && wageValue >= 0) {
+        providerWage = wageValue;
+        providerWageType = bookingData.provider_wage_type; // 'percentage', 'fixed', or 'hourly'
+      }
+    }
+
+    const bookingWithBusiness: any = {
       business_id: businessId,
       provider_id: bookingData.service_provider_id || null,
       service_id: null, // You may need to map service to service_id
@@ -145,6 +156,13 @@ export async function POST(request: Request) {
       amount: bookingData.amount || 0,
     };
 
+    // Only include provider_wage fields if they have valid values
+    // This allows the code to work even if the migration hasn't been run yet
+    if (providerWage !== null && providerWageType !== null) {
+      bookingWithBusiness.provider_wage = providerWage;
+      bookingWithBusiness.provider_wage_type = providerWageType;
+    }
+
     // Insert booking directly
     console.log('📝 Creating booking with data:', {
       business_id: businessId,
@@ -163,7 +181,45 @@ export async function POST(request: Request) {
 
     if (bookingError) {
       console.error('❌ Booking creation error:', bookingError);
-      return NextResponse.json({ error: bookingError.message }, { status: 500 });
+      console.error('❌ Booking data attempted:', JSON.stringify(bookingWithBusiness, null, 2));
+      
+      // If error is about missing columns (provider_wage), try again without them
+      if (bookingError.message && bookingError.message.includes('provider_wage')) {
+        console.log('⚠️ provider_wage columns not found, retrying without them...');
+        delete bookingWithBusiness.provider_wage;
+        delete bookingWithBusiness.provider_wage_type;
+        
+        const { data: retryBooking, error: retryError } = await supabase
+          .from('bookings')
+          .insert(bookingWithBusiness)
+          .select()
+          .single();
+          
+        if (retryError) {
+          console.error('❌ Retry booking creation error:', retryError);
+          return NextResponse.json({ 
+            error: retryError.message,
+            details: 'Please run migration 012_add_provider_wage_to_bookings.sql to enable provider wage features'
+          }, { status: 500 });
+        }
+        
+        console.log('✅ Booking created without provider_wage columns');
+        return NextResponse.json({
+          success: true,
+          data: retryBooking,
+          message: retryBooking?.provider_id 
+            ? 'Booking created successfully and assigned to provider (provider_wage columns not available)'
+            : 'Booking created successfully (provider_wage columns not available)',
+          warning: 'Provider wage columns not found. Run migration 012_add_provider_wage_to_bookings.sql'
+        });
+      }
+      
+      return NextResponse.json({ 
+        error: bookingError.message,
+        code: bookingError.code,
+        details: bookingError.details,
+        hint: bookingError.hint
+      }, { status: 500 });
     }
 
     console.log('✅ Booking created successfully:', {
@@ -183,7 +239,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Create booking API error:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
