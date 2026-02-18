@@ -18,6 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 import { CalendarIcon, Clock, Loader2, CheckCircle, CheckCircle2, ArrowRight, CreditCard, Wallet, Lock, ArrowLeft, Home, Building2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { format } from "date-fns";
@@ -62,8 +63,18 @@ const formSchema = z.object({
     required_error: "A date is required.",
   }),
   time: z.string().min(1, "Please select a time"),
+  provider: z.string().optional(),
   notes: z.string().optional(),
   reminderOptIn: z.boolean().default(false),
+  keyAccess: z.object({
+  primary_option: z.enum(["someone_home", "hide_keys"]).default("someone_home"),
+  keep_key: z.boolean().default(false),
+}).default({ primary_option: "someone_home", keep_key: false }),
+  customerNoteForProvider: z.string().optional(),
+  couponCodeTab: z.enum(["coupon-code", "gift-card"]).default("coupon-code"),
+  couponCode: z.string().optional(),
+  couponType: z.enum(["coupon-code", "amount", "percent"]).default("coupon-code"),
+  giftCardCode: z.string().optional(),
   customization: z.object({
     frequency: z.string().min(1, "Please choose a frequency"),
     squareMeters: z.string().min(1, "Please choose an area size"),
@@ -102,8 +113,6 @@ type PricingTier = {
   serviceCategory: string;
   frequency: string;
 };
-
-const DEFAULT_INDUSTRIES = ["Home Cleaning"];
 
 const toIndustryKey = (label: string) =>
   label
@@ -193,15 +202,8 @@ const servicesByIndustry: Record<string, {
   ],
 };
 
-const availableTimes = [
-  "9:00 AM",
-  "11:00 AM",
-  "1:00 PM",
-  "3:00 PM",
-  "5:00 PM",
-];
-
 const FREQUENCY_OPTIONS = ["One-Time", "2x per week", "Weekly", "Every Other Week", "Monthly"] as const;
+const DEFAULT_TIME_SLOTS = ["9:00 AM", "11:00 AM", "1:00 PM", "3:00 PM", "5:00 PM"] as const;
 const AREA_SIZE_OPTIONS = ["10-20 sqm", "21-30 sqm", "31-40 sqm", "41-50 sqm", "51+ sqm"] as const;
 const BEDROOM_OPTIONS = ["1 Bedroom", "2 Bedrooms", "3 Bedrooms", "4 Bedrooms", "5 Bedrooms", "6 Bedrooms"] as const;
 const BATHROOM_OPTIONS = ["1 Bathroom", "2 Bathrooms", "3 Bathrooms", "4 Bathrooms", "5 Bathrooms", "6 Bathrooms"] as const;
@@ -314,14 +316,29 @@ function BookingPageContent() {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [flippedCardId, setFlippedCardId] = useState<string | null>(null);
   const [cardCustomizations, setCardCustomizations] = useState<Record<string, ServiceCustomization>>({});
-  const [industryOptions, setIndustryOptions] = useState<{ label: string; key: string; id?: string }[]>(
-    DEFAULT_INDUSTRIES.map((label, index) => ({ label, key: toIndustryKey(label) || `industry-${index}` })),
-  );
+  const [industryOptions, setIndustryOptions] = useState<{ label: string; key: string; id?: string }[]>([]);
   const [industries, setIndustries] = useState<Array<{ id: string; name: string }>>([]);
+  const [serviceCategories, setServiceCategories] = useState<{
+    id: string;
+    name: string;
+    description: string;
+    price: number;
+    duration: string;
+    image: string;
+    features?: string[];
+    raw?: any;
+  }[]>([]);
+  const [serviceCategoriesLoading, setServiceCategoriesLoading] = useState(false);
   const [storedAddress, setStoredAddress] = useState<StoredAddress | null>(null);
-  const { customerName, customerEmail, accountLoading } = useCustomerAccount(false);
+  const { customerName, customerEmail, customerPhone, customerAddress, accountLoading } = useCustomerAccount(false);
   const { config } = useWebsiteConfig();
   const [pricingRows, setPricingRows] = useState<PricingTier[]>([]);
+  const [availableExtras, setAvailableExtras] = useState<any[]>([]);
+  const [availableVariables, setAvailableVariables] = useState<{ [key: string]: any[] }>({});
+  const [frequencyOptions, setFrequencyOptions] = useState<string[]>([]);
+  const [dynamicTimeSlots, setDynamicTimeSlots] = useState<string[]>([]);
+  const [availableProviders, setAvailableProviders] = useState<any[]>([]);
+  const [providersLoading, setProvidersLoading] = useState(false);
 
   // Handle phone number input to ensure it's a valid number
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>, field: any) => {
@@ -331,6 +348,12 @@ function BookingPageContent() {
     } else if (/^\d+$/.test(value)) {
       field.onChange(Number(value));
     }
+  };
+
+  // Handle phone field blur for validation
+  const handlePhoneBlur = (field: any) => {
+    field.onBlur();
+    form.trigger("phone");
   };
   const isAccountLocked = !accountLoading && Boolean(customerName || customerEmail);
   const [prefilledBookingId, setPrefilledBookingId] = useState<string | null>(null);
@@ -377,53 +400,36 @@ function BookingPageContent() {
   }, [selectedIndustryLabel]);
 
   useEffect(() => {
-    const buildOptions = (labels: string[]) => {
-      const seen = new Set<string>();
-      return labels
-        .map((label, index) => {
-          const trimmed = label?.trim();
-          if (!trimmed) return null;
-          const baseKey = toIndustryKey(trimmed) || `industry-${index}`;
-          let key = baseKey;
-          let suffix = 1;
-          while (seen.has(key)) {
-            key = `${baseKey}-${suffix++}`;
-          }
-          seen.add(key);
-          return { label: trimmed, key };
-        })
-        .filter(Boolean) as { label: string; key: string }[];
-    };
-
     const fetchIndustries = async () => {
       if (typeof window === "undefined") return;
-      
+
+      // Use business ID from URL param only (no localStorage)
+      const currentBusinessId = searchParams.get("business");
+
+      if (!currentBusinessId) {
+        setIndustries([]);
+        setIndustryOptions([]);
+        return;
+      }
+
       try {
-        // Get current business ID from localStorage
-        const currentBusinessId = localStorage.getItem('currentBusinessId');
-        
-        if (!currentBusinessId) {
-          console.log('No business ID found, using default industries');
-          setIndustryOptions(buildOptions(DEFAULT_INDUSTRIES));
+        const response = await fetch(`/api/industries?business_id=${currentBusinessId}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+          console.error("Failed to fetch industries:", data.error);
+          setIndustries([]);
+          setIndustryOptions([]);
           return;
         }
 
-        // Fetch industries from the database
-        const response = await fetch(`/api/industries?business_id=${currentBusinessId}`);
-        const data = await response.json();
-        
-        if (!response.ok) {
-          console.error('Failed to fetch industries:', data.error);
-          setIndustryOptions(buildOptions(DEFAULT_INDUSTRIES));
-          return;
-        }
-        
+        // Display industries added in Admin > Settings > Industries (e.g. Home Cleaning)
         if (data.industries && Array.isArray(data.industries) && data.industries.length > 0) {
           setIndustries(data.industries);
           const industryOptionsWithIds = data.industries.map((ind: any) => ({
             label: ind.name,
             key: toIndustryKey(ind.name) || `industry-${ind.id}`,
-            id: ind.id
+            id: ind.id,
           }));
           setIndustryOptions(industryOptionsWithIds);
         } else {
@@ -431,26 +437,23 @@ function BookingPageContent() {
           setIndustryOptions([]);
         }
       } catch (error) {
-        console.error('Error fetching industries:', error);
-        setIndustryOptions(buildOptions(DEFAULT_INDUSTRIES));
+        console.error("Error fetching industries:", error);
+        setIndustries([]);
+        setIndustryOptions([]);
       }
     };
 
     fetchIndustries();
 
-    // Listen for industry changes from admin portal
-    const handleIndustryChange = () => {
-      fetchIndustries();
-    };
-
-    window.addEventListener('industryChanged', handleIndustryChange);
+    const handleIndustryChange = () => fetchIndustries();
+    window.addEventListener("industryChanged", handleIndustryChange);
     const interval = window.setInterval(fetchIndustries, 5000);
 
     return () => {
-      window.removeEventListener('industryChanged', handleIndustryChange);
+      window.removeEventListener("industryChanged", handleIndustryChange);
       window.clearInterval(interval);
     };
-  }, []);
+  }, [searchParams]);
 
   // Get business context from URL params
   useEffect(() => {
@@ -520,13 +523,166 @@ function BookingPageContent() {
       setSelectedService(null);
       setServiceCustomization(null);
       setCardCustomizations({});
+      setServiceCategories([]);
       setCurrentStep("category");
     }
   }, [industryOptions, selectedCategory]);
-  
+
+  // Fetch service categories for selected industry from admin portal
+  useEffect(() => {
+    const industryId = selectedIndustryId;
+    const businessIdParam = searchParams.get("business");
+
+    if (!industryId || !businessIdParam) {
+      setServiceCategories([]);
+      return;
+    }
+
+    const fetchServiceCategories = async () => {
+      setServiceCategoriesLoading(true);
+      try {
+        const response = await fetch(
+          `/api/service-categories?industryId=${industryId}&businessId=${businessIdParam}`
+        );
+        const data = await response.json();
+
+        if (!response.ok) {
+          console.error("Failed to fetch service categories:", data.error);
+          setServiceCategories([]);
+          return;
+        }
+
+        const categories = data.serviceCategories ?? [];
+        const displayVisible = (display: string | undefined) =>
+          !display || display.includes("customer_frontend") || display.includes("customer");
+
+        const mapped = categories
+          .filter((cat: any) => displayVisible(cat.display))
+          .map((cat: any) => {
+            const hours = cat.service_category_time?.hours ?? "0";
+            const minutes = cat.service_category_time?.minutes ?? "0";
+            const duration =
+              cat.service_category_time?.enabled
+                ? `${hours}h ${minutes}m`.replace(/^0h /, "").replace(/ 0m$/, "m")
+                : "—";
+            const price = cat.service_category_price?.enabled && cat.service_category_price?.price
+              ? parseFloat(String(cat.service_category_price.price)) || 0
+              : 0;
+
+            return {
+              id: cat.id,
+              name: cat.name,
+              description: cat.description || `Professional ${cat.name} service.`,
+              price,
+              duration,
+              image: cat.icon || "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=400&h=300&fit=crop",
+              features: [],
+              raw: cat,
+            };
+          });
+
+        setServiceCategories(mapped);
+      } catch (error) {
+        console.error("Error fetching service categories:", error);
+        setServiceCategories([]);
+      } finally {
+        setServiceCategoriesLoading(false);
+      }
+    };
+
+    fetchServiceCategories();
+  }, [selectedIndustryId, searchParams]);
+
+  // Fetch extras and variables from admin portal
+  useEffect(() => {
+    const industryId = selectedIndustryId;
+    const businessIdParam = searchParams.get("business");
+
+    if (!industryId || !businessIdParam) {
+      setAvailableExtras([]);
+      setAvailableVariables({});
+      return;
+    }
+
+    const fetchExtrasAndVariables = async () => {
+      try {
+        // Fetch extras
+        const extrasResponse = await fetch(`/api/extras?industryId=${industryId}`);
+        if (extrasResponse.ok) {
+          const extrasData = await extrasResponse.json();
+          if (extrasData.extras && Array.isArray(extrasData.extras)) {
+            // Filter extras that should be displayed on customer frontend
+            const visibleExtras = extrasData.extras.filter(
+              (e: any) => e && (e.display === "frontend-backend-admin" || e.display === "Both" || e.display === "Booking" || e.display === "customer_frontend")
+            );
+            setAvailableExtras(visibleExtras);
+          } else {
+            setAvailableExtras([]);
+          }
+        } else {
+          setAvailableExtras([]);
+        }
+
+        // Fetch pricing parameters (variables)
+        const variablesResponse = await fetch(`/api/pricing-parameters?industryId=${industryId}`);
+        if (variablesResponse.ok) {
+          const variablesData = await variablesResponse.json();
+          if (variablesData.pricingParameters && Array.isArray(variablesData.pricingParameters)) {
+            // Group variables by the admin-configured variable_category label (no hardcoded categories)
+            const groupedVariables: { [key: string]: any[] } = {};
+            variablesData.pricingParameters.forEach((param: any) => {
+              const rawCategory = String(param.variable_category ?? "").trim();
+              if (!rawCategory) return;
+              if (!groupedVariables[rawCategory]) {
+                groupedVariables[rawCategory] = [];
+              }
+              groupedVariables[rawCategory].push({
+                id: param.id,
+                name: param.name,
+                variable_category: rawCategory,
+              });
+            });
+            setAvailableVariables(groupedVariables);
+          } else {
+            setAvailableVariables({});
+          }
+        } else {
+          setAvailableVariables({});
+        }
+
+        // Fetch frequencies
+        const frequenciesResponse = await fetch(`/api/industry-frequency?industryId=${industryId}`);
+        if (frequenciesResponse.ok) {
+          const frequenciesData = await frequenciesResponse.json();
+          if (frequenciesData.frequencies && Array.isArray(frequenciesData.frequencies)) {
+            // Extract frequency names from the response
+            const frequencyNames = frequenciesData.frequencies
+              .filter((f: any) => f.is_active !== false) // Only active frequencies
+              .map((f: any) => f.name || f.occurrence_time)
+              .filter(Boolean);
+            setFrequencyOptions(frequencyNames);
+          } else {
+            setFrequencyOptions([]);
+          }
+        } else {
+          setFrequencyOptions([]);
+        }
+      } catch (error) {
+        console.error("Error fetching extras, variables, and frequencies:", error);
+        setAvailableExtras([]);
+        setAvailableVariables({});
+        setFrequencyOptions([]);
+      }
+    };
+
+    fetchExtrasAndVariables();
+  }, [selectedIndustryId, searchParams]);
+
   // Initialize booking form
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
+    mode: "onChange",
+    reValidateMode: "onChange",
     defaultValues: {
       firstName: "",
       lastName: "",
@@ -540,8 +696,15 @@ function BookingPageContent() {
       zipCode: "",
       service: "",
       time: "",
+      provider: "",
       notes: "",
       reminderOptIn: false,
+      keyAccess: { primary_option: "someone_home", keep_key: false },
+      customerNoteForProvider: "",
+      couponCodeTab: "coupon-code",
+      couponCode: "",
+      couponType: "coupon-code",
+      giftCardCode: "",
       customization: {
         frequency: "",
         squareMeters: "",
@@ -552,8 +715,15 @@ function BookingPageContent() {
     },
   });
   const addressPreference = form.watch("addressPreference");
-  const existingAddressAvailable = Boolean(storedAddress?.address);
+  const selectedProvider = form.watch("provider");
+  const existingAddressAvailable = Boolean(storedAddress?.address || customerAddress);
   const disableAddressFields = addressPreference === "existing" && existingAddressAvailable;
+
+  // Handle provider selection
+  const handleProviderSelect = (provider: any) => {
+    const providerId = provider.id;
+    form.setValue("provider", providerId);
+  };
 
   useEffect(() => {
     if (accountLoading) return;
@@ -566,7 +736,21 @@ function BookingPageContent() {
       }
     }
     if (customerEmail) form.setValue("email", customerEmail);
-  }, [accountLoading, customerName, customerEmail, form]);
+    if (customerPhone) {
+      // Convert phone string to number, removing any non-digit characters
+      const phoneDigits = customerPhone.replace(/\D/g, '');
+      if (phoneDigits.length >= 10) {
+        form.setValue("phone", parseInt(phoneDigits.slice(-10)));
+      }
+    }
+    if (customerAddress) {
+      // Set address preference to existing and pre-fill the address
+      form.setValue("addressPreference", "existing");
+      form.setValue("address", customerAddress);
+      // Also store it as storedAddress for consistency
+      setStoredAddress({ address: customerAddress });
+    }
+  }, [accountLoading, customerName, customerEmail, customerPhone, customerAddress, form]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -585,19 +769,28 @@ function BookingPageContent() {
 
   useEffect(() => {
     if (addressPreference === "existing") {
-      if (storedAddress) {
-        form.setValue("address", storedAddress.address ?? "");
-        form.setValue("aptNo", storedAddress.aptNo ?? "");
+      if (storedAddress?.address) {
+        form.setValue("address", storedAddress.address);
+        // Only set aptNo if it exists in storedAddress, otherwise keep current value
+        if (storedAddress.aptNo) {
+          form.setValue("aptNo", storedAddress.aptNo);
+        }
         form.setValue("zipCode", storedAddress.zipCode ?? "");
+      } else if (customerAddress) {
+        form.setValue("address", customerAddress);
+        // Don't clear aptNo - let user keep their current value for apartment/unit
+        form.setValue("zipCode", "");
       } else {
         form.setValue("addressPreference", "new");
       }
     }
-  }, [addressPreference, storedAddress, form]);
+  }, [addressPreference, storedAddress?.address, customerAddress || "", form]);
 
   // Initialize payment form
   const paymentForm = useForm<z.infer<typeof paymentSchema>>({
     resolver: zodResolver(paymentSchema),
+    mode: "onChange",
+    reValidateMode: "onChange",
     defaultValues: {
       cardNumber: "",
       cardName: "",
@@ -605,6 +798,106 @@ function BookingPageContent() {
       cvv: "",
     },
   });
+
+  // Fetch dynamic time slots when date changes
+  useEffect(() => {
+    const fetchTimeSlots = async () => {
+      const selectedDate = form.getValues("date");
+      const businessIdParam = searchParams.get("business");
+      
+      if (!businessIdParam || !selectedDate) {
+        // Use default time slots if no date or business ID
+        setDynamicTimeSlots([]);
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `/api/time-slots?business_id=${businessIdParam}&date=${selectedDate.toISOString().split('T')[0]}`
+        );
+        
+        if (response.ok) {
+          const data = await response.json();
+          setDynamicTimeSlots(data.timeSlots || []);
+        } else {
+          console.error('Failed to fetch time slots');
+          setDynamicTimeSlots([]);
+        }
+      } catch (error) {
+        console.error('Error fetching time slots:', error);
+        setDynamicTimeSlots([]);
+      }
+    };
+
+    fetchTimeSlots();
+  }, [form.watch("date"), searchParams]);
+
+  // Get current form values for validation
+  const selectedDate = form.watch("date");
+  const selectedTime = form.watch("time");
+  const selectedServiceName = form.watch("service");
+  const isDateSelected = Boolean(selectedDate);
+  const isTimeSelected = Boolean(selectedTime);
+  const isDateTimeSelected = isDateSelected && isTimeSelected;
+
+  // Fetch available providers when date and time are selected
+  useEffect(() => {
+    const fetchAvailableProviders = async () => {
+      console.log('=== PROVIDER FETCH DEBUG ===');
+      console.log('selectedDate:', selectedDate);
+      console.log('selectedTime:', selectedTime);
+      console.log('selectedService:', selectedService);
+      console.log('selectedServiceName:', selectedServiceName);
+      console.log('businessId:', businessId);
+      
+      if (!selectedDate || !selectedTime || !businessId || !selectedService || !selectedServiceName) {
+        console.log('Missing required data, skipping provider fetch');
+        setAvailableProviders([]);
+        return;
+      }
+
+      setProvidersLoading(true);
+      try {
+        const formattedDate = selectedDate.toISOString().split('T')[0];
+        // Use the service ID from the selected service object, not the service name
+        const serviceId = selectedService.id || selectedService.raw?.id;
+        console.log('Fetching providers with params:');
+        console.log('- businessId:', businessId);
+        console.log('- serviceId:', serviceId);
+        console.log('- date:', formattedDate);
+        console.log('- time:', selectedTime);
+        
+        const response = await fetch(
+          `/api/providers/available?businessId=${businessId}&serviceId=${serviceId}&date=${formattedDate}&time=${selectedTime}`
+        );
+        
+        console.log('API response status:', response.status);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('API response data:', data);
+          setAvailableProviders(data.providers || []);
+        } else {
+          console.error('Failed to fetch available providers');
+          setAvailableProviders([]);
+        }
+      } catch (error) {
+        console.error('Error fetching available providers:', error);
+        setAvailableProviders([]);
+      } finally {
+        setProvidersLoading(false);
+      }
+    };
+
+    fetchAvailableProviders();
+  }, [selectedDate, selectedTime, selectedService, selectedServiceName, businessId]);
+
+  // Clear time selection when date is cleared
+  useEffect(() => {
+    if (!isDateSelected && selectedTime) {
+      form.setValue("time", "");
+    }
+  }, [isDateSelected, selectedTime, form]);
 
   // Handle category selection
   const handleCategorySelect = (categoryKey: ServiceCategory) => {
@@ -655,27 +948,29 @@ function BookingPageContent() {
       extras: [],
       isPartialCleaning: false,
       excludedAreas: [],
+      variableCategories: {},
     };
   };
 
   useEffect(() => {
-    if (!bookingIdParam || prefilledBookingId === bookingIdParam) return;
+    const loadBookingData = async () => {
+      if (!bookingIdParam || prefilledBookingId === bookingIdParam) return;
 
-    let sourceBooking: Booking | null = null;
-    let consumedStoredPayload = false;
+      let sourceBooking: Booking | null = null;
+      let consumedStoredPayload = false;
 
-    const storedPayload = readStoredBookAgainPayload();
-    if (storedPayload?.booking?.id === bookingIdParam) {
-      sourceBooking = storedPayload.booking;
-      consumedStoredPayload = true;
-    }
+      const storedPayload = readStoredBookAgainPayload();
+      if (storedPayload?.booking?.id === bookingIdParam) {
+        sourceBooking = storedPayload.booking;
+        consumedStoredPayload = true;
+      }
 
-    if (!sourceBooking) {
-      const storedBookings = readStoredBookings();
-      sourceBooking = storedBookings.find((booking) => booking.id === bookingIdParam) ?? null;
-    }
+      if (!sourceBooking) {
+        const storedBookings = await readStoredBookings();
+        sourceBooking = storedBookings.find((booking) => booking.id === bookingIdParam) ?? null;
+      }
 
-    if (!sourceBooking) return;
+      if (!sourceBooking) return;
 
     const match = findServiceMatch(sourceBooking.service);
     if (!match) {
@@ -699,7 +994,20 @@ function BookingPageContent() {
     setCurrentStep("details");
 
     const existingCustomization = getCardCustomization(service.id);
-    const presetCustomization = sourceBooking.customization ?? {};
+    
+    // Type for booking customization from database
+    type BookingCustomization = {
+      frequency?: string;
+      squareMeters?: string;
+      bedroom?: string;
+      bathroom?: string;
+      extras?: string[] | { name: string; quantity: number }[];
+      isPartialCleaning?: boolean;
+      excludedAreas?: string[];
+      variableCategories?: { [categoryName: string]: string };
+    };
+    
+    const presetCustomization = (sourceBooking.customization as BookingCustomization) ?? {};
 
     const normalizeExtrasFromString = (value: unknown): string[] => {
       if (Array.isArray(value)) {
@@ -714,8 +1022,8 @@ function BookingPageContent() {
       return [];
     };
 
-    const presetExtras: { name: string; quantity: number }[] = normalizeExtrasArray(normalizeExtrasFromString((presetCustomization as any).extras));
-    const existingExtras: { name: string; quantity: number }[] = normalizeExtrasArray(normalizeExtrasFromString((getCardCustomization(service.id) as any).extras));
+    const presetExtras: { name: string; quantity: number }[] = normalizeExtrasArray(normalizeExtrasFromString(presetCustomization.extras));
+    const existingExtras: { name: string; quantity: number }[] = normalizeExtrasArray(normalizeExtrasFromString(existingCustomization.extras));
 
     const rebookCustomization: ServiceCustomization = {
       frequency:
@@ -729,12 +1037,13 @@ function BookingPageContent() {
         normalizeSelectValue(presetCustomization.bedroom, BEDROOM_OPTIONS) ||
         normalizeSelectValue(existingCustomization.bedroom, BEDROOM_OPTIONS),
       bathroom:
-      	normalizeSelectValue(presetCustomization.bathroom, BATHROOM_OPTIONS) ||
+        normalizeSelectValue(presetCustomization.bathroom, BATHROOM_OPTIONS) ||
         normalizeSelectValue(existingCustomization.bathroom, BATHROOM_OPTIONS),
       extras: presetExtras.length ? presetExtras : (existingExtras.length ? normalizeExtrasArray(existingExtras) : []),
       isPartialCleaning:
         presetCustomization.isPartialCleaning ?? existingCustomization.isPartialCleaning ?? false,
       excludedAreas: presetCustomization.excludedAreas ?? existingCustomization.excludedAreas ?? [],
+      variableCategories: presetCustomization.variableCategories ?? existingCustomization.variableCategories ?? {},
     };
 
     setServiceCustomization(rebookCustomization);
@@ -768,6 +1077,9 @@ function BookingPageContent() {
       title: "Details loaded",
       description: "Review the pre-filled booking and make any adjustments you need.",
     });
+    };
+
+    loadBookingData();
   }, [bookingIdParam, prefilledBookingId, form, toast]);
 
   useEffect(() => {
@@ -777,7 +1089,7 @@ function BookingPageContent() {
     }
   }, [currentStep, router, searchParams]);
 
-  const addBookingToStorage = useCallback(() => {
+  const addBookingToStorage = useCallback(async () => {
     if (!bookingData || !serviceCustomization || !selectedService) {
       toast({
         title: "Missing information",
@@ -825,7 +1137,7 @@ function BookingPageContent() {
     };
 
     const currentBusinessId = searchParams.get("business") ?? null;
-    const existing = readStoredBookings(currentBusinessId);
+    const existing = await readStoredBookings(currentBusinessId);
     persistBookings([newBooking, ...existing], currentBusinessId);
     setRecentBookingId(newBooking.id);
     return newBooking;
@@ -834,8 +1146,7 @@ function BookingPageContent() {
   // Handle service selection
   const handleServiceSelect = (serviceName: string, customization?: ServiceCustomization) => {
     if (!selectedCategory) return;
-    const services = servicesByIndustry[selectedCategory];
-    const service = services.find(s => s.name === serviceName);
+    const service = serviceCategories.find((s) => s.name === serviceName);
     if (service && customization) {
       setSelectedService(service);
       setServiceCustomization(customization);
@@ -883,9 +1194,8 @@ function BookingPageContent() {
       }
     }
 
-    // Fallback to hardcoded service prices
-    const services = servicesByIndustry[selectedCategory] ?? [];
-    const service = services.find((s) => s.name === serviceName);
+    // Use price from service category configured in admin
+    const service = serviceCategories.find((s) => s.name === serviceName);
     return service?.price || 0;
   };
 
@@ -903,7 +1213,7 @@ function BookingPageContent() {
     setIsProcessing(true);
     try {
       await new Promise(resolve => setTimeout(resolve, 1500));
-      const saved = addBookingToStorage();
+      const saved = await addBookingToStorage();
       if (!saved) return;
       toast({
         title: "Booking Confirmed!",
@@ -927,7 +1237,7 @@ function BookingPageContent() {
     setIsProcessing(true);
     try {
       await new Promise(resolve => setTimeout(resolve, 2000));
-      const saved = addBookingToStorage();
+      const saved = await addBookingToStorage();
       if (!saved) return;
       toast({
         title: "Payment Successful!",
@@ -1194,6 +1504,10 @@ function BookingPageContent() {
                                         const formatted = formatCardNumber(e.target.value);
                                         field.onChange(formatted);
                                       }}
+                                      onBlur={(e) => {
+                                        field.onBlur();
+                                        paymentForm.trigger("cardNumber");
+                                      }}
                                     />
                                   </div>
                                 </FormControl>
@@ -1209,7 +1523,12 @@ function BookingPageContent() {
                               <FormItem>
                                 <FormLabel>Name on Card</FormLabel>
                                 <FormControl>
-                                  <Input placeholder="JOHN DOE" {...field} />
+                                  <Input placeholder="JOHN DOE" {...field} 
+                                    onBlur={(e) => {
+                                      field.onBlur();
+                                      paymentForm.trigger("cardName");
+                                    }}
+                                  />
                                 </FormControl>
                                 <FormMessage />
                               </FormItem>
@@ -1231,6 +1550,10 @@ function BookingPageContent() {
                                       onChange={(e) => {
                                         const formatted = formatExpiryDate(e.target.value);
                                         field.onChange(formatted);
+                                      }}
+                                      onBlur={(e) => {
+                                        field.onBlur();
+                                        paymentForm.trigger("expiryDate");
                                       }}
                                     />
                                   </FormControl>
@@ -1254,6 +1577,10 @@ function BookingPageContent() {
                                       onChange={(e) => {
                                         const value = e.target.value.replace(/\D/g, "");
                                         field.onChange(value);
+                                      }}
+                                      onBlur={(e) => {
+                                        field.onBlur();
+                                        paymentForm.trigger("cvv");
                                       }}
                                     />
                                   </FormControl>
@@ -1293,7 +1620,7 @@ function BookingPageContent() {
 
   // Booking Details Form
   if (currentStep === "details" && selectedCategory) {
-    const categoryServices = servicesByIndustry[selectedCategory] ?? [];
+    const categoryServices = serviceCategories;
     const showSummary = selectedService && serviceCustomization;
     const { subtotal, tax, total } = showSummary ? calculateTotal() : { subtotal: 0, tax: 0, total: 0 };
     
@@ -1326,22 +1653,58 @@ function BookingPageContent() {
               </p>
             </div>
 
+            {/* Zip Code Input - Above Select Services */}
+            <div className="mb-6">
+              <Form {...form}>
+                <FormField
+                  control={form.control}
+                  name="zipCode"
+                  render={({ field }) => (
+                    <FormItem className={styles.formGroup}>
+                      <FormLabel className={styles.formLabel}>Enter Zip Code</FormLabel>
+                      <FormControl>
+                        <Input
+                          className={styles.formInput}
+                          placeholder="Zip Code"
+                          maxLength={10}
+                          {...field}
+                          onBlur={(e) => {
+                            field.onBlur();
+                            form.trigger("zipCode");
+                          }}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </Form>
+            </div>
+
             {/* Service Type Selection - Always show flip cards */}
             <div className="mb-8">
               <h2 className="text-2xl font-bold mb-4">Select Services</h2>
-              {categoryServices.length > 0 ? (
+              {serviceCategoriesLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-cyan-500" />
+                </div>
+              ) : categoryServices.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {categoryServices.map((service) => (
                     <FrequencyAwareServiceCard
                       key={service.id}
                       service={service}
-                      isSelected={selectedService?.id === service.id}
+                      isSelected={selectedService?.id === service.id || selectedService?.name === service.name}
                       onSelect={handleServiceSelect}
                       flippedCardId={flippedCardId}
                       onFlip={handleCardFlip}
                       customization={getCardCustomization(service.id)}
                       onCustomizationChange={handleCustomizationChange}
                       industryId={selectedIndustryId}
+                      serviceCategory={service.raw}
+                      availableExtras={availableExtras}
+                      availableVariables={availableVariables}
+                      frequencyOptions={frequencyOptions}
                     />
                   ))}
                 </div>
@@ -1374,8 +1737,12 @@ function BookingPageContent() {
                             <FormControl>
                               <Input
                                 className={styles.formInput}
-                                placeholder="John"
+                                placeholder="Enter First name"
                                 {...field}
+                                onBlur={(e) => {
+                                  field.onBlur();
+                                  form.trigger("firstName");
+                                }}
                                 disabled={isAccountLocked}
                                 readOnly={isAccountLocked}
                               />
@@ -1395,8 +1762,12 @@ function BookingPageContent() {
                             <FormControl>
                               <Input
                                 className={styles.formInput}
-                                placeholder="Doe"
+                                placeholder="Enter Lastname"
                                 {...field}
+                                onBlur={(e) => {
+                                  field.onBlur();
+                                  form.trigger("lastName");
+                                }}
                                 disabled={isAccountLocked}
                                 readOnly={isAccountLocked}
                               />
@@ -1417,8 +1788,12 @@ function BookingPageContent() {
                               <Input
                                 type="email"
                                 className={styles.formInput}
-                                placeholder="john@example.com"
+                                placeholder="name@example.com"
                                 {...field}
+                                onBlur={(e) => {
+                                  field.onBlur();
+                                  form.trigger("email");
+                                }}
                                 disabled={isAccountLocked}
                                 readOnly={isAccountLocked}
                               />
@@ -1440,10 +1815,11 @@ function BookingPageContent() {
                                 <Input 
                                   type="tel" 
                                   className={styles.formInput} 
-                                  placeholder="1234567890" 
+                                  placeholder="Phone No." 
                                   {...field}
                                   value={field.value || ''}
                                   onChange={(e) => handlePhoneChange(e, field)}
+                                  onBlur={() => handlePhoneBlur(field)}
                                 />
                               </FormControl>
                               <FormMessage />
@@ -1476,10 +1852,11 @@ function BookingPageContent() {
                               <Input 
                                 type="tel" 
                                 className={styles.formInput} 
-                                placeholder="9876543210" 
+                                placeholder="Phone No." 
                                 {...field}
                                 value={field.value || ''}
                                 onChange={(e) => handlePhoneChange(e, field)}
+                                onBlur={() => handlePhoneBlur(field)}
                               />
                             </FormControl>
                             <FormMessage />
@@ -1495,7 +1872,12 @@ function BookingPageContent() {
                           <FormItem className={styles.formGroup}>
                             <FormLabel className={styles.formLabel}>Secondary Email (Optional)</FormLabel>
                             <FormControl>
-                              <Input type="email" className={styles.formInput} placeholder="alternate@example.com" {...field} />
+                              <Input type="email" className={styles.formInput} placeholder="alternate@example.com" {...field} 
+                                onBlur={(e) => {
+                                  field.onBlur();
+                                  form.trigger("secondaryEmail");
+                                }}
+                              />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -1540,66 +1922,61 @@ function BookingPageContent() {
                         />
                       </div>
 
-                      {/* Address Field */}
-                      <FormField
-                        control={form.control}
-                        name="address"
-                        render={({ field }) => (
-                          <FormItem className={styles.formGroup}>
-                            <FormLabel className={styles.formLabel}>Address</FormLabel>
-                            <FormControl>
-                              <Input
-                                className={styles.formInput}
-                                placeholder="123 Main St, Chicago, IL"
-                                {...field}
-                                disabled={disableAddressFields}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                      
+                      {/* Address and Apt Number Fields - Same Line */}
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                        {/* Address Field */}
+                        <div className="md:col-span-8">
+                          <FormField
+                            control={form.control}
+                            name="address"
+                            render={({ field }) => (
+                              <FormItem className={styles.formGroup}>
+                                <FormLabel className={styles.formLabel}>Address</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    className={styles.formInput}
+                                    placeholder="123 Main St, Chicago, IL"
+                                    {...field}
+                                    onBlur={(e) => {
+                                      field.onBlur();
+                                      form.trigger("address");
+                                    }}
+                                    disabled={disableAddressFields}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
 
-                      {/* Apt Number Field */}
-                      <FormField
-                        control={form.control}
-                        name="aptNo"
-                        render={({ field }) => (
-                          <FormItem className={styles.formGroup}>
-                            <FormLabel className={styles.formLabel}>Apt. No. (Optional)</FormLabel>
-                            <FormControl>
-                              <Input
-                                className={styles.formInput}
-                                placeholder="Unit 3B"
-                                {...field}
-                                disabled={disableAddressFields}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      {/* Zip Code Field */}
-                      <FormField
-                        control={form.control}
-                        name="zipCode"
-                        render={({ field }) => (
-                          <FormItem className={styles.formGroup}>
-                            <FormLabel className={styles.formLabel}>Zip Code</FormLabel>
-                            <FormControl>
-                              <Input
-                                className={styles.formInput}
-                                placeholder="60601"
-                                maxLength={10}
-                                {...field}
-                                disabled={disableAddressFields}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                        {/* Apt Number Field */}
+                        <div className="md:col-span-4">
+                          <FormField
+                            control={form.control}
+                            name="aptNo"
+                            render={({ field }) => (
+                              <FormItem className={styles.formGroup}>
+                                <FormLabel className={styles.formLabel}>Apt. No. (Optional)</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    className={styles.formInput}
+                                    placeholder="Unit 3B"
+                                    {...field}
+                                    onBlur={(e) => {
+                                      field.onBlur();
+                                      form.trigger("aptNo");
+                                    }}
+                                    // Always enabled for editing
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                      </div>
 
                       {/* Date Picker */}
                       <div className="col-span-full">
@@ -1647,29 +2024,357 @@ function BookingPageContent() {
                         />
                       </div>
 
-                      {/* Time Selection */}
-                      <div className="col-span-full">
-                        <FormField
-                          control={form.control}
-                          name="time"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className={styles.formLabel}>Select Time Slot</FormLabel>
-                              <div className={styles.timeSlots}>
-                                {availableTimes.map((time) => (
-                                  <div
-                                    key={time}
-                                    className={cn(styles.timeSlot, field.value === time && styles.selected)}
-                                    onClick={() => field.onChange(time)}
+                      {/* Time Selection - Only show after date is selected */}
+                      {isDateSelected && (
+                        <div className="col-span-full">
+                          <FormField
+                            control={form.control}
+                            name="time"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className={styles.formLabel}>Select Time Slot</FormLabel>
+                                <div className={styles.timeSlots}>
+                                  {(dynamicTimeSlots.length > 0 ? dynamicTimeSlots : DEFAULT_TIME_SLOTS).map((time) => (
+                                    <div
+                                      key={time}
+                                      className={cn(styles.timeSlot, field.value === time && styles.selected)}
+                                      onClick={() => field.onChange(time)}
+                                    >
+                                      {time}
+                                    </div>
+                                  ))}
+                                </div>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                      )}
+
+                      {/* Available Providers - Only show after date and time are selected */}
+                      {isDateTimeSelected && (
+                        <div className="col-span-full">
+                          <div className={styles.formGroup}>
+                            <FormLabel className={styles.formLabel}>
+                              Available Providers
+                              <span className="text-muted-foreground text-sm font-normal block mt-1">
+                                {providersLoading 
+                                  ? "Finding available providers..." 
+                                  : availableProviders.length > 0 
+                                    ? selectedProvider
+                                      ? `${availableProviders.length} provider${availableProviders.length === 1 ? '' : 's'} available • ${availableProviders.find(p => p.id === selectedProvider)?.name || 'Provider'} selected`
+                                      : `${availableProviders.length} provider${availableProviders.length === 1 ? '' : 's'} available`
+                                    : "No providers available for the selected time"
+                                }
+                              </span>
+                            </FormLabel>
+                            
+                            {providersLoading ? (
+                              <div className="flex items-center justify-center py-8 border border-gray-200 rounded-lg">
+                                <Loader2 className="h-6 w-6 animate-spin text-cyan-500 mr-2" />
+                                <span className="text-muted-foreground">Loading providers...</span>
+                              </div>
+                            ) : availableProviders.length > 0 ? (
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-3">
+                                {availableProviders.map((provider) => (
+                                  <div 
+                                    key={provider.id} 
+                                    className={`border rounded-lg p-4 cursor-pointer transition-all ${
+                                      selectedProvider === provider.id 
+                                        ? 'border-cyan-500 bg-cyan-50 shadow-md' 
+                                        : 'border-gray-200 hover:border-cyan-300 hover:shadow-sm'
+                                    }`}
+                                    onClick={() => handleProviderSelect(provider)}
                                   >
-                                    {time}
+                                    <div className="flex items-start justify-between mb-2">
+                                      <div>
+                                        <h4 className="font-semibold text-gray-900">{provider.name}</h4>
+                                        <p className="text-sm text-gray-600">{provider.specialization || 'Service Provider'}</p>
+                                      </div>
+                                      <div className="flex items-center">
+                                        <div className="flex items-center mr-2">
+                                          <span className="text-yellow-400">★</span>
+                                          <span className="text-sm text-gray-600 ml-1">
+                                            {provider.rating ? provider.rating.toFixed(1) : 'New'}
+                                          </span>
+                                        </div>
+                                        {provider.isAvailable && (
+                                          <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                                        )}
+                                        {selectedProvider === provider.id && (
+                                          <div className="w-5 h-5 bg-cyan-500 rounded-full flex items-center justify-center ml-2">
+                                            <CheckCircle className="w-3 h-3 text-white" />
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                    
+                                    <div className="space-y-1 text-sm text-gray-600">
+                                      <div className="flex items-center">
+                                        <span className="font-medium">Jobs:</span>
+                                        <span className="ml-1">{provider.completedJobs || 0} completed</span>
+                                      </div>
+                                      
+                                      {provider.services && provider.services.length > 0 && (
+                                        <div className="flex flex-wrap gap-1 mt-2">
+                                          {provider.services.slice(0, 2).map((service: any, index: number) => (
+                                            <span 
+                                              key={index}
+                                              className="px-2 py-1 bg-cyan-50 text-cyan-700 text-xs rounded-full"
+                                            >
+                                              {service.is_primary_service ? '⭐ ' : ''}{service.service_name || service.service_id?.slice(0, 15)}...
+                                            </span>
+                                          ))}
+                                          {provider.services.length > 2 && (
+                                            <span className="px-2 py-1 bg-gray-50 text-gray-600 text-xs rounded-full">
+                                              +{provider.services.length - 2} more
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
+                                      
+                                      {provider.reasons && provider.reasons.length > 0 && (
+                                        <div className="mt-2 pt-2 border-t border-gray-100">
+                                          <div className="text-xs text-gray-500">
+                                            {provider.reasons.slice(0, 2).map((reason: string, index: number) => (
+                                              <div key={index}>• {reason}</div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
                                 ))}
                               </div>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
+                            ) : (
+                              <div className="text-center py-8 border border-gray-200 rounded-lg bg-gray-50">
+                                <div className="text-gray-500 mb-2">
+                                  <svg className="w-12 h-12 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                </div>
+                                <p className="text-gray-600 font-medium">No providers available</p>
+                                <p className="text-sm text-gray-500 mt-1">
+                                  Try selecting a different date or time slot
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Hidden provider field for form submission */}
+                      <FormField
+                        control={form.control}
+                        name="provider"
+                        render={({ field }) => (
+                          <input type="hidden" {...field} />
+                        )}
+                      />
+
+                      {/* Key Information & Job Notes */}
+                      <div className="col-span-full">
+                        <div className="border border-gray-200 rounded-lg p-6 bg-gray-50">
+                          <h3 className="text-lg font-semibold mb-4">Key Information & Job Notes</h3>
+                          
+                          {/* Key Access */}
+                          <div className="mb-6">
+                            <FormLabel className={styles.formLabel}>Key Access</FormLabel>
+                            <div className="space-y-3">
+                              {/* First row: Someone Will Be At Home and I Will Hide The Keys - Radio Buttons */}
+                              <div className="flex gap-6">
+                                <FormField
+                                  control={form.control}
+                                  name="keyAccess.primary_option"
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormControl>
+                                        <RadioGroup
+                                          value={field.value}
+                                          onValueChange={field.onChange}
+                                          className="flex gap-6"
+                                        >
+                                          <div className="flex items-center space-x-2">
+                                            <RadioGroupItem value="someone_home" id="someone-home" />
+                                            <label htmlFor="someone-home" className="text-sm font-medium">
+                                              Someone Will Be At Home
+                                            </label>
+                                          </div>
+                                          <div className="flex items-center space-x-2">
+                                            <RadioGroupItem value="hide_keys" id="hide-keys" />
+                                            <label htmlFor="hide-keys" className="text-sm font-medium">
+                                              I Will Hide The Keys
+                                            </label>
+                                          </div>
+                                        </RadioGroup>
+                                      </FormControl>
+                                    </FormItem>
+                                  )}
+                                />
+                              </div>
+                              
+                              {/* Second row: Keep Key With Provider - Checkbox */}
+                              <div className="flex gap-6">
+                                <FormField
+                                  control={form.control}
+                                  name="keyAccess.keep_key"
+                                  render={({ field }) => (
+                                    <FormItem className="flex items-center space-x-2">
+                                      <FormControl>
+                                        <Checkbox
+                                          checked={field.value}
+                                          onCheckedChange={field.onChange}
+                                        />
+                                      </FormControl>
+                                      <label className="text-sm font-medium">
+                                        Keep Key With Provider
+                                      </label>
+                                    </FormItem>
+                                  )}
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Customer Note For Provider */}
+                          <div>
+                            <FormField
+                              control={form.control}
+                              name="customerNoteForProvider"
+                              render={({ field }) => (
+                                <FormItem className={styles.formGroup}>
+                                  <FormLabel className={styles.formLabel}>
+                                    Customer Note For Provider
+                                    <span className="text-muted-foreground text-sm font-normal block mt-1">
+                                      Special Notes And Instructions
+                                    </span>
+                                  </FormLabel>
+                                  <FormControl>
+                                    <textarea
+                                      className={styles.formTextarea}
+                                      placeholder="Please provide any special instructions for the service provider..."
+                                      rows={3}
+                                      {...field}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Coupon Code & Gift Cards */}
+                      <div className="col-span-full">
+                        <div className="border border-gray-200 rounded-lg p-6 bg-gray-50">
+                          <h3 className="text-lg font-semibold mb-4">Coupon Code & Gift Cards</h3>
+                          
+                          {/* Tabs */}
+                          <div className="flex space-x-4 mb-4 border-b border-gray-200">
+                            <button
+                              type="button"
+                              onClick={() => form.setValue("couponCodeTab", "coupon-code")}
+                              className={`pb-2 text-base font-semibold ${form.watch("couponCodeTab") === "coupon-code" ? "text-blue-600 border-b-2 border-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+                            >
+                              Coupon Code
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => form.setValue("couponCodeTab", "gift-card")}
+                              className={`pb-2 text-base font-semibold ${form.watch("couponCodeTab") === "gift-card" ? "text-blue-600 border-b-2 border-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+                            >
+                              Gift Cards
+                            </button>
+                          </div>
+                          
+                          {/* Tab Content */}
+                          <div className="bg-white rounded-lg p-6 shadow-sm">
+                            {form.watch("couponCodeTab") === "coupon-code" ? (
+                              <div className="space-y-6">
+                                {/* Input Section */}
+                                <div>
+                                  <div className="flex items-center space-x-2 mb-2">
+                                    <Label htmlFor="coupon-code-input" className="text-sm font-medium text-gray-900">
+                                      Enter Coupon Code
+                                    </Label>
+                                    <div className="w-4 h-4 rounded-full bg-gray-200 flex items-center justify-center">
+                                      <span className="text-gray-500 text-xs">i</span>
+                                    </div>
+                                  </div>
+                                  <div className="flex space-x-2">
+                                    <FormField
+                                      control={form.control}
+                                      name="couponCode"
+                                      render={({ field }) => (
+                                        <FormItem className="flex-1">
+                                          <FormControl>
+                                            <Input
+                                              id="coupon-code-input"
+                                              placeholder="Enter coupon code"
+                                              {...field}
+                                              className="border-gray-300"
+                                            />
+                                          </FormControl>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
+                                    <Button
+                                      type="button"
+                                      onClick={() => {
+                                        toast({
+                                          title: "Coupon Code Applied",
+                                          description: `Coupon code "${form.getValues("couponCode")}" has been applied.`,
+                                        });
+                                      }}
+                                      className="bg-sky-400 hover:bg-sky-500 text-white px-6"
+                                    >
+                                      Apply
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-6">
+                                <div>
+                                  <Label htmlFor="gift-card-code" className="text-sm font-medium text-gray-900">Gift Card Code</Label>
+                                  <div className="flex space-x-2 mt-2">
+                                    <FormField
+                                      control={form.control}
+                                      name="giftCardCode"
+                                      render={({ field }) => (
+                                        <FormItem className="flex-1">
+                                          <FormControl>
+                                            <Input
+                                              id="gift-card-code"
+                                              placeholder="Enter gift card code"
+                                              {...field}
+                                              className="border-gray-300"
+                                            />
+                                          </FormControl>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
+                                    <Button
+                                      type="button"
+                                      onClick={() => {
+                                        toast({
+                                          title: "Gift Card Applied",
+                                          description: `Gift card "${form.getValues("giftCardCode")}" has been applied.`,
+                                        });
+                                      }}
+                                      className="bg-sky-400 hover:bg-sky-500 text-white px-6"
+                                    >
+                                      Apply
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
 
                       {/* Additional Notes */}

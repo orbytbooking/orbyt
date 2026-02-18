@@ -48,13 +48,16 @@ export interface ServiceCustomization {
   extras: { name: string; quantity: number }[];
   isPartialCleaning: boolean;
   excludedAreas: string[];
+  variableCategories?: { [categoryName: string]: string }; // Dynamic variable category selections
 }
 
-const DEFAULT_EXTRA_OPTIONS = ["Inside Fridge", "Inside Oven", "Inside Cabinets", "Laundry", "Windows"];
-const DEFAULT_BATHROOM_OPTIONS = ["1", "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5", "5.5", "6", "6.5", "7", "7.5"];
-const DEFAULT_SQFT_OPTIONS = ["1 - 1249 Sq Ft", "1250 - 1499 Sq Ft", "1500 - 1799 Sq Ft", "1800 - 2099 Sq Ft", "2100 - 2399 Sq Ft", "2400 - 2699 Sq Ft", "2700 - 3000 Sq Ft", "3000 - 3299 Sq Ft", "3300 - 3699 Sq Ft", "3700 - 3999", "4000+"];
-const DEFAULT_BEDROOM_OPTIONS = ["0", "1", "2", "3", "4", "5"];
-const DEFAULT_EXCLUDE_OPTIONS = ["Inside Fridge", "Inside Oven", "Inside Cabinets", "Laundry", "Windows"];
+// Customer UI should reflect admin-configured options only (no hardcoded defaults)
+const DEFAULT_EXTRA_OPTIONS: string[] = [];
+const DEFAULT_BATHROOM_OPTIONS: string[] = [];
+const DEFAULT_SQFT_OPTIONS: string[] = [];
+const DEFAULT_BEDROOM_OPTIONS: string[] = [];
+// Exclude parameters should come only from admin-configured data (no local defaults)
+const DEFAULT_EXCLUDE_OPTIONS: string[] = [];
 
 export default function FrequencyAwareServiceCard({ 
   service, 
@@ -86,103 +89,156 @@ export default function FrequencyAwareServiceCard({
     extras: DEFAULT_EXTRA_OPTIONS,
   });
 
+  // Get all variable categories from admin-configured pricing parameters
+  const variableCategoryEntries = Object.entries(availableVariables || {}).filter(
+    ([category, vars]) => Boolean(category?.trim?.()) && Array.isArray(vars) && vars.length > 0,
+  );
+
+  // Helper to get current value for a variable category
+  const getVariableCategoryValue = (categoryName: string): string => {
+    // Check dynamic variableCategories first
+    if (customization.variableCategories?.[categoryName]) {
+      return customization.variableCategories[categoryName];
+    }
+    // Fallback to legacy fields for backward compatibility
+    const lowerCategory = categoryName.toLowerCase();
+    if (lowerCategory.includes('sqft') || lowerCategory.includes('area') || lowerCategory.includes('square')) {
+      return customization.squareMeters || '';
+    }
+    if (lowerCategory.includes('bedroom')) {
+      return customization.bedroom || '';
+    }
+    if (lowerCategory.includes('bathroom')) {
+      return customization.bathroom || '';
+    }
+    return '';
+  };
+
+  // Helper to update variable category value
+  const updateVariableCategoryValue = (categoryName: string, value: string) => {
+    const updatedVariableCategories = {
+      ...(customization.variableCategories || {}),
+      [categoryName]: value,
+    };
+    
+    // Also update legacy fields for backward compatibility
+    const lowerCategory = categoryName.toLowerCase();
+    const updatedCustomization: ServiceCustomization = {
+      ...customization,
+      variableCategories: updatedVariableCategories,
+    };
+    
+    if (lowerCategory.includes('sqft') || lowerCategory.includes('area') || lowerCategory.includes('square')) {
+      updatedCustomization.squareMeters = value;
+    }
+    if (lowerCategory.includes('bedroom')) {
+      updatedCustomization.bedroom = value;
+    }
+    if (lowerCategory.includes('bathroom')) {
+      updatedCustomization.bathroom = value;
+    }
+    
+        
+    onCustomizationChange(service.id, updatedCustomization);
+  };
+
   // Sync confirmed state with isSelected prop
   useEffect(() => {
     setIsConfirmed(isSelected);
   }, [isSelected]);
 
+  // Force re-render when customization prop changes to ensure form fields update
+  useEffect(() => {
+    // This effect ensures that when the customization prop changes (e.g., when editing),
+    // the component properly reflects the new values in the form fields
+    if (customization) {
+      // The dependency on customization will trigger re-render when values change
+      // This ensures Select components show the correct values when editing
+    }
+  }, [customization]);
+
+  // Fetch exclude parameters from admin portal API
+  useEffect(() => {
+    const fetchExcludeParameters = async () => {
+      if (!industryId) {
+        setFilteredOptions(prev => ({ ...prev, excludeParameters: [] }));
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/exclude-parameters?industryId=${encodeURIComponent(industryId)}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.excludeParameters && Array.isArray(data.excludeParameters)) {
+            const excludeParamNames = data.excludeParameters.map((param: any) => param.name);
+            setFilteredOptions(prev => ({ ...prev, excludeParameters: excludeParamNames }));
+          } else {
+            setFilteredOptions(prev => ({ ...prev, excludeParameters: [] }));
+          }
+        } else {
+          setFilteredOptions(prev => ({ ...prev, excludeParameters: [] }));
+        }
+      } catch (error) {
+        console.error('Error fetching exclude parameters:', error);
+        setFilteredOptions(prev => ({ ...prev, excludeParameters: [] }));
+      }
+    };
+
+    fetchExcludeParameters();
+  }, [industryId]);
+
   // Apply service category dependency-based filtering
   useEffect(() => {
     // Only run if we actually have service category data
     if (!serviceCategory || (!availableExtras?.length && !availableVariables)) {
-      // If no service category or no available data, use available data or defaults
-      setFilteredOptions({
-        bathroomVariables: availableVariables?.bathroom?.map((v: any) => v.name) || DEFAULT_BATHROOM_OPTIONS,
-        sqftVariables: availableVariables?.sqft?.map((v: any) => v.name) || availableVariables?.area?.map((v: any) => v.name) || DEFAULT_SQFT_OPTIONS,
-        bedroomVariables: availableVariables?.bedroom?.map((v: any) => v.name) || DEFAULT_BEDROOM_OPTIONS,
-        excludeParameters: availableExtras?.length > 0 ? availableExtras.map(e => e.name) : DEFAULT_EXCLUDE_OPTIONS,
-        extras: availableExtras?.length > 0 ? availableExtras.map(e => e.name) : DEFAULT_EXTRA_OPTIONS,
-      });
+      // If no service category or no available data, use available data
+      // Variables are displayed dynamically, so we only need to track extras and exclude parameters
+      setFilteredOptions(prev => ({
+        bathroomVariables: DEFAULT_BATHROOM_OPTIONS, // Not used - variables displayed dynamically
+        sqftVariables: DEFAULT_SQFT_OPTIONS, // Not used - variables displayed dynamically
+        bedroomVariables: DEFAULT_BEDROOM_OPTIONS, // Not used - variables displayed dynamically
+        excludeParameters: prev.excludeParameters || [], // Preserve exclude parameters from API fetch
+        extras: availableExtras?.length > 0 ? availableExtras.map(e => e.name) : [], // Only use admin-configured extras
+      }));
       return;
     }
 
     const applyServiceCategoryFilters = () => {
-      // Get variables from service category
-      const categoryVariables = serviceCategory.variables || {};
-      
-      // Filter variables based on service category selection
-      let filteredSqft: string[] = [];
-      let filteredBedroom: string[] = [];
-      let filteredBathroom: string[] = [];
-      
-      // Process each variable category from database
-      Object.keys(categoryVariables).forEach(variableCategory => {
-        const selectedVariables = categoryVariables[variableCategory];
-        if (Array.isArray(selectedVariables) && availableVariables[variableCategory]) {
-          const availableVars = availableVariables[variableCategory];
-          
-          // Map variable names to actual database variable names
-          selectedVariables.forEach(varName => {
-            // Find matching variable in available variables
-            const matchingVar = availableVars.find((v: any) => v.name === varName);
-            if (matchingVar) {
-              // Use the actual variable name from database
-              if (variableCategory.toLowerCase().includes('sqft') || variableCategory.toLowerCase().includes('area')) {
-                filteredSqft.push(matchingVar.name);
-              } else if (variableCategory.toLowerCase().includes('bedroom')) {
-                filteredBedroom.push(matchingVar.name);
-              } else if (variableCategory.toLowerCase().includes('bathroom')) {
-                filteredBathroom.push(matchingVar.name);
-              }
-            }
-          });
-        }
-      });
-      
-      // If no filtered variables from service category, use all available variables or defaults
-      if (filteredSqft.length === 0) {
-        const sqftVars = availableVariables?.sqft?.map((v: any) => v.name) || availableVariables?.area?.map((v: any) => v.name) || [];
-        filteredSqft = sqftVars.length > 0 ? sqftVars : DEFAULT_SQFT_OPTIONS;
-      }
-      if (filteredBedroom.length === 0) {
-        const bedroomVars = availableVariables?.bedroom?.map((v: any) => v.name) || [];
-        filteredBedroom = bedroomVars.length > 0 ? bedroomVars : DEFAULT_BEDROOM_OPTIONS;
-      }
-      if (filteredBathroom.length === 0) {
-        const bathroomVars = availableVariables?.bathroom?.map((v: any) => v.name) || [];
-        filteredBathroom = bathroomVars.length > 0 ? bathroomVars : DEFAULT_BATHROOM_OPTIONS;
-      }
-      
-      // Remove duplicates
-      filteredSqft = [...new Set(filteredSqft)];
-      filteredBedroom = [...new Set(filteredBedroom)];
-      filteredBathroom = [...new Set(filteredBathroom)];
+      // Variables are now displayed dynamically from availableVariables
+      // No need to filter them here - all categories are shown
       
       // Filter extras based on service category selection
       const categoryExtras = serviceCategory.extras || [];
-      let filteredExtras = (availableExtras || [])
-        .filter(extra => categoryExtras.includes(extra.id))
-        .map(extra => extra.name);
+      let filteredExtras: string[] = [];
       
-      // If no filtered extras from service category, use all available extras or defaults
-      if (filteredExtras.length === 0) {
-        if (availableExtras?.length > 0) {
-          filteredExtras = availableExtras.map(extra => extra.name);
-        } else {
-          filteredExtras = DEFAULT_EXTRA_OPTIONS;
-        }
+      if (categoryExtras.length > 0 && availableExtras?.length > 0) {
+        // Filter extras that are configured for this service category
+        filteredExtras = (availableExtras || [])
+          .filter(extra => categoryExtras.includes(extra.id))
+          .map(extra => extra.name);
       }
       
-      // Filter exclude parameters (use available extras as exclude options)
-      const filteredExclude = filteredExtras;
+      // If no filtered extras from service category, use all available extras from admin portal
+      if (filteredExtras.length === 0) {
+        if (availableExtras?.length > 0) {
+          // Use all extras configured in admin portal
+          filteredExtras = availableExtras.map(extra => extra.name);
+        }
+        // Don't use local defaults - only show admin-configured extras
+      }
+      
+      // Exclude parameters come from API fetch (preserve existing fetched ones)
+      // Don't override exclude parameters here - they are fetched separately from /api/exclude-parameters
+      const currentExcludeParams = filteredOptions.excludeParameters || [];
 
       // Update state with filtered options
+      // Variables are now displayed dynamically, so we only need to track extras and exclude parameters
       const newFilteredOptions = {
-        bathroomVariables: filteredBathroom.length > 0 ? filteredBathroom : DEFAULT_BATHROOM_OPTIONS,
-        sqftVariables: filteredSqft.length > 0 ? filteredSqft : DEFAULT_SQFT_OPTIONS,
-        bedroomVariables: filteredBedroom.length > 0 ? filteredBedroom : DEFAULT_BEDROOM_OPTIONS,
-        excludeParameters: filteredExclude,
-        extras: filteredExtras.length > 0 ? filteredExtras : DEFAULT_EXTRA_OPTIONS,
+        bathroomVariables: DEFAULT_BATHROOM_OPTIONS, // Not used anymore - variables displayed dynamically
+        sqftVariables: DEFAULT_SQFT_OPTIONS, // Not used anymore - variables displayed dynamically
+        bedroomVariables: DEFAULT_BEDROOM_OPTIONS, // Not used anymore - variables displayed dynamically
+        excludeParameters: currentExcludeParams, // Preserve exclude parameters from API fetch
+        extras: filteredExtras, // Only use admin-configured extras (no local defaults)
       };
 
       // Prevent unnecessary state updates by comparing with current state
@@ -223,17 +279,13 @@ export default function FrequencyAwareServiceCard({
       visibleFields.push("frequency");
     }
     
-    if (filteredOptions.sqftVariables.length > 0 && !customization.squareMeters) {
-      visibleFields.push("area size");
-    }
-    
-    if (filteredOptions.bedroomVariables.length > 0 && !customization.bedroom) {
-      visibleFields.push("bedroom");
-    }
-    
-    if (filteredOptions.bathroomVariables.length > 0 && !customization.bathroom) {
-      visibleFields.push("bathroom");
-    }
+    // Validate all variable categories
+    variableCategoryEntries.forEach(([categoryName, vars]) => {
+      const currentValue = getVariableCategoryValue(categoryName);
+      if (!currentValue) {
+        visibleFields.push(categoryName.toLowerCase());
+      }
+    });
     
     if (visibleFields.length > 0) {
       alert(`Please select the following required options: ${visibleFields.join(", ")}`);
@@ -291,178 +343,131 @@ export default function FrequencyAwareServiceCard({
             <p className={styles.backSubtitle}>{service.name}</p>
 
             <div className={styles.customizationForm}>
-              {/* Row 1: Frequency and Area Size */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className={styles.formField}>
-                  <label className={styles.fieldLabel}>Frequency</label>
-                  <Select
-                    value={customization.frequency}
-                    onValueChange={(value) => {
-                      if (value !== customization.frequency) {
-                        onCustomizationChange(service.id, { ...customization, frequency: value });
-                      }
-                    }}
-                  >
-                    <SelectTrigger className={styles.selectTrigger}>
-                      <SelectValue placeholder="Select frequency" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {frequencyOptions.length > 0 ? frequencyOptions.map((option) => (
+              {/* Frequency */}
+              <div className={styles.formField}>
+                <label className={styles.fieldLabel}>Frequency</label>
+                <Select
+                  value={customization.frequency || ""}
+                  onValueChange={(value) => {
+                    if (value !== customization.frequency) {
+                      onCustomizationChange(service.id, { ...customization, frequency: value });
+                    }
+                  }}
+                >
+                  <SelectTrigger className={styles.selectTrigger}>
+                    <SelectValue placeholder="Select frequency" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {frequencyOptions.length > 0 ? (
+                      frequencyOptions.map((option) => (
                         <SelectItem key={option} value={option}>
                           {option}
                         </SelectItem>
-                      )) : (
-                        <>
-                          <SelectItem value="One-Time">One-Time</SelectItem>
-                          <SelectItem value="2x per week">2x per week</SelectItem>
-                          <SelectItem value="Weekly">Weekly</SelectItem>
-                          <SelectItem value="Every Other Week">Every Other Week</SelectItem>
-                          <SelectItem value="Monthly">Monthly</SelectItem>
-                        </>
-                      )}
-                    </SelectContent>
-                  </Select>
+                      ))
+                    ) : (
+                      <SelectItem value="__no_frequencies_configured__" disabled>
+                        No frequencies configured
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* All Variable Categories from Admin Portal (dynamically rendered) */}
+              {variableCategoryEntries.length > 0 && (
+                <div className="grid grid-cols-2 gap-3">
+                  {variableCategoryEntries.map(([categoryName, vars]) => {
+                    const options = vars.map((v: any) => v?.name).filter(Boolean);
+                    const currentValue = getVariableCategoryValue(categoryName);
+                    
+                    return (
+                      <div key={categoryName} className={styles.formField}>
+                        <label className={styles.fieldLabel}>{categoryName}</label>
+                        <Select
+                          value={currentValue || ""}
+                          onValueChange={(value) => {
+                            updateVariableCategoryValue(categoryName, value);
+                          }}
+                        >
+                          <SelectTrigger className={styles.selectTrigger}>
+                            <SelectValue placeholder={`Select ${categoryName.toLowerCase()}`} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {options.map((option: string) => (
+                              <SelectItem key={option} value={option}>
+                                {option}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    );
+                  })}
                 </div>
-
-                {/* Only show Area Size if there are filtered options */}
-                {filteredOptions.sqftVariables.length > 0 && (
-                  <div className={styles.formField}>
-                    <label className={styles.fieldLabel}>Area Size (Sq Ft)</label>
-                    <Select
-                      value={customization.squareMeters}
-                      onValueChange={(value) => {
-                        if (value !== customization.squareMeters) {
-                          onCustomizationChange(service.id, { ...customization, squareMeters: value });
-                        }
-                      }}
-                    >
-                      <SelectTrigger className={styles.selectTrigger}>
-                        <SelectValue placeholder="Select area size" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {filteredOptions.sqftVariables.map((option) => (
-                          <SelectItem key={option} value={option}>
-                            {option}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </div>
-
-              {/* Row 2: Bedroom and Bathroom */}
-              <div className="grid grid-cols-2 gap-3">
-                {/* Only show Bedroom if there are filtered options */}
-                {filteredOptions.bedroomVariables.length > 0 && (
-                  <div className={styles.formField}>
-                    <label className={styles.fieldLabel}>Bedroom</label>
-                    <Select
-                      value={customization.bedroom}
-                      onValueChange={(value) => {
-                        if (value !== customization.bedroom) {
-                          onCustomizationChange(service.id, { ...customization, bedroom: value });
-                        }
-                      }}
-                    >
-                      <SelectTrigger className={styles.selectTrigger}>
-                        <SelectValue placeholder="Select bedroom" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {filteredOptions.bedroomVariables.map((option) => (
-                          <SelectItem key={option} value={`${option} ${Number(option) === 1 ? 'Bedroom' : 'Bedrooms'}`}>
-                            {option}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
-                {/* Only show Bathroom if there are filtered options */}
-                {filteredOptions.bathroomVariables.length > 0 && (
-                  <div className={styles.formField}>
-                    <label className={styles.fieldLabel}>Bathroom</label>
-                    <Select
-                      value={customization.bathroom}
-                      onValueChange={(value) => {
-                        if (value !== customization.bathroom) {
-                          onCustomizationChange(service.id, { ...customization, bathroom: value });
-                        }
-                      }}
-                    >
-                      <SelectTrigger className={styles.selectTrigger}>
-                        <SelectValue placeholder="Select bathroom" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {filteredOptions.bathroomVariables.map((option) => (
-                          <SelectItem key={option} value={`${option} ${Number(option) === 1 ? 'Bathroom' : 'Bathrooms'}`}>
-                            {option}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </div>
+              )}
 
               {/* Partial Cleaning Checkbox */}
               <div className={styles.formField}>
-                <div className="flex items-center space-x-2">
+                <label className={styles.fieldLabel}>Partial Cleaning</label>
+                <div className="mt-2 flex items-center space-x-2">
                   <Checkbox
                     id={`partial-${service.id}`}
                     checked={customization.isPartialCleaning}
                     onCheckedChange={(checked) => {
-                      if (checked !== customization.isPartialCleaning) {
+                      const enabled = checked as boolean;
+                      if (enabled !== customization.isPartialCleaning) {
                         onCustomizationChange(service.id, {
                           ...customization,
-                          isPartialCleaning: checked as boolean,
-                          excludedAreas: checked ? customization.excludedAreas : []
+                          isPartialCleaning: enabled,
+                          excludedAreas: enabled ? customization.excludedAreas : [],
                         });
                       }
                     }}
                   />
                   <label
                     htmlFor={`partial-${service.id}`}
-                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    className="text-sm font-medium leading-none text-slate-700 peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
                   >
                     This is partial cleaning only
                   </label>
                 </div>
               </div>
 
-              {/* Excluded Areas - Only show when partial cleaning is checked */}
-              {customization.isPartialCleaning && (
+              {/* Excluded Areas - use configured exclude parameters with +/- like Extras */}
+              {customization.isPartialCleaning && filteredOptions.excludeParameters.length > 0 && (
                 <div className={styles.formField}>
                   <label className={styles.fieldLabel}>Select areas to exclude from cleaning:</label>
-                  <div className="space-y-2 mt-2">
-                    {['Bedroom', 'Full Bathroom', 'Half Bathroom', 'Kitchen', 'Living Room'].map((area) => (
-                      <div key={area} className="flex items-center space-x-2">
-                        <Checkbox
-                          id={`${service.id}-${area}`}
-                          checked={customization.excludedAreas?.includes(area) || false}
-                          onCheckedChange={(checked) => {
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {filteredOptions.excludeParameters.map((area) => {
+                      const isExcluded = customization.excludedAreas?.includes(area) || false;
+                      const quantity = isExcluded ? 1 : 0;
+
+                      return (
+                        <QuantitySelector
+                          key={area}
+                          extra={area}
+                          quantity={quantity}
+                          min={0}
+                          max={1}
+                          onQuantityChange={(areaName, newQuantity) => {
                             const currentExcluded = customization.excludedAreas || [];
-                            const isCurrentlyExcluded = currentExcluded.includes(area);
-                            if (checked !== isCurrentlyExcluded) {
-                              const newExcluded = checked
-                                ? [...currentExcluded, area]
-                                : currentExcluded.filter(a => a !== area);
+                            const currentlyExcluded = currentExcluded.includes(areaName);
+                            const shouldExclude = newQuantity > 0;
+
+                            if (shouldExclude !== currentlyExcluded) {
+                              const newExcluded = shouldExclude
+                                ? [...currentExcluded, areaName]
+                                : currentExcluded.filter((a) => a !== areaName);
+
                               onCustomizationChange(service.id, {
                                 ...customization,
-                                excludedAreas: newExcluded
+                                excludedAreas: newExcluded,
                               });
                             }
                           }}
                         />
-                        <label
-                          htmlFor={`${service.id}-${area}`}
-                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                        >
-                          {area}
-                        </label>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -500,6 +505,7 @@ export default function FrequencyAwareServiceCard({
                               }
                             }
                             
+                                                        
                             onCustomizationChange(service.id, {
                               ...customization,
                               extras: newExtras,

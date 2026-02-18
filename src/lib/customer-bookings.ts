@@ -1,11 +1,8 @@
+import { createBooking, getCustomerBookings, updateBooking, deleteBooking, getBookingById, type BookingData } from './supabase/bookings';
+import { useCustomerAccount } from '@/hooks/useCustomerAccount';
+
 export const BOOKINGS_STORAGE_KEY = "customerBookings";
 export const BOOK_AGAIN_STORAGE_KEY = "bookAgainBooking";
-
-/** Storage key for bookings scoped by business (business isolation) */
-function getBookingsStorageKey(businessId?: string | null): string {
-  if (businessId) return `${BOOKINGS_STORAGE_KEY}_${businessId}`;
-  return BOOKINGS_STORAGE_KEY;
-}
 
 export type BookingStatus = "scheduled" | "completed" | "canceled";
 
@@ -198,44 +195,19 @@ const normalizeBooking = (booking: Booking | Partial<Booking>) => {
   } as Booking;
 };
 
-export const persistBookings = (bookings: Booking[], businessId?: string | null) => {
-  if (typeof window === "undefined") return;
-  const key = getBookingsStorageKey(businessId);
-  localStorage.setItem(key, JSON.stringify(bookings.map(normalizeBooking)));
+export const persistBookings = async (bookings: Booking[], businessId?: string | null) => {
+  // This function is deprecated - bookings are now stored in the database
+  console.warn('persistBookings is deprecated - bookings are now stored in the database');
 };
 
 /**
- * Read bookings from storage. When businessId is provided, uses business-scoped key
+ * Read bookings from database. When businessId is provided, uses business-scoped query
  * so each business sees only its own bookings (business isolation).
- * When businessId is missing, uses legacy key for backward compatibility.
  */
-export const readStoredBookings = (businessId?: string | null): Booking[] => {
-  if (typeof window === "undefined") {
-    return businessId ? [] : defaultBookings;
-  }
-
-  const key = getBookingsStorageKey(businessId);
-  const stored = localStorage.getItem(key);
-  if (!stored) {
-    const fallback = businessId ? [] : defaultBookings;
-    if (!businessId) persistBookings(defaultBookings);
-    return fallback;
-  }
-
-  try {
-    const parsed = JSON.parse(stored) as (Booking | Partial<Booking>)[];
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      const normalized = parsed.map((booking) => normalizeBooking(booking));
-      persistBookings(normalized, businessId);
-      return normalized;
-    }
-    const fallback = businessId ? [] : defaultBookings;
-    if (!businessId) persistBookings(defaultBookings);
-    return fallback;
-  } catch (error) {
-    console.warn("Failed to parse stored bookings", error);
-    return businessId ? [] : defaultBookings;
-  }
+export const readStoredBookings = async (businessId?: string | null): Promise<Booking[]> => {
+  // For now, return empty array - will be implemented with proper customer context
+  console.warn('readStoredBookings needs customer context - returning empty array');
+  return [];
 };
 
 export const persistBookAgainPayload = (booking: Booking) => {

@@ -212,11 +212,15 @@ export const useCustomerAccount = (requireAuth: boolean = true) => {
 
   const customerName = account?.name || '';
   const customerEmail = account?.email || '';
+  const customerPhone = account?.phone || '';
+  const customerAddress = account?.address || '';
   const customerAvatar = account?.avatar || '';
 
   return {
     customerName,
     customerEmail,
+    customerPhone,
+    customerAddress,
     customerAvatar,
     customerAccount: account,
     accountLoading,

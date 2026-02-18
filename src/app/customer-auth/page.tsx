@@ -21,7 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, Mail, Lock, User, ArrowRight, Phone, MapPin, CheckCircle2, Home } from "lucide-react";
+import { Loader2, Mail, Lock, User, ArrowRight, Phone, MapPin, CheckCircle2, Home, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -59,6 +59,9 @@ export default function CustomerAuthPage() {
   const [resetEmailSent, setResetEmailSent] = useState(false);
   const [businessName, setBusinessName] = useState<string>('');
   const [businessId, setBusinessId] = useState<string>('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showSignupPassword, setShowSignupPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const { config } = useWebsiteConfig();
   const [savedConfig, setSavedConfig] = useState<any>(null);
   const { toast } = useToast();
@@ -602,11 +605,18 @@ export default function CustomerAuthPage() {
                           <div className="relative">
                             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
                             <Input 
-                              type="password"
+                              type={showLoginPassword ? "text" : "password"}
                               placeholder="••••••••"
-                              className="pl-10 h-11"
+                              className="pl-10 pr-10 h-11"
                               {...field} 
                             />
+                            <button
+                              type="button"
+                              onClick={() => setShowLoginPassword(!showLoginPassword)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground hover:text-primary transition-colors"
+                            >
+                              {showLoginPassword ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
+                            </button>
                           </div>
                         </FormControl>
                         <FormMessage />
@@ -661,7 +671,7 @@ export default function CustomerAuthPage() {
                           <div className="relative">
                             <User className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
                             <Input 
-                              placeholder="John Doe"
+                              placeholder="Enter your Full name"
                               className="pl-10 h-11"
                               value={field.value}
                               onChange={field.onChange}
@@ -759,11 +769,18 @@ export default function CustomerAuthPage() {
                           <div className="relative">
                             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
                             <Input 
-                              type="password"
-                              placeholder="••••••••"
-                              className="pl-10 h-11"
+                              type={showSignupPassword ? "text" : "password"}
+                              placeholder="Enter your password"
+                              className="pl-10 pr-10 h-11"
                               {...field} 
                             />
+                            <button
+                              type="button"
+                              onClick={() => setShowSignupPassword(!showSignupPassword)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground hover:text-primary transition-colors"
+                            >
+                              {showSignupPassword ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
+                            </button>
                           </div>
                         </FormControl>
                         <FormMessage />
@@ -781,11 +798,18 @@ export default function CustomerAuthPage() {
                           <div className="relative">
                             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
                             <Input 
-                              type="password"
-                              placeholder="••••••••"
-                              className="pl-10 h-11"
+                              type={showConfirmPassword ? "text" : "password"}
+                              placeholder="Confirm your password"
+                              className="pl-10 pr-10 h-11"
                               {...field} 
                             />
+                            <button
+                              type="button"
+                              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground hover:text-primary transition-colors"
+                            >
+                              {showConfirmPassword ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
+                            </button>
                           </div>
                         </FormControl>
                         <FormMessage />

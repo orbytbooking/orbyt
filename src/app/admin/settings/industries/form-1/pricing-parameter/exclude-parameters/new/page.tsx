@@ -10,11 +10,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { serviceCategoriesService, ServiceCategory } from "@/lib/serviceCategories";
 import { pricingParametersService, PricingParameter } from "@/lib/pricing-parameters";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { useToast } from "@/hooks/use-toast";
-import { Shirt, Sofa, Droplets, Wind, Trash2, Upload, X, Flower2, Flame, Warehouse, Paintbrush } from "lucide-react";
+import { Shirt, Sofa, Droplets, Wind, Trash2, Upload, X, Flower2, Flame, Warehouse, Paintbrush, Info } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
 type ExcludeParameterRow = {
@@ -61,6 +62,9 @@ export default function ExcludeParameterNewPage() {
     price: "0",
     hours: "0",
     minutes: "0",
+    qtyBased: false,
+    maximum: "",
+    applyToAllBookings: true,
     showBasedOnFrequency: false,
     showBasedOnServiceCategory: true,
     showBasedOnVariables: false,
@@ -209,6 +213,9 @@ export default function ExcludeParameterNewPage() {
               price: String(existing.price ?? 0),
               hours: String(hours),
               minutes: String(minutes),
+              qtyBased: (existing as any).qty_based || false,
+              maximum: String((existing as any).maximum_quantity || ""),
+              applyToAllBookings: (existing as any).apply_to_all_bookings !== undefined ? (existing as any).apply_to_all_bookings : true,
               showBasedOnFrequency: existing.show_based_on_frequency || false,
               showBasedOnServiceCategory: existing.show_based_on_service_category || false,
               showBasedOnVariables: existing.show_based_on_variables || false,
@@ -319,6 +326,9 @@ export default function ExcludeParameterNewPage() {
         price,
         time_minutes: timeMinutes,
         display: form.display,
+        qty_based: form.qtyBased,
+        maximum_quantity: form.maximum ? parseInt(form.maximum) : undefined,
+        apply_to_all_bookings: form.applyToAllBookings,
         service_category: serviceCategoryValue || undefined,
         frequency: frequencyValue || undefined,
         show_based_on_frequency: form.showBasedOnFrequency,
@@ -461,6 +471,43 @@ export default function ExcludeParameterNewPage() {
                   </div>
                 </div>
               </div>
+
+              <div className="space-y-2">
+                <Label>Quantity based</Label>
+                <RadioGroup
+                  value={form.qtyBased ? "yes" : "no"}
+                  onValueChange={(v) => setForm(p => ({ ...p, qtyBased: v === "yes" }))}
+                  className="flex gap-4"
+                >
+                  <label className="flex items-center gap-2 text-sm">
+                    <RadioGroupItem value="yes" /> Yes
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <RadioGroupItem value="no" /> No
+                  </label>
+                </RadioGroup>
+              </div>
+
+              {form.qtyBased && (
+                <div className="space-y-2">
+                  <Label htmlFor="maximum">Maximum</Label>
+                  <Select
+                    value={form.maximum}
+                    onValueChange={(value) => setForm(p => ({ ...p, maximum: value }))}
+                  >
+                    <SelectTrigger id="maximum">
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 50 }, (_, i) => i + 1).map((num) => (
+                        <SelectItem key={num} value={String(num)}>
+                          {num}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label>Display</Label>
@@ -614,6 +661,34 @@ export default function ExcludeParameterNewPage() {
                     </div>
                   )}
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Apply to</Label>
+                <RadioGroup
+                  value={form.applyToAllBookings ? "all" : "first"}
+                  onValueChange={(value) => setForm(p => ({ ...p, applyToAllBookings: value === "all" }))}
+                  className="flex gap-4"
+                >
+                  <label className="flex items-center gap-2 text-sm">
+                    <RadioGroupItem value="all" /> Apply to all bookings
+                    <div className="relative group">
+                      <Info className="h-4 w-4 text-orange-500 cursor-help" />
+                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
+                        This exclude parameter will be applied to all bookings in the service
+                      </div>
+                    </div>
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <RadioGroupItem value="first" /> Apply only to the first appointment
+                    <div className="relative group">
+                      <Info className="h-4 w-4 text-orange-500 cursor-help" />
+                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
+                        This exclude parameter will only be applied to the first appointment in the service
+                      </div>
+                    </div>
+                  </label>
+                </RadioGroup>
               </div>
             </TabsContent>
 

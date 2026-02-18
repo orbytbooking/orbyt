@@ -208,21 +208,33 @@ const WebsiteBuilderTab = () => {
 
                 <div className={`${currentTheme.colors.nav} p-3 rounded-lg flex justify-center`}>
 
-                  <a 
+                  <Button
 
-                    href="/builder" 
+                    variant="outline"
 
-                    target="_blank"
+                    size="sm"
 
-                    rel="noopener noreferrer"
+                    onClick={() => {
 
-                    className={`text-xs px-3 py-1.5 rounded ${currentTheme.colors.button} hover:opacity-90 transition-opacity`}
+                      const url = currentBusiness
+
+                        ? `/my-website?business=${currentBusiness.id}`
+
+                        : '/my-website';
+
+                      window.open(url, '_blank');
+
+                    }}
+
+                    className={`${currentTheme.colors.button} hover:opacity-90 transition-opacity`}
 
                   >
 
+                    <Eye className="h-4 w-4 mr-2" />
+
                     Preview Website
 
-                  </a>
+                  </Button>
 
                 </div>
 

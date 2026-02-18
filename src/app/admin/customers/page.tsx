@@ -25,6 +25,7 @@ import {
   Download,
   Eye,
   Pencil,
+  Trash2,
   Mail,
   Phone,
   MapPin,
@@ -250,6 +251,45 @@ const Customers = () => {
     setShowEditCustomer(false);
   };
 
+  const handleDeleteCustomer = async (customer: Customer) => {
+    // Confirm deletion
+    const confirmed = window.confirm(`Are you sure you want to delete ${customer.name}? This action cannot be undone.`);
+    
+    if (!confirmed) {
+      return;
+    }
+
+    console.log('Attempting to delete customer:', customer.id, customer.name);
+
+    // Delete from database
+    const { error, data } = await supabase
+      .from('customers')
+      .delete()
+      .eq('id', customer.id);
+
+    console.log('Delete response:', { error, data });
+
+    if (error) {
+      console.error('Error deleting customer:', error);
+      toast({
+        title: "Error",
+        description: `Failed to delete customer: ${error.message}`,
+        variant: "destructive"
+      });
+      return;
+    }
+
+    console.log('Customer successfully deleted from database');
+
+    // Remove from local state
+    setCustomers((prev) => prev.filter((c) => c.id !== customer.id));
+
+    toast({
+      title: "Customer Deleted",
+      description: `${customer.name} has been deleted successfully.`,
+    });
+  };
+
   const handleAddCustomer = async () => {
   const now = new Date();
   const newEntry = {
@@ -473,6 +513,14 @@ const Customers = () => {
                         onClick={() => handleOpenEdit(customer)}
                       >
                         <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteCustomer(customer)}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </td>
                   </tr>
