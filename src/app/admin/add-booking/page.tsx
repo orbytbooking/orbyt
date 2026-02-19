@@ -353,32 +353,26 @@ function AddBookingPage() {
           const excludeData = await excludeResponse.json();
           
           if (excludeData.excludeParameters) {
-            // Apply frequency dependency filter if frequency is selected
-            if (frequencyDependencies && frequencyDependencies.excludeParameters && frequencyDependencies.excludeParameters.length > 0) {
-              const filteredExcludeParams = excludeData.excludeParameters.filter((param: any) => 
+            if (frequencyDependencies?.excludeParameters?.length > 0) {
+              const filteredExcludeParams = excludeData.excludeParameters.filter((param: any) =>
                 frequencyDependencies.excludeParameters.includes(param.name)
               );
               setExcludeParameters(filteredExcludeParams);
             } else {
-              // If no frequency dependencies or no exclude parameters selected, show none
-              setExcludeParameters([]);
+              setExcludeParameters(excludeData.excludeParameters);
             }
           }
         } else {
-          // Fetch exclude parameters
           const excludeResponse = await fetch(`/api/exclude-parameters?industryId=${currentIndustry.id}`);
           const excludeData = await excludeResponse.json();
-          
           if (excludeData.excludeParameters) {
-            // Apply frequency dependency filter if frequency is selected
-            if (frequencyDependencies && frequencyDependencies.excludeParameters && frequencyDependencies.excludeParameters.length > 0) {
-              const filteredExcludeParams = excludeData.excludeParameters.filter((param: any) => 
+            if (frequencyDependencies?.excludeParameters?.length > 0) {
+              const filteredExcludeParams = excludeData.excludeParameters.filter((param: any) =>
                 frequencyDependencies.excludeParameters.includes(param.name)
               );
               setExcludeParameters(filteredExcludeParams);
             } else {
-              // If no frequency dependencies or no exclude parameters selected, show none
-              setExcludeParameters([]);
+              setExcludeParameters(excludeData.excludeParameters);
             }
           }
         }
@@ -809,15 +803,14 @@ function AddBookingPage() {
         const excludeData = await excludeResponse.json();
         
         if (excludeData.excludeParameters) {
-          // Apply frequency dependency filter if frequency is selected
+          // Apply frequency dependency filter only when frequency has a specific exclude list; otherwise show all
           if (frequencyDependencies && frequencyDependencies.excludeParameters && frequencyDependencies.excludeParameters.length > 0) {
-            const filteredExcludeParams = excludeData.excludeParameters.filter((param: any) => 
+            const filteredExcludeParams = excludeData.excludeParameters.filter((param: any) =>
               frequencyDependencies.excludeParameters.includes(param.name)
             );
             setExcludeParameters(filteredExcludeParams);
           } else {
-            // If no frequency dependencies or no exclude parameters selected, show none
-            setExcludeParameters([]);
+            setExcludeParameters(excludeData.excludeParameters);
           }
         }
 
@@ -1425,9 +1418,12 @@ const handleAddBooking = async (status: string = 'pending') => {
         }
       }
       
-      // Check if variable category value matches
-      if (param.variable_category && categoryValues[param.variable_category]) {
-        if (param.name !== categoryValues[param.variable_category]) {
+      // Check if variable category value matches (skip when "None" or empty - customer doesn't have this)
+      if (param.variable_category) {
+        const selected = categoryValues[param.variable_category];
+        if (!selected?.trim() || selected.trim().toLowerCase() === "none") {
+          matches = false;
+        } else if (param.name !== selected) {
           matches = false;
         }
       }
@@ -1473,36 +1469,32 @@ const handleAddBooking = async (status: string = 'pending') => {
     return 0;
   }, [newBooking.service, newBooking.frequency, newBooking.duration, categoryValues, pricingParameters, serviceCategories]);
 
-  // Calculate extras total
+  // Calculate extras total (respect qtyBased: use quantity only when extra is quantity-based)
   const calculateExtrasTotal = useMemo(() => {
     let total = 0;
-    
     newBooking.selectedExtras?.forEach(extraId => {
       const extra = extras.find(e => e.id === extraId);
       if (extra) {
-        const quantity = newBooking.extraQuantities[extraId] || 1;
+        const quantity = extra.qtyBased ? (newBooking.extraQuantities[extraId] || 1) : 1;
         total += extra.price * quantity;
       }
     });
-    
     return total;
   }, [newBooking.selectedExtras, newBooking.extraQuantities, extras]);
 
-  // Calculate partial cleaning discount
+  // Calculate partial cleaning discount (respect qty_based: use quantity only when param is quantity-based)
   const calculatePartialCleaningDiscount = useMemo(() => {
     if (!isPartialCleaning || selectedExcludeParams.length === 0) {
       return 0;
     }
-
     let discount = 0;
     selectedExcludeParams.forEach(paramId => {
       const param = excludeParameters.find(p => p.id === paramId);
       if (param && param.price) {
-        const quantity = newBooking.excludeQuantities[paramId] || 1;
+        const quantity = param.qty_based ? (newBooking.excludeQuantities[paramId] || 1) : 1;
         discount += param.price * quantity;
       }
     });
-
     return discount;
   }, [isPartialCleaning, selectedExcludeParams, excludeParameters, newBooking.excludeQuantities]);
 
@@ -2094,6 +2086,8 @@ const handleAddBooking = async (status: string = 'pending') => {
               </div>
             </div>
 
+            {newBooking.service ? (
+            <>
             {/* Time Duration - Only show for services containing "Hourly" or "Hours" */}
             {(newBooking.service.includes('Hourly') || newBooking.service.includes('Hours')) && (
               <div>
@@ -2356,13 +2350,14 @@ const handleAddBooking = async (status: string = 'pending') => {
                     <div key={category}>
                       <Label htmlFor={category} className="text-sm font-medium mb-2 block">{category}</Label>
                       <Select 
-                        value={categoryValues[category] || ''} 
+                        value={categoryValues[category] || 'None'} 
                         onValueChange={(value) => setCategoryValues({ ...categoryValues, [category]: value })}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder={`Select ${category.toLowerCase()}`} />
                         </SelectTrigger>
                         <SelectContent>
+                          <SelectItem value="None">None</SelectItem>
                           {filteredOptions.map((option) => (
                             <SelectItem key={option.id} value={option.name}>
                               {option.name}
@@ -2440,11 +2435,25 @@ const handleAddBooking = async (status: string = 'pending') => {
                             : 'border-gray-200 hover:border-gray-300'
                         }`}
                         onClick={() => {
+                          const isSelected = selectedExcludeParams.includes(param.id);
                           setSelectedExcludeParams(prev => 
-                            prev.includes(param.id) 
+                            isSelected 
                               ? prev.filter(id => id !== param.id)
                               : [...prev, param.id]
                           );
+                          if (!isSelected) {
+                            setNewBooking(prev => ({
+                              ...prev,
+                              excludeQuantities: { ...prev.excludeQuantities, [param.id]: 1 }
+                            }));
+                          }
+                          if (isSelected) {
+                            setNewBooking(prev => {
+                              const next = { ...prev.excludeQuantities };
+                              delete next[param.id];
+                              return { ...prev, excludeQuantities: next };
+                            });
+                          }
                         }}
                       >
                         {param.icon ? (
@@ -2475,6 +2484,45 @@ const handleAddBooking = async (status: string = 'pending') => {
                           <div className="text-4xl mb-2">🏠</div>
                         )}
                         <span className="text-sm font-medium text-center">{param.name}</span>
+                        {selectedExcludeParams.includes(param.id) && param.qty_based && (
+                          <div className="flex items-center justify-center gap-1 mt-2" onClick={e => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const currentQty = newBooking.excludeQuantities[param.id] || 1;
+                                if (currentQty > 1) {
+                                  setNewBooking(prev => ({
+                                    ...prev,
+                                    excludeQuantities: { ...prev.excludeQuantities, [param.id]: currentQty - 1 }
+                                  }));
+                                }
+                              }}
+                              className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 disabled:opacity-50 transition-colors"
+                              disabled={(newBooking.excludeQuantities[param.id] || 1) <= 1}
+                            >
+                              <Minus className="h-3 w-3" />
+                            </button>
+                            <span className="w-6 text-center text-xs font-medium">
+                              {newBooking.excludeQuantities[param.id] || 1}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const currentQty = newBooking.excludeQuantities[param.id] || 1;
+                                const maxQty = (param.maximum_quantity != null && param.maximum_quantity > 0) ? param.maximum_quantity : 999;
+                                const newQty = Math.min(currentQty + 1, maxQty);
+                                setNewBooking(prev => ({
+                                  ...prev,
+                                  excludeQuantities: { ...prev.excludeQuantities, [param.id]: newQty }
+                                }));
+                              }}
+                              className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 transition-colors"
+                              disabled={(newBooking.excludeQuantities[param.id] || 1) >= ((param.maximum_quantity != null && param.maximum_quantity > 0) ? param.maximum_quantity : 999)}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -2538,58 +2586,90 @@ const handleAddBooking = async (status: string = 'pending') => {
                         </div>
                         <div className="font-medium text-gray-900 text-center mb-2">{extra.name}</div>
                         <div className="flex items-center justify-center w-full">
-                          <div className="flex items-center space-x-2">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const currentQty = newBooking.extraQuantities[extra.id] || 0;
-                                if (currentQty > 0) {
-                                  const newQty = currentQty - 1;
+                          {extra.qtyBased ? (
+                            <div className="flex items-center space-x-2">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const currentQty = newBooking.extraQuantities[extra.id] || 0;
+                                  if (currentQty > 0) {
+                                    const newQty = currentQty - 1;
+                                    setNewBooking(prev => ({
+                                      ...prev,
+                                      extraQuantities: { ...prev.extraQuantities, [extra.id]: newQty }
+                                    }));
+                                    if (newQty === 0 && newBooking.selectedExtras?.includes(extra.id)) {
+                                      setNewBooking(prev => ({
+                                        ...prev,
+                                        selectedExtras: prev.selectedExtras?.filter(id => id !== extra.id)
+                                      }));
+                                    }
+                                  }
+                                }}
+                                className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 disabled:opacity-50 transition-colors"
+                                disabled={(newBooking.extraQuantities[extra.id] || 0) === 0}
+                              >
+                                <Minus className="h-3 w-3" />
+                              </button>
+                              <span className="w-6 text-center text-sm font-semibold">
+                                {newBooking.extraQuantities[extra.id] || 0}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const currentQty = newBooking.extraQuantities[extra.id] || 0;
+                                  const maxQty = extra.maximumQuantity && extra.maximumQuantity > 0 ? extra.maximumQuantity : 999;
+                                  const newQty = Math.min(currentQty + 1, maxQty);
                                   setNewBooking(prev => ({
                                     ...prev,
                                     extraQuantities: { ...prev.extraQuantities, [extra.id]: newQty }
                                   }));
-                                  if (newQty === 0 && newBooking.selectedExtras?.includes(extra.id)) {
+                                  if (!newBooking.selectedExtras?.includes(extra.id)) {
                                     setNewBooking(prev => ({
                                       ...prev,
-                                      selectedExtras: prev.selectedExtras?.filter(id => id !== extra.id)
+                                      selectedExtras: [...(prev.selectedExtras || []), extra.id]
                                     }));
                                   }
-                                }
-                              }}
-                              className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 disabled:opacity-50 transition-colors"
-                              disabled={(newBooking.extraQuantities[extra.id] || 0) === 0}
-                            >
-                              <Minus className="h-3 w-3" />
-                            </button>
-                            <span className="w-6 text-center text-sm font-semibold">
-                              {newBooking.extraQuantities[extra.id] || 0}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const currentQty = newBooking.extraQuantities[extra.id] || 0;
-                                const maxQty = extra.maximumQuantity && extra.maximumQuantity > 0 ? extra.maximumQuantity : Infinity;
-                                const newQty = Math.min(currentQty + 1, maxQty);
-                                setNewBooking(prev => ({
-                                  ...prev,
-                                  extraQuantities: { ...prev.extraQuantities, [extra.id]: newQty }
-                                }));
-                                if (!newBooking.selectedExtras?.includes(extra.id)) {
-                                  setNewBooking(prev => ({
-                                    ...prev,
-                                    selectedExtras: [...(prev.selectedExtras || []), extra.id]
-                                  }));
-                                }
-                              }}
-                              className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 transition-colors"
-                              disabled={(newBooking.extraQuantities[extra.id] || 0) >= (extra.maximumQuantity && extra.maximumQuantity > 0 ? extra.maximumQuantity : Infinity)}
-                            >
-                              <Plus className="h-3 w-3" />
-                            </button>
-                          </div>
+                                }}
+                                className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 transition-colors"
+                                disabled={(newBooking.extraQuantities[extra.id] || 0) >= (extra.maximumQuantity && extra.maximumQuantity > 0 ? extra.maximumQuantity : 999)}
+                              >
+                                <Plus className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const isSelected = newBooking.selectedExtras?.includes(extra.id);
+                                  if (isSelected) {
+                                    setNewBooking(prev => {
+                                      const q = { ...prev.extraQuantities };
+                                      delete q[extra.id];
+                                      return {
+                                        ...prev,
+                                        selectedExtras: prev.selectedExtras?.filter(id => id !== extra.id),
+                                        extraQuantities: q
+                                      };
+                                    });
+                                  } else {
+                                    setNewBooking(prev => ({
+                                      ...prev,
+                                      selectedExtras: [...(prev.selectedExtras || []), extra.id],
+                                      extraQuantities: { ...prev.extraQuantities, [extra.id]: 1 }
+                                    }));
+                                  }
+                                }}
+                                className="text-sm font-medium text-primary"
+                              >
+                                {newBooking.selectedExtras?.includes(extra.id) ? 'Remove' : 'Add'}
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -2717,6 +2797,10 @@ const handleAddBooking = async (status: string = 'pending') => {
                 </div>
               </div>
             </div>
+            </>
+            ) : (
+              <p className="text-sm text-muted-foreground py-4">Select a service above to continue.</p>
+            )}
             <div>
               <h3 className="text-lg font-semibold mb-4 text-white">Service Provider</h3>
               <div className="space-y-4">

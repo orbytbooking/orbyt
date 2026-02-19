@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useCustomerBookings } from "@/hooks/useCustomerBookings";
 import { useCustomerAccount } from "@/hooks/useCustomerAccount";
-import { Booking, persistBookAgainPayload } from "@/lib/customer-bookings";
+import { Booking } from "@/lib/customer-bookings";
 import { useToast } from "@/components/ui/use-toast";
 
 const formatBookingDateTime = (booking: Booking) => {
@@ -57,10 +57,35 @@ export default function BookingDetailsPage() {
   ), [customerName]);
 
   const customization = booking?.customization ?? {};
+  const vc = (customization as { variableCategories?: Record<string, string> }).variableCategories ?? {};
+  const hasVc = Object.keys(vc).length > 0;
+  const labelForCategory = (key: string) =>
+    key.replace(/([A-Z])/g, " $1").replace(/^./, (s) => s.toUpperCase()).replace(/\b(sqft|sq ft|area|size)\b/gi, (m) => (/sqft|sq ft/i.test(m) ? "Sq Ft" : m.charAt(0).toUpperCase() + m.slice(1).toLowerCase()));
+  const customizationRows = useMemo(() => {
+    const rows: { label: string; value: string }[] = [];
+    if (hasVc) {
+      Object.entries(vc).forEach(([k, v]) => {
+        const val = v != null && String(v).trim() !== "" ? String(v).trim() : null;
+        if (val) rows.push({ label: labelForCategory(k), value: val });
+      });
+    } else {
+      if (customization.squareMeters?.trim()) rows.push({ label: "Sq Ft", value: customization.squareMeters.trim() });
+      if (customization.bedroom?.trim()) rows.push({ label: "Bedroom", value: customization.bedroom.trim() });
+      if (customization.bathroom?.trim()) rows.push({ label: "Bathroom", value: customization.bathroom.trim() });
+    }
+    const rawExtras = customization.extras;
+    const extrasList = Array.isArray(rawExtras)
+      ? rawExtras
+          .filter((e) => e !== "None" && e != null)
+          .map((e) => (typeof e === "string" ? e : `${(e as { name?: string }).name ?? ""}${((e as { quantity?: number }).quantity ?? 0) > 1 ? ` (${(e as { quantity?: number }).quantity})` : ""}`))
+          .filter(Boolean)
+      : [];
+    rows.push({ label: "Extras", value: extrasList.length > 0 ? extrasList.join(", ") : "—" });
+    return rows;
+  }, [customization, hasVc, vc]);
 
   const handleBookAgain = useCallback(() => {
     if (!booking) return;
-    persistBookAgainPayload(booking);
     const params = new URLSearchParams({ bookingId: booking.id });
     if (businessId) params.set("business", businessId);
     router.push(`/book-now?${params.toString()}`);
@@ -100,11 +125,8 @@ export default function BookingDetailsPage() {
   ];
 
   const detailRows = [
-    { label: "Frequency", value: booking.frequency },
-    { label: "Area size", value: customization.squareMeters },
-    { label: "Bedrooms", value: customization.bedroom },
-    { label: "Bathrooms", value: customization.bathroom },
-    { label: "Extras", value: customization.extras && Array.isArray(customization.extras) && customization.extras.length > 0 ? customization.extras.join(", ") : "None" },
+    { label: "Frequency", value: booking.frequency?.trim() || "—" },
+    ...customizationRows,
   ];
 
   const notesList = [

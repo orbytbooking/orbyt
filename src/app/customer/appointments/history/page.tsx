@@ -9,7 +9,7 @@ import { BookingsTable } from "@/components/customer/BookingsTable";
 import { useCustomerBookings } from "@/hooks/useCustomerBookings";
 import { useCustomerAccount } from "@/hooks/useCustomerAccount";
 import { Input } from "@/components/ui/input";
-import { Booking, persistBookAgainPayload } from "@/lib/customer-bookings";
+import { Booking } from "@/lib/customer-bookings";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -147,7 +147,6 @@ const CustomerAppointmentsHistoryPage = () => {
   }, []);
 
   const handleBookAgain = useCallback((booking: Booking) => {
-    persistBookAgainPayload(booking);
     const params = new URLSearchParams({ bookingId: booking.id });
     if (businessId) params.set("business", businessId);
     router.push(`/book-now?${params.toString()}`);

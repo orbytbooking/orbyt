@@ -12,6 +12,7 @@ export interface Extra {
   price: number;
   display: 'frontend-backend-admin' | 'backend-admin' | 'admin-only';
   qty_based: boolean;
+  maximum_quantity?: number | null;
   exempt_from_discount: boolean;
   show_based_on_frequency: boolean;
   frequency_options?: string[];
@@ -36,6 +37,7 @@ export interface CreateExtraData {
   price: number;
   display: Extra['display'];
   qty_based: boolean;
+  maximum_quantity?: number | null;
   exempt_from_discount: boolean;
   show_based_on_frequency?: boolean;
   frequency_options?: string[];

@@ -54,6 +54,16 @@ import { SendScheduleDialog } from "@/components/admin/SendScheduleDialog";
 
 // Bookings are now loaded from Supabase only.
 
+// Customization stored on booking (partial cleaning, exclude areas/quantities, etc.)
+interface BookingCustomization {
+  isPartialCleaning?: boolean;
+  excludedAreas?: string[];
+  excludeQuantities?: Record<string, number>;
+  selectedExtras?: string[];
+  extraQuantities?: Record<string, number>;
+  categoryValues?: Record<string, string>;
+}
+
 // Define Booking type based on Supabase schema
 interface Booking {
   id: string;
@@ -71,6 +81,7 @@ interface Booking {
   assignedProvider?: string;
   created_at?: string;
   updated_at?: string;
+  customization?: BookingCustomization | null;
 }
 
 // Provider type definition
@@ -163,6 +174,8 @@ const getStatusTone = (status: string) => {
 export default function BookingsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { currentBusiness } = useBusiness();
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [activeTab, setActiveTab] = useState("all");
@@ -176,6 +189,41 @@ export default function BookingsPage() {
   const [providersLoading, setProvidersLoading] = useState(false);
   const [viewMode, setViewMode] = useState<"list" | "calendar">("calendar");
   const [showSendScheduleDialog, setShowSendScheduleDialog] = useState(false);
+  const [excludeParamNames, setExcludeParamNames] = useState<Record<string, string>>({});
+
+  // When viewing a booking with partial cleaning, resolve exclude parameter IDs to names
+  useEffect(() => {
+    if (!showDetails || !selectedBooking?.customization?.excludedAreas?.length || !currentBusiness?.id) {
+      setExcludeParamNames({});
+      return;
+    }
+    const cust = selectedBooking.customization;
+    const ids = cust.excludedAreas || [];
+    if (ids.length === 0) {
+      setExcludeParamNames({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const indRes = await fetch(`/api/industries?business_id=${currentBusiness.id}`);
+        const indData = await indRes.json();
+        const industry = indData.industries?.find((i: any) => i.name === "Home Cleaning") || indData.industries?.[0];
+        if (!industry?.id || cancelled) return;
+        const epRes = await fetch(`/api/exclude-parameters?industryId=${industry.id}`);
+        const epData = await epRes.json();
+        const params = epData.excludeParameters || [];
+        const map: Record<string, string> = {};
+        params.forEach((p: any) => {
+          if (ids.includes(p.id)) map[p.id] = p.name || p.id;
+        });
+        if (!cancelled) setExcludeParamNames(map);
+      } catch {
+        if (!cancelled) setExcludeParamNames({});
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [showDetails, selectedBooking?.id, selectedBooking?.customization?.excludedAreas, currentBusiness?.id]);
 
   // Auto-set view mode based on active tab
   useEffect(() => {
@@ -187,9 +235,6 @@ export default function BookingsPage() {
     }
   }, [activeTab]);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const { toast } = useToast();
-  const { currentBusiness } = useBusiness();
-
 
   useEffect(() => {
     async function fetchBookings() {
@@ -397,17 +442,22 @@ toast({
   const handleAssignProvider = async () => {
     if (!selectedProvider || !selectedBooking) return;
     
-    // Update both provider_id (database field) and assignedProvider (display field)
+    // Update provider_id and (if column exists) provider_name so customer portal shows assigned provider
     const providerName = selectedProvider.name || `${selectedProvider.first_name || ''} ${selectedProvider.last_name || ''}`.trim();
-    const { error } = await supabase
+    let error = (await supabase
       .from('bookings')
       .update({ 
         provider_id: selectedProvider.id,
-        assignedProvider: providerName,
+        provider_name: providerName,
         status: 'confirmed' // Auto-confirm when provider is assigned
       })
-      .eq('id', selectedBooking.id);
-    
+      .eq('id', selectedBooking.id)).error;
+    if (error && /provider_name|column/i.test(String(error.message))) {
+      error = (await supabase
+        .from('bookings')
+        .update({ provider_id: selectedProvider.id, status: 'confirmed' })
+        .eq('id', selectedBooking.id)).error;
+    }
     if (error) {
       toast({
         title: "Error",
@@ -941,6 +991,39 @@ toast({
                   )}
                 </div>
               </div>
+
+              {/* Partial cleaning / Excluded areas & quantities */}
+              {(() => {
+                const cust = (selectedBooking as any).customization as BookingCustomization | undefined;
+                if (!cust?.isPartialCleaning && !(cust?.excludedAreas?.length) && !(cust?.excludeQuantities && Object.keys(cust.excludeQuantities).length > 0)) return null;
+                return (
+                  <div className="space-y-2">
+                    <h3 className="font-semibold text-sm">Partial Cleaning</h3>
+                    <div className="grid gap-2 bg-muted/50 p-3 rounded-lg">
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Partial cleaning:</span>
+                        <span className="text-sm font-medium">{cust?.isPartialCleaning ? "Yes" : "No"}</span>
+                      </div>
+                      {cust?.excludedAreas?.length ? (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-sm text-muted-foreground">Excluded areas:</span>
+                          <ul className="text-sm font-medium list-disc list-inside space-y-0.5">
+                            {(cust.excludedAreas || []).map((paramId) => {
+                              const qty = cust.excludeQuantities?.[paramId] ?? 1;
+                              const name = excludeParamNames[paramId] || `${paramId.slice(0, 8)}…`;
+                              return (
+                                <li key={paramId}>
+                                  {name}{qty > 1 ? ` × ${qty}` : ""}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Notes */}
               {selectedBooking.notes && (

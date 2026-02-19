@@ -2,33 +2,49 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Booking, defaultBookings, persistBookings, readStoredBookings } from "@/lib/customer-bookings";
+import { Booking, readStoredBookings } from "@/lib/customer-bookings";
 
-/** Customer bookings scoped by business (business isolation). Uses ?business= from URL. */
+/** Customer bookings from backend only (GET /api/customer/bookings). Scoped by ?business=. */
 export const useCustomerBookings = () => {
   const searchParams = useSearchParams();
   const businessId = searchParams?.get("business") ?? null;
-  const [bookings, setBookings] = useState<Booking[]>(() =>
-    typeof window !== "undefined" ? readStoredBookings(businessId) : defaultBookings
-  );
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const data = readStoredBookings(businessId);
-    setBookings(data);
+  const refreshBookings = useCallback(async () => {
+    if (!businessId) {
+      setBookings([]);
+      return;
+    }
+    setLoading(true);
+    const data = await readStoredBookings(businessId);
+    setBookings(Array.isArray(data) ? data : []);
     setLoading(false);
+  }, [businessId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!businessId) {
+        if (!cancelled) setBookings([]);
+        if (!cancelled) setLoading(false);
+        return;
+      }
+      const data = await readStoredBookings(businessId);
+      if (!cancelled) {
+        setBookings(Array.isArray(data) ? data : []);
+      }
+      if (!cancelled) setLoading(false);
+    })();
+    return () => { cancelled = true; };
   }, [businessId]);
 
   const updateBookings = useCallback(
     (updater: (prev: Booking[]) => Booking[]) => {
-      setBookings((prev) => {
-        const next = updater(prev);
-        persistBookings(next, businessId);
-        return next;
-      });
+      setBookings((prev) => updater(prev));
     },
-    [businessId]
+    []
   );
 
-  return { bookings, loading, updateBookings };
+  return { bookings, loading, updateBookings, refreshBookings };
 };

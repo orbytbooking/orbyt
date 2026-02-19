@@ -1,6 +1,6 @@
   "use client";
 
-import { useEffect, useMemo, useState, useCallback, Suspense } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef, Suspense } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -28,15 +28,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Navigation from "@/components/Navigation";
 import FrequencyAwareServiceCard, { ServiceCustomization } from "@/components/FrequencyAwareServiceCard";
-import {
-  Booking,
-  readStoredBookings,
-  readStoredBookAgainPayload,
-  clearStoredBookAgainPayload,
-  persistBookings,
-} from "@/lib/customer-bookings";
+import { Booking, fetchBookingById } from "@/lib/customer-bookings";
 import styles from "./BookingPage.module.css";
 import { useCustomerAccount } from "@/hooks/useCustomerAccount";
+import { getSupabaseCustomerClient } from "@/lib/supabaseCustomerClient";
 import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
 
 const optionalEmailSchema = z.union([z.string().email("Please enter a valid email"), z.literal("")]);
@@ -75,16 +70,15 @@ const formSchema = z.object({
   couponCode: z.string().optional(),
   couponType: z.enum(["coupon-code", "amount", "percent"]).default("coupon-code"),
   giftCardCode: z.string().optional(),
+  // Allow empty so "Confirm Booking" works when admin hasn't configured all variable options
   customization: z.object({
-    frequency: z.string().min(1, "Please choose a frequency"),
-    squareMeters: z.string().min(1, "Please choose an area size"),
-    bedroom: z.string().min(1, "Please choose bedroom count"),
-    bathroom: z.string().min(1, "Please choose bathroom count"),
+    frequency: z.string().optional().default(""),
+    squareMeters: z.string().optional().default(""),
+    bedroom: z.string().optional().default(""),
+    bathroom: z.string().optional().default(""),
     extras: z.string().optional(),
-  }),
+  }).default({ frequency: "", squareMeters: "", bedroom: "", bathroom: "" }),
 });
-
-const BOOKING_ADDRESS_KEY = "customerBookingAddress";
 
 type StoredAddress = {
   address: string;
@@ -112,6 +106,8 @@ type PricingTier = {
   display: string;
   serviceCategory: string;
   frequency: string;
+  /** When set, this tier applies only to this service category (name or id from industry form) */
+  serviceCategoryFilter?: string | null;
 };
 
 const toIndustryKey = (label: string) =>
@@ -333,12 +329,17 @@ function BookingPageContent() {
   const { customerName, customerEmail, customerPhone, customerAddress, accountLoading } = useCustomerAccount(false);
   const { config } = useWebsiteConfig();
   const [pricingRows, setPricingRows] = useState<PricingTier[]>([]);
+  /** All pricing parameters (all variable categories) for summing Bedroom + Bathroom + Living Room + Sq Ft + Storage + etc. */
+  const [allPricingParams, setAllPricingParams] = useState<{ variable_category: string; name: string; price: number; service_category: string | null; frequency: string }[]>([]);
   const [availableExtras, setAvailableExtras] = useState<any[]>([]);
   const [availableVariables, setAvailableVariables] = useState<{ [key: string]: any[] }>({});
   const [frequencyOptions, setFrequencyOptions] = useState<string[]>([]);
   const [dynamicTimeSlots, setDynamicTimeSlots] = useState<string[]>([]);
   const [availableProviders, setAvailableProviders] = useState<any[]>([]);
   const [providersLoading, setProvidersLoading] = useState(false);
+
+  // Ref to store the total shown in the booking summary so we send that exact amount when saving (avoids stale closure giving 0)
+  const summaryTotalRef = useRef<number>(0);
 
   // Handle phone number input to ensure it's a valid number
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>, field: any) => {
@@ -366,38 +367,6 @@ function BookingPageContent() {
 
   const selectedIndustryLabel = selectedIndustry?.label ?? "";
   const selectedIndustryId = selectedIndustry?.id ?? "";
-
-  // Load pricing tiers for the selected industry (e.g., Home Cleaning) from localStorage
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const labelsToTry = selectedIndustryLabel
-      ? [selectedIndustryLabel, "Home Cleaning", "Industry"]
-      : ["Home Cleaning", "Industry"];
-    for (const label of labelsToTry) {
-      try {
-        const raw = localStorage.getItem(`pricingParams_${label}`);
-        if (!raw) continue;
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setPricingRows(
-            parsed.map((row: any) => ({
-              id: Number(row.id) || 0,
-              name: String(row.name ?? ""),
-              price: typeof row.price === "number" ? row.price : Number(row.price) || 0,
-              time: String(row.time ?? ""),
-              display: String(row.display ?? ""),
-              serviceCategory: String(row.serviceCategory ?? ""),
-              frequency: String(row.frequency ?? ""),
-            })),
-          );
-          return;
-        }
-      } catch {
-        // ignore invalid data and try next label
-      }
-    }
-    setPricingRows([]);
-  }, [selectedIndustryLabel]);
 
   useEffect(() => {
     const fetchIndustries = async () => {
@@ -455,12 +424,10 @@ function BookingPageContent() {
     };
   }, [searchParams]);
 
-  // Get business context from URL params
+  // Get business context from URL params only (no localStorage - backend/scoped by link)
   useEffect(() => {
     const getBusinessContext = async () => {
-      // Try to get business ID from URL params first
-      const urlBusinessId = searchParams.get('business');
-      const currentBusinessId = urlBusinessId || localStorage.getItem('currentBusinessId');
+      const currentBusinessId = searchParams.get('business');
       
       if (currentBusinessId) {
         setBusinessId(currentBusinessId);
@@ -515,8 +482,10 @@ function BookingPageContent() {
     getBusinessContext();
   }, [searchParams]);
 
+  // Only clear selection when the selected industry was actually removed (not when options are loading/empty)
   useEffect(() => {
     if (!selectedCategory) return;
+    if (industryOptions.length === 0) return;
     const stillExists = industryOptions.some((option) => option.key === selectedCategory);
     if (!stillExists) {
       setSelectedCategory(null);
@@ -593,6 +562,17 @@ function BookingPageContent() {
     fetchServiceCategories();
   }, [selectedIndustryId, searchParams]);
 
+  // Keep selected service in sync when service categories are refetched (same id/name, new object reference)
+  useEffect(() => {
+    if (!selectedService || !serviceCategories.length) return;
+    const match = serviceCategories.find(
+      (s) => s.id === selectedService.id || s.name === selectedService.name
+    );
+    if (match && match !== selectedService) {
+      setSelectedService(match);
+    }
+  }, [serviceCategories]);
+
   // Fetch extras and variables from admin portal
   useEffect(() => {
     const industryId = selectedIndustryId;
@@ -623,14 +603,15 @@ function BookingPageContent() {
           setAvailableExtras([]);
         }
 
-        // Fetch pricing parameters (variables)
+        // Fetch pricing parameters (variables) from industry form 1 – used for dropdowns and tier pricing
         const variablesResponse = await fetch(`/api/pricing-parameters?industryId=${industryId}`);
         if (variablesResponse.ok) {
           const variablesData = await variablesResponse.json();
           if (variablesData.pricingParameters && Array.isArray(variablesData.pricingParameters)) {
+            const params = variablesData.pricingParameters as any[];
             // Group variables by the admin-configured variable_category label (no hardcoded categories)
             const groupedVariables: { [key: string]: any[] } = {};
-            variablesData.pricingParameters.forEach((param: any) => {
+            params.forEach((param: any) => {
               const rawCategory = String(param.variable_category ?? "").trim();
               if (!rawCategory) return;
               if (!groupedVariables[rawCategory]) {
@@ -643,11 +624,50 @@ function BookingPageContent() {
               });
             });
             setAvailableVariables(groupedVariables);
+
+            // Build pricing tiers from the same data (for getServicePrice by area/size)
+            // Prefer a category that looks like area/size (sqft, area, square, meter); else use first category
+            const categoryKeys = Object.keys(groupedVariables);
+            const areaLikeKey = categoryKeys.find(
+              (k) => /sqft|area|square|meter|size/i.test(String(k))
+            );
+            const tierCategoryKey = areaLikeKey ?? categoryKeys[0];
+            const tierParams = tierCategoryKey
+              ? (params
+                  .filter((p: any) => String(p.variable_category ?? "").trim() === tierCategoryKey)
+                  .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0)))
+              : [];
+            const tiers: PricingTier[] = tierParams.map((p: any, i: number) => ({
+              id: i + 1,
+              name: String(p.name ?? ""),
+              price: typeof p.price === "number" ? p.price : Number(p.price) || 0,
+              time: p.time_minutes != null ? `${p.time_minutes} min` : "",
+              display: String(p.display ?? ""),
+              serviceCategory: selectedIndustryLabel,
+              frequency: String(p.frequency ?? ""),
+              serviceCategoryFilter: p.service_category != null && String(p.service_category).trim() !== "" ? String(p.service_category).trim() : null,
+            }));
+            setPricingRows(tiers);
+
+            // Store all params so we can sum every variable category (Bedroom + Bathroom + Living Room + Sq Ft + Storage, etc.)
+            setAllPricingParams(
+              params.map((p: any) => ({
+                variable_category: String(p.variable_category ?? "").trim(),
+                name: String(p.name ?? ""),
+                price: typeof p.price === "number" ? p.price : Number(p.price) || 0,
+                service_category: p.service_category != null && String(p.service_category).trim() !== "" ? String(p.service_category).trim() : null,
+                frequency: String(p.frequency ?? ""),
+              }))
+            );
           } else {
             setAvailableVariables({});
+            setPricingRows([]);
+            setAllPricingParams([]);
           }
         } else {
           setAvailableVariables({});
+          setPricingRows([]);
+          setAllPricingParams([]);
         }
 
         // Fetch frequencies
@@ -752,20 +772,7 @@ function BookingPageContent() {
     }
   }, [accountLoading, customerName, customerEmail, customerPhone, customerAddress, form]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const storedRaw = localStorage.getItem(BOOKING_ADDRESS_KEY);
-      if (!storedRaw) return;
-      const parsed = JSON.parse(storedRaw) as StoredAddress;
-      if (parsed?.address) {
-        setStoredAddress(parsed);
-        form.setValue("addressPreference", "existing");
-      }
-    } catch {
-      // ignore invalid stored address
-    }
-  }, [form]);
+  // Address comes from form state and customer profile only (no localStorage)
 
   useEffect(() => {
     if (addressPreference === "existing") {
@@ -910,37 +917,42 @@ function BookingPageContent() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const cardKey = (id: string | number) => String(id);
+
   // Handle card flip
-  const handleCardFlip = (cardId: string) => {
+  const handleCardFlip = (cardId: string | number) => {
+    const key = cardKey(cardId);
+    const prevKey = flippedCardId != null ? cardKey(flippedCardId) : null;
     // If flipping to a different card, clear the previous card's data if it wasn't confirmed
-    if (flippedCardId && flippedCardId !== cardId && selectedService?.id !== flippedCardId) {
+    if (prevKey && prevKey !== key && selectedService && cardKey(selectedService.id) !== prevKey) {
       setCardCustomizations(prev => {
         const newCustomizations = { ...prev };
-        delete newCustomizations[flippedCardId];
+        delete newCustomizations[prevKey];
         return newCustomizations;
       });
     }
-    setFlippedCardId(cardId || null);
+    setFlippedCardId(key || null);
   };
 
   // Handle customization change for a specific card
-  const handleCustomizationChange = (serviceId: string, customization: ServiceCustomization) => {
-    // Only update if this card is currently flipped
-    if (flippedCardId === serviceId) {
+  const handleCustomizationChange = (serviceId: string | number, customization: ServiceCustomization) => {
+    const key = cardKey(serviceId);
+    if (flippedCardId != null && cardKey(flippedCardId) === key) {
       setCardCustomizations(prev => ({
         ...prev,
-        [serviceId]: customization
+        [key]: customization
       }));
-      if (selectedService?.id === serviceId) {
+      if (selectedService && cardKey(selectedService.id) === key) {
         setServiceCustomization(customization);
         form.setValue("customization", toFormCustomization(customization), { shouldValidate: true });
       }
     }
   };
 
-  // Get customization for a specific card
-  const getCardCustomization = (serviceId: string): ServiceCustomization => {
-    return cardCustomizations[serviceId] || {
+  // Get customization for a specific card (normalize id so number/string from API always hits same key)
+  const getCardCustomization = (serviceId: string | number): ServiceCustomization => {
+    const key = cardKey(serviceId);
+    return cardCustomizations[key] || {
       frequency: "",
       squareMeters: "",
       bedroom: "",
@@ -948,6 +960,7 @@ function BookingPageContent() {
       extras: [],
       isPartialCleaning: false,
       excludedAreas: [],
+      excludeQuantities: {},
       variableCategories: {},
     };
   };
@@ -956,20 +969,8 @@ function BookingPageContent() {
     const loadBookingData = async () => {
       if (!bookingIdParam || prefilledBookingId === bookingIdParam) return;
 
-      let sourceBooking: Booking | null = null;
-      let consumedStoredPayload = false;
-
-      const storedPayload = readStoredBookAgainPayload();
-      if (storedPayload?.booking?.id === bookingIdParam) {
-        sourceBooking = storedPayload.booking;
-        consumedStoredPayload = true;
-      }
-
-      if (!sourceBooking) {
-        const storedBookings = await readStoredBookings();
-        sourceBooking = storedBookings.find((booking) => booking.id === bookingIdParam) ?? null;
-      }
-
+      const currentBusinessId = searchParams.get("business") ?? null;
+      const sourceBooking = await fetchBookingById(currentBusinessId, bookingIdParam);
       if (!sourceBooking) return;
 
     const match = findServiceMatch(sourceBooking.service);
@@ -983,9 +984,6 @@ function BookingPageContent() {
     }
 
     setPrefilledBookingId(bookingIdParam);
-    if (consumedStoredPayload) {
-      clearStoredBookAgainPayload();
-    }
 
     const { categoryKey, service } = match;
     setSelectedCategory(categoryKey);
@@ -1004,9 +1002,10 @@ function BookingPageContent() {
       extras?: string[] | { name: string; quantity: number }[];
       isPartialCleaning?: boolean;
       excludedAreas?: string[];
+      excludeQuantities?: Record<string, number>;
       variableCategories?: { [categoryName: string]: string };
     };
-    
+
     const presetCustomization = (sourceBooking.customization as BookingCustomization) ?? {};
 
     const normalizeExtrasFromString = (value: unknown): string[] => {
@@ -1025,14 +1024,18 @@ function BookingPageContent() {
     const presetExtras: { name: string; quantity: number }[] = normalizeExtrasArray(normalizeExtrasFromString(presetCustomization.extras));
     const existingExtras: { name: string; quantity: number }[] = normalizeExtrasArray(normalizeExtrasFromString(existingCustomization.extras));
 
+    // Use area options from API (pricing tiers) when available so rebook keeps admin-configured values
+    const areaOptionsForRebook = pricingRows.length > 0
+      ? pricingRows.map((t) => t.name)
+      : [...AREA_SIZE_OPTIONS];
     const rebookCustomization: ServiceCustomization = {
       frequency:
         normalizeSelectValue(sourceBooking.frequency, FREQUENCY_OPTIONS) ||
         normalizeSelectValue(existingCustomization.frequency, FREQUENCY_OPTIONS) ||
         normalizeSelectValue(presetCustomization.frequency, FREQUENCY_OPTIONS),
       squareMeters:
-        normalizeSelectValue(presetCustomization.squareMeters, AREA_SIZE_OPTIONS) ||
-        normalizeSelectValue(existingCustomization.squareMeters, AREA_SIZE_OPTIONS),
+        normalizeSelectValue(presetCustomization.squareMeters, areaOptionsForRebook) ||
+        normalizeSelectValue(existingCustomization.squareMeters, areaOptionsForRebook),
       bedroom:
         normalizeSelectValue(presetCustomization.bedroom, BEDROOM_OPTIONS) ||
         normalizeSelectValue(existingCustomization.bedroom, BEDROOM_OPTIONS),
@@ -1043,6 +1046,7 @@ function BookingPageContent() {
       isPartialCleaning:
         presetCustomization.isPartialCleaning ?? existingCustomization.isPartialCleaning ?? false,
       excludedAreas: presetCustomization.excludedAreas ?? existingCustomization.excludedAreas ?? [],
+      excludeQuantities: presetCustomization.excludeQuantities ?? existingCustomization.excludeQuantities ?? {},
       variableCategories: presetCustomization.variableCategories ?? existingCustomization.variableCategories ?? {},
     };
 
@@ -1050,7 +1054,7 @@ function BookingPageContent() {
     form.setValue("customization", toFormCustomization(rebookCustomization), { shouldValidate: true });
     setCardCustomizations((prev) => ({
       ...prev,
-      [service.id]: rebookCustomization,
+      [cardKey(service.id)]: rebookCustomization,
     }));
 
     form.setValue("service", sourceBooking.service);
@@ -1080,7 +1084,16 @@ function BookingPageContent() {
     };
 
     loadBookingData();
-  }, [bookingIdParam, prefilledBookingId, form, toast]);
+  }, [bookingIdParam, prefilledBookingId, form, toast, pricingRows, searchParams]);
+
+  // When returning from Stripe Checkout success, show success step
+  useEffect(() => {
+    const stripeSuccess = searchParams.get("stripe") === "success";
+    const sessionId = searchParams.get("session_id");
+    if (stripeSuccess && sessionId) {
+      setCurrentStep("success");
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (currentStep === "success") {
@@ -1089,7 +1102,7 @@ function BookingPageContent() {
     }
   }, [currentStep, router, searchParams]);
 
-  const addBookingToStorage = useCallback(async () => {
+  const addBookingToStorage = useCallback(async (paymentMethod: "cash" | "online" = "cash") => {
     if (!bookingData || !serviceCustomization || !selectedService) {
       toast({
         title: "Missing information",
@@ -1133,76 +1146,266 @@ function BookingPageContent() {
         extras: serviceCustomization.extras && serviceCustomization.extras.length > 0 ? formatExtrasForStorage(serviceCustomization.extras) : ["None"],
         isPartialCleaning: serviceCustomization.isPartialCleaning,
         excludedAreas: serviceCustomization.excludedAreas,
+        excludeQuantities: serviceCustomization.excludeQuantities ?? {},
+        variableCategories: serviceCustomization.variableCategories ?? {},
       },
     };
 
     const currentBusinessId = searchParams.get("business") ?? null;
-    const existing = await readStoredBookings(currentBusinessId);
-    persistBookings([newBooking, ...existing], currentBusinessId);
-    setRecentBookingId(newBooking.id);
-    return newBooking;
-  }, [bookingData, serviceCustomization, selectedService, toast, searchParams]);
 
-  // Handle service selection
+    // Same pattern as admin add-booking: single POST with x-business-id and snake_case body
+    try {
+      const supabase = getSupabaseCustomerClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      const isLoggedIn = Boolean(session?.access_token);
+      const apiUrl = isLoggedIn ? "/api/customer/bookings" : "/api/guest/bookings";
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "x-business-id": currentBusinessId,
+      };
+      if (isLoggedIn) headers.Authorization = `Bearer ${session.access_token}`;
+
+      if (currentBusinessId) {
+        const tot = calculateTotal();
+        summaryTotalRef.current = tot.total;
+        const displayedTotal = summaryTotalRef.current;
+        const amountFromRef = Number(displayedTotal);
+        const amountFromCalc = Number(tot.total) || Number(tot.subtotal) || 0;
+        const fallbackPrice = Number(selectedService?.price ?? newBooking.price ?? 0);
+        const amountToSend =
+          (amountFromRef > 0 ? amountFromRef : null) ??
+          (amountFromCalc > 0 ? amountFromCalc : null) ??
+          (fallbackPrice > 0 ? fallbackPrice : 0);
+
+        const selectedProviderId = form.getValues("provider") || null;
+        const selectedProviderObj = selectedProviderId ? availableProviders.find((p: any) => p.id === selectedProviderId) : null;
+        const payload = {
+          business_id: currentBusinessId,
+          customer_name: `${bookingData.firstName ?? ""} ${bookingData.lastName ?? ""}`.trim(),
+          customer_email: bookingData.email ?? "",
+          customer_phone: String(bookingData.phone ?? ""),
+          address: newBooking.address,
+          service: newBooking.service,
+          frequency: serviceCustomization.frequency || newBooking.frequency || null,
+          date: formattedDate,
+          time: newBooking.time,
+          status: "pending",
+          amount: amountToSend,
+          total: tot.total,
+          subtotal: tot.subtotal,
+          notes: newBooking.notes ?? "",
+          payment_method: paymentMethod,
+          provider_id: selectedProviderId || undefined,
+          provider_name: selectedProviderObj?.name ?? undefined,
+          customization: newBooking.customization ?? undefined,
+        };
+
+        const res = await fetch(apiUrl, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+        });
+
+        const rawText = await res.text();
+        let data: any = {};
+        try {
+          data = rawText ? JSON.parse(rawText) : {};
+        } catch {
+          data = {};
+        }
+
+        if (res.ok) {
+          const saved = (data.data ?? data.booking) ?? data;
+          const savedId = saved?.id ?? data.id ?? newBooking.id;
+          setRecentBookingId(savedId);
+          toast({
+            title: "Booking Added",
+            description: data.message ?? "New booking created.",
+          });
+          return { ...newBooking, id: savedId };
+        }
+
+        const msg =
+          (data && typeof data === "object" ? (data.error ?? data.details ?? data.message) : null) ||
+          rawText ||
+          `Save failed (${res.status})`;
+        const hint = data.hint ? ` ${data.hint}` : "";
+        toast({
+          title: "Error",
+          description: msg === "Customer profile not found for this business"
+            ? "Please log in as a customer for this business to see this booking in your dashboard."
+            : `${msg}${hint}`,
+          variant: "destructive",
+        });
+        return null;
+      }
+    } catch (err) {
+      console.warn("Failed to save booking to database", err);
+      toast({
+        title: "Error",
+        description: "Failed to connect. Please try again.",
+        variant: "destructive",
+      });
+      return null;
+    }
+
+    // No business ID – must come from booking link
+    if (!currentBusinessId) {
+      toast({
+        title: "Business required",
+        description: "Open this page from your provider's booking link to save the booking.",
+        variant: "destructive",
+      });
+    }
+    return null;
+  }, [bookingData, serviceCustomization, selectedService, toast, searchParams, form, availableProviders]);
+
+  // Handle service selection (persist to card customizations so selection survives re-renders)
   const handleServiceSelect = (serviceName: string, customization?: ServiceCustomization) => {
     if (!selectedCategory) return;
     const service = serviceCategories.find((s) => s.name === serviceName);
-    if (service && customization) {
-      setSelectedService(service);
-      setServiceCustomization(customization);
-      form.setValue("service", serviceName, { shouldValidate: true });
-      form.setValue("customization", toFormCustomization(customization), { shouldValidate: true });
-      
-      // Scroll to customer form after a short delay
-      setTimeout(() => {
-        const formElement = document.getElementById('customer-form');
-        if (formElement) {
-          formElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      }, 300);
-    }
+    if (!service) return;
+    const custom = customization ?? getCardCustomization(service.id);
+    setSelectedService(service);
+    setServiceCustomization(custom);
+    setCardCustomizations((prev) => ({ ...prev, [cardKey(service.id)]: custom }));
+    form.setValue("service", serviceName, { shouldValidate: true });
+    form.setValue("customization", toFormCustomization(custom), { shouldValidate: true });
+
+    // Scroll to customer form after a short delay
+    setTimeout(() => {
+      const formElement = document.getElementById("customer-form");
+      if (formElement) {
+        formElement.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 300);
   };
 
-  // Handle booking form submission - move to payment step
+  // Handle booking form submission - move to payment step (no localStorage)
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    if (typeof window !== "undefined") {
-      const payload: StoredAddress = {
-        address: values.address,
-        ...(values.aptNo ? { aptNo: values.aptNo } : {}),
-        ...(values.zipCode ? { zipCode: values.zipCode } : {}),
-      };
-      localStorage.setItem(BOOKING_ADDRESS_KEY, JSON.stringify(payload));
-      setStoredAddress(payload);
-    }
+    setStoredAddress({
+      address: values.address,
+      ...(values.aptNo ? { aptNo: values.aptNo } : {}),
+      ...(values.zipCode ? { zipCode: values.zipCode } : {}),
+    });
     setBookingData(values);
     setCurrentStep("payment");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  // Get service price
+  // Helper: admin may store "Deep Cleaning, Basic Cleaning" or "Weekly, Monthly" – treat as list
+  const listContains = (commaSeparated: string | null | undefined, value: string): boolean => {
+    if (!value?.trim()) return false;
+    if (!commaSeparated?.trim()) return true;
+    const parts = commaSeparated.split(",").map((s) => s.trim()).filter(Boolean);
+    return parts.some((p) => p === value.trim());
+  };
+
+  // Sum prices for all selected variable categories (Bedroom + Bathroom + Living Room + Sq Ft + Storage, etc.) from pricing parameters
+  const getVariableCategoriesSubtotal = (serviceName: string) => {
+    const selectedFrequency = serviceCustomization?.frequency?.trim() || "";
+    if (allPricingParams.length === 0) return 0;
+    const vc = serviceCustomization?.variableCategories ?? {};
+    let sum = 0;
+    let addedAreaLike = false;
+    for (const [categoryKey, optionName] of Object.entries(vc)) {
+      if (!optionName?.trim() || optionName.trim().toLowerCase() === "none") continue;
+      const param = allPricingParams.find(
+        (p) =>
+          p.variable_category === categoryKey &&
+          p.name === optionName &&
+          (!p.service_category || listContains(p.service_category, serviceName)) &&
+          (!p.frequency || listContains(p.frequency, selectedFrequency))
+      );
+      if (param && typeof param.price === "number" && !Number.isNaN(param.price)) {
+        sum += param.price;
+        if (/sqft|area|square|meter|size/i.test(param.variable_category)) addedAreaLike = true;
+      }
+    }
+    // Include squareMeters only if no area-like category was already added (avoids double-count)
+    if (!addedAreaLike && serviceCustomization?.squareMeters?.trim()) {
+      const areaLikeParam = allPricingParams.find(
+        (p) =>
+          /sqft|area|square|meter|size/i.test(p.variable_category) &&
+          p.name === serviceCustomization.squareMeters &&
+          (!p.service_category || listContains(p.service_category, serviceName)) &&
+          (!p.frequency || listContains(p.frequency, selectedFrequency))
+      );
+      if (areaLikeParam && typeof areaLikeParam.price === "number" && !Number.isNaN(areaLikeParam.price)) {
+        sum += areaLikeParam.price;
+      }
+    }
+    return sum;
+  };
+
+  // Sum extra price × quantity for each selected extra (from industry extras, not hardcoded)
+  const getExtrasSubtotal = () => {
+    if (!serviceCustomization?.extras?.length || availableExtras.length === 0) return 0;
+    let sum = 0;
+    for (const item of serviceCustomization.extras) {
+      if (item.name === "None") continue;
+      const extra = availableExtras.find((e: any) => (e.name || "").trim() === (item.name || "").trim());
+      if (extra && typeof (extra as any).price === "number") {
+        const qty = Math.max(1, Number(item.quantity) || 1);
+        sum += (extra as any).price * qty;
+      }
+    }
+    return sum;
+  };
+
+  // Get service price from industry form 1: pricing parameters (filtered by service + frequency) or service category price
   const getServicePrice = (serviceName: string) => {
     if (!selectedCategory) return 0;
 
-    // If we have dynamic pricing tiers and customization (e.g., Home Cleaning), prefer tier price
+    const selectedFrequency = serviceCustomization?.frequency?.trim() || "";
+
     if (pricingRows.length > 0 && serviceCustomization) {
-      const idx = AREA_SIZE_OPTIONS.findIndex((opt) => opt === serviceCustomization.squareMeters);
-      if (idx >= 0 && idx < pricingRows.length) {
-        const tier = pricingRows[idx];
+      const areaOption =
+        serviceCustomization.squareMeters ||
+        (serviceCustomization.variableCategories &&
+          Object.values(serviceCustomization.variableCategories).find((v) =>
+            pricingRows.some((tier) => tier.name === v)
+          ));
+      if (areaOption) {
+        const applicableTiers = pricingRows.filter((tier) => {
+          const matchesService =
+            !tier.serviceCategoryFilter ||
+            listContains(tier.serviceCategoryFilter, serviceName) ||
+            (selectedService && (
+              listContains(tier.serviceCategoryFilter, selectedService.name) ||
+              tier.serviceCategoryFilter === selectedService.id ||
+              (selectedService.raw && tier.serviceCategoryFilter === String((selectedService.raw as any).id))
+            ));
+          const matchesFrequency =
+            !tier.frequency ||
+            listContains(tier.frequency, selectedFrequency);
+          return matchesService && matchesFrequency && tier.name === areaOption;
+        });
+        const tier = applicableTiers[0] ?? pricingRows.find((t) => t.name === areaOption);
         if (tier && typeof tier.price === "number" && !Number.isNaN(tier.price)) {
           return tier.price;
         }
       }
     }
 
-    // Use price from service category configured in admin
+    // Fallback: price from service category (industry form 1 – service category price)
     const service = serviceCategories.find((s) => s.name === serviceName);
-    return service?.price || 0;
+    return service?.price ?? 0;
   };
 
-  // Calculate total
+  // Calculate total from pricing parameters: sum all variable categories + extras; fallback to single-tier or service category price
   const calculateTotal = () => {
     if (!bookingData) return { subtotal: 0, tax: 0, total: 0 };
-    const subtotal = getServicePrice(bookingData.service);
+    const serviceName = bookingData.service || selectedService?.name;
+    const variableSubtotal = serviceName ? getVariableCategoriesSubtotal(serviceName) : 0;
+    const extrasSubtotal = getExtrasSubtotal();
+    let subtotal = variableSubtotal + extrasSubtotal;
+    if (subtotal === 0 && serviceName) {
+      subtotal = getServicePrice(serviceName);
+    }
+    if (subtotal === 0 && selectedService?.price != null && selectedService.price > 0) {
+      subtotal = selectedService.price;
+    }
     const tax = subtotal * 0.08; // 8% tax
     const total = subtotal + tax;
     return { subtotal, tax, total };
@@ -1232,19 +1435,142 @@ function BookingPageContent() {
     }
   };
 
-  // Handle online payment
-  const handleOnlinePayment = async (values: z.infer<typeof paymentSchema>) => {
+  // Create a pending booking and return its id (for Stripe flow). Returns null on error.
+  const createDraftBookingForStripe = useCallback(async (): Promise<string | null> => {
+    if (!bookingData || !serviceCustomization || !selectedService) return null;
+    const bookingDate = bookingData.date instanceof Date ? bookingData.date : new Date(bookingData.date);
+    let formattedDate: string;
+    if (Number.isNaN(bookingDate.getTime())) {
+      const today = new Date();
+      formattedDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    } else {
+      formattedDate = `${bookingDate.getFullYear()}-${String(bookingDate.getMonth() + 1).padStart(2, "0")}-${String(bookingDate.getDate()).padStart(2, "0")}`;
+    }
+    const newBooking: Booking = {
+      id: `CB-${Date.now().toString(36).toUpperCase()}`,
+      service: selectedService.name,
+      provider: "",
+      frequency: serviceCustomization.frequency || "One-time",
+      date: formattedDate,
+      time: bookingData.time,
+      status: "scheduled",
+      address: bookingData.aptNo ? `${bookingData.address}, Apt ${bookingData.aptNo}` : bookingData.address,
+      contact: String(bookingData.phone),
+      notes: bookingData.notes ?? "",
+      price: selectedService.price ?? 0,
+      tipAmount: undefined,
+      tipUpdatedAt: undefined,
+      customization: {
+        frequency: serviceCustomization.frequency,
+        squareMeters: serviceCustomization.squareMeters,
+        bedroom: serviceCustomization.bedroom,
+        bathroom: serviceCustomization.bathroom,
+        extras: serviceCustomization.extras?.length ? formatExtrasForStorage(serviceCustomization.extras) : ["None"],
+        isPartialCleaning: serviceCustomization.isPartialCleaning,
+        excludedAreas: serviceCustomization.excludedAreas,
+        excludeQuantities: serviceCustomization.excludeQuantities ?? {},
+        variableCategories: serviceCustomization.variableCategories ?? {},
+      },
+    };
+    const currentBusinessId = searchParams.get("business") ?? null;
+    if (!currentBusinessId) return null;
+    try {
+      const supabase = getSupabaseCustomerClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      const isLoggedIn = Boolean(session?.access_token);
+      const apiUrl = isLoggedIn ? "/api/customer/bookings" : "/api/guest/bookings";
+      const headers: Record<string, string> = { "Content-Type": "application/json", "x-business-id": currentBusinessId };
+      if (isLoggedIn) headers.Authorization = `Bearer ${session!.access_token}`;
+      const tot = calculateTotal();
+      const amountToSend =
+        (Number(tot.total) > 0 ? tot.total : null) ?? (Number(tot.subtotal) > 0 ? tot.subtotal : null) ?? Number(selectedService?.price ?? 0);
+      const selectedProviderId = form.getValues("provider") || null;
+      const selectedProviderObj = selectedProviderId ? availableProviders.find((p: any) => p.id === selectedProviderId) : null;
+      const payload = {
+        business_id: currentBusinessId,
+        customer_name: `${bookingData.firstName ?? ""} ${bookingData.lastName ?? ""}`.trim(),
+        customer_email: bookingData.email ?? "",
+        customer_phone: String(bookingData.phone ?? ""),
+        address: newBooking.address,
+        service: newBooking.service,
+        frequency: serviceCustomization.frequency || newBooking.frequency || null,
+        date: formattedDate,
+        time: newBooking.time,
+        status: "pending",
+        amount: amountToSend,
+        total: tot.total,
+        subtotal: tot.subtotal,
+        notes: newBooking.notes ?? "",
+        payment_method: "online",
+        provider_id: selectedProviderId || undefined,
+        provider_name: selectedProviderObj?.name ?? undefined,
+        customization: newBooking.customization ?? undefined,
+      };
+      const res = await fetch(apiUrl, { method: "POST", headers, body: JSON.stringify(payload) });
+      const rawText = await res.text();
+      let data: any = {};
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        data = {};
+      }
+      if (res.ok) {
+        const saved = (data.data ?? data.booking) ?? data;
+        return saved?.id ?? data.id ?? null;
+      }
+      const msg = (typeof data === "object" ? (data.error ?? data.message) : null) || rawText;
+      toast({ title: "Error", description: msg || `Save failed (${res.status})`, variant: "destructive" });
+      return null;
+    } catch (err) {
+      console.warn("createDraftBookingForStripe failed", err);
+      toast({ title: "Error", description: "Failed to create booking. Please try again.", variant: "destructive" });
+      return null;
+    }
+  }, [bookingData, serviceCustomization, selectedService, searchParams, form, availableProviders]);
+
+  // Handle online payment via Stripe Checkout (redirect)
+  const handleOnlinePayment = async (_values?: z.infer<typeof paymentSchema>) => {
     setIsProcessing(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      const saved = await addBookingToStorage();
-      if (!saved) return;
-      toast({
-        title: "Payment Successful!",
-        description: "Your booking has been saved.",
+      const bookingId = await createDraftBookingForStripe();
+      if (!bookingId) return;
+      const { subtotal, tax, total } = calculateTotal();
+      const amountInCents = Math.round(total * 100);
+      if (amountInCents < 50) {
+        toast({ title: "Invalid amount", description: "Minimum charge is $0.50.", variant: "destructive" });
+        return;
+      }
+      const businessId = searchParams.get("business") ?? "";
+      const res = await fetch("/api/stripe/create-checkout-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookingId,
+          amountInCents,
+          customerEmail: bookingData?.email ?? undefined,
+          businessId: businessId || undefined,
+          lineItemDescription: `${selectedService?.name ?? "Booking"} – ${bookingData?.date ? format(bookingData.date instanceof Date ? bookingData.date : new Date(bookingData.date), "PPP") : ""}`,
+        }),
       });
-      setCurrentStep("success");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({
+          title: "Payment setup failed",
+          description: json.error || json.details || "Stripe is not configured or the request failed. Please try again or pay on arrival.",
+          variant: "destructive",
+        });
+        return;
+      }
+      const url = json.url;
+      if (url) {
+        window.location.href = url;
+        return;
+      }
+      toast({
+        title: "Payment link not available",
+        description: "Please try again or pay on arrival.",
+        variant: "destructive",
+      });
     } catch (error) {
       toast({
         title: "Payment Failed",
@@ -1254,27 +1580,6 @@ function BookingPageContent() {
     } finally {
       setIsProcessing(false);
     }
-  };
-
-  // Format card number
-  const formatCardNumber = (value: string) => {
-    const v = value.replace(/\s+/g, "").replace(/[^0-9]/gi, "");
-    const matches = v.match(/\d{4,16}/g);
-    const match = (matches && matches[0]) || "";
-    const parts = [];
-    for (let i = 0, len = match.length; i < len; i += 4) {
-      parts.push(match.substring(i, i + 4));
-    }
-    return parts.length ? parts.join(" ") : value;
-  };
-
-  // Format expiry date
-  const formatExpiryDate = (value: string) => {
-    const v = value.replace(/\s+/g, "").replace(/[^0-9]/gi, "");
-    if (v.length >= 2) {
-      return v.slice(0, 2) + "/" + v.slice(2, 4);
-    }
-    return v;
   };
 
   // Category Selection Screen
@@ -1381,7 +1686,8 @@ function BookingPageContent() {
   // Payment Screen
   if (currentStep === "payment" && bookingData && selectedService && serviceCustomization) {
     const { subtotal, tax, total } = calculateTotal();
-    
+    summaryTotalRef.current = total;
+
     return (
       <div className="min-h-screen">
         <Navigation 
@@ -1418,17 +1724,41 @@ function BookingPageContent() {
                     <strong>Service:</strong> {selectedService.name}
                   </div>
                   <div className={styles.summaryItem}>
-                    <strong>Frequency:</strong> {serviceCustomization.frequency}
+                    <strong>Frequency:</strong> {serviceCustomization.frequency || "—"}
                   </div>
-                  <div className={styles.summaryItem}>
-                    <strong>Area Size:</strong> {serviceCustomization.squareMeters}
-                  </div>
-                  <div className={styles.summaryItem}>
-                    <strong>Bedroom:</strong> {serviceCustomization.bedroom}
-                  </div>
-                  <div className={styles.summaryItem}>
-                    <strong>Bathroom:</strong> {serviceCustomization.bathroom}
-                  </div>
+                  {Object.keys(availableVariables).length > 0
+                    ? Object.keys(availableVariables).map((categoryKey) => {
+                        const value =
+                          serviceCustomization.variableCategories?.[categoryKey] ??
+                          (/sqft|area|square|meter|size/i.test(categoryKey) ? serviceCustomization.squareMeters : null) ??
+                          (categoryKey.toLowerCase().includes("bedroom") ? serviceCustomization.bedroom : null) ??
+                          (categoryKey.toLowerCase().includes("bathroom") ? serviceCustomization.bathroom : null);
+                        if (value == null || String(value).trim() === "") return null;
+                        return (
+                          <div key={categoryKey} className={styles.summaryItem}>
+                            <strong>{categoryKey}:</strong> {String(value).trim()}
+                          </div>
+                        );
+                      })
+                    : (
+                      <>
+                        {serviceCustomization.squareMeters?.trim() && (
+                          <div className={styles.summaryItem}>
+                            <strong>Sq Ft:</strong> {serviceCustomization.squareMeters}
+                          </div>
+                        )}
+                        {serviceCustomization.bedroom?.trim() && (
+                          <div className={styles.summaryItem}>
+                            <strong>Bedroom:</strong> {serviceCustomization.bedroom}
+                          </div>
+                        )}
+                        {serviceCustomization.bathroom?.trim() && (
+                          <div className={styles.summaryItem}>
+                            <strong>Bathroom:</strong> {serviceCustomization.bathroom}
+                          </div>
+                        )}
+                      </>
+                    )}
                   {serviceCustomization.extras &&
                     Array.isArray(serviceCustomization.extras) &&
                     serviceCustomization.extras.length > 0 &&
@@ -1473,142 +1803,35 @@ function BookingPageContent() {
                 </div>
               </div>
 
-              {/* Payment Form */}
+              {/* Payment via Stripe Checkout */}
               <div className="md:col-span-2">
                 <div className={styles.paymentCard}>
-                  <h3 className={styles.paymentTitle}>Payment Information</h3>
-
-                  {/* Online Payment Form */}
+                  <h3 className={styles.paymentTitle}>Pay securely with Stripe</h3>
                   <div className={styles.securityBadge}>
                     <Lock className="h-4 w-4" />
-                    <span>Secure Payment - Your information is encrypted</span>
+                    <span>Secure payment – you&apos;ll complete payment on Stripe&apos;s checkout page</span>
                   </div>
-
-                  <Form {...paymentForm}>
-                    <form onSubmit={paymentForm.handleSubmit(handleOnlinePayment)} className="space-y-4 mt-4">
-                      <FormField
-                            control={paymentForm.control}
-                            name="cardNumber"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Card Number</FormLabel>
-                                <FormControl>
-                                  <div className="relative">
-                                    <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                                    <Input
-                                      placeholder="1234 5678 9012 3456"
-                                      className="pl-10"
-                                      maxLength={19}
-                                      {...field}
-                                      onChange={(e) => {
-                                        const formatted = formatCardNumber(e.target.value);
-                                        field.onChange(formatted);
-                                      }}
-                                      onBlur={(e) => {
-                                        field.onBlur();
-                                        paymentForm.trigger("cardNumber");
-                                      }}
-                                    />
-                                  </div>
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={paymentForm.control}
-                            name="cardName"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Name on Card</FormLabel>
-                                <FormControl>
-                                  <Input placeholder="JOHN DOE" {...field} 
-                                    onBlur={(e) => {
-                                      field.onBlur();
-                                      paymentForm.trigger("cardName");
-                                    }}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <div className="grid grid-cols-2 gap-4">
-                            <FormField
-                              control={paymentForm.control}
-                              name="expiryDate"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Expiry Date</FormLabel>
-                                  <FormControl>
-                                    <Input
-                                      placeholder="MM/YY"
-                                      maxLength={5}
-                                      {...field}
-                                      onChange={(e) => {
-                                        const formatted = formatExpiryDate(e.target.value);
-                                        field.onChange(formatted);
-                                      }}
-                                      onBlur={(e) => {
-                                        field.onBlur();
-                                        paymentForm.trigger("expiryDate");
-                                      }}
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-
-                            <FormField
-                              control={paymentForm.control}
-                              name="cvv"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>CVV</FormLabel>
-                                  <FormControl>
-                                    <Input
-                                      type="password"
-                                      placeholder="123"
-                                      maxLength={4}
-                                      {...field}
-                                      onChange={(e) => {
-                                        const value = e.target.value.replace(/\D/g, "");
-                                        field.onChange(value);
-                                      }}
-                                      onBlur={(e) => {
-                                        field.onBlur();
-                                        paymentForm.trigger("cvv");
-                                      }}
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-
-                          <Button
-                            type="submit"
-                            disabled={isProcessing}
-                            className="w-full h-12 text-base mt-6"
-                          >
-                            {isProcessing ? (
-                              <>
-                                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                                Processing Payment...
-                              </>
-                            ) : (
-                              <>
-                                Pay ${total.toFixed(2)}
-                                <Lock className="ml-2 h-5 w-5" />
-                              </>
-                            )}
-                      </Button>
-                    </form>
-                  </Form>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    After you click below, we&apos;ll create your booking and send you to Stripe to enter your card details. Your booking is confirmed once payment succeeds.
+                  </p>
+                  <Button
+                    type="button"
+                    disabled={isProcessing}
+                    onClick={() => handleOnlinePayment()}
+                    className="w-full h-12 text-base mt-6"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                        Preparing checkout...
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard className="mr-2 h-5 w-5" />
+                        Pay ${total.toFixed(2)} with Stripe
+                      </>
+                    )}
+                  </Button>
                 </div>
               </div>
             </div>

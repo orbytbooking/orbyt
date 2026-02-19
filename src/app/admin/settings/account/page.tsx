@@ -1,5 +1,7 @@
 "use client";
 
+import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Building2, Shield, CreditCard, FileText, Gift, User, Save, Briefcase } from "lucide-react";
 import YourInfoPage from "./your-info/page";
@@ -7,7 +9,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useState, useEffect } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
@@ -34,8 +35,19 @@ import {
 import { supabase } from "@/lib/supabaseClient";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { toast } from "sonner";
+import { BillingStripeConnect } from "@/components/admin/BillingStripeConnect";
 
 export default function AccountSettingsPage() {
+  const searchParams = useSearchParams();
+  const tabFromUrl = searchParams?.get("tab");
+  const [activeAccountTab, setActiveAccountTab] = useState("your-info");
+
+  useEffect(() => {
+    if (tabFromUrl === "billing" || searchParams?.get("stripe") === "return") {
+      setActiveAccountTab("billing");
+    }
+  }, [tabFromUrl, searchParams]);
+
   const [adminEmail, setAdminEmail] = useState("");
   const [adminName, setAdminName] = useState("");
   const [adminPhone, setAdminPhone] = useState("");
@@ -301,7 +313,7 @@ export default function AccountSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <Tabs defaultValue="your-info" className="w-full">
+      <Tabs value={activeAccountTab} onValueChange={setActiveAccountTab} className="w-full">
         <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="your-info" className="flex items-center gap-2">
             <Briefcase className="h-4 w-4" />
@@ -733,39 +745,7 @@ export default function AccountSettingsPage() {
         </TabsContent>
 
         <TabsContent value="billing" className="pt-6">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <CreditCard className="h-5 w-5 text-primary" />
-                <CardTitle>Billing</CardTitle>
-              </div>
-              <CardDescription>Manage your payment methods</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="card-name">Cardholder Name</Label>
-                  <Input id="card-name" placeholder="Name on card" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="card-number">Card Number</Label>
-                  <Input id="card-number" placeholder="•••• •••• •••• ••••" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="exp">Expiry</Label>
-                  <Input id="exp" placeholder="MM/YY" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cvc">CVC</Label>
-                  <Input id="cvc" placeholder="CVC" />
-                </div>
-              </div>
-              <Button className="mt-4" style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}>
-                <Save className="h-4 w-4 mr-2" />
-                Save Billing
-              </Button>
-            </CardContent>
-          </Card>
+          <BillingStripeConnect />
         </TabsContent>
 
         <TabsContent value="subscription-plans" className="pt-6">

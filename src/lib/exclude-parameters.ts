@@ -16,6 +16,9 @@ export interface ExcludeParameter {
   show_based_on_service_category: boolean;
   excluded_providers?: string[];
   sort_order: number;
+  qty_based?: boolean;
+  maximum_quantity?: number | null;
+  apply_to_all_bookings?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -35,6 +38,9 @@ export interface CreateExcludeParameterData {
   show_based_on_service_category?: boolean;
   excluded_providers?: string[];
   sort_order?: number;
+  qty_based?: boolean;
+  maximum_quantity?: number | null;
+  apply_to_all_bookings?: boolean;
 }
 
 export interface UpdateExcludeParameterData extends Partial<CreateExcludeParameterData> {}
@@ -105,10 +111,30 @@ class ExcludeParametersService {
     return data;
   }
 
+  /** Columns that exist on industry_exclude_parameter */
+  private static readonly TABLE_COLUMNS = [
+    'business_id', 'industry_id', 'name', 'description', 'icon', 'price', 'time_minutes', 'display',
+    'service_category', 'frequency', 'show_based_on_frequency', 'show_based_on_service_category',
+    'excluded_providers', 'sort_order', 'show_based_on_variables', 'variables',
+    'qty_based', 'maximum_quantity', 'apply_to_all_bookings'
+  ] as const;
+
+  private pickTableColumns<T extends Record<string, unknown>>(payload: T): Partial<Record<typeof ExcludeParametersService.TABLE_COLUMNS[number], unknown>> {
+    const allowed = new Set(ExcludeParametersService.TABLE_COLUMNS);
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(payload)) {
+      if (allowed.has(key as typeof ExcludeParametersService.TABLE_COLUMNS[number]) && value !== undefined) {
+        out[key] = value;
+      }
+    }
+    return out;
+  }
+
   async createExcludeParameter(paramData: CreateExcludeParameterData): Promise<ExcludeParameter> {
+    const insertPayload = this.pickTableColumns(paramData as Record<string, unknown>);
     const { data, error } = await this.supabase
       .from('industry_exclude_parameter')
-      .insert(paramData)
+      .insert(insertPayload)
       .select()
       .single();
 
@@ -121,9 +147,10 @@ class ExcludeParametersService {
   }
 
   async updateExcludeParameter(id: string, updateData: UpdateExcludeParameterData): Promise<ExcludeParameter> {
+    const updatePayload = this.pickTableColumns(updateData as Record<string, unknown>);
     const { data, error } = await this.supabase
       .from('industry_exclude_parameter')
-      .update(updateData)
+      .update(updatePayload)
       .eq('id', id)
       .select()
       .single();

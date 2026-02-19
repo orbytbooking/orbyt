@@ -54,7 +54,7 @@ export default function IndustryForm1Page() {
           const frequenciesData = await frequenciesResponse.json();
           const frequencies = frequenciesData.frequencies?.length || 0;
 
-          const locationsResponse = await fetch(`/api/locations?industryId=${currentIndustry.id}`);
+          const locationsResponse = await fetch(`/api/locations?business_id=${currentBusiness.id}`);
           const locationsData = await locationsResponse.json();
           const locations = locationsData.locations?.length || 0;
 

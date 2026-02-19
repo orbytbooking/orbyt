@@ -167,7 +167,10 @@ export default function ExcludeParameterNewPage() {
             const response = await fetch(`/api/admin/providers?businessId=${currentBusiness.id}`);
             const data = await response.json();
             if (data.providers && Array.isArray(data.providers)) {
-              setProviders(data.providers.map((p: any) => ({ id: p.id, name: `${p.first_name} ${p.last_name}` })));
+              setProviders(data.providers.map((p: any) => ({
+                id: p.id,
+                name: p.name ?? ([p.first_name ?? p.firstName, p.last_name ?? p.lastName].filter(Boolean).join(' ').trim() || 'Unknown'),
+              })));
             }
           }
         } catch (error) {
@@ -257,9 +260,9 @@ export default function ExcludeParameterNewPage() {
           const data = await response.json();
           
           if (data.providers && Array.isArray(data.providers)) {
-            setProviders(data.providers.map((p: any) => ({ 
-              id: p.id, 
-              name: p.name 
+            setProviders(data.providers.map((p: any) => ({
+              id: p.id,
+              name: p.name ?? ([p.first_name ?? p.firstName, p.last_name ?? p.lastName].filter(Boolean).join(' ').trim() || 'Unknown'),
             })));
           } else {
             setProviders([]);
@@ -327,7 +330,7 @@ export default function ExcludeParameterNewPage() {
         time_minutes: timeMinutes,
         display: form.display,
         qty_based: form.qtyBased,
-        maximum_quantity: form.maximum ? parseInt(form.maximum) : undefined,
+        maximum_quantity: form.maximum ? parseInt(form.maximum, 10) : null,
         apply_to_all_bookings: form.applyToAllBookings,
         service_category: serviceCategoryValue || undefined,
         frequency: frequencyValue || undefined,

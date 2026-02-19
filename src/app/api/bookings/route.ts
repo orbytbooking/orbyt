@@ -156,6 +156,28 @@ export async function POST(request: Request) {
       amount: bookingData.amount || 0,
     };
 
+    // Build customization from admin payload (partial cleaning, exclude areas/quantities, extras, etc.)
+    const hasPartialCleaning = Boolean(bookingData.is_partial_cleaning);
+    const excludedAreas = Array.isArray(bookingData.excluded_areas) ? bookingData.excluded_areas : [];
+    const excludeQuantities = bookingData.exclude_quantities && typeof bookingData.exclude_quantities === 'object' && !Array.isArray(bookingData.exclude_quantities)
+      ? bookingData.exclude_quantities
+      : {};
+    const hasCustomization = hasPartialCleaning || excludedAreas.length > 0 || Object.keys(excludeQuantities).length > 0 ||
+      (Array.isArray(bookingData.selected_extras) && bookingData.selected_extras.length > 0) ||
+      (bookingData.extra_quantities && typeof bookingData.extra_quantities === 'object' && Object.keys(bookingData.extra_quantities).length > 0) ||
+      (bookingData.category_values && typeof bookingData.category_values === 'object' && Object.keys(bookingData.category_values).length > 0);
+    if (hasCustomization) {
+      bookingWithBusiness.customization = {
+        ...(bookingData.customization && typeof bookingData.customization === 'object' ? bookingData.customization : {}),
+        isPartialCleaning: hasPartialCleaning,
+        excludedAreas,
+        excludeQuantities,
+        selectedExtras: Array.isArray(bookingData.selected_extras) ? bookingData.selected_extras : [],
+        extraQuantities: bookingData.extra_quantities && typeof bookingData.extra_quantities === 'object' ? bookingData.extra_quantities : {},
+        categoryValues: bookingData.category_values && typeof bookingData.category_values === 'object' ? bookingData.category_values : {},
+      };
+    }
+
     // Only include provider_wage fields if they have valid values
     // This allows the code to work even if the migration hasn't been run yet
     if (providerWage !== null && providerWageType !== null) {
@@ -183,34 +205,41 @@ export async function POST(request: Request) {
       console.error('❌ Booking creation error:', bookingError);
       console.error('❌ Booking data attempted:', JSON.stringify(bookingWithBusiness, null, 2));
       
-      // If error is about missing columns (provider_wage), try again without them
-      if (bookingError.message && bookingError.message.includes('provider_wage')) {
+      // If error is about missing columns (provider_wage or customization), retry without them
+      const msg = bookingError.message || '';
+      let didStrip = false;
+      if (msg.includes('provider_wage')) {
         console.log('⚠️ provider_wage columns not found, retrying without them...');
         delete bookingWithBusiness.provider_wage;
         delete bookingWithBusiness.provider_wage_type;
-        
+        didStrip = true;
+      }
+      if (msg.includes('customization')) {
+        console.log('⚠️ customization column not found, retrying without it...');
+        delete bookingWithBusiness.customization;
+        didStrip = true;
+      }
+      if (didStrip) {
         const { data: retryBooking, error: retryError } = await supabase
           .from('bookings')
           .insert(bookingWithBusiness)
           .select()
           .single();
-          
         if (retryError) {
           console.error('❌ Retry booking creation error:', retryError);
-          return NextResponse.json({ 
+          return NextResponse.json({
             error: retryError.message,
-            details: 'Please run migration 012_add_provider_wage_to_bookings.sql to enable provider wage features'
+            details: 'Run migrations 012 and 018 for full booking features.'
           }, { status: 500 });
         }
-        
-        console.log('✅ Booking created without provider_wage columns');
+        const warning = msg.includes('customization')
+          ? 'Customization column not found. Run migration 018 to save exclude quantities and partial cleaning.'
+          : (msg.includes('provider_wage') ? 'Run migration 012 for provider wage.' : '');
         return NextResponse.json({
           success: true,
           data: retryBooking,
-          message: retryBooking?.provider_id 
-            ? 'Booking created successfully and assigned to provider (provider_wage columns not available)'
-            : 'Booking created successfully (provider_wage columns not available)',
-          warning: 'Provider wage columns not found. Run migration 012_add_provider_wage_to_bookings.sql'
+          message: 'Booking created successfully',
+          ...(warning ? { warning } : {})
         });
       }
       

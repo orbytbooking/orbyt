@@ -25,9 +25,10 @@ export type Booking = {
     squareMeters?: string;
     bedroom?: string;
     bathroom?: string;
-    extras?: string[];
+    extras?: string[] | { name: string; quantity?: number }[];
     isPartialCleaning?: boolean;
     excludedAreas?: string[];
+    variableCategories?: { [categoryName: string]: string };
   };
 };
 
@@ -201,13 +202,61 @@ export const persistBookings = async (bookings: Booking[], businessId?: string |
 };
 
 /**
- * Read bookings from database. When businessId is provided, uses business-scoped query
- * so each business sees only its own bookings (business isolation).
+ * Read bookings from database (customer portal). Uses GET /api/customer/bookings with
+ * the current customer session so the dashboard and appointments show real data.
  */
 export const readStoredBookings = async (businessId?: string | null): Promise<Booking[]> => {
-  // For now, return empty array - will be implemented with proper customer context
-  console.warn('readStoredBookings needs customer context - returning empty array');
-  return [];
+  if (typeof window === 'undefined') return [];
+  if (!businessId) return [];
+
+  try {
+    const { getSupabaseCustomerClient } = await import('@/lib/supabaseCustomerClient');
+    const supabase = getSupabaseCustomerClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) return [];
+
+    const res = await fetch(
+      `/api/customer/bookings?business=${encodeURIComponent(businessId)}`,
+      { headers: { Authorization: `Bearer ${session.access_token}` } }
+    );
+    if (!res.ok) return [];
+
+    const data = await res.json();
+    const raw = data?.bookings ?? data?.data ?? data;
+    const list = Array.isArray(raw) ? raw : [];
+    return list as Booking[];
+  } catch (e) {
+    console.warn('readStoredBookings failed', e);
+    return [];
+  }
+};
+
+/**
+ * Fetch a single booking by ID from the backend (for rebook prefill). No localStorage.
+ */
+export const fetchBookingById = async (
+  businessId: string | null,
+  bookingId: string | null
+): Promise<Booking | null> => {
+  if (typeof window === 'undefined' || !businessId || !bookingId) return null;
+  try {
+    const { getSupabaseCustomerClient } = await import('@/lib/supabaseCustomerClient');
+    const supabase = getSupabaseCustomerClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) return null;
+
+    const res = await fetch(
+      `/api/customer/bookings/${encodeURIComponent(bookingId)}?business=${encodeURIComponent(businessId)}`,
+      { headers: { Authorization: `Bearer ${session.access_token}` } }
+    );
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    return (data.booking ?? null) as Booking | null;
+  } catch (e) {
+    console.warn('fetchBookingById failed', e);
+    return null;
+  }
 };
 
 export const persistBookAgainPayload = (booking: Booking) => {

@@ -22,7 +22,7 @@ type BookingsTableProps = {
   bookings: Booking[];
   emptyMessage: string;
   onCancelBooking?: (booking: Booking) => void;
-  onEditBooking?: (booking: Booking) => void;
+  onViewDetails?: (booking: Booking) => void;
   customActions?: (booking: Booking) => CustomAction[];
 };
 
@@ -32,12 +32,59 @@ const formatDate = (date: string) => {
   return parsed.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 };
 
+/** Show time as "6:00 PM" even if stored as "18:00:00" */
+const formatTime = (timeStr: string) => {
+  if (!timeStr || typeof timeStr !== "string") return timeStr;
+  const trimmed = timeStr.trim();
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!match) return trimmed;
+  const hours = parseInt(match[1], 10);
+  const minutes = match[2] || "00";
+  const ampm = hours >= 12 ? "PM" : "AM";
+  const h = hours % 12 || 12;
+  return `${h}:${minutes} ${ampm}`;
+};
+
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(value);
 };
 
-export const BookingsTable = ({ bookings, emptyMessage, onCancelBooking, onEditBooking, customActions }: BookingsTableProps) => {
-  const showActions = Boolean(onCancelBooking || onEditBooking || customActions);
+const statusLabel: Record<string, string> = {
+  scheduled: "Scheduled",
+  confirmed: "Confirmed",
+  in_progress: "In progress",
+  completed: "Completed",
+  canceled: "Canceled",
+  cancelled: "Canceled",
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const normalized = (status || "").toLowerCase();
+  const label = (statusLabel[normalized] ?? status) || "—";
+  const isCompleted = normalized === "completed";
+  const isCanceled = normalized === "canceled" || normalized === "cancelled";
+  const isInProgress = normalized === "in_progress";
+  return (
+    <span
+      className={
+        "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium " +
+        (isCanceled
+          ? "bg-destructive/10 text-destructive"
+          : isCompleted
+            ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+            : isInProgress
+              ? "bg-amber-500/10 text-amber-700 dark:text-amber-400"
+              : "bg-muted text-muted-foreground")
+      }
+    >
+      {label}
+    </span>
+  );
+}
+
+export const BookingsTable = ({ bookings, emptyMessage, onCancelBooking, onViewDetails, customActions }: BookingsTableProps) => {
+  const showActions = Boolean(onCancelBooking || onViewDetails || customActions);
+  const colCount = 7 + (showActions ? 1 : 0); // +1 for Status column
 
   return (
     <div className="rounded-3xl border border-border bg-card shadow-sm">
@@ -47,6 +94,7 @@ export const BookingsTable = ({ bookings, emptyMessage, onCancelBooking, onEditB
             <TableHead className="w-[200px]">Schedule Details</TableHead>
             <TableHead>Assigned provider</TableHead>
             <TableHead>Service</TableHead>
+            <TableHead>Status</TableHead>
             <TableHead>Frequency</TableHead>
             <TableHead>Location</TableHead>
             <TableHead className="text-right">Amount</TableHead>
@@ -56,7 +104,7 @@ export const BookingsTable = ({ bookings, emptyMessage, onCancelBooking, onEditB
         <TableBody>
           {bookings.length === 0 && (
             <TableRow>
-              <TableCell colSpan={showActions ? 7 : 6} className="text-center text-sm text-muted-foreground py-10">
+              <TableCell colSpan={colCount} className="text-center text-sm text-muted-foreground py-10">
                 {emptyMessage}
               </TableCell>
             </TableRow>
@@ -65,19 +113,26 @@ export const BookingsTable = ({ bookings, emptyMessage, onCancelBooking, onEditB
             <TableRow key={booking.id}>
               <TableCell>
                 <p className="font-semibold">{formatDate(booking.date)}</p>
-                <p className="text-sm text-muted-foreground">{booking.time}</p>
+                <p className="text-sm text-muted-foreground">{formatTime(booking.time)}</p>
               </TableCell>
               <TableCell>
-                <p className="font-semibold">{booking.provider?.trim() || ""}</p>
+                <p className="font-semibold">{booking.provider?.trim() ? booking.provider : "Unassigned"}</p>
+                {(!booking.provider?.trim()) && (
+                  <p className="text-xs text-muted-foreground">Assigned by business</p>
+                )}
               </TableCell>
               <TableCell>
                 <p className="font-semibold">{booking.service}</p>
-                <p className="text-xs text-muted-foreground">Status: {booking.status}</p>
               </TableCell>
-              <TableCell>{booking.frequency}</TableCell>
+              <TableCell>
+                <StatusBadge status={booking.status} />
+              </TableCell>
+              <TableCell>{booking.frequency?.trim() || "—"}</TableCell>
               <TableCell>
                 <p>{booking.address}</p>
-                <p className="text-xs text-muted-foreground">{booking.contact}</p>
+                {booking.contact ? (
+                  <p className="text-xs text-muted-foreground">Contact: {booking.contact}</p>
+                ) : null}
               </TableCell>
               <TableCell className="text-right font-semibold">{formatCurrency(booking.price)}</TableCell>
               {showActions && (
@@ -89,9 +144,9 @@ export const BookingsTable = ({ bookings, emptyMessage, onCancelBooking, onEditB
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-48">
-                      {onEditBooking && (
-                        <DropdownMenuItem onSelect={() => onEditBooking(booking)}>
-                          Edit / Reschedule
+                      {onViewDetails && (
+                        <DropdownMenuItem onSelect={() => onViewDetails(booking)}>
+                          View details
                         </DropdownMenuItem>
                       )}
                       {onCancelBooking && (
@@ -105,7 +160,7 @@ export const BookingsTable = ({ bookings, emptyMessage, onCancelBooking, onEditB
                           Cancel booking
                         </DropdownMenuItem>
                       )}
-                      {customActions && (onEditBooking || onCancelBooking) && customActions(booking).length > 0 && (
+                      {customActions && (onViewDetails || onCancelBooking) && customActions(booking).length > 0 && (
                         <DropdownMenuSeparator />
                       )}
                       {customActions?.(booking).map((action) => (

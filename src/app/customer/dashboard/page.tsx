@@ -28,6 +28,10 @@ const CustomerDashboard = () => {
   const searchParams = useSearchParams();
   const businessId = searchParams.get('business');
   const { bookings, loading: bookingsLoading } = useCustomerBookings();
+  const bookingsList = useMemo(
+    () => (Array.isArray(bookings) ? bookings : []),
+    [bookings]
+  );
   const { customerName, customerEmail, customerAccount, accountLoading, handleLogout } = useCustomerAccount();
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const today = new Date();
@@ -35,10 +39,11 @@ const CustomerDashboard = () => {
   });
 
   const scheduledBookings = useMemo(() => {
-    return bookings
-      .filter((booking) => booking.status === "scheduled")
+    const list = Array.isArray(bookingsList) ? bookingsList : [];
+    return list
+      .filter((booking) => booking?.status === "scheduled")
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  }, [bookings]);
+  }, [bookingsList]);
 
   useEffect(() => {
     if (scheduledBookings.length === 0) return;
@@ -51,27 +56,27 @@ const CustomerDashboard = () => {
     });
   }, [scheduledBookings]);
 
-  const completedCount = useMemo(
-    () => bookings.filter((booking) => booking.status === "completed").length,
-    [bookings]
-  );
+  const completedCount = useMemo(() => {
+    const list = Array.isArray(bookingsList) ? bookingsList : [];
+    return list.filter((booking) => booking?.status === "completed").length;
+  }, [bookingsList]);
 
-  const canceledCount = useMemo(
-    () => bookings.filter((booking) => booking.status === "canceled").length,
-    [bookings]
-  );
+  const canceledCount = useMemo(() => {
+    const list = Array.isArray(bookingsList) ? bookingsList : [];
+    return list.filter((booking) => booking?.status === "canceled").length;
+  }, [bookingsList]);
 
   const nextBooking = scheduledBookings[0] ?? null;
 
-  const firstName = customerName.split(" ")[0] || "Customer";
-  const initials = useMemo(() => (
-    customerName
-      .split(" ")
-      .filter(Boolean)
+  const firstName = (typeof customerName === "string" ? customerName : "").split(" ")[0] || "Customer";
+  const initials = useMemo(() => {
+    const name = typeof customerName === "string" ? customerName : "";
+    const parts = (name.split(" ") ?? []).filter(Boolean);
+    return parts
       .slice(0, 2)
       .map((part) => part[0]?.toUpperCase() ?? "")
-      .join("") || "PP"
-  ), [customerName]);
+      .join("") || "PP";
+  }, [customerName]);
 
   const formatDateKey = (date: Date) => {
     const year = date.getFullYear();
@@ -81,8 +86,10 @@ const CustomerDashboard = () => {
   };
 
   const bookingsByDate = useMemo(() => {
-    return scheduledBookings.reduce<Record<string, Booking[]>>((acc, booking) => {
-      const key = booking.date;
+    const list = Array.isArray(scheduledBookings) ? scheduledBookings : [];
+    return list.reduce<Record<string, Booking[]>>((acc, booking) => {
+      const key = booking?.date;
+      if (!key) return acc;
       acc[key] = acc[key] ? [...acc[key], booking] : [booking];
       return acc;
     }, {});

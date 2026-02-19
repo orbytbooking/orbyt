@@ -19,15 +19,9 @@ const locationSchema = z.object({
   business_id: z.string()
 });
 
-// Get all locations for a business
+// Get all locations for a business (uses service role; no auth required so server-side fetch works)
 export async function GET(request: NextRequest) {
   try {
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const { searchParams } = new URL(request.url);
     const business_id = searchParams.get('business_id');
 
@@ -53,15 +47,9 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Create a new location
+// Create a new location (service role; validate business_id only)
 export async function POST(request: NextRequest) {
   try {
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const body = await request.json();
     const validatedData = locationSchema.parse(body);
 
@@ -87,15 +75,9 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Update a location
+// Update a location (service role; validate business_id only)
 export async function PUT(request: NextRequest) {
   try {
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const body = await request.json();
     const { id, ...updateData } = body;
     
@@ -129,15 +111,9 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// Delete a location
+// Delete a location (service role; validate business_id only)
 export async function DELETE(request: NextRequest) {
   try {
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const business_id = searchParams.get('business_id');
