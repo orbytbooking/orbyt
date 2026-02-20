@@ -94,6 +94,17 @@ export default function ProviderLoginPage() {
         return;
       }
 
+      // Check if access is blocked
+      if (providerData.access_blocked) {
+        toast({
+          title: "Access Blocked",
+          description: "Your access to the provider portal has been revoked. Please contact your administrator.",
+          variant: "destructive",
+        });
+        await getSupabaseProviderClient().auth.signOut();
+        return;
+      }
+
       // Check provider status
       if (providerData.status !== 'active') {
         toast({

@@ -79,6 +79,7 @@ interface Booking {
   payment_method?: string;
   notes?: string;
   assignedProvider?: string;
+  provider_id?: string | null;
   created_at?: string;
   updated_at?: string;
   customization?: BookingCustomization | null;
@@ -783,6 +784,7 @@ toast({
                           variant="ghost"
                           size="sm"
                           onClick={() => handleViewDetails(booking)}
+                          title="View Details"
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
@@ -1037,12 +1039,15 @@ toast({
 
               {/* Actions */}
               <div className="space-y-2 pt-2">
-                {/* Assign Provider Button - Only show if no provider is assigned */}
-                {selectedBooking.status === "confirmed" && !selectedBooking.provider_id && !selectedBooking.assignedProvider && (
+                {/* Assign Provider Button - Show for any unassigned booking */}
+                {!selectedBooking.provider_id && !selectedBooking.assignedProvider && (
                   <Button 
                     className="w-full"
                     style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}
-                    onClick={() => setShowProviderDialog(true)}
+                    onClick={() => {
+                      setSelectedProvider(null); // Reset selected provider when opening dialog
+                      setShowProviderDialog(true);
+                    }}
                   >
                     <UserPlus className="h-4 w-4 mr-2" />
                     Assign Provider
@@ -1117,7 +1122,12 @@ toast({
       </Dialog>
 
       {/* Provider Assignment Dialog */}
-      <Dialog open={showProviderDialog} onOpenChange={setShowProviderDialog}>
+      <Dialog open={showProviderDialog} onOpenChange={(open) => {
+        setShowProviderDialog(open);
+        if (!open) {
+          setSelectedProvider(null);
+        }
+      }}>
         <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Assign Provider</DialogTitle>

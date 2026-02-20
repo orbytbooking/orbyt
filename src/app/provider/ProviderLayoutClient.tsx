@@ -69,6 +69,24 @@ export default function ProviderLayout({
           router.push(redirectPath);
           return;
         }
+
+        // Verify provider access is not blocked (admin may have blocked while logged in)
+        const { data: providerData } = await getSupabaseProviderClient()
+          .from('service_providers')
+          .select('access_blocked')
+          .eq('user_id', session.user.id)
+          .single();
+
+        if (providerData?.access_blocked) {
+          await getSupabaseProviderClient().auth.signOut();
+          toast({
+            title: "Access Blocked",
+            description: "Your access to the provider portal has been revoked. Please contact your administrator.",
+            variant: "destructive",
+          });
+          router.push("/provider/login");
+          return;
+        }
       } catch (error) {
         console.error('Auth check error:', error);
         router.push("/provider/login");

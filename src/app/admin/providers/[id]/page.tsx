@@ -15,16 +15,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight as ChevronRightIcon, Calendar as CalendarIcon, Search as SearchIcon, Mail, Phone, Star, User as UserIcon, UserMinus, UserCog, ShieldBan, ShieldCheck, BellOff, BellRing, X, Upload, File, Download, Trash2, FileText, Image as ImageIcon, FileVideo, FileAudio, FolderOpen } from "lucide-react";
+import { ChevronLeft, ChevronRight as ChevronRightIcon, Calendar as CalendarIcon, Search as SearchIcon, Mail, Phone, Star, User as UserIcon, UserMinus, UserCog, ShieldBan, ShieldCheck, BellOff, BellRing, X, Plus, Upload, File, Download, Trash2, FileText, Image as ImageIcon, FileVideo, FileAudio, FolderOpen } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { getDayOfWeekUTC, getTodayLocalDate } from "@/lib/date-utils";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { AdminProviderDrive } from "@/components/drive/AdminProviderDrive";
 
-const PROVIDERS_STORAGE_KEY = "adminProviders";
-const BOOKINGS_STORAGE_KEY = "adminBookings";
-const PROVIDER_SETTINGS_KEY = "adminProviderSettings"; // map id -> settings
-const PROVIDER_AVATARS_KEY = "adminProviderAvatars"; // map id -> dataURL
 
 type ProviderStatus = "active" | "inactive" | "suspended";
 
@@ -45,6 +41,8 @@ type Provider = {
   created_at: string;
   updated_at: string;
   name?: string; // Optional computed property for compatibility
+  tags?: string[];
+  access_blocked?: boolean;
 };
 
 type ScheduleSlot = {
@@ -96,6 +94,12 @@ export default function ProviderProfilePage() {
   const [createAuthPassword, setCreateAuthPassword] = useState('');
   const [createAuthConfirm, setCreateAuthConfirm] = useState('');
   const [creatingAuth, setCreatingAuth] = useState(false);
+  const [tags, setTags] = useState<string[]>([]);
+  const [newTag, setNewTag] = useState("");
+  const [tagsLoading, setTagsLoading] = useState(false);
+  const [showDeactivateDialog, setShowDeactivateDialog] = useState(false);
+  const [deactivating, setDeactivating] = useState(false);
+  const [excludeNotification, setExcludeNotification] = useState(false);
 
   // Password strength indicator
   const getPasswordStrength = (password: string) => {
@@ -231,9 +235,28 @@ export default function ProviderProfilePage() {
 
         const providerWithName = {
           ...result.provider,
-          name: `${result.provider.first_name} ${result.provider.last_name}`
+          name: `${result.provider.first_name} ${result.provider.last_name}`,
+          tags: Array.isArray(result.provider.tags) ? result.provider.tags : [],
+          access_blocked: !!result.provider.access_blocked,
         };
         setProvider(providerWithName);
+        setTags(Array.isArray(result.provider.tags) ? result.provider.tags : []);
+        setAvatarUrl(result.provider.profile_image_url || null);
+        const adm = result.provider.admin_settings as Record<string, unknown> | null;
+        if (adm && typeof adm === "object") {
+          setSettings((s) => ({
+            ...s,
+            canSetOwnSchedule: adm.canSetOwnSchedule as boolean ?? s.canSetOwnSchedule,
+            canSetOwnSettings: adm.canSetOwnSettings as boolean ?? s.canSetOwnSettings,
+            merchantApprovalRequired: adm.merchantApprovalRequired as boolean ?? s.merchantApprovalRequired,
+            showUnassignedJobs: adm.showUnassignedJobs as boolean ?? s.showUnassignedJobs,
+            adminOnlyBooking: adm.adminOnlyBooking as boolean ?? s.adminOnlyBooking,
+            disableSameDayJobs: adm.disableSameDayJobs as boolean ?? s.disableSameDayJobs,
+            showPaymentMethod: adm.showPaymentMethod as boolean ?? s.showPaymentMethod,
+            hideProviderPayments: adm.hideProviderPayments as boolean ?? s.hideProviderPayments,
+          }));
+        }
+        setIsProviderStripeConnectEnabled(!!result.provider.stripe_connect_enabled);
       } catch (error) {
         console.error('Error fetching provider:', error);
         toast({
@@ -361,16 +384,33 @@ export default function ProviderProfilePage() {
     fetchProviderDriveFiles();
   }, [id, currentBusiness?.id]);
 
-  const persistSettings = (next: Partial<ProviderSettings>) => {
-    if (!id || typeof id !== 'string') return;
+  const persistSettings = async (next: Partial<ProviderSettings>) => {
+    if (!id || !provider) return;
     const updated: ProviderSettings = { ...settings, ...next } as ProviderSettings;
     setSettings(updated);
     try {
-      const raw = localStorage.getItem(PROVIDER_SETTINGS_KEY);
-      const map = raw ? (JSON.parse(raw) as Record<string, ProviderSettings>) : {};
-      map[id] = updated;
-      localStorage.setItem(PROVIDER_SETTINGS_KEY, JSON.stringify(map));
-    } catch {}
+      const res = await fetch(`/api/admin/providers/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...provider,
+          admin_settings: {
+            canSetOwnSchedule: updated.canSetOwnSchedule,
+            canSetOwnSettings: updated.canSetOwnSettings,
+            merchantApprovalRequired: updated.merchantApprovalRequired,
+            showUnassignedJobs: updated.showUnassignedJobs,
+            adminOnlyBooking: updated.adminOnlyBooking,
+            disableSameDayJobs: updated.disableSameDayJobs,
+            showPaymentMethod: updated.showPaymentMethod,
+            hideProviderPayments: updated.hideProviderPayments,
+          },
+        }),
+      });
+      if (!res.ok) throw new Error("Failed");
+    } catch {
+      setSettings(settings);
+      toast({ title: "Failed to save settings", variant: "destructive" });
+    }
   };
 
   const initials = useMemo(() => {
@@ -378,24 +418,23 @@ export default function ProviderProfilePage() {
     return `${provider.first_name[0]?.toUpperCase()}${provider.last_name[0]?.toUpperCase()}`;
   }, [provider]);
 
-  const handleAvatarChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
+  const handleAvatarChange: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
     const f = e.target.files?.[0];
-    if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = String(reader.result || "");
-      setAvatarUrl(dataUrl);
-      try {
-        const raw = localStorage.getItem(PROVIDER_AVATARS_KEY);
-        const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
-        if (typeof id === 'string') {
-          map[id] = dataUrl;
-          localStorage.setItem(PROVIDER_AVATARS_KEY, JSON.stringify(map));
-        }
-        toast({ title: "Image uploaded", description: "Provider image has been updated." });
-      } catch {}
-    };
-    reader.readAsDataURL(f);
+    if (!f || !id) return;
+    try {
+      const formData = new FormData();
+      formData.append("file", f);
+      const res = await fetch(`/api/admin/providers/${id}/avatar`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Upload failed");
+      setAvatarUrl(data.url);
+      toast({ title: "Image uploaded", description: "Provider image has been updated." });
+    } catch (err: unknown) {
+      toast({ title: "Upload failed", description: String(err), variant: "destructive" });
+    }
   };
 
   const handleAddTimeSlot = async () => {
@@ -723,6 +762,117 @@ export default function ProviderProfilePage() {
     return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
   };
 
+  const addTag = async () => {
+    const trimmed = newTag.trim();
+    if (!trimmed || tags.includes(trimmed) || !provider) return;
+    const next = [...tags, trimmed];
+    setTags(next);
+    setNewTag("");
+    setTagsLoading(true);
+    try {
+      const response = await fetch(`/api/admin/providers/${provider.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...provider, tags: next }),
+      });
+      if (!response.ok) throw new Error('Failed');
+      setProvider({ ...provider, tags: next });
+      toast({ title: "Tag added" });
+    } catch {
+      setTags(tags);
+      toast({ title: "Failed to add tag", variant: "destructive" });
+    } finally {
+      setTagsLoading(false);
+    }
+  };
+
+  const removeTag = async (tagToRemove: string) => {
+    const next = tags.filter((t) => t !== tagToRemove);
+    const prev = [...tags];
+    setTags(next);
+    setTagsLoading(true);
+    try {
+      const response = await fetch(`/api/admin/providers/${provider!.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...provider, tags: next }),
+      });
+      if (!response.ok) throw new Error('Failed');
+      setProvider({ ...provider!, tags: next });
+      toast({ title: "Tag removed" });
+    } catch {
+      setTags(prev);
+      toast({ title: "Failed to remove tag", variant: "destructive" });
+    } finally {
+      setTagsLoading(false);
+    }
+  };
+
+  const handleTagKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addTag();
+    }
+  };
+
+  // Upcoming bookings (confirmed/pending, date >= today) - for deactivate flow
+  const upcomingBookingsCount = useMemo(() => {
+    const today = new Date().toISOString().split("T")[0];
+    return allBookings.filter(
+      (b) =>
+        ["confirmed", "pending", "in_progress"].includes(b.status) &&
+        (b.date || "") >= today
+    ).length;
+  }, [allBookings]);
+
+  const handleDeactivateConfirm = async (unassignBookings: boolean) => {
+    if (!provider) return;
+    setDeactivating(true);
+    try {
+      const response = await fetch(`/api/admin/providers/${provider.id}/deactivate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          unassignBookings,
+          excludeNotification,
+        }),
+      });
+      if (!response.ok) throw new Error("Failed");
+      const result = await response.json();
+      setProvider({ ...provider, status: "inactive" });
+      setShowDeactivateDialog(false);
+      setExcludeNotification(false);
+      toast({
+        title: "Provider Deactivated",
+        description: `${provider.name} has been deactivated${unassignBookings && upcomingBookingsCount > 0 ? `. ${upcomingBookingsCount} booking(s) moved to unassigned.` : ""}`,
+      });
+    } catch {
+      toast({ title: "Failed to deactivate provider", variant: "destructive" });
+    } finally {
+      setDeactivating(false);
+    }
+  };
+
+  const toggleBlockAccess = async () => {
+    if (!provider) return;
+    const newBlocked = !provider.access_blocked;
+    try {
+      const response = await fetch(`/api/admin/providers/${provider.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...provider, access_blocked: newBlocked }),
+      });
+      if (!response.ok) throw new Error('Failed');
+      setProvider({ ...provider, access_blocked: newBlocked });
+      toast({
+        title: newBlocked ? "Access Blocked" : "Access Unblocked",
+        description: `${provider.name} has been ${newBlocked ? 'blocked from' : 'granted access to'} the provider portal.`,
+      });
+    } catch {
+      toast({ title: "Failed to update access", variant: "destructive" });
+    }
+  };
+
   if (loading || !provider) {
     return (
       <div className="space-y-4">
@@ -797,8 +947,9 @@ export default function ProviderProfilePage() {
                 <div className="flex items-center gap-1"><Star className="h-4 w-4 fill-yellow-400 text-yellow-400" /><span className="font-medium">{provider.rating}</span></div>
               </div>
             </div>
-            <div className="w-full md:w-[420px] flex md:justify-end">
-              <div className="flex items-center gap-2 ml-auto self-end">
+            {/* Right: Action buttons + Tags column */}
+            <div className="w-full md:w-auto flex flex-col gap-4 md:min-w-[280px]">
+              <div className="flex items-center gap-2">
                 <div className="relative group">
                   <Button
                     variant="outline"
@@ -807,52 +958,144 @@ export default function ProviderProfilePage() {
                     title={provider?.status === 'active' ? 'Deactivate' : 'Activate'}
                     onClick={async () => {
                       if (!provider) return;
-                      const newStatus = provider.status === 'active' ? 'inactive' : 'active';
-                      try {
-                        const response = await fetch(`/api/admin/providers/${provider.id}`, {
-                          method: 'PUT',
-                          headers: {
-                            'Content-Type': 'application/json',
-                          },
-                          body: JSON.stringify({
-                            ...provider,
-                            status: newStatus
-                          }),
-                        });
-                        
-                        if (response.ok) {
-                          setProvider({ ...provider, status: newStatus });
-                          toast({
-                            title: newStatus === 'active' ? "Provider Activated" : "Provider Deactivated",
-                            description: `${provider.name} has been ${newStatus === 'active' ? 'activated' : 'deactivated'}.`,
+                      if (provider.status === 'active') {
+                        setShowDeactivateDialog(true);
+                      } else {
+                        try {
+                          const response = await fetch(`/api/admin/providers/${provider.id}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ...provider, status: 'active' }),
                           });
-                        } else {
-                          throw new Error('Failed to update status');
+                          if (!response.ok) throw new Error('Failed to update status');
+                          setProvider({ ...provider, status: 'active' });
+                          toast({ title: "Provider Activated", description: `${provider.name} has been activated.` });
+                        } catch {
+                          toast({ title: "Error", description: "Failed to activate provider.", variant: "destructive" });
                         }
-                      } catch (error) {
-                        toast({
-                          title: "Error",
-                          description: "Failed to update provider status.",
-                          variant: "destructive",
-                        });
                       }
                     }}
                   >
-                    {provider?.status === 'active' ? (
-                      <UserMinus className="h-5 w-5" />
-                    ) : (
-                      <UserIcon className="h-5 w-5" />
-                    )}
+                    {provider?.status === 'active' ? <UserMinus className="h-5 w-5" /> : <UserIcon className="h-5 w-5" />}
                   </Button>
                   <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs bg-gray-800 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
                     {provider?.status === 'active' ? 'Deactivate' : 'Activate'}
                   </div>
+                </div>
+                <div className="relative group">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className={`h-10 w-10 rounded-full ${provider?.access_blocked ? 'bg-red-100 hover:bg-red-200' : 'bg-amber-100 hover:bg-amber-200'} text-amber-800 dark:bg-amber-900/20 dark:text-amber-300`}
+                    title={provider?.access_blocked ? 'Unblock Access' : 'Block Access'}
+                    onClick={toggleBlockAccess}
+                  >
+                    {provider?.access_blocked ? <ShieldCheck className="h-5 w-5" /> : <ShieldBan className="h-5 w-5" />}
+                  </Button>
+                  <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs bg-gray-800 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                    {provider?.access_blocked ? 'Unblock Access' : 'Block Access'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Tags section */}
+              <div className="w-full">
+                <h3 className="font-semibold text-base mb-1">Tags</h3>
+                <p className="text-sm text-muted-foreground mb-2">
+                  To attach a tag to this provider, type a tag name and press enter or select from available tags.
+                </p>
+                {tags.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {tags.map((tag) => (
+                      <div
+                        key={tag}
+                        className="inline-flex items-center gap-1 px-3 py-1 bg-cyan-100 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-200 border border-cyan-300 dark:border-cyan-700 rounded-full text-sm"
+                      >
+                        <span>{tag}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeTag(tag)}
+                          disabled={tagsLoading}
+                          className="text-cyan-600 hover:text-cyan-800 dark:text-cyan-400 dark:hover:text-cyan-200 focus:outline-none disabled:opacity-50"
+                          title="Remove tag"
+                          aria-label={`Remove tag ${tag}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    value={newTag}
+                    onChange={(e) => setNewTag(e.target.value)}
+                    onKeyDown={handleTagKeyDown}
+                    placeholder="Add a tag"
+                    className="flex-1"
+                    disabled={tagsLoading}
+                  />
+                  <Button type="button" variant="outline" size="icon" onClick={addTag} disabled={!newTag.trim() || tags.includes(newTag.trim()) || tagsLoading} title="Add tag">
+                    <Plus className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Deactivate confirmation dialog (BookingKoala-style) */}
+      <Dialog open={showDeactivateDialog} onOpenChange={setShowDeactivateDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Deactivate Provider</DialogTitle>
+            <DialogDescription>
+              {upcomingBookingsCount > 0 ? (
+                <>
+                  This provider has {upcomingBookingsCount} upcoming booking{upcomingBookingsCount !== 1 ? "s" : ""}. 
+                  Would you like to unassign these bookings and deactivate the provider? 
+                  Unassigned bookings will move to the Unassigned folder.
+                </>
+              ) : (
+                <>Are you sure you want to deactivate {provider?.name}? They will no longer be able to log in to the provider portal.</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2 py-2">
+            <Switch
+              id="exclude-notification"
+              checked={excludeNotification}
+              onCheckedChange={setExcludeNotification}
+            />
+            <Label htmlFor="exclude-notification" className="text-sm font-normal cursor-pointer">
+              Exclude notification from being sent
+            </Label>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setShowDeactivateDialog(false)}
+              disabled={deactivating}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => handleDeactivateConfirm(upcomingBookingsCount > 0)}
+              disabled={deactivating}
+            >
+              {deactivating ? (
+                <>Deactivating...</>
+              ) : upcomingBookingsCount > 0 ? (
+                <>Unassign and Deactivate</>
+              ) : (
+                <>Yes, Deactivate</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="w-full justify-start gap-2 bg-muted/40 p-0 h-auto rounded-none border-b border-slate-200">
@@ -1836,13 +2079,21 @@ export default function ProviderProfilePage() {
                       </span>
                       <Switch 
                         checked={isProviderStripeConnectEnabled}
-                        onCheckedChange={(checked) => {
+                        onCheckedChange={async (checked) => {
                           setIsProviderStripeConnectEnabled(checked);
-                          // Save to local storage or API in a real app
-                          const settings = JSON.parse(localStorage.getItem(PROVIDER_SETTINGS_KEY) || '{}');
-                          settings[id] = settings[id] || {};
-                          settings[id].stripeConnectEnabled = checked;
-                          localStorage.setItem(PROVIDER_SETTINGS_KEY, JSON.stringify(settings));
+                          if (!provider) return;
+                          try {
+                            const res = await fetch(`/api/admin/providers/${provider.id}`, {
+                              method: "PUT",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ ...provider, stripe_connect_enabled: checked }),
+                            });
+                            if (!res.ok) throw new Error("Failed");
+                            toast({ title: "Updated", description: `Stripe Connect ${checked ? "enabled" : "disabled"}.` });
+                          } catch {
+                            setIsProviderStripeConnectEnabled(!checked);
+                            toast({ title: "Failed to update", variant: "destructive" });
+                          }
                         }}
                       />
                     </div>

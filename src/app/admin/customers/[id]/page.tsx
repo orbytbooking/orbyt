@@ -27,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
+import { supabase } from "@/lib/supabaseClient";
 
 const CUSTOMERS_STORAGE_KEY = "adminCustomers";
 
@@ -99,6 +100,9 @@ export default function CustomerProfilePage() {
     isBookingBlocked: false,
     isSubscribed: true
   });
+  const [tags, setTags] = useState<string[]>([]);
+  const [newTag, setNewTag] = useState("");
+  const [tagsLoading, setTagsLoading] = useState(false);
   const [invoices, setInvoices] = useState<{
     id: string;
     invoiceNumber: string;
@@ -160,24 +164,69 @@ export default function CustomerProfilePage() {
   useEffect(() => {
     if (!id) return;
     if (typeof window === "undefined") return;
-    try {
-      const stored = localStorage.getItem(CUSTOMERS_STORAGE_KEY);
-      if (stored) {
-        const list: Customer[] = JSON.parse(stored);
-        const found = list.find((c) => String(c.id) === String(id));
-        if (found) setCustomer(found);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/admin/customers/${id}`);
+        const data = await res.json();
+        if (cancelled) return;
+        if (res.ok && data?.customer) {
+          const c = data.customer;
+          setCustomer({
+            id: c.id,
+            name: c.name,
+            email: c.email,
+            phone: c.phone ?? "",
+            address: c.address,
+            joinDate: c.joinDate ?? c.join_date,
+            totalBookings: c.totalBookings ?? c.total_bookings,
+            totalSpent: c.totalSpent ?? (c.total_spent != null ? `$${Number(c.total_spent).toFixed(2)}` : undefined),
+            status: c.status ?? "active",
+            lastBooking: c.lastBooking ?? c.last_booking,
+          });
+          setButtonStates({
+            isActive: (c.status || "active") === "active",
+            isBlocked: !!c.access_blocked,
+            isBookingBlocked: !!c.booking_blocked,
+            isSubscribed: c.email_notifications !== false,
+          });
+        } else {
+          const stored = localStorage.getItem(CUSTOMERS_STORAGE_KEY);
+          if (stored) {
+            const list: Customer[] = JSON.parse(stored);
+            const found = list.find((c) => String(c.id) === String(id));
+            if (found) setCustomer(found);
+          }
+          setButtonStates({
+            isActive: true,
+            isBlocked: false,
+            isBookingBlocked: false,
+            isSubscribed: true,
+          });
+        }
+      } catch {
+        if (cancelled) return;
+        const stored = localStorage.getItem(CUSTOMERS_STORAGE_KEY);
+        if (stored) {
+          try {
+            const list: Customer[] = JSON.parse(stored);
+            const found = list.find((c) => String(c.id) === String(id));
+            if (found) setCustomer(found);
+          } catch {}
+        }
       }
+    })();
+    try {
       const storedBookings = localStorage.getItem(BOOKINGS_STORAGE_KEY);
       if (storedBookings) {
         setAllBookings(JSON.parse(storedBookings) as Booking[]);
       }
-      // load extras
       const extrasRaw = localStorage.getItem(CUSTOMER_EXTRAS_KEY);
-      if (extrasRaw && typeof id === 'string') {
+      if (extrasRaw && typeof id === "string") {
         const map = JSON.parse(extrasRaw) as Record<string, any>;
         const ex = map[id];
         if (ex) {
-          setProfile((p)=>({
+          setProfile((p) => ({
             ...p,
             company: ex.company || "",
             gender: ex.gender || "unspecified",
@@ -185,21 +234,39 @@ export default function CustomerProfilePage() {
             smsReminders: !!ex.smsReminders,
           }));
           if (Array.isArray(ex.contacts)) {
-            setContacts(ex.contacts as {name:string;email:string;phone:string}[]);
+            setContacts(ex.contacts as { name: string; email: string; phone: string }[]);
           }
         }
       }
-      // load invoices
       const invoicesRaw = localStorage.getItem(`customerInvoices_${id}`);
-      if (invoicesRaw) {
-        setInvoices(JSON.parse(invoicesRaw));
-      }
-      // load customer drive files
+      if (invoicesRaw) setInvoices(JSON.parse(invoicesRaw));
       const driveFilesRaw = localStorage.getItem(`customerDriveFiles_${id}`);
-      if (driveFilesRaw) {
-        setFiles(JSON.parse(driveFilesRaw));
-      }
+      if (driveFilesRaw) setFiles(JSON.parse(driveFilesRaw));
     } catch {}
+    return () => { cancelled = true; };
+  }, [id]);
+
+  // Fetch tags from Supabase (not localStorage)
+  useEffect(() => {
+    if (!id || typeof id !== "string") return;
+    let cancelled = false;
+    setTagsLoading(true);
+    void (async () => {
+      try {
+        const { data, error } = await supabase.from("customers").select("tags").eq("id", id).single();
+        if (cancelled) return;
+        if (!error && data?.tags && Array.isArray(data.tags)) {
+          setTags(data.tags as string[]);
+        } else {
+          setTags([]);
+        }
+      } catch {
+        if (!cancelled) setTags([]);
+      } finally {
+        if (!cancelled) setTagsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [id]);
 
   useEffect(() => {
@@ -426,7 +493,7 @@ export default function CustomerProfilePage() {
     } catch {}
   };
 
-  const persistExtras = (next: Partial<{contacts:any}>) => {
+  const persistExtras = (next: Partial<{ contacts: any }>) => {
     if (!customer) return;
     const extrasRaw = localStorage.getItem(CUSTOMER_EXTRAS_KEY);
     const map = extrasRaw ? (JSON.parse(extrasRaw) as Record<string, any>) : {};
@@ -453,6 +520,83 @@ export default function CustomerProfilePage() {
     setContacts(next);
     persistExtras({ contacts: next });
     toast({ title: "Contact removed" });
+  };
+
+  const addTag = async () => {
+    const trimmed = newTag.trim();
+    if (!trimmed || tags.includes(trimmed) || !id) return;
+    const next = [...tags, trimmed];
+    setTags(next);
+    setNewTag("");
+    setTagsLoading(true);
+    const { error } = await supabase.from("customers").update({ tags: next }).eq("id", id);
+    setTagsLoading(false);
+    if (error) {
+      setTags(tags);
+      toast({ title: "Failed to add tag", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Tag added" });
+    }
+  };
+
+  const removeTag = async (tagToRemove: string) => {
+    const next = tags.filter((t) => t !== tagToRemove);
+    const prev = [...tags];
+    setTags(next);
+    setTagsLoading(true);
+    const { error } = await supabase.from("customers").update({ tags: next }).eq("id", id);
+    setTagsLoading(false);
+    if (error) {
+      setTags(prev);
+      toast({ title: "Failed to remove tag", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Tag removed" });
+    }
+  };
+
+  const handleTagKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addTag();
+    }
+  };
+
+  const [actionLoading, setActionLoading] = useState<"deactivate" | "block" | "booking" | "subscribe" | null>(null);
+
+  const updateCustomerFlag = async (
+    field: "status" | "access_blocked" | "booking_blocked" | "email_notifications",
+    value: string | boolean
+  ) => {
+    if (!id) return;
+    const loadingKey =
+      field === "status" ? "deactivate" : field === "access_blocked" ? "block" : field === "booking_blocked" ? "booking" : "subscribe";
+    setActionLoading(loadingKey);
+    try {
+      const res = await fetch(`/api/admin/customers/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: value }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      if (field === "status") {
+        setButtonStates((prev) => ({ ...prev, isActive: value === "active" }));
+        setCustomer((c) => (c ? { ...c, status: value as string } : null));
+        toast({ title: value === "active" ? "Customer activated" : "Customer deactivated" });
+      } else if (field === "access_blocked") {
+        setButtonStates((prev) => ({ ...prev, isBlocked: !!value }));
+        toast({ title: value ? "Access blocked" : "Access unblocked" });
+      } else if (field === "booking_blocked") {
+        setButtonStates((prev) => ({ ...prev, isBookingBlocked: !!value }));
+        toast({ title: value ? "Booking blocked" : "Booking unblocked" });
+      } else {
+        setButtonStates((prev) => ({ ...prev, isSubscribed: value !== false }));
+        toast({ title: value !== false ? "Subscribed" : "Unsubscribed" });
+      }
+    } catch {
+      toast({ title: "Failed to update", variant: "destructive" });
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const saveInvoices = (updatedInvoices: typeof invoices) => {
@@ -580,18 +724,16 @@ export default function CustomerProfilePage() {
               </div>
             </div>
 
-            {/* Right: Action buttons column */}
-            <div className="w-full md:w-auto">
+            {/* Right: Action buttons + Tags column */}
+            <div className="w-full md:w-auto flex flex-col gap-4 md:min-w-[280px]">
               <div className="flex items-center gap-3">
                 <div className="relative group">
                   <Button
                     variant="outline"
                     size="icon"
+                    disabled={actionLoading !== null}
                     className={`h-10 w-10 rounded-full ${buttonStates.isActive ? 'bg-slate-200 hover:bg-slate-300' : 'bg-green-100 hover:bg-green-200'} text-slate-800 dark:bg-slate-800/60 dark:text-slate-200`}
-                    onClick={() => setButtonStates(prev => ({
-                      ...prev,
-                      isActive: !prev.isActive
-                    }))}
+                    onClick={() => updateCustomerFlag("status", buttonStates.isActive ? "inactive" : "active")}
                   >
                     {buttonStates.isActive ? (
                       <UserMinus className="h-5 w-5" />
@@ -600,7 +742,7 @@ export default function CustomerProfilePage() {
                     )}
                   </Button>
                   <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs bg-gray-800 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    {buttonStates.isActive ? 'Deactivate' : 'Activate'}
+                    {buttonStates.isActive ? "Deactivate" : "Activate"}
                   </div>
                 </div>
 
@@ -608,11 +750,9 @@ export default function CustomerProfilePage() {
                   <Button
                     variant="outline"
                     size="icon"
+                    disabled={actionLoading !== null}
                     className={`h-10 w-10 rounded-full ${buttonStates.isBlocked ? 'bg-red-100 hover:bg-red-200' : 'bg-amber-100 hover:bg-amber-200'} text-amber-800 dark:bg-amber-900/20 dark:text-amber-300`}
-                    onClick={() => setButtonStates(prev => ({
-                      ...prev,
-                      isBlocked: !prev.isBlocked
-                    }))}
+                    onClick={() => updateCustomerFlag("access_blocked", !buttonStates.isBlocked)}
                   >
                     {buttonStates.isBlocked ? (
                       <ShieldCheck className="h-5 w-5" />
@@ -621,24 +761,22 @@ export default function CustomerProfilePage() {
                     )}
                   </Button>
                   <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs bg-gray-800 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    {buttonStates.isBlocked ? 'Unblock Access' : 'Block Access'}
+                    {buttonStates.isBlocked ? "Unblock Access" : "Block Access"}
                   </div>
                 </div>
 
                 <div className="relative group">
                   <Button
-                    variant={buttonStates.isBookingBlocked ? 'default' : 'outline'}
+                    variant={buttonStates.isBookingBlocked ? "default" : "outline"}
                     size="icon"
+                    disabled={actionLoading !== null}
                     className={`h-10 w-10 rounded-full ${buttonStates.isBookingBlocked ? 'bg-red-500 hover:bg-red-600' : 'bg-slate-200 hover:bg-slate-300'} text-white`}
-                    onClick={() => setButtonStates(prev => ({
-                      ...prev,
-                      isBookingBlocked: !prev.isBookingBlocked
-                    }))}
+                    onClick={() => updateCustomerFlag("booking_blocked", !buttonStates.isBookingBlocked)}
                   >
                     <AlertCircle className="h-5 w-5" />
                   </Button>
                   <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs bg-gray-800 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    {buttonStates.isBookingBlocked ? 'Unblock Booking' : 'Block Booking'}
+                    {buttonStates.isBookingBlocked ? "Unblock Booking" : "Block Booking"}
                   </div>
                 </div>
 
@@ -646,11 +784,9 @@ export default function CustomerProfilePage() {
                   <Button
                     variant="outline"
                     size="icon"
+                    disabled={actionLoading !== null}
                     className={`h-10 w-10 rounded-full ${!buttonStates.isSubscribed ? 'bg-blue-100 hover:bg-blue-200' : 'bg-slate-200 hover:bg-slate-300'} text-slate-800 dark:bg-slate-800/60 dark:text-slate-200`}
-                    onClick={() => setButtonStates(prev => ({
-                      ...prev,
-                      isSubscribed: !prev.isSubscribed
-                    }))}
+                    onClick={() => updateCustomerFlag("email_notifications", !buttonStates.isSubscribed)}
                   >
                     {buttonStates.isSubscribed ? (
                       <BellOff className="h-5 w-5" />
@@ -659,8 +795,52 @@ export default function CustomerProfilePage() {
                     )}
                   </Button>
                   <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs bg-gray-800 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    {buttonStates.isSubscribed ? 'Unsubscribe' : 'Subscribe'}
+                    {buttonStates.isSubscribed ? "Unsubscribe" : "Subscribe"}
                   </div>
+                </div>
+              </div>
+
+              {/* Tags section */}
+              <div className="w-full">
+                <h3 className="font-semibold text-base mb-1">Tags</h3>
+                <p className="text-sm text-muted-foreground mb-2">
+                  To attach a tag to this customer, type a tag name and press enter or select from available tags.
+                </p>
+                {tags.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {tags.map((tag) => (
+                      <div
+                        key={tag}
+                        className="inline-flex items-center gap-1 px-3 py-1 bg-cyan-100 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-200 border border-cyan-300 dark:border-cyan-700 rounded-full text-sm"
+                      >
+                        <span>{tag}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeTag(tag)}
+                          disabled={tagsLoading}
+                          className="text-cyan-600 hover:text-cyan-800 dark:text-cyan-400 dark:hover:text-cyan-200 focus:outline-none disabled:opacity-50"
+                          title="Remove tag"
+                          aria-label={`Remove tag ${tag}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    value={newTag}
+                    onChange={(e) => setNewTag(e.target.value)}
+                    onKeyDown={handleTagKeyDown}
+                    placeholder="Add a tag"
+                    className="flex-1"
+                    disabled={tagsLoading}
+                  />
+                  <Button type="button" variant="outline" size="icon" onClick={addTag} disabled={!newTag.trim() || tags.includes(newTag.trim()) || tagsLoading} title="Add tag">
+                    <Plus className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
             </div>

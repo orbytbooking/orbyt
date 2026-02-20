@@ -68,6 +68,14 @@ export async function GET(
       );
     }
 
+    // Deactivated providers cannot be assigned to bookings
+    if (provider.status !== 'active') {
+      return NextResponse.json(
+        { error: 'Provider is not active and cannot be assigned', slots: [] },
+        { status: 403 }
+      );
+    }
+
     // BUSINESS ISOLATION: Verify provider belongs to the requesting business
     if (businessId && provider.business_id !== businessId) {
       console.error(`Business isolation violation: Provider ${providerId} belongs to business ${provider.business_id}, but request is for business ${businessId}`);

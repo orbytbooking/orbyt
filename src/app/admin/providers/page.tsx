@@ -143,6 +143,7 @@ const getStatusBadge = (status: string) => {
 const ProvidersPage = () => {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
+  const [showInactive, setShowInactive] = useState(false);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
@@ -158,10 +159,10 @@ const ProvidersPage = () => {
 
         const currentBusinessId = currentBusiness.id;
 
-        console.log('Fetching providers from database for business:', currentBusinessId);
+        console.log('Fetching providers from database for business:', currentBusinessId, 'showInactive:', showInactive);
 
-        // Fetch providers from database (no localStorage fallback)
-        const { data: providersData, error } = await supabase
+        // Fetch providers from database; by default only active (deactivated do not display)
+        let query = supabase
           .from('service_providers')
           .select(`
             id,
@@ -179,6 +180,10 @@ const ProvidersPage = () => {
           `)
           .eq('business_id', currentBusinessId)
           .order('created_at', { ascending: false });
+        if (!showInactive) {
+          query = query.eq('status', 'active');
+        }
+        const { data: providersData, error } = await query;
 
         if (error) {
           console.error('Error fetching providers:', error);
@@ -214,7 +219,7 @@ const ProvidersPage = () => {
     };
 
     fetchProviders();
-  }, [toast, businessLoading, currentBusiness]);
+  }, [toast, businessLoading, currentBusiness, showInactive]);
 
   const filteredProviders = providers.filter(
     (provider) =>
@@ -224,6 +229,7 @@ const ProvidersPage = () => {
   );
 
 
+  const activeCount = providers.filter((p) => p.status === "active").length;
   const stats = [
     {
       title: "Total Providers",
@@ -234,16 +240,16 @@ const ProvidersPage = () => {
     },
     {
       title: "Active Providers",
-      value: providers.filter((p) => p.status === "active").length,
+      value: activeCount,
       icon: CheckCircle2,
       color: "text-green-600",
       bgColor: "bg-green-100 dark:bg-green-900/20",
     },
     {
       title: "Avg Rating",
-      value: (
-        providers.reduce((acc, p) => acc + p.rating, 0) / providers.length
-      ).toFixed(1),
+      value: providers.length
+        ? (providers.reduce((acc, p) => acc + p.rating, 0) / providers.length).toFixed(1)
+        : "0",
       icon: Star,
       color: "text-yellow-600",
       bgColor: "bg-yellow-100 dark:bg-yellow-900/20",
@@ -314,7 +320,7 @@ const ProvidersPage = () => {
               </Button>
             </div>
           </div>
-          <div className="flex items-center gap-2 mt-4">
+          <div className="flex flex-wrap items-center gap-2 mt-4">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white/70" />
               <Input
@@ -324,6 +330,15 @@ const ProvidersPage = () => {
                 className="pl-9 text-white placeholder:text-white/50 bg-white/5 border-0 focus-visible:ring-2 focus-visible:ring-white/30"
               />
             </div>
+            <label className="flex items-center gap-2 text-sm text-white/80 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showInactive}
+                onChange={(e) => setShowInactive(e.target.checked)}
+                className="rounded border-white/30 bg-white/5 text-cyan-500 focus:ring-cyan-500"
+              />
+              Show inactive providers
+            </label>
           </div>
         </CardHeader>
         <CardContent>

@@ -52,7 +52,14 @@ export async function GET(
         provider_type,
         send_email_notification,
         created_at,
-        updated_at
+        updated_at,
+        tags,
+        access_blocked,
+        profile_image_url,
+        admin_settings,
+        stripe_account_id,
+        stripe_is_connected,
+        stripe_connect_enabled
       `)
       .eq('id', id)
       .single();
@@ -147,20 +154,26 @@ export async function PUT(
       });
     } else {
       // Regular provider update (no password change)
+      const updateData: Record<string, unknown> = {
+        first_name: body.first_name,
+        last_name: body.last_name,
+        email: body.email,
+        phone: body.phone,
+        address: body.address,
+        specialization: body.specialization,
+        status: body.status,
+        provider_type: body.provider_type,
+        send_email_notification: body.send_email_notification,
+        updated_at: new Date().toISOString()
+      };
+      if (body.tags !== undefined) updateData.tags = body.tags;
+      if (body.access_blocked !== undefined) updateData.access_blocked = body.access_blocked;
+      if (body.admin_settings !== undefined) updateData.admin_settings = body.admin_settings;
+      if (body.stripe_connect_enabled !== undefined) updateData.stripe_connect_enabled = body.stripe_connect_enabled;
+
       const { data: provider, error } = await supabaseAdmin
         .from('service_providers')
-        .update({
-          first_name: body.first_name,
-          last_name: body.last_name,
-          email: body.email,
-          phone: body.phone,
-          address: body.address,
-          specialization: body.specialization,
-          status: body.status,
-          provider_type: body.provider_type,
-          send_email_notification: body.send_email_notification,
-          updated_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq('id', id)
         .select()
         .single();

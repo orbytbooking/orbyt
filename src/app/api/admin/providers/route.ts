@@ -9,8 +9,9 @@ export async function GET(request: NextRequest) {
     
     const { searchParams } = new URL(request.url);
     const businessId = searchParams.get('businessId');
-    
-    console.log('📥 businessId:', businessId);
+    const includeInactive = searchParams.get('includeInactive') === 'true';
+
+    console.log('📥 businessId:', businessId, 'includeInactive:', includeInactive);
 
     if (!businessId) {
       return NextResponse.json(
@@ -41,13 +42,17 @@ export async function GET(request: NextRequest) {
 
     console.log('📊 Fetching providers for business:', businessId);
 
-    // Fetch providers from service_providers table
-    const { data: providers, error } = await supabaseAdmin
+    // Fetch providers from service_providers table (only active unless includeInactive)
+    let query = supabaseAdmin
       .from('service_providers')
       .select('id, first_name, last_name, email, phone, business_id')
       .eq('business_id', businessId)
       .order('last_name', { ascending: true })
       .order('first_name', { ascending: true });
+    if (!includeInactive) {
+      query = query.eq('status', 'active');
+    }
+    const { data: providers, error } = await query;
 
     console.log('📦 Query result:');
     console.log('  - error:', error);
