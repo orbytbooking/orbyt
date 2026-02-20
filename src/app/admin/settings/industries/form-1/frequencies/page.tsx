@@ -66,7 +66,7 @@ export default function IndustryFormFrequenciesPage() {
       
       try {
         setLoading(true);
-        const response = await fetch(`/api/industry-frequency?industryId=${industryId}`);
+        const response = await fetch(`/api/industry-frequency?industryId=${industryId}&includeAll=true`);
         const data = await response.json();
         
         if (response.ok && data.frequencies) {

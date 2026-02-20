@@ -198,12 +198,33 @@ CREATE TABLE public.locations (
   osm_display_name text,
   service_radius_km numeric CHECK (service_radius_km IS NULL OR service_radius_km > 0::numeric),
   service_area_polygon USER-DEFINED,
+  excluded_provider_ids text[] DEFAULT '{}',
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   created_by uuid,
   CONSTRAINT locations_pkey PRIMARY KEY (id),
   CONSTRAINT locations_business_id_fkey FOREIGN KEY (business_id) REFERENCES public.businesses(id),
   CONSTRAINT locations_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id)
+);
+CREATE TABLE public.industry_location (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  location_id uuid NOT NULL,
+  industry_id uuid NOT NULL,
+  business_id uuid NOT NULL,
+  add_to_other_industries boolean DEFAULT false,
+  enabled_industry_ids text[] DEFAULT '{}',
+  frequency_ids text[] DEFAULT '{}',
+  service_category_ids text[] DEFAULT '{}',
+  variable_ids text[] DEFAULT '{}',
+  exclude_param_ids text[] DEFAULT '{}',
+  extra_ids text[] DEFAULT '{}',
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  CONSTRAINT industry_location_pkey PRIMARY KEY (id),
+  CONSTRAINT industry_location_location_id_fkey FOREIGN KEY (location_id) REFERENCES public.locations(id) ON DELETE CASCADE,
+  CONSTRAINT industry_location_industry_id_fkey FOREIGN KEY (industry_id) REFERENCES public.industries(id) ON DELETE CASCADE,
+  CONSTRAINT industry_location_business_id_fkey FOREIGN KEY (business_id) REFERENCES public.businesses(id) ON DELETE CASCADE,
+  CONSTRAINT industry_location_location_industry_unique UNIQUE (location_id, industry_id)
 );
 CREATE TABLE public.marketing_coupons (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

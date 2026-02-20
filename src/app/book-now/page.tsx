@@ -670,28 +670,10 @@ function BookingPageContent() {
           setAllPricingParams([]);
         }
 
-        // Fetch frequencies
-        const frequenciesResponse = await fetch(`/api/industry-frequency?industryId=${industryId}`);
-        if (frequenciesResponse.ok) {
-          const frequenciesData = await frequenciesResponse.json();
-          if (frequenciesData.frequencies && Array.isArray(frequenciesData.frequencies)) {
-            // Extract frequency names from the response
-            const frequencyNames = frequenciesData.frequencies
-              .filter((f: any) => f.is_active !== false) // Only active frequencies
-              .map((f: any) => f.name || f.occurrence_time)
-              .filter(Boolean);
-            setFrequencyOptions(frequencyNames);
-          } else {
-            setFrequencyOptions([]);
-          }
-        } else {
-          setFrequencyOptions([]);
-        }
       } catch (error) {
-        console.error("Error fetching extras, variables, and frequencies:", error);
+        console.error("Error fetching extras and variables:", error);
         setAvailableExtras([]);
         setAvailableVariables({});
-        setFrequencyOptions([]);
       }
     };
 
@@ -736,8 +718,45 @@ function BookingPageContent() {
   });
   const addressPreference = form.watch("addressPreference");
   const selectedProvider = form.watch("provider");
+  const zipCode = form.watch("zipCode") ?? "";
   const existingAddressAvailable = Boolean(storedAddress?.address || customerAddress);
   const disableAddressFields = addressPreference === "existing" && existingAddressAvailable;
+
+  // Fetch frequencies (location-based: pass zipcode when available)
+  useEffect(() => {
+    const industryId = selectedIndustryId;
+    if (!industryId || !searchParams.get("business")) {
+      setFrequencyOptions([]);
+      return;
+    }
+    const url = new URL("/api/industry-frequency", window.location.origin);
+    url.searchParams.set("industryId", industryId);
+    const zip = String(zipCode || "").trim().replace(/\s/g, "");
+    if (zip.length >= 5) url.searchParams.set("zipcode", zip);
+    const fetchFrequencies = async () => {
+      try {
+        const res = await fetch(url.toString());
+        if (res.ok) {
+          const data = await res.json();
+          if (data.frequencies && Array.isArray(data.frequencies)) {
+            const names = (data.frequencies as any[])
+              .filter((f: any) => f?.is_active !== false)
+              .map((f: any) => f.name || f.occurrence_time)
+              .filter(Boolean);
+            setFrequencyOptions(names);
+          } else {
+            setFrequencyOptions([]);
+          }
+        } else {
+          setFrequencyOptions([]);
+        }
+      } catch (err) {
+        console.error("Error fetching frequencies:", err);
+        setFrequencyOptions([]);
+      }
+    };
+    fetchFrequencies();
+  }, [selectedIndustryId, searchParams, zipCode]);
 
   // Handle provider selection
   const handleProviderSelect = (provider: any) => {

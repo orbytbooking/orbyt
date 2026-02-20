@@ -173,7 +173,7 @@ export default function FrequencyNewPage() {
       
       try {
         setLoadingFrequency(true);
-        const response = await fetch(`/api/industry-frequency?industryId=${industryId}`);
+        const response = await fetch(`/api/industry-frequency?industryId=${industryId}&includeAll=true`);
         const data = await response.json();
         
         if (response.ok && data.frequencies) {
@@ -827,6 +827,10 @@ export default function FrequencyNewPage() {
                 {/* Location-based Display */}
                 <div className="space-y-3 mb-6">
                   <Label className="text-base font-semibold">Should the frequency show based on the location?</Label>
+                  <p className="text-sm text-muted-foreground">
+                    <strong>Yes:</strong> Customer must enter their zip code first. This frequency will only show when their zip matches one of the selected locations below (Booking Koala style).<br />
+                    <strong>No:</strong> Frequency shows everywhere using your general location/service area settings.
+                  </p>
                   <RadioGroup
                     value={form.showBasedOnLocation ? "yes" : "no"}
                     onValueChange={(v) => setForm(p => ({ ...p, showBasedOnLocation: v === "yes" }))}

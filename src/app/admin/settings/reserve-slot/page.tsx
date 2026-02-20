@@ -13,6 +13,7 @@ import { TimePicker } from "@/components/ui/time-picker";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
+import { useBusiness } from "@/contexts/BusinessContext";
 
 interface TimeSlot {
   id: string;
@@ -72,6 +73,7 @@ const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
 const RESERVE_SLOT_STORAGE_KEY = 'reserveSlotSettings';
 
 export default function ReserveSlotPage() {
+  const { currentBusiness } = useBusiness();
   const [activeTab, setActiveTab] = useState("maximum");
   
   // Maximum Settings
@@ -166,40 +168,34 @@ export default function ReserveSlotPage() {
     }
   }, [maxSettings, dailySettings, slots, holidays, bookingSpots]);
 
-  // Load locations from industries settings
+  // Load locations from backend (Settings > Industries > Form 1 > Locations)
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      // Try to load locations from industries settings
-      const industries = ['Home Cleaning', 'Industry'];
-      for (const industry of industries) {
-        const locationsKey = `locations_${industry}`;
-        const stored = localStorage.getItem(locationsKey);
-        if (stored) {
-          const locations = JSON.parse(stored);
-          if (Array.isArray(locations) && locations.length > 0) {
-            // Add locations that don't exist in bookingSpots
-            setBookingSpots(prev => {
-              const existingIds = new Set(prev.locations.map(l => l.locationId));
-              const newLocations = locations
-                .filter((loc: any) => !existingIds.has(String(loc.id)))
-                .map((loc: any) => ({
-                  locationId: String(loc.id),
-                  locationName: loc.name || `${loc.city || ''} ${loc.state || ''}`.trim() || 'Unnamed Location',
-                  spots: []
-                }));
-              return {
-                locations: [...prev.locations, ...newLocations]
-              };
-            });
-            break;
-          }
-        }
+    if (!currentBusiness?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/locations?business_id=${currentBusiness.id}`);
+        const data = await res.json();
+        if (cancelled || !res.ok || !data.locations?.length) return;
+        const locations = data.locations as Array<{ id: string; name?: string; city?: string; state?: string }>;
+        setBookingSpots(prev => {
+          const existingIds = new Set(prev.locations.map(l => l.locationId));
+          const newLocations = locations
+            .filter(loc => !existingIds.has(String(loc.id)))
+            .map(loc => ({
+              locationId: String(loc.id),
+              locationName: loc.name || [loc.city, loc.state].filter(Boolean).join(', ') || 'Unnamed Location',
+              spots: [] as BookingSpot[],
+            }));
+          if (newLocations.length === 0) return prev;
+          return { locations: [...prev.locations, ...newLocations] };
+        });
+      } catch (e) {
+        console.error('Error loading locations:', e);
       }
-    } catch (e) {
-      console.error('Error loading locations:', e);
-    }
-  }, []);
+    })();
+    return () => { cancelled = true; };
+  }, [currentBusiness?.id]);
 
   // Booking Spots Handlers
   const handleAddLocation = () => {

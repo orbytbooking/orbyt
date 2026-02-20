@@ -371,7 +371,7 @@ export default function ServiceCategoryNewPage() {
       
       try {
         console.log('Fetching frequencies for industryId:', industryId);
-        const response = await fetch(`/api/industry-frequency?industryId=${encodeURIComponent(industryId)}`);
+        const response = await fetch(`/api/industry-frequency?industryId=${encodeURIComponent(industryId)}&includeAll=true`);
         console.log('Frequencies API response status:', response.status);
         
         if (response.ok) {

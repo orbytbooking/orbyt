@@ -152,7 +152,7 @@ export default function ExcludeParameterNewPage() {
 
         // Load frequencies from API
         try {
-          const response = await fetch(`/api/industry-frequency?industryId=${industryId}`);
+          const response = await fetch(`/api/industry-frequency?industryId=${industryId}&includeAll=true`);
           const data = await response.json();
           if (data.frequencies && Array.isArray(data.frequencies)) {
             setFrequencies(data.frequencies.map((f: any) => ({ id: f.id, name: f.name })));

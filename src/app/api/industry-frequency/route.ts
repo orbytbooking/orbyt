@@ -11,16 +11,43 @@ function createSupabaseServiceClient() {
   return createClient(supabaseUrl, supabaseServiceKey);
 }
 
+/**
+ * Check if a zipcode falls within any of the given location IDs via location_zip_codes.
+ */
+async function isZipcodeInLocations(
+  supabase: ReturnType<typeof createSupabaseServiceClient>,
+  zipcode: string,
+  locationIds: string[]
+): Promise<boolean> {
+  if (!zipcode?.trim() || !locationIds?.length) return false;
+  const zip = String(zipcode).trim().replace(/\s/g, '');
+  const { data, error } = await supabase
+    .from('location_zip_codes')
+    .select('id')
+    .eq('zip_code', zip)
+    .eq('active', true)
+    .in('location_id', locationIds)
+    .limit(1);
+  if (error) {
+    console.error('Error checking zipcode in locations:', error);
+    return false;
+  }
+  return (data?.length ?? 0) > 0;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = createSupabaseServiceClient();
     const { searchParams } = new URL(request.url);
     const industryId = searchParams.get('industryId');
     const businessId = searchParams.get('businessId');
+    const zipcode = searchParams.get('zipcode')?.trim();
+    const includeAll = searchParams.get('includeAll') === 'true' || searchParams.get('admin') === 'true';
 
     console.log('=== INDUSTRY FREQUENCY API DEBUG ===');
     console.log('Industry ID:', industryId);
     console.log('Business ID:', businessId);
+    console.log('Zipcode filter:', zipcode || '(none)');
 
     if (!industryId && !businessId) {
       return NextResponse.json(
@@ -61,8 +88,35 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    console.log('Returning frequencies:', frequencies);
-    return NextResponse.json({ frequencies });
+    // Filter by zipcode when "Should the frequency show based on the location?" = Yes
+    // - includeAll/admin: return all frequencies (admin list, settings) – no filtering
+    // - zipcode provided: filter by location (customer booking flow)
+    // - no zipcode: hide location-based frequencies until customer enters zipcode
+    let filtered = frequencies ?? [];
+    if (includeAll) {
+      // Admin context – return all frequencies unfiltered
+      filtered = frequencies ?? [];
+    } else if (zipcode) {
+      const results: typeof frequencies = [];
+      for (const freq of filtered) {
+        const showBasedOnLocation = freq.show_based_on_location === true;
+        const locationIds = Array.isArray(freq.location_ids) ? freq.location_ids : [];
+        if (!showBasedOnLocation) {
+          results.push(freq);
+        } else {
+          const inRange = await isZipcodeInLocations(supabase, zipcode, locationIds);
+          if (inRange) results.push(freq);
+        }
+      }
+      filtered = results;
+    } else {
+      filtered = (filtered as any[]).filter(
+        (f) => f.show_based_on_location !== true
+      );
+    }
+
+    console.log('Returning frequencies:', filtered?.length);
+    return NextResponse.json({ frequencies: filtered });
   } catch (error) {
     console.error('Unexpected error:', error);
     return NextResponse.json(

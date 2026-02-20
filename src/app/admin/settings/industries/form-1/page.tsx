@@ -50,7 +50,7 @@ export default function IndustryForm1Page() {
           const serviceCategoriesData = await serviceCategoriesResponse.json();
           const serviceCategories = serviceCategoriesData.serviceCategories?.length || 0;
 
-          const frequenciesResponse = await fetch(`/api/industry-frequency?industryId=${currentIndustry.id}`);
+          const frequenciesResponse = await fetch(`/api/industry-frequency?industryId=${currentIndustry.id}&includeAll=true`);
           const frequenciesData = await frequenciesResponse.json();
           const frequencies = frequenciesData.frequencies?.length || 0;
 

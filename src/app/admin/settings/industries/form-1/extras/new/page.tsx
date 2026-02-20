@@ -183,7 +183,7 @@ export default function ExtraNewPage() {
       if (!industryId) return;
       
       try {
-        const response = await fetch(`/api/industry-frequency?industryId=${industryId}`);
+        const response = await fetch(`/api/industry-frequency?industryId=${industryId}&includeAll=true`);
         if (!response.ok) {
           throw new Error('Failed to fetch frequencies');
         }

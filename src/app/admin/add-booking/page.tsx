@@ -228,8 +228,10 @@ function AddBookingPage() {
             return;
           }
           
-          // Use fallback industry
-          const frequenciesResponse = await fetch(`/api/industry-frequency?industryId=${fallbackIndustry.id}`);
+          // Use fallback industry (pass zipcode for location-based filtering; includeAll when no zipcode so admin sees all)
+          const zipParam = newBooking.zipCode?.trim().replace(/\s/g, "");
+          const fallbackUrl = `/api/industry-frequency?industryId=${fallbackIndustry.id}${zipParam && zipParam.length >= 5 ? `&zipcode=${encodeURIComponent(zipParam)}` : "&includeAll=true"}`;
+          const frequenciesResponse = await fetch(fallbackUrl);
           const frequenciesData = await frequenciesResponse.json();
           
           if (frequenciesResponse.ok && frequenciesData.frequencies) {
@@ -249,8 +251,10 @@ function AddBookingPage() {
             }
           }
         } else {
-          // Use Home Cleaning industry
-          const frequenciesResponse = await fetch(`/api/industry-frequency?industryId=${currentIndustry.id}`);
+          // Use Home Cleaning industry (pass zipcode for location-based filtering; includeAll when no zipcode so admin sees all)
+          const zipParam = newBooking.zipCode?.trim().replace(/\s/g, "");
+          const industryUrl = `/api/industry-frequency?industryId=${currentIndustry.id}${zipParam && zipParam.length >= 5 ? `&zipcode=${encodeURIComponent(zipParam)}` : "&includeAll=true"}`;
+          const frequenciesResponse = await fetch(industryUrl);
           const frequenciesData = await frequenciesResponse.json();
           
           if (frequenciesResponse.ok && frequenciesData.frequencies) {
@@ -276,7 +280,7 @@ function AddBookingPage() {
     };
 
     fetchFrequencies();
-  }, [currentBusiness]);
+  }, [currentBusiness, newBooking.zipCode]);
 
   // Load frequency dependencies when frequency changes
   useEffect(() => {

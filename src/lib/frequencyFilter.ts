@@ -30,7 +30,7 @@ export async function getFrequencyDependencies(
     console.log(`Industry ID: ${industryId}`);
     console.log(`Frequency Name: ${frequencyName}`);
     
-    const response = await fetch(`/api/industry-frequency?industryId=${industryId}`);
+    const response = await fetch(`/api/industry-frequency?industryId=${industryId}&includeAll=true`);
     if (!response.ok) {
       console.error('Failed to fetch frequencies:', response.statusText);
       return null;
