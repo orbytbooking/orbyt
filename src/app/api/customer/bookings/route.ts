@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { createAdminNotification } from '@/lib/adminProviderSync';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -336,6 +337,13 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+
+  const bkRef = `BK${String(booking.id).slice(-6).toUpperCase()}`;
+  await createAdminNotification(businessId, 'new_booking', {
+    title: 'New booking confirmed',
+    message: `Booking ${bkRef} has been confirmed.`,
+    link: '/admin/bookings',
+  });
 
   const payload = dbToCustomerBooking(booking);
   return NextResponse.json(

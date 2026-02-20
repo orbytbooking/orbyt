@@ -324,20 +324,22 @@ export async function getRealTimeProviderAvailability(businessId: string, date: 
 }
 
 /**
- * Create admin notification for provider activity
+ * Create admin notification for provider activity (persisted in admin_notifications table)
+ * @param data.link - URL to navigate when notification is clicked (e.g. /admin/bookings)
  */
-export async function createAdminNotification(businessId: string, type: string, data: any) {
+export async function createAdminNotification(businessId: string, type: string, data: { title?: string; message?: string; link?: string; metadata?: Record<string, unknown> }) {
   try {
+    const title = data.title ?? type;
+    const description = data.message ?? '';
+    const link = typeof data.link === 'string' && data.link.trim() ? data.link.trim() : null;
     const { error } = await supabaseAdmin
       .from('admin_notifications')
       .insert({
         business_id: businessId,
-        notification_type: type,
-        title: data.title,
-        message: data.message,
-        metadata: data.metadata,
+        title,
+        description,
+        link,
         read: false,
-        created_at: new Date().toISOString()
       });
 
     if (error) throw error;

@@ -58,6 +58,7 @@ interface Industry {
 }
 
 const AdminLayout = ({ children }: { children: React.ReactNode }) => {
+  const { currentBusiness } = useBusiness();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [adminEmail, setAdminEmail] = useState("Admin");
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
@@ -75,19 +76,84 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   const isStaffPath = pathname?.startsWith("/admin/settings/staff") ?? false;
   const [marketingOpen, setMarketingOpen] = useState(isMarketingPath);
   const [industries, setIndustries] = useState<Industry[]>([]);
-  const [notifications, setNotifications] = useState<
-    { id: string; title: string; description: string; read?: boolean }[]
-  >([
-    { id: '1', title: 'New booking confirmed', description: 'Booking BK005 has been confirmed.' },
-    { id: '2', title: 'Provider completed job', description: 'Provider marked BK003 as completed.', read: true },
-    { id: '3', title: 'Cancellation request', description: 'Customer requested to cancel BK004.' },
-  ]);
+  type NotificationItem = { id: string; title: string; description: string; read?: boolean; link?: string | null };
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
   const unreadCount = notifications.filter(n => !n.read).length;
-  const markAllAsRead = () => setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-  const deleteNotification = (id: string) => setNotifications(prev => prev.filter(n => n.id !== id));
-  const clearAllNotifications = () => setNotifications([]);
+
+  const notificationsBaseUrl = currentBusiness
+    ? `/api/admin/notifications?business_id=${encodeURIComponent(currentBusiness.id)}`
+    : '/api/admin/notifications';
+
+  const fetchNotifications = async () => {
+    if (!currentBusiness) return;
+    setNotificationsLoading(true);
+    try {
+      const res = await fetch(notificationsBaseUrl);
+      if (!res.ok) {
+        setNotifications([]);
+        return;
+      }
+      const data = await res.json();
+      setNotifications(
+        (data.notifications || []).map((n: { id: string; title: string; description: string; read: boolean; link?: string | null }) => ({
+          id: n.id,
+          title: n.title,
+          description: n.description ?? '',
+          read: !!n.read,
+          link: n.link ?? null,
+        }))
+      );
+    } catch {
+      setNotifications([]);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  };
+
+  const markAllAsRead = async () => {
+    try {
+      const res = await fetch(notificationsBaseUrl, { method: 'PATCH' });
+      if (res.ok) setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    } catch {
+      // keep state unchanged on error
+    }
+  };
+
+  const markNotificationAsRead = async (id: string) => {
+    try {
+      const url = currentBusiness
+        ? `/api/admin/notifications/${id}?business_id=${encodeURIComponent(currentBusiness.id)}`
+        : `/api/admin/notifications/${id}`;
+      const res = await fetch(url, { method: 'PATCH' });
+      if (res.ok) setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    } catch {
+      // keep state unchanged on error
+    }
+  };
+
+  const deleteNotification = async (id: string) => {
+    try {
+      const url = currentBusiness
+        ? `/api/admin/notifications/${id}?business_id=${encodeURIComponent(currentBusiness.id)}`
+        : `/api/admin/notifications/${id}`;
+      const res = await fetch(url, { method: 'DELETE' });
+      if (res.ok) setNotifications(prev => prev.filter(n => n.id !== id));
+    } catch {
+      // keep state unchanged on error
+    }
+  };
+
+  const clearAllNotifications = async () => {
+    try {
+      const res = await fetch(notificationsBaseUrl, { method: 'DELETE' });
+      if (res.ok) setNotifications([]);
+    } catch {
+      // keep state unchanged on error
+    }
+  };
+
   const [openIndustryMenus, setOpenIndustryMenus] = useState<Record<string, boolean>>({});
-  const { currentBusiness } = useBusiness();
 
   // Get admin email and theme from localStorage on client-side only
   useEffect(() => {
@@ -100,6 +166,12 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     if (currentBusiness) {
       fetchIndustries();
+    }
+  }, [currentBusiness]);
+
+  useEffect(() => {
+    if (currentBusiness) {
+      fetchNotifications();
     }
   }, [currentBusiness]);
 
@@ -723,7 +795,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
               </Button>
 
               {/* Notifications Dropdown */}
-              <DropdownMenu>
+              <DropdownMenu onOpenChange={(open) => { if (open && currentBusiness) fetchNotifications(); }}>
                 <DropdownMenuTrigger asChild>
                   <Button 
                     variant="ghost" 
@@ -742,24 +814,35 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                   <DropdownMenuLabel className="flex items-center justify-between gap-2">
                     <span>Notifications</span>
                     <div className="ml-auto flex items-center gap-3">
-                      <button onClick={markAllAsRead} className="text-xs text-cyan-400 hover:underline">Mark all as read</button>
+                      <button type="button" onClick={(e) => { e.preventDefault(); markAllAsRead(); }} className="text-xs text-cyan-400 hover:underline">Mark all as read</button>
                       <span className="text-gray-400">·</span>
-                      <button onClick={clearAllNotifications} className="text-xs text-pink-400 hover:underline">Clear all</button>
+                      <button type="button" onClick={(e) => { e.preventDefault(); clearAllNotifications(); }} className="text-xs text-pink-400 hover:underline">Clear all</button>
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  {notifications.length === 0 && (
+                  {notificationsLoading && notifications.length === 0 && (
+                    <div className="p-3 text-sm text-gray-400">Loading…</div>
+                  )}
+                  {!notificationsLoading && notifications.length === 0 && (
                     <div className="p-3 text-sm text-gray-400">No notifications</div>
                   )}
                   {notifications.map((n) => (
-                    <DropdownMenuItem key={n.id} className="flex items-start gap-2 py-3">
-                      <div className={`mt-1 h-2 w-2 rounded-full ${n.read ? 'bg-gray-500/30' : 'bg-cyan-400 neon-cyan'}`} />
-                      <div className="flex-1">
+                    <DropdownMenuItem
+                      key={n.id}
+                      className="flex items-start gap-2 py-3 cursor-pointer"
+                      onSelect={() => {
+                        if (!n.read) markNotificationAsRead(n.id);
+                        if (n.link) router.push(n.link);
+                      }}
+                    >
+                      <div className={`mt-1 h-2 w-2 rounded-full flex-shrink-0 ${n.read ? 'bg-gray-500/30' : 'bg-cyan-400 neon-cyan'}`} />
+                      <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium">{n.title}</div>
                         <div className="text-xs text-muted-foreground">{n.description}</div>
                       </div>
                       <button
-                        className="ml-2 text-xs text-gray-400 hover:text-pink-400"
+                        type="button"
+                        className="ml-2 text-xs text-gray-400 hover:text-pink-400 flex-shrink-0"
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteNotification(n.id); }}
                         aria-label="Delete notification"
                       >

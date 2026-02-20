@@ -249,11 +249,12 @@ export async function PUT(request: NextRequest) {
     });
 
     // Create admin notification for booking status change
-    if (status === 'completed' || status === 'in_progress' || status === 'cancelled') {
+    if (['completed', 'in_progress', 'cancelled', 'confirmed'].includes(status)) {
       const { createAdminNotification } = await import('@/lib/adminProviderSync');
       await createAdminNotification(provider.business_id, 'booking_status_change', {
         title: `Booking ${status}`,
         message: `Provider ${provider.first_name} ${provider.last_name} updated booking status to ${status}`,
+        link: '/admin/bookings',
         metadata: {
           bookingId,
           providerId: provider.id,

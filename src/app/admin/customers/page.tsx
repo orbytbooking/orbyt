@@ -306,7 +306,7 @@ const Customers = () => {
     business_id: currentBusiness?.id // Add business_id for manual filtering
   };
 
-  const { error } = await supabase.from('customers').insert([newEntry]);
+  const { data: created, error } = await supabase.from('customers').insert([newEntry]).select('id').single();
   if (error) {
     console.error('Error adding customer:', error);
     toast({
@@ -315,6 +315,23 @@ const Customers = () => {
       variant: "destructive"
     });
     return;
+  }
+
+  if (currentBusiness?.id) {
+    try {
+      await fetch('/api/admin/notifications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: 'New customer',
+          description: `${newCustomer.name} has been added.`,
+          business_id: currentBusiness.id,
+          link: created?.id ? `/admin/customers/${created.id}` : '/admin/customers',
+        }),
+      });
+    } catch {
+      // Non-blocking: notification creation failed
+    }
   }
 
   toast({

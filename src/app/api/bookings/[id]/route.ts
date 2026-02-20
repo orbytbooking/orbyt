@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { createAdminNotification } from '@/lib/adminProviderSync';
 
 export async function GET(
   request: Request,
@@ -114,6 +115,13 @@ export async function PUT(
     if (bookingError) {
       return NextResponse.json({ error: bookingError.message }, { status: 500 });
     }
+
+    const bkRef = `BK${String(params.id).slice(-6).toUpperCase()}`;
+    await createAdminNotification(businessId, 'booking_modified', {
+      title: 'Booking modified',
+      message: `Booking ${bkRef} has been updated.`,
+      link: '/admin/bookings',
+    });
 
     return NextResponse.json({
       success: true,

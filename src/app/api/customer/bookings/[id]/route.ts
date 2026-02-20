@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { createAdminNotification } from '@/lib/adminProviderSync';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -168,7 +169,7 @@ export async function PATCH(
 
   const { data: booking, error: fetchError } = await supabase
     .from('bookings')
-    .select('id, customer_id')
+    .select('id, customer_id, business_id')
     .eq('id', bookingId)
     .single();
 
@@ -200,6 +201,15 @@ export async function PATCH(
   if (updateError) {
     console.error('Customer cancel booking error:', updateError);
     return NextResponse.json({ error: updateError.message }, { status: 500 });
+  }
+
+  if (status === 'cancelled' && booking.business_id) {
+    const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
+    await createAdminNotification(booking.business_id, 'cancellation_request', {
+      title: 'Cancellation request',
+      message: `Customer requested to cancel ${bkRef}.`,
+      link: '/admin/bookings',
+    });
   }
 
   return NextResponse.json({ booking: updated });

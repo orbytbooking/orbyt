@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { createAdminNotification } from '@/lib/adminProviderSync';
 
 export async function POST(request: Request) {
   try {
@@ -215,6 +216,14 @@ export async function POST(request: Request) {
         })
         .eq('provider_id', providerId);
     }
+
+    const bkRef = `BK${String(booking.id).slice(-6).toUpperCase()}`;
+    const assignMsg = providerId ? ' and assigned to provider' : '';
+    await createAdminNotification(businessId, providerId ? 'booking_assigned' : 'new_booking', {
+      title: providerId ? 'Booking assigned' : 'New booking confirmed',
+      message: `Booking ${bkRef} has been confirmed${assignMsg}.`,
+      link: '/admin/bookings',
+    });
 
     return NextResponse.json({
       success: true,

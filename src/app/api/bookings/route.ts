@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { MultiTenantHelper } from '@/lib/multiTenantSupabase';
+import { createAdminNotification } from '@/lib/adminProviderSync';
 
 export async function GET(request: Request) {
   try {
@@ -266,6 +267,13 @@ export async function POST(request: Request) {
         const warning = msg.includes('customization')
           ? 'Customization column not found. Run migration 018 to save exclude quantities and partial cleaning.'
           : (msg.includes('provider_wage') ? 'Run migration 012 for provider wage.' : '');
+        const bkRef = `BK${String(retryBooking.id).slice(-6).toUpperCase()}`;
+        const assignMsg = retryBooking.provider_id ? ' and assigned to provider' : '';
+        await createAdminNotification(businessId, 'new_booking', {
+          title: retryBooking.provider_id ? 'Booking assigned' : 'New booking confirmed',
+          message: `Booking ${bkRef} has been confirmed${assignMsg}.`,
+          link: '/admin/bookings',
+        });
         return NextResponse.json({
           success: true,
           data: retryBooking,
@@ -286,6 +294,14 @@ export async function POST(request: Request) {
       id: booking.id,
       provider_id: booking.provider_id,
       status: booking.status
+    });
+
+    const bkRef = `BK${String(booking.id).slice(-6).toUpperCase()}`;
+    const assignMsg = booking.provider_id ? ' and assigned to provider' : '';
+    await createAdminNotification(businessId, 'new_booking', {
+      title: booking.provider_id ? 'Booking assigned' : 'New booking confirmed',
+      message: `Booking ${bkRef} has been confirmed${assignMsg}.`,
+      link: '/admin/bookings',
     });
 
     return NextResponse.json({
