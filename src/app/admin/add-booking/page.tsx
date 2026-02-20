@@ -108,6 +108,7 @@ const FALLBACK_INDUSTRY_NAME = "Industry";
 
 const createEmptyBookingForm = () => ({
   customerType: "new",
+  customerId: "" as string,
   firstName: "",
   lastName: "",
   email: "",
@@ -841,27 +842,43 @@ function AddBookingPage() {
     fetchPricingParameters();
   }, []);
 
-  // Handle query parameters for pre-filling customer information
+  // Handle query parameters for pre-filling customer information (e.g. from customer profile)
   useEffect(() => {
     const customerId = searchParams.get('customerId');
     const customerName = searchParams.get('customerName');
     const customerEmail = searchParams.get('customerEmail');
-    
-    console.log('=== BOOKING FORM DEBUG ===');
-    console.log('Current newBooking state:', {
-      frequency: newBooking.frequency,
-      service: newBooking.service
-    });
+    const customerAddress = searchParams.get('customerAddress');
     
     if (customerId && customerName && customerEmail) {
       const nameParts = customerName.split(' ');
       setNewBooking(prev => ({
         ...prev,
         customerType: 'existing',
+        customerId,
         firstName: nameParts[0] || '',
         lastName: nameParts.slice(1).join(' ') || '',
-        email: customerEmail
+        email: customerEmail,
+        address: customerAddress || prev.address,
       }));
+      setCustomerSearch(customerName);
+      // Fetch full customer to get phone and address if not passed
+      const fetchCustomer = async () => {
+        try {
+          const res = await fetch(`/api/admin/customers/${customerId}`);
+          const data = await res.json();
+          if (res.ok && data?.customer) {
+            const c = data.customer;
+            setNewBooking(prev => ({
+              ...prev,
+              phone: c.phone || prev.phone,
+              address: prev.address || c.address || '',
+            }));
+          }
+        } catch {
+          // Ignore - we have name/email from URL
+        }
+      };
+      fetchCustomer();
     }
   }, [searchParams]);
 
@@ -887,10 +904,12 @@ function AddBookingPage() {
     const nameParts = customer.name.split(' ');
     setNewBooking(prev => ({
       ...prev,
+      customerId: customer.id,
       firstName: nameParts[0] || '',
       lastName: nameParts.slice(1).join(' ') || '',
       email: customer.email,
-      phone: customer.phone || ''
+      phone: customer.phone || '',
+      address: customer.address || '',
     }));
     setCustomerSearch(customer.name);
     setShowCustomerDropdown(false);
@@ -968,6 +987,7 @@ const handleAddBooking = async (status: string = 'pending') => {
           'Authorization': `Bearer ${session?.access_token || ''}`,
         },
         body: JSON.stringify({
+        customer_id: newBooking.customerId || null,
         customer_name: customerName,
         customer_email: customerEmail,
         customer_phone: customerPhone,
@@ -1936,7 +1956,7 @@ const handleAddBooking = async (status: string = 'pending') => {
               <RadioGroup
                 value={newBooking.customerType}
                 onValueChange={(value) => {
-                  setNewBooking({ ...newBooking, customerType: value });
+                  setNewBooking({ ...newBooking, customerType: value, customerId: value === 'new' ? '' : newBooking.customerId });
                   if (value === 'new') {
                     setCustomerSearch('');
                     setShowCustomerDropdown(false);

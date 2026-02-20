@@ -27,7 +27,7 @@ export async function GET(
     const supabaseAdmin = getAdmin();
     const { data: customer, error } = await supabaseAdmin
       .from('customers')
-      .select('id, name, email, phone, address, status, tags, access_blocked, booking_blocked, email_notifications, created_at, join_date, total_bookings, total_spent, last_booking, business_id')
+      .select('id, name, email, phone, address, status, tags, access_blocked, booking_blocked, email_notifications, created_at, join_date, total_bookings, total_spent, last_booking, business_id, auth_user_id')
       .eq('id', id)
       .single();
 

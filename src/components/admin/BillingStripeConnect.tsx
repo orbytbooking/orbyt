@@ -167,6 +167,14 @@ export function BillingStripeConnect() {
 
   const isFullyOnboarded = status?.connected && status?.detailsSubmitted && status?.chargesEnabled;
 
+  // Derive mode from publishable key (pk_test_ = test, pk_live_ = live)
+  const isTestMode =
+    typeof process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY === "string" &&
+    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY.startsWith("pk_live_")
+      ? false
+      : true;
+  const stripeModeLabel = isTestMode ? "Stripe test mode" : "Stripe live mode";
+
   return (
     <Card>
       <CardHeader>
@@ -176,7 +184,7 @@ export function BillingStripeConnect() {
             <CardTitle>Billing &amp; payments</CardTitle>
           </div>
           <Badge variant="secondary" className="font-normal">
-            Stripe test mode
+            {stripeModeLabel}
           </Badge>
         </div>
         <CardDescription>
@@ -187,7 +195,8 @@ export function BillingStripeConnect() {
         {!status?.connected ? (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Connect with Stripe to receive payments from online bookings. You’ll add your bank or card details securely in Stripe’s flow. Right now we’re using Stripe test mode.
+              Connect with Stripe to receive payments from online bookings. You’ll add your bank or card details securely in Stripe’s flow.
+              {isTestMode ? " Right now we’re using Stripe test mode." : " You’re using Stripe live mode—real payments will be processed."}
             </p>
             <Button
               onClick={handleConnect}
@@ -247,7 +256,8 @@ export function BillingStripeConnect() {
               <span className="font-medium">Stripe connected</span>
             </div>
             <p className="text-sm text-muted-foreground">
-              Customer payments from online checkout will go to your connected Stripe account. You’re currently in test mode.
+              Customer payments from online checkout will go to your connected Stripe account.
+              {isTestMode ? " You’re currently in test mode." : " You’re in live mode—payments are real."}
             </p>
             <div className="flex flex-wrap gap-2">
               <Button

@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
-import { UserMinus, ShieldBan, AlertCircle, BellOff, ChevronLeft, ChevronRight as ChevronRightIcon, Calendar as CalendarIcon, Search as SearchIcon, User as UserIcon, UserCheck, ShieldCheck, BellRing, FolderOpen, File, Upload, Download, Trash2, Image as ImageIcon, MoreVertical, Plus, X, FileText, FileVideo, Info } from "lucide-react";
+import { UserMinus, ShieldBan, AlertCircle, BellOff, ChevronLeft, ChevronRight as ChevronRightIcon, Calendar as CalendarIcon, Search as SearchIcon, User as UserIcon, UserCheck, ShieldCheck, BellRing, FolderOpen, File, Upload, Download, Trash2, Image as ImageIcon, MoreVertical, Plus, X, FileText, FileVideo, Info, Send, UserCog } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -28,6 +28,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/lib/supabaseClient";
+import { useBusiness } from "@/contexts/BusinessContext";
+import { CreateInvoiceDialog } from "@/components/admin/CreateInvoiceDialog";
 
 const CUSTOMERS_STORAGE_KEY = "adminCustomers";
 
@@ -53,6 +55,7 @@ type Customer = {
   totalSpent?: string;
   status?: string;
   lastBooking?: string;
+  authUserId?: string | null;
 };
 
 export default function CustomerProfilePage() {
@@ -76,6 +79,8 @@ export default function CustomerProfilePage() {
     provider?: { id?: string; name: string } | null;
   };
   const [allBookings, setAllBookings] = useState<Booking[]>([]);
+  /** Bookings for this customer from API (shown on Dashboard calendar) */
+  const [customerBookings, setCustomerBookings] = useState<Booking[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [providerSearch, setProviderSearch] = useState("");
   const [calView, setCalView] = useState<"month" | "week" | "day">("month");
@@ -103,25 +108,22 @@ export default function CustomerProfilePage() {
   const [tags, setTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState("");
   const [tagsLoading, setTagsLoading] = useState(false);
-  const [invoices, setInvoices] = useState<{
+  type DbInvoice = {
     id: string;
-    invoiceNumber: string;
-    date: string;
-    dueDate: string;
-    amount: string;
-    status: "paid" | "pending";
-    description: string;
-    bookingId?: string;
-    booking?: Booking;
-  }[]>([]);
+    invoice_number: string;
+    issue_date: string;
+    due_date: string | null;
+    total_amount: number;
+    status: string;
+    payment_status: string;
+    description: string | null;
+    invoice_bookings?: Array<{ bookings?: { service?: string; date?: string; scheduled_date?: string; time?: string; scheduled_time?: string } | null }>;
+  };
+  const [invoices, setInvoices] = useState<DbInvoice[]>([]);
+  const [invoicesLoading, setInvoicesLoading] = useState(false);
+  const [sendingInvoiceId, setSendingInvoiceId] = useState<string | null>(null);
   const [showCreateInvoice, setShowCreateInvoice] = useState(false);
-  const [newInvoice, setNewInvoice] = useState({
-    bookingId: "",
-    date: "",
-    dueDate: "",
-    amount: "",
-    description: ""
-  });
+  const { currentBusiness } = useBusiness();
 
   // Drive state variables
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -183,6 +185,7 @@ export default function CustomerProfilePage() {
             totalSpent: c.totalSpent ?? (c.total_spent != null ? `$${Number(c.total_spent).toFixed(2)}` : undefined),
             status: c.status ?? "active",
             lastBooking: c.lastBooking ?? c.last_booking,
+            authUserId: c.auth_user_id ?? c.authUserId ?? null,
           });
           setButtonStates({
             isActive: (c.status || "active") === "active",
@@ -238,13 +241,50 @@ export default function CustomerProfilePage() {
           }
         }
       }
-      const invoicesRaw = localStorage.getItem(`customerInvoices_${id}`);
-      if (invoicesRaw) setInvoices(JSON.parse(invoicesRaw));
+      // load customer drive files
       const driveFilesRaw = localStorage.getItem(`customerDriveFiles_${id}`);
       if (driveFilesRaw) setFiles(JSON.parse(driveFilesRaw));
     } catch {}
     return () => { cancelled = true; };
   }, [id]);
+
+  // Fetch this customer's bookings from API for Dashboard calendar
+  useEffect(() => {
+    if (!id || typeof id !== "string") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const params = new URLSearchParams({ customer_id: id });
+        if (customer?.email) params.set('customer_email', customer.email);
+        const res = await fetch(`/api/admin/customer-bookings?${params.toString()}`);
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok || !Array.isArray(data.bookings)) {
+          setCustomerBookings([]);
+          return;
+        }
+        const list: Booking[] = (data.bookings as any[]).map((b: any) => {
+          const dateStr = b.scheduled_date || b.date || "";
+          const dateOnly = typeof dateStr === "string" && dateStr.length >= 10 ? dateStr.slice(0, 10) : dateStr;
+          return {
+            id: b.id,
+            customer: { name: b.customer_name || customer?.name || "", email: customer?.email || "", phone: "" },
+            service: b.service || "",
+            date: dateOnly,
+            time: b.scheduled_time || b.time || "",
+            address: b.address,
+            status: b.status || "pending",
+            amount: b.total_price != null ? `$${Number(b.total_price).toFixed(2)}` : undefined,
+            provider: b.provider_name ? { id: b.provider_id, name: b.provider_name } : null,
+          };
+        });
+        setCustomerBookings(list);
+      } catch {
+        if (!cancelled) setCustomerBookings([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [id, customer?.name, customer?.email]);
 
   // Fetch tags from Supabase (not localStorage)
   useEffect(() => {
@@ -599,64 +639,72 @@ export default function CustomerProfilePage() {
     }
   };
 
-  const saveInvoices = (updatedInvoices: typeof invoices) => {
-    if (!customer) return;
+  // Fetch invoices from API (database)
+  useEffect(() => {
+    if (!id || !currentBusiness?.id) return;
+    setInvoicesLoading(true);
+    fetch(`/api/admin/invoices?customer_id=${id}`)
+      .then((r) => r.json())
+      .then((data) => {
+        setInvoices(Array.isArray(data.invoices) ? data.invoices : []);
+      })
+      .catch(() => setInvoices([]))
+      .finally(() => setInvoicesLoading(false));
+  }, [id, currentBusiness?.id]);
+
+  const refreshInvoices = () => {
+    if (!id || !currentBusiness?.id) return;
+    fetch(`/api/admin/invoices?customer_id=${id}`)
+      .then((r) => r.json())
+      .then((data) => {
+        setInvoices(Array.isArray(data.invoices) ? data.invoices : []);
+      })
+      .catch(() => {});
+  };
+
+  const updateInvoiceStatus = async (invoiceId: string, paymentStatus: "paid" | "pending") => {
+    const inv = invoices.find((i) => i.id === invoiceId);
     try {
-      localStorage.setItem(`customerInvoices_${customer.id}`, JSON.stringify(updatedInvoices));
-      setInvoices(updatedInvoices);
-    } catch {}
-  };
-
-  const createInvoice = () => {
-    if (!newInvoice.bookingId || !newInvoice.date || !newInvoice.amount) {
-      toast({ title: "Missing information", description: "Please select a booking and fill in all required fields." });
-      return;
+      const res = await fetch(`/api/admin/invoices/${invoiceId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          payment_status: paymentStatus,
+          amount_paid: paymentStatus === "paid" ? (inv?.total_amount ?? 0) : 0,
+        }),
+      });
+      if (!res.ok) throw new Error("Update failed");
+      refreshInvoices();
+      toast({ title: "Updated", description: `Invoice marked as ${paymentStatus}.` });
+    } catch {
+      toast({ title: "Error", description: "Failed to update invoice", variant: "destructive" });
     }
-    
-    // Generate auto-incrementing invoice number
-    const nextInvoiceNumber = `INV-${String(invoices.length + 1).padStart(3, '0')}`;
-    
-    // Find the selected booking
-    const selectedBooking = allBookings.find(b => b.id === newInvoice.bookingId);
-    
-    const invoice = {
-      id: Date.now().toString(),
-      invoiceNumber: nextInvoiceNumber,
-      date: newInvoice.date,
-      dueDate: newInvoice.dueDate,
-      amount: newInvoice.amount,
-      status: "pending" as const,
-      description: newInvoice.description,
-      bookingId: newInvoice.bookingId,
-      booking: selectedBooking
-    };
-    
-    const updatedInvoices = [...invoices, invoice];
-    saveInvoices(updatedInvoices);
-    
-    setNewInvoice({
-      bookingId: "",
-      date: "",
-      dueDate: "",
-      amount: "",
-      description: ""
-    });
-    setShowCreateInvoice(false);
-    toast({ title: "Invoice created", description: `Invoice ${nextInvoiceNumber} has been created for booking ${selectedBooking?.service}.` });
   };
 
-  const updateInvoiceStatus = (invoiceId: string, status: "paid" | "pending") => {
-    const updatedInvoices = invoices.map(inv => 
-      inv.id === invoiceId ? { ...inv, status } : inv
-    );
-    saveInvoices(updatedInvoices);
-    toast({ title: "Invoice updated", description: `Invoice status changed to ${status}.` });
+  const deleteInvoice = async (invoiceId: string) => {
+    if (!confirm("Delete this invoice?")) return;
+    try {
+      const res = await fetch(`/api/admin/invoices/${invoiceId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
+      refreshInvoices();
+      toast({ title: "Deleted", description: "Invoice has been removed." });
+    } catch {
+      toast({ title: "Error", description: "Failed to delete invoice", variant: "destructive" });
+    }
   };
 
-  const deleteInvoice = (invoiceId: string) => {
-    const updatedInvoices = invoices.filter(inv => inv.id !== invoiceId);
-    saveInvoices(updatedInvoices);
-    toast({ title: "Invoice deleted", description: "Invoice has been removed." });
+  const sendInvoice = async (invoiceId: string) => {
+    setSendingInvoiceId(invoiceId);
+    try {
+      const res = await fetch(`/api/admin/invoices/${invoiceId}/send`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Send failed");
+      toast({ title: "Invoice sent", description: "Invoice has been emailed to the customer." });
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Failed to send invoice", variant: "destructive" });
+    } finally {
+      setSendingInvoiceId(null);
+    }
   };
 
   const initials = useMemo(() => {
@@ -690,11 +738,43 @@ export default function CustomerProfilePage() {
               <ChevronLeft className="h-5 w-5" />
             </Link>
             <h2 className="text-xl font-semibold text-white">{customer.name}</h2>
+            {customer.authUserId && (
+              <Badge variant="secondary" className="bg-cyan-500/20 text-cyan-300 border-cyan-500/30">
+                Portal connected
+              </Badge>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {customer.authUserId && (
+            <Button
+              variant="outline"
+              className="border-cyan-500/30 text-cyan-300 hover:text-white hover:bg-cyan-500/20"
+              onClick={() => {
+                const url = currentBusiness?.id
+                  ? `/customer-auth?business=${currentBusiness.id}`
+                  : "/customer-auth";
+                window.open(url, "_blank");
+                toast({
+                  title: "Customer Portal",
+                  description: `${customer.name} can log in at the customer portal to view appointments and bookings.`,
+                });
+              }}
+            >
+              <UserCog className="h-4 w-4 mr-2" />
+              Customer Portal
+            </Button>
+          )}
           <Button 
-          onClick={() => router.push(`/admin/add-booking?customerId=${customer.id}&customerName=${customer.name}&customerEmail=${customer.email}`)}
+          onClick={() => {
+            const params = new URLSearchParams({
+              customerId: customer.id,
+              customerName: customer.name,
+              customerEmail: customer.email,
+            });
+            if (customer.address) params.set('customerAddress', customer.address);
+            router.push(`/admin/add-booking?${params.toString()}`);
+          }}
           className="text-white"
           style={{ background: "linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)" }}
         >
@@ -930,7 +1010,7 @@ export default function CustomerProfilePage() {
                   const days = last.getDate();
                   const startEmpty = first.getDay();
                   const format = (y:number,m:number,day:number) => `${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-                  const myBookings = allBookings.filter(b => b.customer?.email === customer.email || b.customer?.name === customer.name);
+                  const myBookings = customerBookings.length > 0 ? customerBookings : allBookings.filter(b => b.customer?.email === customer.email || b.customer?.name === customer.name);
                   const dayNames = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
                   if (calView === 'month') {
                     return (
@@ -1032,7 +1112,7 @@ export default function CustomerProfilePage() {
                   <Input placeholder="Search by name" className="pl-10" value={providerSearch} onChange={(e)=>setProviderSearch(e.target.value)} />
                 </div>
                 {(() => {
-                  const myBookings = allBookings.filter(b => b.customer?.email === customer.email || b.customer?.name === customer.name);
+                  const myBookings = customerBookings.length > 0 ? customerBookings : allBookings.filter(b => b.customer?.email === customer.email || b.customer?.name === customer.name);
                   const providers = Array.from(new Map(myBookings.filter(b=>b.provider?.name).map(b=>[b.provider!.name, b.provider])).values()) as NonNullable<Booking['provider']>[];
                   const filtered = providers.filter(p => p.name.toLowerCase().includes(providerSearch.toLowerCase()))
                   if (filtered.length===0) return <div className="text-sm text-muted-foreground">No assigned providers.</div>;
@@ -1375,7 +1455,7 @@ export default function CustomerProfilePage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>Invoices</CardTitle>
-                <Button 
+                <Button
                   onClick={() => setShowCreateInvoice(true)}
                   className="text-white"
                   style={{ background: "linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)" }}
@@ -1385,210 +1465,92 @@ export default function CustomerProfilePage() {
               </div>
             </CardHeader>
             <CardContent>
-              {showCreateInvoice && (
-                <div className="mb-6 p-4 border rounded-lg space-y-4">
-                  <h3 className="font-semibold">Create New Invoice</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <Label>Invoice Number</Label>
-                      <Input 
-                        value={`INV-${String(invoices.length + 1).padStart(3, '0')}`}
-                        disabled
-                        className="bg-muted"
-                      />
-                    </div>
-                    <div>
-                      <Label>Booking ID *</Label>
-                      <Input 
-                        placeholder="Enter booking ID..." 
-                        value={newInvoice.bookingId}
-                        onChange={(e) => {
-                          const bookingId = e.target.value;
-                          const selectedBooking = allBookings.find(b => b.id === bookingId);
-                          setNewInvoice({
-                            ...newInvoice, 
-                            bookingId,
-                            amount: selectedBooking?.amount || "",
-                            description: selectedBooking?.service || ""
-                          });
-                        }}
-                      />
-                      {newInvoice.bookingId && (() => {
-                        const selectedBooking = allBookings.find(b => b.id === newInvoice.bookingId);
-                        if (selectedBooking) {
-                          return (
-                            <div className="text-sm text-green-600 mt-1">
-                              Found: {selectedBooking.service} - {selectedBooking.date} at {selectedBooking.time}
-                            </div>
-                          );
-                        } else {
-                          return (
-                            <div className="text-sm text-red-600 mt-1">
-                              Booking ID not found
-                            </div>
-                          );
-                        }
-                      })()}
-                    </div>
-                    <div>
-                      <Label>Date *</Label>
-                      <Input 
-                        type="date" 
-                        value={newInvoice.date}
-                        onChange={(e) => setNewInvoice({...newInvoice, date: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>Due Date</Label>
-                      <Input 
-                        type="date" 
-                        value={newInvoice.dueDate}
-                        onChange={(e) => setNewInvoice({...newInvoice, dueDate: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>Amount *</Label>
-                      <Input 
-                        placeholder="0.00" 
-                        value={newInvoice.amount}
-                        onChange={(e) => setNewInvoice({...newInvoice, amount: e.target.value})}
-                      />
-                    </div>
-                    <div className="md:col-span-2">
-                      <Label>Description</Label>
-                      <Textarea 
-                        placeholder="Invoice description..." 
-                        value={newInvoice.description}
-                        onChange={(e) => setNewInvoice({...newInvoice, description: e.target.value})}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button 
-                      onClick={createInvoice}
-                      className="text-white"
-                      style={{ background: "linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)" }}
-                    >
-                      Create Invoice
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      onClick={() => {
-                        setShowCreateInvoice(false);
-                        setNewInvoice({
-                          bookingId: "",
-                          date: "",
-                          dueDate: "",
-                          amount: "",
-                          description: ""
-                        });
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {invoices.length === 0 ? (
+              {invoicesLoading ? (
+                <div className="text-sm text-muted-foreground py-6">Loading invoices...</div>
+              ) : invoices.length === 0 ? (
                 <div className="text-sm text-muted-foreground">No invoices yet.</div>
               ) : (
                 <div className="space-y-6">
-                  {/* Pending Invoices */}
                   <div>
-                    <h3 className="font-semibold text-amber-600 mb-3">Pending Invoices ({invoices.filter(i => i.status === 'pending').length})</h3>
+                    <h3 className="font-semibold text-amber-600 mb-3">Pending ({invoices.filter((i) => i.payment_status === "pending").length})</h3>
                     <div className="space-y-2">
-                      {invoices.filter(i => i.status === 'pending').map((invoice) => (
-                        <div key={invoice.id} className="border rounded-lg p-4">
+                      {invoices.filter((i) => i.payment_status === "pending").map((inv) => (
+                        <div key={inv.id} className="border rounded-lg p-4">
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
                               <div className="flex items-center gap-3">
-                                <span className="font-medium">{invoice.invoiceNumber}</span>
+                                <span className="font-medium">{inv.invoice_number}</span>
                                 <Badge variant="secondary" className="bg-amber-100 text-amber-800">Pending</Badge>
                               </div>
-                              {invoice.booking && (
+                              {inv.invoice_bookings?.[0]?.bookings && (
                                 <div className="text-sm text-muted-foreground mt-1">
-                                  Booking: {invoice.booking.service} - {invoice.booking.date} at {invoice.booking.time}
+                                  {inv.invoice_bookings[0].bookings?.service} — {inv.invoice_bookings[0].bookings?.scheduled_date || inv.invoice_bookings[0].bookings?.date}
                                 </div>
                               )}
                               <div className="text-sm text-muted-foreground mt-1">
-                                Date: {invoice.date} {invoice.dueDate && `· Due: ${invoice.dueDate}`}
+                                {inv.issue_date} {inv.due_date && `· Due: ${inv.due_date}`}
                               </div>
-                              {invoice.description && (
-                                <div className="text-sm mt-2">{invoice.description}</div>
-                              )}
+                              {inv.description && <div className="text-sm mt-2">{inv.description}</div>}
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className="font-semibold">${invoice.amount}</span>
-                              <Button 
-                                size="sm" 
-                                variant="outline"
-                                onClick={() => updateInvoiceStatus(invoice.id, 'paid')}
-                              >
+                              <span className="font-semibold">${Number(inv.total_amount).toFixed(2)}</span>
+                              <Button size="sm" variant="outline" onClick={() => sendInvoice(inv.id)} disabled={!!sendingInvoiceId}>
+                                <Send className="h-4 w-4 mr-1" />
+                                {sendingInvoiceId === inv.id ? "Sending..." : "Send"}
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => updateInvoiceStatus(inv.id, "paid")}>
                                 Mark Paid
                               </Button>
-                              <Button 
-                                size="sm" 
-                                variant="destructive"
-                                onClick={() => deleteInvoice(invoice.id)}
-                              >
+                              <Button size="sm" variant="destructive" onClick={() => deleteInvoice(inv.id)}>
                                 Delete
                               </Button>
                             </div>
                           </div>
                         </div>
                       ))}
-                      {invoices.filter(i => i.status === 'pending').length === 0 && (
+                      {invoices.filter((i) => i.payment_status === "pending").length === 0 && (
                         <div className="text-sm text-muted-foreground">No pending invoices.</div>
                       )}
                     </div>
                   </div>
-
-                  {/* Paid Invoices */}
                   <div>
-                    <h3 className="font-semibold text-green-600 mb-3">Paid Invoices ({invoices.filter(i => i.status === 'paid').length})</h3>
+                    <h3 className="font-semibold text-green-600 mb-3">Paid ({invoices.filter((i) => i.payment_status === "paid").length})</h3>
                     <div className="space-y-2">
-                      {invoices.filter(i => i.status === 'paid').map((invoice) => (
-                        <div key={invoice.id} className="border rounded-lg p-4 bg-green-50/50">
+                      {invoices.filter((i) => i.payment_status === "paid").map((inv) => (
+                        <div key={inv.id} className="border rounded-lg p-4 bg-green-50/50">
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
                               <div className="flex items-center gap-3">
-                                <span className="font-medium">{invoice.invoiceNumber}</span>
+                                <span className="font-medium">{inv.invoice_number}</span>
                                 <Badge variant="secondary" className="bg-green-100 text-green-800">Paid</Badge>
                               </div>
-                              {invoice.booking && (
+                              {inv.invoice_bookings?.[0]?.bookings && (
                                 <div className="text-sm text-muted-foreground mt-1">
-                                  Booking: {invoice.booking.service} - {invoice.booking.date} at {invoice.booking.time}
+                                  {inv.invoice_bookings[0].bookings?.service} — {inv.invoice_bookings[0].bookings?.scheduled_date || inv.invoice_bookings[0].bookings?.date}
                                 </div>
                               )}
                               <div className="text-sm text-muted-foreground mt-1">
-                                Date: {invoice.date} {invoice.dueDate && `· Due: ${invoice.dueDate}`}
+                                {inv.issue_date} {inv.due_date && `· Due: ${inv.due_date}`}
                               </div>
-                              {invoice.description && (
-                                <div className="text-sm mt-2">{invoice.description}</div>
-                              )}
+                              {inv.description && <div className="text-sm mt-2">{inv.description}</div>}
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className="font-semibold">${invoice.amount}</span>
-                              <Button 
-                                size="sm" 
-                                variant="outline"
-                                onClick={() => updateInvoiceStatus(invoice.id, 'pending')}
-                              >
+                              <span className="font-semibold">${Number(inv.total_amount).toFixed(2)}</span>
+                              <Button size="sm" variant="outline" onClick={() => sendInvoice(inv.id)} disabled={!!sendingInvoiceId}>
+                                <Send className="h-4 w-4 mr-1" />
+                                {sendingInvoiceId === inv.id ? "Sending..." : "Send"}
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => updateInvoiceStatus(inv.id, "pending")}>
                                 Mark Pending
                               </Button>
-                              <Button 
-                                size="sm" 
-                                variant="destructive"
-                                onClick={() => deleteInvoice(invoice.id)}
-                              >
+                              <Button size="sm" variant="destructive" onClick={() => deleteInvoice(inv.id)}>
                                 Delete
                               </Button>
                             </div>
                           </div>
                         </div>
                       ))}
-                      {invoices.filter(i => i.status === 'paid').length === 0 && (
+                      {invoices.filter((i) => i.payment_status === "paid").length === 0 && (
                         <div className="text-sm text-muted-foreground">No paid invoices.</div>
                       )}
                     </div>
@@ -1597,6 +1559,13 @@ export default function CustomerProfilePage() {
               )}
             </CardContent>
           </Card>
+          <CreateInvoiceDialog
+            open={showCreateInvoice}
+            onOpenChange={setShowCreateInvoice}
+            onCreated={refreshInvoices}
+            customer={customer ? { id: customer.id, name: customer.name, email: customer.email, phone: customer.phone, address: customer.address } : null}
+            businessId={currentBusiness?.id ?? null}
+          />
         </TabsContent>
 
         <TabsContent value="notifications">

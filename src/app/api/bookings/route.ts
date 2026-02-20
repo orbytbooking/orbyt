@@ -131,6 +131,37 @@ export async function POST(request: Request) {
       }
     }
 
+    // Resolve customer_id: use provided id, or lookup/create by email so admin-created bookings link to customers
+    let customerId: string | null = bookingData.customer_id && typeof bookingData.customer_id === 'string' ? bookingData.customer_id.trim() || null : null;
+    const customerEmail = (bookingData.customer_email || '').toString().trim();
+    const customerName = (bookingData.customer_name || '').toString().trim();
+    const customerPhone = (bookingData.customer_phone || '').toString().trim() || null;
+    const customerAddress = (bookingData.address || '').toString().trim() || null;
+    if (!customerId && customerEmail) {
+      const { data: existing } = await supabase
+        .from('customers')
+        .select('id')
+        .eq('business_id', businessId)
+        .eq('email', customerEmail)
+        .maybeSingle();
+      if (existing?.id) {
+        customerId = existing.id;
+      } else if (customerName || customerEmail) {
+        const { data: created } = await supabase
+          .from('customers')
+          .insert({
+            business_id: businessId,
+            name: customerName || customerEmail,
+            email: customerEmail,
+            phone: customerPhone,
+            address: customerAddress,
+          })
+          .select('id')
+          .single();
+        if (created?.id) customerId = created.id;
+      }
+    }
+
     const bookingWithBusiness: any = {
       business_id: businessId,
       provider_id: bookingData.service_provider_id || null,
@@ -152,7 +183,7 @@ export async function POST(request: Request) {
       service: bookingData.service || null,
       date: bookingData.date || null,
       time: bookingData.time || null,
-      customer_id: null, // You may need to map customer email to customer_id
+      customer_id: customerId,
       amount: bookingData.amount || 0,
     };
 

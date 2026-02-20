@@ -257,6 +257,96 @@ export class EmailService {
       
     } catch (error) {
       console.error('Welcome email error:', error);
+        return false;
+    }
+  }
+
+  async sendInvoice(data: {
+    to: string;
+    customerName: string;
+    businessName: string;
+    invoiceNumber: string;
+    totalAmount: number;
+    dueDate: string | null;
+    issueDate: string;
+    description?: string | null;
+    viewUrl: string;
+    lineSummary?: string;
+  }): Promise<boolean> {
+    try {
+      const { to, customerName, businessName, invoiceNumber, totalAmount, dueDate, issueDate, description, viewUrl, lineSummary } = data;
+      const emailSubject = `Invoice ${invoiceNumber} from ${businessName}`;
+
+      const emailHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Invoice</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center; }
+            .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
+            .amount { font-size: 24px; font-weight: bold; color: #00BCD4; margin: 20px 0; }
+            .button { display: inline-block; background: linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%); color: white !important; padding: 15px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+            .footer { text-align: center; color: #666; margin-top: 30px; font-size: 14px; }
+            .detail { margin: 8px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Invoice ${invoiceNumber}</h1>
+              <p>from ${businessName}</p>
+            </div>
+            <div class="content">
+              <p>Hi ${customerName},</p>
+              <p>Please find your invoice details below:</p>
+              <div class="detail"><strong>Invoice #:</strong> ${invoiceNumber}</div>
+              <div class="detail"><strong>Issue date:</strong> ${issueDate}</div>
+              ${dueDate ? `<div class="detail"><strong>Due date:</strong> ${dueDate}</div>` : ''}
+              <div class="amount">Amount due: $${totalAmount.toFixed(2)}</div>
+              ${lineSummary ? `<div class="detail">${lineSummary}</div>` : ''}
+              ${description ? `<p>${description}</p>` : ''}
+              <div style="text-align: center;">
+                <a href="${viewUrl}" class="button">View invoice</a>
+              </div>
+              <p>Thank you for your business.</p>
+              <p>Best regards,<br>${businessName}</p>
+            </div>
+            <div class="footer">
+              <p>This is an automated message. Please do not reply to this email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      if (!this.resendClient) {
+        console.log('=== RESEND NOT CONFIGURED - FALLBACK TO CONSOLE ===');
+        console.log('To:', to);
+        console.log('Subject:', emailSubject);
+        console.log('View URL:', viewUrl);
+        console.log('==============================================');
+        return true;
+      }
+
+      const { error } = await this.resendClient.emails.send({
+        from: process.env.RESEND_FROM_EMAIL || 'noreply@yourdomain.com',
+        to: [to],
+        subject: emailSubject,
+        html: emailHtml,
+      });
+
+      if (error) {
+        console.error('Resend error:', error);
+        return false;
+      }
+      return true;
+    } catch (error) {
+      console.error('Invoice email error:', error);
       return false;
     }
   }
