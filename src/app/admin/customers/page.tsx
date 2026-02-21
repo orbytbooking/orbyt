@@ -19,10 +19,10 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { useLogo } from "@/contexts/LogoContext";
-import Image from "next/image";
 import { 
   Search, 
   Download,
+  Upload,
   Eye,
   Pencil,
   Trash2,
@@ -32,7 +32,11 @@ import {
   Calendar,
   DollarSign,
   TrendingUp,
-  UserPlus
+  UserPlus,
+  UserMinus,
+  Ban,
+  Plus,
+  Info
 } from "lucide-react";
 import {
   Select,
@@ -41,6 +45,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const CUSTOMERS_STORAGE_KEY = "adminCustomers";
 
@@ -115,7 +126,7 @@ const Customers = () => {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { currentBusiness } = useBusiness();
-  const { logo } = useLogo();
+  useLogo();
   const [searchTerm, setSearchTerm] = useState("");
   const [customers, setCustomers] = useState<Customer[]>(defaultCustomers);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -124,18 +135,32 @@ const Customers = () => {
   const [showEditCustomer, setShowEditCustomer] = useState(false);
   const [editCustomer, setEditCustomer] = useState({
     id: "",
-    name: "",
+    company: "",
+    firstName: "",
+    lastName: "",
+    gender: "unspecified" as string,
     email: "",
     phone: "",
+    smsReminders: true,
     address: "",
+    aptNo: "",
+    notes: "",
     status: "active" as Customer["status"],
   });
+  const CUSTOMER_EXTRAS_KEY = "adminCustomerExtras";
   const [newCustomer, setNewCustomer] = useState({
-    name: "",
+    company: "",
+    firstName: "",
+    lastName: "",
+    gender: "unspecified",
     email: "",
     phone: "",
-    address: ""
+    smsReminders: true,
+    address: "",
+    aptNo: "",
+    notes: "",
   });
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     setCustomers([]); // Clear old data when business changes
@@ -203,19 +228,80 @@ const Customers = () => {
   }, [searchParams]);
 
   useEffect(() => {
+    setPage(1);
+  }, [searchTerm]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     localStorage.setItem(CUSTOMERS_STORAGE_KEY, JSON.stringify(customers));
   }, [customers]);
 
+  const handleDeactivate = async (customer: Customer) => {
+    const newStatus = customer.status === "active" ? "inactive" : "active";
+    try {
+      const res = await fetch(`/api/admin/customers/${customer.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (res.ok) {
+        setCustomers((prev) => prev.map((c) => (c.id === customer.id ? { ...c, status: newStatus } : c)));
+        toast({ title: newStatus === "inactive" ? "Customer Deactivated" : "Customer Reactivated", description: `${customer.name} has been ${newStatus}.` });
+      } else {
+        const data = await res.json();
+        toast({ title: "Error", description: data.error || "Failed to update", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to update customer", variant: "destructive" });
+    }
+  };
+
+  const handleBlockFromBooking = async (customer: Customer) => {
+    const current = !!(customer as any).booking_blocked;
+    const newVal = !current;
+    try {
+      const res = await fetch(`/api/admin/customers/${customer.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ booking_blocked: newVal }),
+      });
+      if (res.ok) {
+        setCustomers((prev) => prev.map((c) => (c.id === customer.id ? { ...c, booking_blocked: newVal } : c)));
+        toast({ title: newVal ? "Blocked From Booking" : "Unblocked", description: `${customer.name} has been ${newVal ? "blocked from booking" : "unblocked"}.` });
+      } else {
+        const data = await res.json();
+        toast({ title: "Error", description: data.error || "Failed to update", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to update customer", variant: "destructive" });
+    }
+  };
+
   const filteredCustomers = customers.filter((customer) => {
+    const term = searchTerm.toLowerCase();
     const matchesSearch = 
-      customer.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      customer.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      customer.phone.includes(searchTerm);
-    
+      String(customer.id || "").toLowerCase().includes(term) ||
+      String(customer.name || "").toLowerCase().includes(term) ||
+      String(customer.email || "").toLowerCase().includes(term) ||
+      String(customer.phone || "").includes(searchTerm) ||
+      String((customer as any).address || "").toLowerCase().includes(term);
     return matchesSearch;
   });
+
+  const ITEMS_PER_PAGE = 10;
+  const totalPages = Math.max(1, Math.ceil(filteredCustomers.length / ITEMS_PER_PAGE));
+  const paginatedCustomers = filteredCustomers.slice(
+    (page - 1) * ITEMS_PER_PAGE,
+    page * ITEMS_PER_PAGE
+  );
+
+  const isNewCustomer = (c: Customer) => {
+    const created = (c as any).created_at || c.joinDate;
+    if (!created) return false;
+    const d = new Date(created);
+    const daysAgo = (Date.now() - d.getTime()) / (1000 * 60 * 60 * 24);
+    return daysAgo <= 7;
+  };
 
   const handleViewDetails = (customer: Customer) => {
     setSelectedCustomer(customer);
@@ -223,32 +309,88 @@ const Customers = () => {
   };
 
   const handleOpenEdit = (customer: Customer) => {
+    const parts = (customer.name || "").trim().split(" ");
+    const firstName = parts[0] || "";
+    const lastName = parts.slice(1).join(" ") || "";
+    const addr = (customer as any).address ?? customer.address ?? "";
+    const lastComma = addr.lastIndexOf(", ");
+    const [mainAddr, apt] = lastComma >= 0
+      ? [addr.slice(0, lastComma).trim(), addr.slice(lastComma + 2).trim()]
+      : [addr, ""];
+    let company = "", gender = "unspecified", notes = "", smsReminders = true;
+    try {
+      const extrasRaw = typeof window !== "undefined" ? localStorage.getItem(CUSTOMER_EXTRAS_KEY) : null;
+      if (extrasRaw) {
+        const map = JSON.parse(extrasRaw) as Record<string, any>;
+        const ex = map[String(customer.id)];
+        if (ex) {
+          company = ex.company || "";
+          gender = ex.gender || "unspecified";
+          notes = ex.notes || "";
+          smsReminders = ex.smsReminders !== false;
+        }
+      }
+    } catch {}
     setEditCustomer({
       id: customer.id,
-      name: customer.name,
-      email: customer.email,
-      phone: customer.phone,
-      address: customer.address,
-      status: customer.status,
+      company,
+      firstName,
+      lastName,
+      gender,
+      email: customer.email || "",
+      phone: customer.phone || "",
+      smsReminders,
+      address: mainAddr.trim(),
+      aptNo: apt.trim(),
+      notes,
+      status: customer.status || "active",
     });
     setShowEditCustomer(true);
   };
 
-  const handleSaveEdit = () => {
-    setCustomers((prev) =>
-      prev.map((c) =>
-        c.id === editCustomer.id
-          ? { ...c, name: editCustomer.name, email: editCustomer.email, phone: editCustomer.phone, address: editCustomer.address, status: editCustomer.status }
-          : c
-      )
-    );
-
-    toast({
-      title: "Customer Updated",
-      description: `${editCustomer.name} has been updated successfully.`,
-    });
-
-    setShowEditCustomer(false);
+  const handleSaveEdit = async () => {
+    const name = `${editCustomer.firstName} ${editCustomer.lastName}`.trim() || editCustomer.firstName || editCustomer.lastName || "Customer";
+    const address = [editCustomer.address, editCustomer.aptNo].filter(Boolean).join(", #");
+    try {
+      const res = await fetch(`/api/admin/customers/${editCustomer.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          email: editCustomer.email,
+          phone: editCustomer.phone,
+          address: address || undefined,
+          status: editCustomer.status,
+        }),
+      });
+      if (res.ok) {
+        setCustomers((prev) =>
+          prev.map((c) =>
+            c.id === editCustomer.id
+              ? { ...c, name, email: editCustomer.email, phone: editCustomer.phone, address: address || undefined, status: editCustomer.status }
+              : c
+          )
+        );
+        try {
+          const extrasRaw = typeof window !== "undefined" ? localStorage.getItem(CUSTOMER_EXTRAS_KEY) : null;
+          const map = extrasRaw ? (JSON.parse(extrasRaw) as Record<string, unknown>) : {};
+          (map as Record<string, unknown>)[String(editCustomer.id)] = {
+            company: editCustomer.company,
+            gender: editCustomer.gender,
+            notes: editCustomer.notes,
+            smsReminders: editCustomer.smsReminders,
+          };
+          localStorage.setItem(CUSTOMER_EXTRAS_KEY, JSON.stringify(map));
+        } catch {}
+        toast({ title: "Customer Updated", description: `${name} has been updated successfully.` });
+        setShowEditCustomer(false);
+      } else {
+        const data = await res.json();
+        toast({ title: "Error", description: data.error || "Failed to update", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to update customer", variant: "destructive" });
+    }
   };
 
   const handleDeleteCustomer = async (customer: Customer) => {
@@ -291,43 +433,67 @@ const Customers = () => {
   };
 
   const handleAddCustomer = async () => {
-  const now = new Date();
-  const newEntry = {
-    // Remove id field to let database generate UUID
-    name: newCustomer.name,
-    email: newCustomer.email,
-    phone: newCustomer.phone,
-    address: newCustomer.address || "",
-    join_date: now.toISOString().slice(0, 10),
-    total_bookings: 0,
-    total_spent: 0,
-    status: "active",
-    last_booking: null,
-    business_id: currentBusiness?.id // Add business_id for manual filtering
-  };
+    const name = `${newCustomer.firstName} ${newCustomer.lastName}`.trim();
+    const address = [newCustomer.address, newCustomer.aptNo].filter(Boolean).join(", ");
+    const now = new Date();
+    const newEntry = {
+      name: name || newCustomer.firstName || newCustomer.lastName || "Customer",
+      email: newCustomer.email,
+      phone: newCustomer.phone || "",
+      address: address || "",
+      join_date: now.toISOString().slice(0, 10),
+      total_bookings: 0,
+      total_spent: 0,
+      status: "active",
+      last_booking: null,
+      business_id: currentBusiness?.id,
+    };
 
-  const { error } = await supabase.from('customers').insert([newEntry]);
-  if (error) {
-    console.error('Error adding customer:', error);
+    const { data, error } = await supabase.from("customers").insert([newEntry]).select("id").single();
+    if (error) {
+      console.error("Error adding customer:", error);
+      toast({
+        title: "Error",
+        description: `Failed to add customer: ${error.message}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (data?.id && (newCustomer.notes || newCustomer.company || newCustomer.gender)) {
+      try {
+        const extrasRaw = typeof window !== "undefined" ? localStorage.getItem(CUSTOMER_EXTRAS_KEY) : null;
+        const map = extrasRaw ? (JSON.parse(extrasRaw) as Record<string, unknown>) : {};
+        map[String(data.id)] = {
+          company: newCustomer.company,
+          gender: newCustomer.gender,
+          notes: newCustomer.notes,
+          smsReminders: newCustomer.smsReminders,
+        };
+        localStorage.setItem(CUSTOMER_EXTRAS_KEY, JSON.stringify(map));
+      } catch {}
+    }
+
     toast({
-      title: "Error",
-      description: `Failed to add customer: ${error.message}`,
-      variant: "destructive"
+      title: "Customer Added",
+      description: `${name || newCustomer.email} has been added successfully.`,
     });
-    return;
-  }
 
-  toast({
-    title: "Customer Added",
-    description: `${newCustomer.name} has been added successfully.`,
-  });
-
-  setNewCustomer({ name: "", email: "", phone: "", address: "" });
-  setShowAddCustomer(false);
-
-  // Refetch customers from Supabase
-  fetchCustomers();
-};
+    setNewCustomer({
+      company: "",
+      firstName: "",
+      lastName: "",
+      gender: "unspecified",
+      email: "",
+      phone: "",
+      smsReminders: true,
+      address: "",
+      aptNo: "",
+      notes: "",
+    });
+    setShowAddCustomer(false);
+    fetchCustomers();
+  };
 
   const getStatusBadge = (status: string) => {
     return status === "active" ? (
@@ -341,193 +507,135 @@ const Customers = () => {
 
   return (
     <div className="space-y-6">
-      {/* Business Header */}
-      <Card className="bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border-cyan-500/20">
-        <CardContent className="pt-6">
-          <div className="flex items-center gap-4">
-            {logo && !logo.startsWith('blob:') ? (
-              <Image 
-                src={logo} 
-                alt="Business Logo" 
-                width={60} 
-                height={60} 
-                className="rounded-lg object-cover border-2 border-cyan-500/30" 
-              />
-            ) : (
-              <div className="w-16 h-16 rounded-lg bg-cyan-500/20 border-2 border-cyan-500/30 flex items-center justify-center">
-                <span className="text-cyan-400 text-2xl font-bold">
-                  {currentBusiness?.name?.charAt(0) || 'B'}
-                </span>
-              </div>
-            )}
-            <div>
-              <h1 className="text-2xl font-bold text-white mb-1">
-                {currentBusiness?.name || 'Business'} Customers
-              </h1>
-              <p className="text-white/70">
-                Manage your customer relationships and track interactions
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-white">
-              Total Customers
-            </CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{customers.length}</div>
-            <p className="text-xs text-white/80 mt-1">
-              <span className="text-green-600">+12%</span> from last month
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-white">
-              Active Customers
-            </CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {customers.filter(c => c.status === "active").length}
-            </div>
-            <p className="text-xs text-white/80 mt-1">
-              {customers.length ? ((customers.filter(c => c.status === "active").length / customers.length) * 100).toFixed(0) : 0}% of total
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-white">
-              Avg. Bookings/Customer
-            </CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {customers.length ? (customers.reduce((acc, c) => acc + c.totalBookings, 0) / customers.length).toFixed(1) : "0.0"}
-            </div>
-            <p className="text-xs text-white/80 mt-1">
-              Per customer lifetime
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Header Actions */}
-      <div className="flex flex-col sm:flex-row gap-4 justify-between">
-        <div className="flex-1 max-w-sm relative">
-  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-  <Input
-    placeholder="Search customers..."
-    value={searchTerm}
-    onChange={(e) => setSearchTerm(e.target.value)}
-    className="pl-10"
-  />
-</div>
-        <Button 
-          variant="outline"
+      {/* Header: Search + Add New (BookingKoala-style) */}
+      <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+        <div className="flex-1 w-full max-w-md relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by name, email, phone or address"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        <Button
           onClick={() => setShowAddCustomer(true)}
-          className="relative overflow-hidden group text-white border-cyan-400/50 hover:border-cyan-400 transition-all duration-300"
+          className="bg-blue-600 hover:bg-blue-700 text-white shrink-0"
         >
-          <span className="absolute inset-0 w-0 bg-gradient-to-r from-cyan-400/20 to-cyan-300/20 group-hover:w-full transition-all duration-300 ease-in-out"></span>
-          <span className="relative z-10 flex items-center">
-            <UserPlus className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform" />
-            <span className="group-hover:translate-x-1 transition-transform">Add Customer</span>
-          </span>
+          <UserPlus className="h-4 w-4 mr-2" />
+          Add New
         </Button>
       </div>
 
-      {/* Customers Table */}
+      {/* All customers + Import/Export */}
+      <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+        <h2 className="text-lg font-semibold">All customers</h2>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" className="text-blue-600 border-blue-600 hover:bg-blue-50" onClick={() => toast({ title: "Import", description: "Import feature coming soon." })}>
+            <Download className="h-4 w-4 mr-1" />
+            Import
+          </Button>
+          <Button variant="outline" size="sm" className="text-green-600 border-green-600 hover:bg-green-50" onClick={() => {
+            const csv = ["Name,Email,Phone,Address"].concat(
+              filteredCustomers.map((c) => `"${(c.name || "").replace(/"/g, '""')}","${(c.email || "").replace(/"/g, '""')}","${(c.phone || "").replace(/"/g, '""')}","${((c as any).address || "").replace(/"/g, '""')}"`)
+            ).join("\n");
+            const blob = new Blob([csv], { type: "text/csv" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "customers.csv";
+            a.click();
+            URL.revokeObjectURL(url);
+            toast({ title: "Exported", description: `${filteredCustomers.length} customers exported.` });
+          }}>
+            <Upload className="h-4 w-4 mr-1" />
+            Export
+          </Button>
+        </div>
+      </div>
+
+      {/* Customers Table (BookingKoala-style) */}
       <Card>
-        <CardHeader>
-          <CardTitle>All Customers ({filteredCustomers.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Name
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Contact
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Join Date
-                  </th>
-                  <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Bookings
-                  </th>
-                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Total Spent
-                  </th>
-                  <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Status
-                  </th>
-                  <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Actions
-                  </th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Name</th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Phone</th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Note</th>
+                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredCustomers.map((customer) => (
+                {paginatedCustomers.map((customer) => (
                   <tr key={customer.id} className="border-b border-border hover:bg-muted/50 transition-colors">
                     <td className="py-3 px-4">
-                      <Link href={`/admin/customers/${customer.id}`} className="text-sm font-medium text-white dark:text-white light-mode:text-black hover:text-cyan-300 hover:underline">
-                        {customer.name}
+                      <Link href={`/admin/customers/${customer.id}`} className="flex items-center gap-3 group">
+                        <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center text-sm font-medium shrink-0">
+                          {customer.name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() || "?"}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-foreground group-hover:text-cyan-600 group-hover:underline">{customer.name}</span>
+                            {isNewCustomer(customer) && (
+                              <Badge className="bg-green-100 text-green-700 text-xs">New</Badge>
+                            )}
+                          </div>
+                          <div className="text-sm text-muted-foreground">{customer.email}</div>
+                        </div>
                       </Link>
                     </td>
-                    <td className="py-3 px-4">
-                      <Link href={`/admin/customers/${customer.id}`} className="group">
-                        <div className="text-sm text-white/80 dark:text-white/80 light-mode:text-black group-hover:text-cyan-300 transition-colors">{customer.email}</div>
-                      </Link>
-                      <div className="text-xs text-muted-foreground">{customer.phone}</div>
-                    </td>
-                    <td className="py-3 px-4 text-sm">{customer.joinDate}</td>
-                    <td className="py-3 px-4 text-sm text-center font-medium">{customer.totalBookings}</td>
-                    <td className="py-3 px-4 text-sm font-medium text-right">{customer.totalSpent}</td>
-                    <td className="py-3 px-4 text-center">{getStatusBadge(customer.status)}</td>
-                    <td className="py-3 px-4 text-center">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleViewDetails(customer)}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleOpenEdit(customer)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteCustomer(customer)}
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                    <td className="py-3 px-4 text-sm">{customer.phone || "—"}</td>
+                    <td className="py-3 px-4 text-sm text-muted-foreground">—</td>
+                    <td className="py-3 px-4 text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm">
+                            Options
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => router.push(`/admin/customers/${customer.id}`)}>
+                            <Eye className="h-4 w-4 mr-2" />
+                            View
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleOpenEdit(customer)}>
+                            <Pencil className="h-4 w-4 mr-2" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleDeactivate(customer)}>
+                            <UserMinus className="h-4 w-4 mr-2" />
+                            {customer.status === "active" ? "Deactivate" : "Reactivate"}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleBlockFromBooking(customer)}>
+                            <Ban className="h-4 w-4 mr-2" />
+                            {(customer as any).booking_blocked ? "Unblock From Booking" : "Block From Booking"}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+              <span className="text-sm text-muted-foreground">
+                Page {page} of {totalPages}
+              </span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                  Previous
+                </Button>
+                <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -617,175 +725,291 @@ const Customers = () => {
 </DialogContent>
 </Dialog>
 
-      {/* Edit Customer Dialog */}
+      {/* Edit Customer Dialog - matches Add customer layout */}
       <Dialog open={showEditCustomer} onOpenChange={setShowEditCustomer}>
-        <DialogContent className="sm:max-w-[500px] bg-gray-900/95 backdrop-blur-xl border-cyan-500/30 text-white">
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit Customer</DialogTitle>
+            <DialogTitle>Edit customer</DialogTitle>
             <DialogDescription>
-              Update the customer's information below.
+              Update the customer&apos;s information below.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit-name">Full Name *</Label>
-              <Input
-                id="edit-name"
-                placeholder="John Doe"
-                value={editCustomer.name}
-                onChange={(e) => setEditCustomer({ ...editCustomer, name: e.target.value })}
-                className="text-black"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-email">Email Address *</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 py-4">
+            <div className="lg:col-span-2 space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-company">Company name (optional)</Label>
                 <Input
-                  id="edit-email"
-                  type="email"
-                  placeholder="john@example.com"
-                  className="pl-10 text-black"
-                  value={editCustomer.email}
-                  onChange={(e) => setEditCustomer({ ...editCustomer, email: e.target.value })}
+                  id="edit-company"
+                  placeholder="Ex: Premierprocleaner"
+                  value={editCustomer.company}
+                  onChange={(e) => setEditCustomer({ ...editCustomer, company: e.target.value })}
+                  className="rounded-md"
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-firstName">First name</Label>
+                  <Input
+                    id="edit-firstName"
+                    placeholder="Ex: James"
+                    value={editCustomer.firstName}
+                    onChange={(e) => setEditCustomer({ ...editCustomer, firstName: e.target.value })}
+                    className="rounded-md"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-lastName">Last name</Label>
+                  <Input
+                    id="edit-lastName"
+                    placeholder="Ex: Lee"
+                    value={editCustomer.lastName}
+                    onChange={(e) => setEditCustomer({ ...editCustomer, lastName: e.target.value })}
+                    className="rounded-md"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Gender</Label>
+                <div className="flex items-center gap-6 mt-2 text-sm">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="edit-gender" checked={editCustomer.gender === "male"} onChange={() => setEditCustomer({ ...editCustomer, gender: "male" })} className="w-4 h-4 accent-blue-500" />
+                    Male
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="edit-gender" checked={editCustomer.gender === "female"} onChange={() => setEditCustomer({ ...editCustomer, gender: "female" })} className="w-4 h-4 accent-blue-500" />
+                    Female
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="edit-gender" checked={editCustomer.gender === "unspecified"} onChange={() => setEditCustomer({ ...editCustomer, gender: "unspecified" })} className="w-4 h-4 accent-blue-500" />
+                    Unspecified
+                  </label>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-email">Email address</Label>
+                <Input id="edit-email" type="email" placeholder="Ex: example@xyz.com" value={editCustomer.email} onChange={(e) => setEditCustomer({ ...editCustomer, email: e.target.value })} className="rounded-md" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-phone">Phone no.</Label>
+                <Input id="edit-phone" placeholder="Phone No." value={editCustomer.phone} onChange={(e) => setEditCustomer({ ...editCustomer, phone: e.target.value })} className="rounded-md" />
+              </div>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" checked={editCustomer.smsReminders} onChange={(e) => setEditCustomer({ ...editCustomer, smsReminders: e.target.checked })} className="w-4 h-4 accent-blue-500 rounded" />
+                Send me reminders via text message
+              </label>
+              <div className="space-y-2">
+                <Label htmlFor="edit-address">Address</Label>
+                <Input id="edit-address" placeholder="Type Address" value={editCustomer.address} onChange={(e) => setEditCustomer({ ...editCustomer, address: e.target.value })} className="rounded-md" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-aptNo">Apt. no.</Label>
+                <Input id="edit-aptNo" placeholder="#" value={editCustomer.aptNo} onChange={(e) => setEditCustomer({ ...editCustomer, aptNo: e.target.value })} className="rounded-md w-24" />
+              </div>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={editCustomer.status} onValueChange={(v) => setEditCustomer({ ...editCustomer, status: v as Customer["status"] })}>
+                  <SelectTrigger className="rounded-md">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-phone">Phone Number *</Label>
-              <div className="relative">
-                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="edit-phone"
-                  placeholder="(555) 123-4567"
-                  className="pl-10 text-black"
-                  value={editCustomer.phone}
-                  onChange={(e) => setEditCustomer({ ...editCustomer, phone: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-address">Address</Label>
-              <div className="relative">
-                <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="edit-address"
-                  placeholder="123 Main St, Chicago, IL"
-                  className="pl-10 text-black"
-                  value={editCustomer.address}
-                  onChange={(e) => setEditCustomer({ ...editCustomer, address: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Status</Label>
-              <Select
-                value={editCustomer.status}
-                onValueChange={(v) => setEditCustomer({ ...editCustomer, status: v as Customer["status"] })}
-              >
-                <SelectTrigger className="text-black">
-                  <SelectValue placeholder="Select status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label className="flex items-center gap-1.5">Add private note <Info className="h-4 w-4 text-muted-foreground" /></Label>
+              <Textarea placeholder="Add notes about this customer..." value={editCustomer.notes} onChange={(e) => setEditCustomer({ ...editCustomer, notes: e.target.value })} className="min-h-[180px] rounded-md resize-none" />
             </div>
           </div>
-          <div className="flex gap-3 justify-end">
-            <Button variant="outline" onClick={() => setShowEditCustomer(false)}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleSaveEdit}
-              disabled={!editCustomer.name || !editCustomer.email || !editCustomer.phone}
-              style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}
-            >
+          <div className="flex gap-3 justify-end pt-4 border-t">
+            <Button variant="outline" onClick={() => setShowEditCustomer(false)}>Cancel</Button>
+            <Button onClick={handleSaveEdit} disabled={(!editCustomer.firstName && !editCustomer.lastName) || !editCustomer.email} className="bg-blue-600 hover:bg-blue-700 text-white">
               Save Changes
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Add Customer Dialog */}
+      {/* Add Customer Dialog - BookingKoala style */}
       <Dialog open={showAddCustomer} onOpenChange={(open) => {
         setShowAddCustomer(open);
-        if (!open && searchParams.get('add') === 'true') {
-          router.push('/admin/customers');
+        if (!open && searchParams.get("add") === "true") {
+          router.push("/admin/customers");
         }
       }}>
-        <DialogContent className="sm:max-w-[500px] bg-gray-900/95 backdrop-blur-xl border-cyan-500/30 text-white">
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add New Customer</DialogTitle>
+            <DialogTitle className="text-xl font-semibold">Add customer</DialogTitle>
             <DialogDescription>
-              Enter the customer's information to create a new account.
+              Creating a new customer profile here allows you to easily search for and add customer information to bookings. A profile will be created upon saving, and an invitation to create a password will be automatically sent out to the customer.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Full Name *</Label>
-              <Input
-                id="name"
-                placeholder="John Doe"
-                value={newCustomer.name}
-                onChange={(e) => setNewCustomer({...newCustomer, name: e.target.value})}
-                className="text-black"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="email">Email Address *</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 py-4">
+            {/* Left column - Customer details */}
+            <div className="lg:col-span-2 space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="company">Company name (optional)</Label>
+                <Input
+                  id="company"
+                  placeholder="Ex: Premierprocleaner"
+                  value={newCustomer.company}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, company: e.target.value })}
+                  className="rounded-md"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="firstName">First name</Label>
+                  <Input
+                    id="firstName"
+                    placeholder="Ex: James"
+                    value={newCustomer.firstName}
+                    onChange={(e) => setNewCustomer({ ...newCustomer, firstName: e.target.value })}
+                    className="rounded-md"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="lastName">Last name</Label>
+                  <Input
+                    id="lastName"
+                    placeholder="Ex: Lee"
+                    value={newCustomer.lastName}
+                    onChange={(e) => setNewCustomer({ ...newCustomer, lastName: e.target.value })}
+                    className="rounded-md"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Gender</Label>
+                <div className="flex items-center gap-6 mt-2 text-sm">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="gender"
+                      checked={newCustomer.gender === "male"}
+                      onChange={() => setNewCustomer({ ...newCustomer, gender: "male" })}
+                      className="w-4 h-4 accent-blue-500"
+                    />
+                    Male
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="gender"
+                      checked={newCustomer.gender === "female"}
+                      onChange={() => setNewCustomer({ ...newCustomer, gender: "female" })}
+                      className="w-4 h-4 accent-blue-500"
+                    />
+                    Female
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="gender"
+                      checked={newCustomer.gender === "unspecified"}
+                      onChange={() => setNewCustomer({ ...newCustomer, gender: "unspecified" })}
+                      className="w-4 h-4 accent-blue-500"
+                    />
+                    Unspecified
+                  </label>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email" className="flex items-center gap-1.5">
+                  Email address
+                  <button type="button" className="text-blue-500 hover:text-blue-600" title="Add another email">
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </Label>
                 <Input
                   id="email"
                   type="email"
-                  placeholder="john@example.com"
-                  className="pl-10 text-black"
+                  placeholder="Ex: example@xyz.com"
                   value={newCustomer.email}
-                  onChange={(e) => setNewCustomer({...newCustomer, email: e.target.value})}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })}
+                  className="rounded-md"
                 />
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="phone">Phone Number *</Label>
-              <div className="relative">
-                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <div className="space-y-2">
+                <Label htmlFor="phone" className="flex items-center gap-1.5">
+                  Phone no.
+                  <button type="button" className="text-blue-500 hover:text-blue-600" title="Add another phone">
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </Label>
                 <Input
                   id="phone"
-                  placeholder="(555) 123-4567"
-                  className="pl-10 text-black"
+                  placeholder="Phone No."
                   value={newCustomer.phone}
-                  onChange={(e) => setNewCustomer({...newCustomer, phone: e.target.value})}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
+                  className="rounded-md"
                 />
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="address">Address</Label>
-              <div className="relative">
-                <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={newCustomer.smsReminders}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, smsReminders: e.target.checked })}
+                  className="w-4 h-4 accent-blue-500 rounded"
+                />
+                Send me reminders via text message
+              </label>
+              <div className="space-y-2">
+                <Label htmlFor="address">Address</Label>
                 <Input
                   id="address"
-                  placeholder="123 Main St, Chicago, IL"
-                  className="pl-10 text-black"
+                  placeholder="Type Address"
                   value={newCustomer.address}
-                  onChange={(e) => setNewCustomer({...newCustomer, address: e.target.value})}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, address: e.target.value })}
+                  className="rounded-md"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="aptNo">Apt. no.</Label>
+                <Input
+                  id="aptNo"
+                  placeholder="#"
+                  value={newCustomer.aptNo}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, aptNo: e.target.value })}
+                  className="rounded-md w-24"
                 />
               </div>
             </div>
+            {/* Right column - Private note */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1.5">
+                Add private note
+                <Info className="h-4 w-4 text-muted-foreground" />
+              </Label>
+              <Textarea
+                placeholder="Add notes about this customer..."
+                value={newCustomer.notes}
+                onChange={(e) => setNewCustomer({ ...newCustomer, notes: e.target.value })}
+                className="min-h-[180px] rounded-md resize-none"
+              />
+            </div>
           </div>
-          <div className="flex gap-3 justify-end">
-            <Button variant="outline" onClick={() => setShowAddCustomer(false)}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleAddCustomer}
-              disabled={!newCustomer.name || !newCustomer.email || !newCustomer.phone}
-              style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}
-            >
-              <UserPlus className="h-4 w-4 mr-2" />
-              Add Customer
-            </Button>
+          <div className="border-t pt-4 space-y-3">
+            <div>
+              <h4 className="font-medium text-sm">Send invitation</h4>
+              <p className="text-sm text-muted-foreground mt-1">
+                An invite can be sent via email or SMS upon saving, allowing the customer to access and create a password for their new account. The password can be changed or reset on their behalf from their profile.
+              </p>
+            </div>
+            <div className="flex gap-3 justify-end">
+              <Button variant="outline" onClick={() => setShowAddCustomer(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleAddCustomer}
+                disabled={(!newCustomer.firstName && !newCustomer.lastName) || !newCustomer.email}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Save
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

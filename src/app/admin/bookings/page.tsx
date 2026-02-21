@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,10 +21,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import Link from "next/link";
 import {
   Search, 
   Filter, 
   Plus,
+  Minus,
   Eye,
   CheckCircle2,
   XCircle,
@@ -43,7 +46,8 @@ import {
   Users,
   FileText,
   Archive,
-  History
+  History,
+  User as UserIcon
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
@@ -191,6 +195,8 @@ export default function BookingsPage() {
   const [viewMode, setViewMode] = useState<"list" | "calendar">("calendar");
   const [showSendScheduleDialog, setShowSendScheduleDialog] = useState(false);
   const [excludeParamNames, setExcludeParamNames] = useState<Record<string, string>>({});
+  const [industries, setIndustries] = useState<{ id: string; name: string }[]>([]);
+  const [extrasMap, setExtrasMap] = useState<Record<string, string>>({});
 
   // When viewing a booking with partial cleaning, resolve exclude parameter IDs to names
   useEffect(() => {
@@ -225,6 +231,34 @@ export default function BookingsPage() {
     })();
     return () => { cancelled = true; };
   }, [showDetails, selectedBooking?.id, selectedBooking?.customization?.excludedAreas, currentBusiness?.id]);
+
+  // Fetch industries for booking modal
+  useEffect(() => {
+    if (!currentBusiness?.id) return;
+    fetch(`/api/industries?business_id=${currentBusiness.id}`)
+      .then((r) => r.json())
+      .then((data) => setIndustries(data.industries || []))
+      .catch(() => setIndustries([]));
+  }, [currentBusiness?.id]);
+
+  // Fetch extras when booking modal opens (resolve selectedExtras IDs to names)
+  useEffect(() => {
+    if (!showDetails || !selectedBooking || industries.length === 0) { setExtrasMap({}); return; }
+    const c = (selectedBooking as any).customization as Record<string, unknown> | undefined;
+    const ids = (c?.selectedExtras as string[]) || [];
+    if (ids.length === 0) { setExtrasMap({}); return; }
+    const industryId = industries[0]?.id;
+    if (!industryId) return;
+    fetch(`/api/extras?industryId=${industryId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const list = data.extras || [];
+        const map: Record<string, string> = {};
+        list.forEach((e: { id: string; name?: string }) => { if (e.id && e.name) map[e.id] = e.name; });
+        setExtrasMap(map);
+      })
+      .catch(() => setExtrasMap({}));
+  }, [showDetails, selectedBooking?.id, industries]);
 
   // Auto-set view mode based on active tab
   useEffect(() => {
@@ -530,6 +564,33 @@ toast({
   const monthNames = ["January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"];
   const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  const formatTime = (timeStr: string | undefined) => {
+    if (!timeStr) return "—";
+    try {
+      const t = String(timeStr).slice(0, 5);
+      const [h, m] = t.split(":").map(Number);
+      const h12 = h % 12 || 12;
+      const ampm = h >= 12 ? "PM" : "AM";
+      return `${String(h12).padStart(2, "0")}:${String(m || 0).padStart(2, "0")} ${ampm}`;
+    } catch {
+      return timeStr;
+    }
+  };
+
+  const DetailRow = ({ label, value, className }: { label: string; value: string; className?: string }) => (
+    <div className="flex justify-between items-start gap-4 py-1.5">
+      <span className="text-muted-foreground text-sm shrink-0">{label}</span>
+      <span className={cn("text-sm font-medium text-right break-words max-w-[60%]", className)}>{value}</span>
+    </div>
+  );
+
+  const DetailSection = ({ title, children }: { title: string; children: ReactNode }) => (
+    <div className="rounded-lg bg-muted/50 p-3 space-y-1">
+      <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">{title}</h4>
+      {children}
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -916,129 +977,200 @@ toast({
         </TabsContent>
       </Tabs>
 
-      {/* Booking Details Dialog */}
+      {/* Booking Details Dialog - improved UI matching dashboard */}
       <Dialog open={showDetails} onOpenChange={setShowDetails}>
-        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Booking Details - {selectedBooking?.id}</DialogTitle>
-            <DialogDescription>
-              View and manage booking information
-            </DialogDescription>
+        <DialogContent className="max-w-2xl p-0 overflow-hidden max-h-[85vh] flex flex-col data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 duration-300">
+          <DialogHeader className="px-6 pt-6 pb-0 animate-in fade-in-0 slide-in-from-top-2 duration-300">
+            <DialogTitle>Booking summary</DialogTitle>
+            <DialogDescription className="sr-only">View and manage booking information</DialogDescription>
           </DialogHeader>
 
           {selectedBooking && (
-            <div className="flex-1 overflow-y-auto pr-2 space-y-4">
-              {/* Status */}
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Current Status:</span>
-                {getStatusBadge(selectedBooking.status)}
-              </div>
-
-              {/* Customer Info */}
-              <div className="space-y-2">
-                <h3 className="font-semibold text-sm">Customer Information</h3>
-                <div className="grid gap-2 bg-muted/50 p-3 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <Mail className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                    <span className="text-sm truncate">{selectedBooking.customer_email}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Phone className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                    <span className="text-sm">{selectedBooking.customer_phone}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                    <span className="text-sm">{selectedBooking.address}</span>
-                  </div>
+            <div className="flex-1 overflow-y-auto px-6 pb-6">
+              {/* Customer info block */}
+              <div className="flex gap-4 pt-5 animate-in fade-in-0 slide-in-from-left-2 duration-300 delay-75">
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-muted to-muted/80 ring-2 ring-background transition-transform hover:scale-105">
+                  <UserIcon className="h-7 w-7 text-muted-foreground" />
                 </div>
-              </div>
-
-              {/* Service Details */}
-              <div className="space-y-2">
-                <h3 className="font-semibold text-sm">Service Details</h3>
-                <div className="grid gap-2 bg-muted/50 p-3 rounded-lg">
-                  <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">Service:</span>
-                    <span className="text-sm font-medium">{selectedBooking.service}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">Date:</span>
-                    <span className="text-sm font-medium">{selectedBooking.date}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">Time:</span>
-                    <span className="text-sm font-medium">{selectedBooking.time}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">Payment Method:</span>
-                    <span className="text-sm font-medium">{selectedBooking.payment_method}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">Amount:</span>
-                    <span className="text-sm font-bold">
-                      {(() => {
-                        const amount = (selectedBooking as any).total_price ?? selectedBooking.amount;
-                        const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
-                        return numAmount > 0 ? `$${numAmount.toFixed(2)}` : '$0.00';
-                      })()}
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-base">
+                      {selectedBooking.customer_name || "Customer"}
                     </span>
                   </div>
-                  {(selectedBooking.provider_id || (selectedBooking as any).assignedProvider) && (
-                    <div className="flex justify-between">
-                      <span className="text-sm text-muted-foreground">Assigned Provider:</span>
-                      <span className="text-sm font-medium text-cyan-600">
-                        {(selectedBooking as any).assignedProvider || 'Provider Assigned'}
+                  {selectedBooking.customer_email && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground">
+                      <Mail className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{selectedBooking.customer_email}</span>
+                    </div>
+                  )}
+                  {selectedBooking.customer_phone && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground">
+                      <Phone className="h-3.5 w-3.5 shrink-0" />
+                      <span>{selectedBooking.customer_phone}</span>
+                    </div>
+                  )}
+                  {selectedBooking.address && (
+                    <div className="flex items-start gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground">
+                      <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                      <span className="break-words">
+                        {((selectedBooking as any).apt_no ? `Apt - ${(selectedBooking as any).apt_no}, ` : "")}{selectedBooking.address}
                       </span>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Partial cleaning / Excluded areas & quantities */}
-              {(() => {
-                const cust = (selectedBooking as any).customization as BookingCustomization | undefined;
-                if (!cust?.isPartialCleaning && !(cust?.excludedAreas?.length) && !(cust?.excludeQuantities && Object.keys(cust.excludeQuantities).length > 0)) return null;
-                return (
-                  <div className="space-y-2">
-                    <h3 className="font-semibold text-sm">Partial Cleaning</h3>
-                    <div className="grid gap-2 bg-muted/50 p-3 rounded-lg">
-                      <div className="flex justify-between">
-                        <span className="text-sm text-muted-foreground">Partial cleaning:</span>
-                        <span className="text-sm font-medium">{cust?.isPartialCleaning ? "Yes" : "No"}</span>
-                      </div>
-                      {cust?.excludedAreas?.length ? (
-                        <div className="flex flex-col gap-1">
-                          <span className="text-sm text-muted-foreground">Excluded areas:</span>
-                          <ul className="text-sm font-medium list-disc list-inside space-y-0.5">
-                            {(cust.excludedAreas || []).map((paramId) => {
-                              const qty = cust.excludeQuantities?.[paramId] ?? 1;
-                              const name = excludeParamNames[paramId] || `${paramId.slice(0, 8)}…`;
-                              return (
-                                <li key={paramId}>
-                                  {name}{qty > 1 ? ` × ${qty}` : ""}
-                                </li>
-                              );
-                            })}
-                          </ul>
+              {/* Collapsible Booking details */}
+              <div className="border-t mt-5 pt-5 animate-in fade-in-0 duration-300 delay-100">
+                <Collapsible defaultOpen className="group">
+                  <CollapsibleTrigger className="flex w-full items-center justify-between py-2.5 px-3 -mx-3 rounded-lg text-left font-semibold text-sm hover:bg-muted/50 transition-colors duration-200">
+                    <span>Booking details</span>
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-background group-data-[state=open]:hidden transition-all duration-200">
+                      <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+                    </span>
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-background hidden group-data-[state=open]:flex transition-all duration-200">
+                      <Minus className="h-3.5 w-3.5 text-muted-foreground" />
+                    </span>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-1 duration-200">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3">
+                      <DetailSection title="Booking info">
+                        <DetailRow label="Booking id" value={String(selectedBooking.id)} />
+                        {(selectedBooking as any).zip_code && <DetailRow label="Zip/Postal code" value={(selectedBooking as any).zip_code} />}
+                        {industries[0]?.name && <DetailRow label="Industry" value={industries[0].name} />}
+                        <DetailRow label="Service" value={selectedBooking.service || "—"} />
+                        {(selectedBooking as any).frequency && <DetailRow label="Frequency" value={(selectedBooking as any).frequency} />}
+                      </DetailSection>
+                      <DetailSection title="Service details">
+                        {selectedBooking.customization && typeof selectedBooking.customization === "object" && (() => {
+                          const c = selectedBooking.customization as Record<string, unknown>;
+                          const cv = (c.categoryValues || {}) as Record<string, string>;
+                          const bath = cv.Bathroom ?? cv.bathroom ?? c.bathroom ?? c.bathrooms;
+                          const sqft = cv["Sq Ft"] ?? cv.sqFt ?? c.squareMeters ?? c.sqFt ?? c.sqft;
+                          const bed = cv.Bedroom ?? cv.bedroom ?? c.bedroom ?? c.bedrooms;
+                          const livingRoom = cv["Living Room"] ?? cv.livingRoom ?? c.livingRoom;
+                          const storage = cv.Storage ?? cv.storage ?? c.storage;
+                          const items: { label: string; value: string }[] = [];
+                          if (bath != null && String(bath).trim()) items.push({ label: "Bathrooms", value: String(bath) });
+                          if (sqft != null && String(sqft).trim()) items.push({ label: "Sq Ft", value: String(sqft) });
+                          if (bed != null && String(bed).trim()) items.push({ label: "Bedrooms", value: String(bed) });
+                          if (livingRoom != null && String(livingRoom).trim()) items.push({ label: "Living Room", value: String(livingRoom) });
+                          if (storage != null && String(storage).trim()) items.push({ label: "Storage", value: String(storage) });
+                          if (items.length === 0) return null;
+                          return <>{items.map(({ label, value }) => <DetailRow key={label} label={label} value={value} />)}</>;
+                        })()}
+                        {(() => {
+                          const c = (selectedBooking as any).customization as Record<string, unknown> | undefined;
+                          const ids = (c?.selectedExtras as string[]) || [];
+                          const names = ids.map((id: string) => extrasMap[id] || id).filter(Boolean);
+                          if (names.length === 0) return null;
+                          return <DetailRow label="Extras" value={names.join(", ")} className="text-right" />;
+                        })()}
+                        {selectedBooking.provider_id && <DetailRow label="Professionals" value="1" />}
+                        {(selectedBooking as any).duration_minutes != null && (selectedBooking as any).duration_minutes > 0 && (
+                          <DetailRow
+                            label="Length"
+                            value={
+                              (selectedBooking as any).duration_minutes >= 60
+                                ? `${Math.floor((selectedBooking as any).duration_minutes / 60)} Hr ${(selectedBooking as any).duration_minutes % 60 ? `${(selectedBooking as any).duration_minutes % 60} Min` : "0 Min"}`
+                                : `${(selectedBooking as any).duration_minutes} Min`
+                            }
+                          />
+                        )}
+                      </DetailSection>
+                      <DetailSection title="Schedule">
+                        <DetailRow
+                          label="Service date"
+                          value={selectedBooking.date && selectedBooking.time
+                            ? `${new Date(selectedBooking.date + "T00:00:00").toLocaleDateString(undefined, { weekday: "short", month: "2-digit", day: "2-digit", year: "numeric" })} — ${formatTime(selectedBooking.time)}`
+                            : selectedBooking.date || "—"}
+                        />
+                        <DetailRow label="Assigned to" value={selectedBooking.assignedProvider || (selectedBooking as any).provider_name || "Unassigned"} className="font-bold" />
+                      </DetailSection>
+                      <DetailSection title="Payment & location">
+                        {(selectedBooking as any).provider_wage != null && (selectedBooking as any).provider_wage > 0 && (
+                          <div className="flex justify-between items-center gap-4 py-1.5">
+                            <span className="text-muted-foreground text-sm shrink-0">Provider payment</span>
+                            <span className="text-sm font-medium text-right">
+                              ${Number((selectedBooking as any).provider_wage).toFixed(2)}
+                              <Link href="/admin/settings" className="text-orange-600 hover:underline ml-1.5 text-xs">Learn more</Link>
+                            </span>
+                          </div>
+                        )}
+                        {((selectedBooking as any).apt_no || selectedBooking.address) && (
+                          <DetailRow
+                            label="Location"
+                            value={[(selectedBooking as any).apt_no ? `Apt - ${(selectedBooking as any).apt_no}` : null, selectedBooking.address].filter(Boolean).join(", ")}
+                            className="text-right"
+                          />
+                        )}
+                        <div className="flex justify-between items-center gap-4 py-1.5">
+                          <span className="text-muted-foreground text-sm">Payment method</span>
+                          <span className={cn(
+                            "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium",
+                            "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                          )}>
+                            {(selectedBooking as any).payment_method === "online" || (selectedBooking as any).payment_method === "card" ? "CC" : (selectedBooking as any).payment_method === "cash" ? "Cash/Check" : (selectedBooking as any).payment_method || "—"}
+                          </span>
                         </div>
-                      ) : null}
+                        <div className="flex justify-between items-center gap-4 py-1.5">
+                          <span className="text-muted-foreground text-sm shrink-0">Price details</span>
+                          <span className="text-sm font-medium text-right">
+                            {(() => {
+                              const amount = (selectedBooking as any).total_price ?? selectedBooking.amount;
+                              const numAmount = typeof amount === "string" ? parseFloat(amount) : amount;
+                              return numAmount > 0 ? `$${numAmount.toFixed(2)}` : "$0.00";
+                            })()}
+                            <Link href="/admin/settings" className="text-orange-600 hover:underline ml-1.5 text-xs">Learn more</Link>
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center gap-4 py-1.5">
+                          <span className="text-muted-foreground text-sm">Status</span>
+                          {getStatusBadge(selectedBooking.status)}
+                        </div>
+                      </DetailSection>
                     </div>
-                  </div>
-                );
-              })()}
 
-              {/* Notes */}
-              {selectedBooking.notes && (
-                <div className="space-y-2">
-                  <h3 className="font-semibold text-sm">Notes</h3>
-                  <p className="text-sm text-muted-foreground bg-muted/50 p-3 rounded-lg">
-                    {selectedBooking.notes}
-                  </p>
-                </div>
-              )}
+                    {/* Partial cleaning */}
+                    {(() => {
+                      const cust = (selectedBooking as any).customization as BookingCustomization | undefined;
+                      if (!cust?.isPartialCleaning && !(cust?.excludedAreas?.length)) return null;
+                      return (
+                        <div className="mt-4 rounded-lg bg-amber-50/80 dark:bg-amber-950/20 p-3 border border-amber-100 dark:border-amber-900/30">
+                          <h4 className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-600 mb-2">Partial cleaning</h4>
+                          <div className="space-y-1.5">
+                            <DetailRow label="Partial cleaning" value={cust?.isPartialCleaning ? "Yes" : "No"} />
+                            {cust?.excludedAreas?.length ? (
+                              <div>
+                                <span className="text-muted-foreground text-sm">Excluded areas: </span>
+                                <span className="text-sm font-medium">
+                                  {(cust.excludedAreas || []).map((paramId) => {
+                                    const qty = cust.excludeQuantities?.[paramId] ?? 1;
+                                    const name = excludeParamNames[paramId] || `${paramId.slice(0, 8)}…`;
+                                    return `${name}${qty > 1 ? ` × ${qty}` : ""}`;
+                                  }).join(", ")}
+                                </span>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Notes */}
+                    {selectedBooking.notes && (
+                      <div className="mt-4 rounded-lg bg-muted/50 p-3 border">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Notes</h4>
+                        <p className="text-sm">{selectedBooking.notes}</p>
+                      </div>
+                    )}
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
 
               {/* Actions */}
-              <div className="space-y-2 pt-2">
+              <div className="space-y-3 pt-5">
                 {/* Assign Provider Button - Show for any unassigned booking */}
                 {!selectedBooking.provider_id && !selectedBooking.assignedProvider && (
                   <Button 
@@ -1113,7 +1245,7 @@ toast({
             </div>
           )}
 
-          <DialogFooter className="mt-4">
+          <DialogFooter className="px-6 pb-6 pt-2 gap-2">
             <Button variant="outline" onClick={() => setShowDetails(false)}>
               Close
             </Button>

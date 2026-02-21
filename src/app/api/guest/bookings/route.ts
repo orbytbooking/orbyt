@@ -88,10 +88,22 @@ export async function POST(request: NextRequest) {
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+  // Link to existing customer when email matches (manual customers get same treatment as portal customers)
+  let customerId: string | null = null;
+  if (customerEmail) {
+    const { data: existing } = await supabase
+      .from('customers')
+      .select('id')
+      .eq('business_id', businessId)
+      .ilike('email', customerEmail)
+      .maybeSingle();
+    if (existing?.id) customerId = existing.id;
+  }
+
   const customizationRaw = body.customization;
   const insert: Record<string, unknown> = {
     business_id: businessId,
-    customer_id: null,
+    customer_id: customerId,
     customer_name: customerName || null,
     customer_email: customerEmail || null,
     customer_phone: customerPhone || null,

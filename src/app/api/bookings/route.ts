@@ -142,7 +142,7 @@ export async function POST(request: Request) {
         .from('customers')
         .select('id')
         .eq('business_id', businessId)
-        .eq('email', customerEmail)
+        .ilike('email', customerEmail)
         .maybeSingle();
       if (existing?.id) {
         customerId = existing.id;
@@ -162,9 +162,21 @@ export async function POST(request: Request) {
       }
     }
 
+    // Resolve provider_name when provider is assigned (for display in customer profile/calendar)
+    let providerName: string | null = (bookingData.provider_name || '').toString().trim() || null;
+    const providerId = bookingData.service_provider_id || null;
+    if (providerId && !providerName) {
+      const { data: prov } = await supabase
+        .from('service_providers')
+        .select('first_name, last_name')
+        .eq('id', providerId)
+        .maybeSingle();
+      if (prov) providerName = `${(prov.first_name || '').trim()} ${(prov.last_name || '').trim()}`.trim() || null;
+    }
+
     const bookingWithBusiness: any = {
       business_id: businessId,
-      provider_id: bookingData.service_provider_id || null,
+      provider_id: providerId,
       service_id: null, // You may need to map service to service_id
       status: finalStatus,
       scheduled_date: bookingData.date || null,
@@ -186,6 +198,7 @@ export async function POST(request: Request) {
       customer_id: customerId,
       amount: bookingData.amount || 0,
     };
+    if (providerName) bookingWithBusiness.provider_name = providerName;
 
     // Build customization from admin payload (partial cleaning, exclude areas/quantities, extras, etc.)
     const hasPartialCleaning = Boolean(bookingData.is_partial_cleaning);
@@ -210,10 +223,17 @@ export async function POST(request: Request) {
     }
 
     // Only include provider_wage fields if they have valid values
-    // This allows the code to work even if the migration hasn't been run yet
     if (providerWage !== null && providerWageType !== null) {
       bookingWithBusiness.provider_wage = providerWage;
       bookingWithBusiness.provider_wage_type = providerWageType;
+    }
+
+    // Convert duration + duration_unit to duration_minutes
+    const durationVal = parseFloat(bookingData.duration);
+    const durationUnit = (bookingData.duration_unit || 'Hours').toString();
+    if (!isNaN(durationVal) && durationVal >= 0) {
+      const minutes = durationUnit.toLowerCase().includes('hour') ? Math.round(durationVal * 60) : Math.round(durationVal);
+      if (minutes > 0) bookingWithBusiness.duration_minutes = minutes;
     }
 
     // Insert booking directly
@@ -248,6 +268,11 @@ export async function POST(request: Request) {
       if (msg.includes('customization')) {
         console.log('⚠️ customization column not found, retrying without it...');
         delete bookingWithBusiness.customization;
+        didStrip = true;
+      }
+      if (msg.includes('duration_minutes')) {
+        console.log('⚠️ duration_minutes column not found, retrying without it...');
+        delete bookingWithBusiness.duration_minutes;
         didStrip = true;
       }
       if (didStrip) {

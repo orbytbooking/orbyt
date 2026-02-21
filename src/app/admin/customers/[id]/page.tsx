@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
-import { UserMinus, ShieldBan, AlertCircle, BellOff, ChevronLeft, ChevronRight as ChevronRightIcon, Calendar as CalendarIcon, Search as SearchIcon, User as UserIcon, UserCheck, ShieldCheck, BellRing, FolderOpen, File, Upload, Download, Trash2, Image as ImageIcon, MoreVertical, Plus, X, FileText, FileVideo, Info, Send, UserCog } from "lucide-react";
+import { UserMinus, ShieldBan, AlertCircle, BellOff, ChevronLeft, ChevronRight as ChevronRightIcon, Calendar as CalendarIcon, Search as SearchIcon, User as UserIcon, UserCheck, ShieldCheck, BellRing, FolderOpen, File, Upload, Download, Trash2, Image as ImageIcon, MoreVertical, Plus, Minus, X, FileText, FileVideo, Info, Send, UserCog, Mail, Phone, MapPin, ChevronDown } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +27,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabaseClient";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { CreateInvoiceDialog } from "@/components/admin/CreateInvoiceDialog";
@@ -71,17 +77,27 @@ export default function CustomerProfilePage() {
     id: string;
     customer: { name: string; email: string; phone?: string };
     service: string;
-    date: string; // YYYY-MM-DD
+    date: string;
     time: string;
     address?: string;
+    aptNo?: string;
+    zipCode?: string;
+    notes?: string;
     status: string;
     amount?: string;
     provider?: { id?: string; name: string } | null;
+    paymentMethod?: string;
+    paymentStatus?: string;
+    frequency?: string;
+    customization?: Record<string, unknown>;
+    providerWage?: number | null;
+    durationMinutes?: number | null;
   };
   const [allBookings, setAllBookings] = useState<Booking[]>([]);
   /** Bookings for this customer from API (shown on Dashboard calendar) */
   const [customerBookings, setCustomerBookings] = useState<Booking[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [providerSearch, setProviderSearch] = useState("");
   const [calView, setCalView] = useState<"month" | "week" | "day">("month");
   const [profile, setProfile] = useState({
@@ -99,6 +115,8 @@ export default function CustomerProfilePage() {
   const [showAddContact, setShowAddContact] = useState(false);
   const [showContactsList, setShowContactsList] = useState(false);
   const [newContact, setNewContact] = useState({ name: "", email: "", phone: "" });
+  const [addresses, setAddresses] = useState<{ id: string; aptNo: string; location: string; zip: string; isDefault: boolean }[]>([]);
+  const [stripeConnected, setStripeConnected] = useState(false);
   const [buttonStates, setButtonStates] = useState({
     isActive: true,
     isBlocked: false,
@@ -124,12 +142,42 @@ export default function CustomerProfilePage() {
   const [sendingInvoiceId, setSendingInvoiceId] = useState<string | null>(null);
   const [showCreateInvoice, setShowCreateInvoice] = useState(false);
   const { currentBusiness } = useBusiness();
+  const [industries, setIndustries] = useState<{ id: string; name: string }[]>([]);
+  const [extrasMap, setExtrasMap] = useState<Record<string, string>>({});
 
   // Drive state variables
   const [files, setFiles] = useState<FileItem[]>([]);
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewImage, setPreviewImage] = useState<FileItem | null>(null);
+
+  // Fetch industries for booking modal (Industry display, extras resolution)
+  useEffect(() => {
+    if (!currentBusiness?.id) return;
+    fetch(`/api/industries?business_id=${currentBusiness.id}`)
+      .then((r) => r.json())
+      .then((data) => setIndustries(data.industries || []))
+      .catch(() => setIndustries([]));
+  }, [currentBusiness?.id]);
+
+  // Fetch extras when booking modal opens (to resolve selectedExtras IDs to names)
+  useEffect(() => {
+    if (!selectedBooking || industries.length === 0) { setExtrasMap({}); return; }
+    const c = (selectedBooking.customization || {}) as Record<string, unknown>;
+    const ids = (c.selectedExtras as string[]) || [];
+    if (ids.length === 0) { setExtrasMap({}); return; }
+    const industryId = industries[0]?.id;
+    if (!industryId) return;
+    fetch(`/api/extras?industryId=${industryId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const list = data.extras || [];
+        const map: Record<string, string> = {};
+        list.forEach((e: { id: string; name?: string }) => { if (e.id && e.name) map[e.id] = e.name; });
+        setExtrasMap(map);
+      })
+      .catch(() => setExtrasMap({}));
+  }, [selectedBooking?.id, industries]);
 
   // Cleanup blob URLs on unmount
   useEffect(() => {
@@ -239,6 +287,9 @@ export default function CustomerProfilePage() {
           if (Array.isArray(ex.contacts)) {
             setContacts(ex.contacts as { name: string; email: string; phone: string }[]);
           }
+          if (Array.isArray(ex.addresses) && ex.addresses.length > 0) {
+            setAddresses(ex.addresses as { id: string; aptNo: string; location: string; zip: string; isDefault: boolean }[]);
+          }
         }
       }
       // load customer drive files
@@ -268,14 +319,27 @@ export default function CustomerProfilePage() {
           const dateOnly = typeof dateStr === "string" && dateStr.length >= 10 ? dateStr.slice(0, 10) : dateStr;
           return {
             id: b.id,
-            customer: { name: b.customer_name || customer?.name || "", email: customer?.email || "", phone: "" },
+            customer: {
+              name: b.customer_name || customer?.name || "",
+              email: b.customer_email || customer?.email || "",
+              phone: b.customer_phone || customer?.phone || "",
+            },
             service: b.service || "",
             date: dateOnly,
             time: b.scheduled_time || b.time || "",
             address: b.address,
+            aptNo: b.apt_no,
+            zipCode: b.zip_code,
+            notes: b.notes,
             status: b.status || "pending",
             amount: b.total_price != null ? `$${Number(b.total_price).toFixed(2)}` : undefined,
             provider: b.provider_name ? { id: b.provider_id, name: b.provider_name } : null,
+            paymentMethod: b.payment_method,
+            paymentStatus: b.payment_status,
+            frequency: b.frequency,
+            customization: b.customization,
+            providerWage: b.provider_wage != null ? Number(b.provider_wage) : undefined,
+            durationMinutes: b.duration_minutes != null ? Number(b.duration_minutes) : undefined,
           };
         });
         setCustomerBookings(list);
@@ -321,7 +385,19 @@ export default function CustomerProfilePage() {
       phone: customer.phone || "",
       address: customer.address || "",
     }));
+    setAddresses((prev) => {
+      if (prev.length > 0) return prev; // keep extras-loaded addresses
+      if (customer.address) return [{ id: "1", aptNo: "", location: customer.address, zip: "", isDefault: true }];
+      return [];
+    });
   }, [customer]);
+
+  // Ensure addresses is populated when profile.address exists (e.g. from API before customer effect)
+  useEffect(() => {
+    if (profile.address && addresses.length === 0) {
+      setAddresses([{ id: "1", aptNo: "", location: profile.address, zip: "", isDefault: true }]);
+    }
+  }, [profile.address]);
 
   // Save drive files to localStorage whenever they change
   useEffect(() => {
@@ -404,6 +480,21 @@ export default function CustomerProfilePage() {
       });
     }
   };
+
+  const isNewCustomer = () => {
+    const created = customer?.joinDate ?? (customer as any)?.join_date;
+    if (!created) return false;
+    const d = new Date(created);
+    const daysAgo = (Date.now() - d.getTime()) / (1000 * 60 * 60 * 24);
+    return daysAgo <= 7;
+  };
+
+  const DetailRow = ({ label, value, isLink, className }: { label: string; value: string; isLink?: boolean; className?: string }) => (
+    <div className="flex justify-between items-start gap-4">
+      <span className="text-gray-500 text-sm shrink-0">{label}</span>
+      <span className={cn("text-sm font-medium text-right text-gray-900", isLink && "text-blue-600 hover:underline cursor-pointer", className)}>{value}</span>
+    </div>
+  );
 
   const getFileIcon = (item: FileItem) => {
     if (item.type === "folder") {
@@ -503,34 +594,62 @@ export default function CustomerProfilePage() {
     });
   };
 
-  const saveProfile = () => {
-    if (!customer) return;
+  const updateAddress = (addrId: string, field: "aptNo" | "location" | "zip", value: string) => {
+    setAddresses((a) =>
+      a.map((x) => (x.id === addrId ? { ...x, [field]: value } : x))
+    );
+  };
+
+  const [saveProfileLoading, setSaveProfileLoading] = useState(false);
+  const saveProfile = async () => {
+    if (!customer || !id) return;
+    const defaultAddr = addresses.find((a) => a.isDefault);
+    const addressToSave = defaultAddr?.location || profile.address;
+    const profileToSave = { ...profile, address: addressToSave };
+    setSaveProfileLoading(true);
     try {
-      const stored = typeof window !== 'undefined' ? localStorage.getItem(CUSTOMERS_STORAGE_KEY) : null;
+      const res = await fetch(`/api/admin/customers/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `${profileToSave.firstName} ${profileToSave.lastName}`.trim(),
+          email: profileToSave.email,
+          phone: profileToSave.phone,
+          address: addressToSave,
+        }),
+      });
+      if (res.ok) {
+        setCustomer((c) =>
+          c ? { ...c, name: profileToSave.firstName + " " + profileToSave.lastName, email: profileToSave.email, phone: profileToSave.phone, address: addressToSave } : null
+        );
+      }
+      const stored = typeof window !== "undefined" ? localStorage.getItem(CUSTOMERS_STORAGE_KEY) : null;
       if (stored) {
         const list: Customer[] = JSON.parse(stored);
         const updated = list.map((c) =>
           String(c.id) === String(customer.id)
-            ? { ...c, name: `${profile.firstName} ${profile.lastName}`.trim(), email: profile.email, phone: profile.phone, address: profile.address }
+            ? { ...c, name: `${profileToSave.firstName} ${profileToSave.lastName}`.trim(), email: profileToSave.email, phone: profileToSave.phone, address: addressToSave }
             : c
         );
         localStorage.setItem(CUSTOMERS_STORAGE_KEY, JSON.stringify(updated));
-        const newCustomer = updated.find((c) => String(c.id) === String(customer.id)) || customer;
-        setCustomer(newCustomer);
-        // save extras
-        const extrasRaw = localStorage.getItem(CUSTOMER_EXTRAS_KEY);
-        const map = extrasRaw ? (JSON.parse(extrasRaw) as Record<string, any>) : {};
-        map[String(customer.id)] = {
-          company: profile.company,
-          gender: profile.gender,
-          notes: profile.notes,
-          smsReminders: profile.smsReminders,
-          contacts,
-        };
-        localStorage.setItem(CUSTOMER_EXTRAS_KEY, JSON.stringify(map));
-        toast({ title: "Profile Saved", description: "Customer details have been updated." });
       }
-    } catch {}
+      const extrasRaw = localStorage.getItem(CUSTOMER_EXTRAS_KEY);
+      const map = extrasRaw ? (JSON.parse(extrasRaw) as Record<string, unknown>) : {};
+      (map as Record<string, unknown>)[String(customer.id)] = {
+        company: profileToSave.company,
+        gender: profileToSave.gender,
+        notes: profileToSave.notes,
+        smsReminders: profileToSave.smsReminders,
+        contacts,
+        addresses,
+      };
+      localStorage.setItem(CUSTOMER_EXTRAS_KEY, JSON.stringify(map));
+      toast({ title: "Profile Saved", description: "Customer details have been updated." });
+    } catch {
+      toast({ title: "Failed to save profile", variant: "destructive" });
+    } finally {
+      setSaveProfileLoading(false);
+    }
   };
 
   const persistExtras = (next: Partial<{ contacts: any }>) => {
@@ -1029,7 +1148,7 @@ export default function CustomerProfilePage() {
                                 <div className={`text-sm font-medium mb-1 ${isToday?'text-cyan-600 dark:text-cyan-400':''}`}>{day}</div>
                                 <div className="flex-1 space-y-1 overflow-y-auto">
                                   {items.slice(0,3).map(b=> (
-                                    <div key={b.id} className="text-xs p-1 rounded text-white" style={{background:'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)'}}>
+                                    <div key={b.id} role="button" tabIndex={0} onClick={() => setSelectedBooking(b)} onKeyDown={(e) => e.key === "Enter" && setSelectedBooking(b)} className="text-xs p-1 rounded text-white cursor-pointer hover:opacity-90 transition-opacity" style={{background:'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)'}}>
                                       <div className="truncate font-medium">{b.time}</div>
                                       <div className="truncate">{b.service}</div>
                                     </div>
@@ -1067,7 +1186,7 @@ export default function CustomerProfilePage() {
                               <div className="space-y-1">
                                 {items.length===0 && <div className="text-xs text-muted-foreground">No bookings</div>}
                                 {items.map(b=> (
-                                  <div key={b.id} className="text-xs p-1 rounded text-white" style={{background:'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)'}}>
+                                  <div key={b.id} role="button" tabIndex={0} onClick={() => setSelectedBooking(b)} onKeyDown={(e) => e.key === "Enter" && setSelectedBooking(b)} className="text-xs p-1 rounded text-white cursor-pointer hover:opacity-90 transition-opacity" style={{background:'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)'}}>
                                     <div className="truncate font-medium">{b.time}</div>
                                     <div className="truncate">{b.service}</div>
                                   </div>
@@ -1087,7 +1206,7 @@ export default function CustomerProfilePage() {
                       <div className="text-sm text-muted-foreground">{items.length} booking(s) on this day</div>
                       {items.length===0 && <div className="text-sm text-muted-foreground">No bookings scheduled.</div>}
                       {items.map(b => (
-                        <div key={b.id} className="p-3 rounded-md border">
+                        <div key={b.id} role="button" tabIndex={0} onClick={() => setSelectedBooking(b)} onKeyDown={(e) => e.key === "Enter" && setSelectedBooking(b)} className="p-3 rounded-md border cursor-pointer hover:bg-muted/50 transition-colors">
                           <div className="flex items-center justify-between">
                             <div className="font-medium">{b.service}</div>
                             <div className="text-sm">{b.time}</div>
@@ -1135,14 +1254,12 @@ export default function CustomerProfilePage() {
         </TabsContent>
 
         <TabsContent value="profile">
-          <Card>
-            <CardHeader>
-              <CardTitle>Profile</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 gap-6">
-                {/* Left: avatar + fields */}
-                <div className="lg:col-span-2 space-y-6">
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Left: Personal Information */}
+              <div className="lg:col-span-2">
+                <Card>
+                  <CardContent className="pt-6 space-y-6">
                   <div className="flex items-start gap-6">
                     <div className="h-28 w-28 rounded-full bg-muted flex items-center justify-center">
                       <span className="text-2xl text-muted-foreground">{initials}</span>
@@ -1160,7 +1277,7 @@ export default function CustomerProfilePage() {
                   <div className="space-y-4">
                     <div>
                       <Label>Company name (Optional)</Label>
-                      <Input placeholder="Ex: Sarahaswin" value={profile.company} onChange={(e)=>setProfile({...profile, company: e.target.value})} />
+                      <Input placeholder="Ex: Premierprocleaner" value={profile.company} onChange={(e)=>setProfile({...profile, company: e.target.value})} />
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1198,14 +1315,13 @@ export default function CustomerProfilePage() {
                       </div>
                     </div>
 
-                    <div>
-                      <Label>Address</Label>
-                      <Input value={profile.address} onChange={(e)=>setProfile({...profile, address: e.target.value})} />
-                    </div>
-
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                       <Button variant="outline" size="sm" onClick={()=>{ setShowAddContact((s)=>!s); setShowContactsList(false); }}>+ Add Other Contact</Button>
-                      <Button variant="outline" size="sm" className="text-cyan-700" onClick={()=>{ setShowContactsList((s)=>!s); setShowAddContact(false); }}>View Other Contact(s)</Button>
+                      <Button variant="outline" size="sm" className="text-green-600 border-green-600 hover:bg-green-50" onClick={()=>{ setShowContactsList((s)=>!s); setShowAddContact(false); }}>View Other Contact(s)</Button>
+                      <Button variant="outline" size="sm" onClick={()=>toast({title:'Change Password', description:'Password change link would be sent.'})}>Change Password</Button>
+                      <Button variant="outline" size="sm" className="text-orange-600 border-orange-600 hover:bg-orange-50" onClick={()=>toast({title:'Welcome Email Sent', description:'A welcome email has been resent.'})}>Resend Welcome Email</Button>
+                      <Button variant="outline" size="sm" className="text-blue-600 border-blue-600 hover:bg-blue-50" onClick={()=>toast({title:'Reset Password Email Sent', description:'Reset password email has been resent.'})}>Resend Reset Password Email</Button>
+                      <Button onClick={saveProfile} disabled={saveProfileLoading} className="ml-auto text-white bg-blue-600 hover:bg-blue-700">Proceed to Update</Button>
                     </div>
 
                     {showAddContact && (
@@ -1245,34 +1361,150 @@ export default function CustomerProfilePage() {
                         ))}
                       </div>
                     )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
 
+            {/* Right: Notes + Actions */}
+            <div>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Notes</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <Textarea placeholder="Add notes about this customer" className="min-h-[120px]" value={profile.notes} onChange={(e)=>setProfile({...profile, notes: e.target.value})} />
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" size="sm" disabled={actionLoading !== null} onClick={()=>updateCustomerFlag("status", buttonStates.isActive ? "inactive" : "active")}>
+                      <UserMinus className="h-4 w-4 mr-1" />
+                      Deactivate
+                    </Button>
+                    <Button variant="outline" size="sm" disabled={actionLoading !== null} onClick={()=>updateCustomerFlag("access_blocked", !buttonStates.isBlocked)}>
+                      <ShieldBan className="h-4 w-4 mr-1" />
+                      Block Access
+                    </Button>
+                    <Button variant="outline" size="sm" disabled={actionLoading !== null} onClick={()=>updateCustomerFlag("booking_blocked", !buttonStates.isBookingBlocked)}>
+                      <AlertCircle className="h-4 w-4 mr-1" />
+                      Block From Booking
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+
+          {/* Address section */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Address</CardTitle>
+                  <p className="text-sm text-muted-foreground mt-1">You can add multiple addresses for any customer, and switch between them when making bookings.</p>
+                </div>
+                <Button variant="outline" size="sm" className="text-blue-600 border-blue-600" onClick={()=>setAddresses(a=>a.length?[...a,{id:String(Date.now()),aptNo:'',location:'',zip:'',isDefault:false}]:[{id:'1',aptNo:'',location:profile.address||'',zip:'',isDefault:true}])}>Add New</Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {(addresses.length > 0 ? addresses : (profile.address ? [{ id: '1', aptNo: '', location: profile.address, zip: '', isDefault: true }] : [])).map((addr) => (
+                <div key={addr.id} className="flex items-start justify-between p-4 border rounded-lg mb-3 last:mb-0 gap-4">
+                  <div className="flex-1 grid gap-2">
+                    {addr.isDefault && <Badge className="bg-green-100 text-green-700 w-fit">Default</Badge>}
                     <div>
-                      <Label>Notes</Label>
-                      <Textarea 
-                        placeholder="Add notes about this customer" 
-                        className="min-h-[150px] mt-2" 
-                        value={profile.notes} 
-                        onChange={(e)=>setProfile({...profile, notes: e.target.value})} 
-                      />
+                      <Label className="text-xs text-muted-foreground">Apt. no.</Label>
+                      <Input value={addr.aptNo} onChange={(e)=>updateAddress(addr.id,'aptNo',e.target.value)} placeholder="605" className="mt-1" />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Location</Label>
+                      <Input value={addr.location} onChange={(e)=>updateAddress(addr.id,'location',e.target.value)} placeholder="195 River Grove Way, West Palm Beach, FL, USA" className="mt-1" />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Zip/Postal code</Label>
+                      <Input value={addr.zip} onChange={(e)=>updateAddress(addr.id,'zip',e.target.value)} placeholder="33407" className="mt-1" />
                     </div>
                   </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={()=>setAddresses(a=>a.map(x=>({...x,isDefault:x.id===addr.id})))}>Set as default</DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive"
+                        onClick={() => {
+                          setAddresses((a) => {
+                            const next = a.filter((x) => x.id !== addr.id);
+                            if (addr.isDefault && next.length > 0) {
+                              return next.map((x, i) => ({ ...x, isDefault: i === 0 }));
+                            }
+                            return next;
+                          });
+                        }}
+                      >
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
+              ))}
+              {!profile.address && addresses.length === 0 && <p className="text-sm text-muted-foreground">No addresses added. Click Add New to add one.</p>}
+            </CardContent>
+          </Card>
 
-                {/* Empty div to maintain grid layout */}
-                <div></div>
-              </div>
-              {/* Footer actions under the whole form */}
-              <div className="flex items-center justify-between gap-3 flex-wrap pt-2 border-t mt-2">
-                <div className="flex items-center gap-3">
-                  <Button variant="outline" onClick={()=>toast({title:'Welcome Email Sent', description:'A welcome email has been resent.'})}>Resend Welcome Email</Button>
-                  <Button variant="outline" onClick={()=>toast({title:'Reset Password Email Sent', description:'A reset password email has been resent.'})}>Resend Reset Password Email</Button>
+          {/* Billing Information */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <CardTitle>Billing Information</CardTitle>
+                  <p className="text-sm text-muted-foreground mt-1">You can add multiple cards and switch between them when making bookings.</p>
                 </div>
-                <Button onClick={saveProfile} className="text-white" style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)' }}>
-                  Save Changes
-                </Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" className="text-pink-600 border-pink-600 hover:bg-pink-50" onClick={()=>toast({title:'Add Card Link', description:'Add card link would be sent to customer.'})}>Send &quot;Add card&quot; link</Button>
+                  <Button variant="outline" size="sm" className="text-blue-600 border-blue-600" onClick={()=>toast({title:'Add Card', description:'Add card form would open.'})}>Add New</Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">No cards on file.</p>
+            </CardContent>
+          </Card>
+
+          {/* Connect to Stripe */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Connect to Stripe</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">If your customer&apos;s card(s) are inside a Stripe account, you can connect their profile here.</p>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <Switch checked={stripeConnected} onCheckedChange={setStripeConnected} />
+                <span className="text-sm">{stripeConnected ? 'Enabled' : 'Disabled'}</span>
               </div>
             </CardContent>
           </Card>
+
+          {/* Tags */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Tags</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">To attach a tag to this customer, type a tag name and press enter or select from available tags.</p>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {tags.map((t) => (
+                  <Badge key={t} variant="secondary" className="gap-1">
+                    {t}
+                    <button type="button" onClick={()=>removeTag(t)} className="ml-1 hover:text-destructive" aria-label={`Remove ${t}`}>×</button>
+                  </Badge>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Input placeholder="Add a tag" value={newTag} onChange={(e)=>setNewTag(e.target.value)} onKeyDown={(e)=>e.key==='Enter'&&addTag()} />
+                <Button variant="outline" size="sm" onClick={addTag} disabled={!newTag.trim()||tags.includes(newTag.trim())||tagsLoading}>+</Button>
+              </div>
+            </CardContent>
+          </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="gift">
@@ -1656,6 +1888,175 @@ export default function CustomerProfilePage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Booking Summary modal (BookingKoala-style) */}
+      <Dialog open={!!selectedBooking} onOpenChange={(open) => !open && setSelectedBooking(null)}>
+        <DialogContent className="max-w-md p-0 gap-0 overflow-hidden sm:rounded-lg">
+          <div className="px-5 pt-5 pb-0">
+            <DialogHeader className="space-y-0">
+              <DialogTitle className="text-base font-semibold">Booking summary</DialogTitle>
+            </DialogHeader>
+          </div>
+          {selectedBooking && (
+            <div className="px-5 pb-5">
+              {/* Customer info block - BookingKoala style */}
+              <div className="flex gap-4 pt-4">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gray-200">
+                  <UserIcon className="h-6 w-6 text-gray-500" />
+                </div>
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-[15px]">
+                      {selectedBooking.customer?.name || customer?.name || "Customer"}
+                    </span>
+                    {isNewCustomer() && (
+                      <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">New</span>
+                    )}
+                  </div>
+                  {(selectedBooking.customer?.email || customer?.email) && (
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <Mail className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+                      <span className="truncate">{selectedBooking.customer?.email || customer?.email}</span>
+                    </div>
+                  )}
+                  {(selectedBooking.customer?.phone || customer?.phone) && (
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <Phone className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+                      <span>{selectedBooking.customer?.phone || customer?.phone}</span>
+                    </div>
+                  )}
+                  {(selectedBooking.address || customer?.address) && (
+                    <div className="flex items-start gap-2 text-sm text-gray-600">
+                      <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5 text-gray-400" />
+                      <span className="break-words">{selectedBooking.address || customer?.address}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Collapsible Booking details - BookingKoala style with Minus icon */}
+              <div className="border-t border-gray-200 mt-4 pt-4">
+                <Collapsible defaultOpen className="group">
+                  <CollapsibleTrigger className="flex w-full items-center justify-between py-2 text-left font-semibold text-sm hover:opacity-80 transition-opacity">
+                    <span>Booking details</span>
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-gray-300 group-data-[state=open]:hidden">
+                      <Plus className="h-3 w-3" />
+                    </span>
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-gray-300 hidden group-data-[state=open]:flex">
+                      <Minus className="h-3 w-3" />
+                    </span>
+                  </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="space-y-2.5 text-sm pt-3">
+                    <DetailRow label="Booking id" value={String(selectedBooking.id)} />
+                    {selectedBooking.zipCode && <DetailRow label="Zip/Postal code" value={selectedBooking.zipCode} />}
+                    {industries[0]?.name && <DetailRow label="Industry" value={industries[0].name} />}
+                    <DetailRow label="Service" value={selectedBooking.service || "—"} />
+                    {selectedBooking.frequency && <DetailRow label="Frequency" value={selectedBooking.frequency} />}
+                    {selectedBooking.customization && typeof selectedBooking.customization === "object" && (() => {
+                      const c = selectedBooking.customization as Record<string, unknown>;
+                      const cv = (c.categoryValues || {}) as Record<string, string>;
+                      const bath = cv.Bathroom ?? cv.bathroom ?? c.bathroom ?? c.bathrooms;
+                      const sqft = cv["Sq Ft"] ?? cv.sqFt ?? cv.squareMeters ?? c.squareMeters ?? c.sqFt ?? c.sqft;
+                      const bed = cv.Bedroom ?? cv.bedroom ?? c.bedroom ?? c.bedrooms;
+                      const livingRoom = cv["Living Room"] ?? cv.livingRoom ?? c.livingRoom;
+                      const storage = cv.Storage ?? cv.storage ?? c.storage;
+                      const items: { label: string; value: string }[] = [];
+                      if (bath != null && String(bath).trim()) items.push({ label: "Bathrooms", value: String(bath) });
+                      if (sqft != null && String(sqft).trim()) items.push({ label: "Sq Ft", value: String(sqft) });
+                      if (bed != null && String(bed).trim()) items.push({ label: "Bedrooms", value: String(bed) });
+                      if (livingRoom != null && String(livingRoom).trim()) items.push({ label: "Living Room", value: String(livingRoom) });
+                      if (storage != null && String(storage).trim()) items.push({ label: "Storage", value: String(storage) });
+                      if (items.length === 0) return null;
+                      return <>{items.map(({ label, value }) => <DetailRow key={label} label={label} value={value} />)}</>;
+                    })()}
+                    {(() => {
+                      const c = (selectedBooking.customization || {}) as Record<string, unknown>;
+                      const ids = (c.selectedExtras as string[]) || [];
+                      const names = ids.map((id: string) => extrasMap[id] || id).filter(Boolean);
+                      if (names.length === 0) return null;
+                      return <DetailRow label="Extras" value={names.join(", ")} className="text-right" />;
+                    })()}
+                    {selectedBooking.provider?.name && (
+                      <DetailRow label="Professionals" value="1" />
+                    )}
+                    {selectedBooking.durationMinutes != null && selectedBooking.durationMinutes > 0 && (
+                      <DetailRow
+                        label="Length"
+                        value={selectedBooking.durationMinutes >= 60
+                          ? `${Math.floor(selectedBooking.durationMinutes / 60)} Hr ${selectedBooking.durationMinutes % 60 ? `${selectedBooking.durationMinutes % 60} Min` : "0 Min"}`
+                          : `${selectedBooking.durationMinutes} Min`}
+                      />
+                    )}
+                    <DetailRow
+                      label="Service date"
+                      value={selectedBooking.date && selectedBooking.time
+                        ? `${new Date(selectedBooking.date + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "2-digit", day: "2-digit", year: "numeric" })} — ${selectedBooking.time}`
+                        : selectedBooking.date || "—"}
+                    />
+                    <DetailRow label="Assigned to" value={selectedBooking.provider?.name || "Unassigned"} className="font-bold text-gray-900" />
+                    {selectedBooking.providerWage != null && selectedBooking.providerWage > 0 && (
+                      <div className="flex justify-between items-center gap-4">
+                        <span className="text-gray-500 text-sm shrink-0">Provider payment</span>
+                        <span className="text-sm font-medium text-right">
+                          ${Number(selectedBooking.providerWage).toFixed(2)}
+                          <Link href="/admin/settings" className="text-blue-600 hover:underline ml-1.5 text-xs">Learn more</Link>
+                        </span>
+                      </div>
+                    )}
+                    {(selectedBooking.aptNo || selectedBooking.address) && (
+                      <DetailRow
+                        label="Location"
+                        value={[selectedBooking.aptNo ? `Apt - ${selectedBooking.aptNo}` : null, selectedBooking.address].filter(Boolean).join(", ")}
+                        className="text-right"
+                      />
+                    )}
+                    {selectedBooking.paymentMethod && (
+                      <div className="flex justify-between items-center gap-4">
+                        <span className="text-gray-500 text-sm">Payment method</span>
+                        <span className={cn(
+                          "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium",
+                          (selectedBooking.paymentMethod === "online" || selectedBooking.paymentMethod === "card")
+                            ? "bg-green-100 text-green-800"
+                            : "bg-green-100 text-green-800"
+                        )}>
+                          {selectedBooking.paymentMethod === "online" || selectedBooking.paymentMethod === "card" ? "CC" : selectedBooking.paymentMethod === "cash" ? "Cash/Check" : selectedBooking.paymentMethod}
+                        </span>
+                      </div>
+                    )}
+                    {selectedBooking.amount && (
+                      <div className="flex justify-between items-center gap-4">
+                        <span className="text-gray-500 text-sm shrink-0">Price details</span>
+                        <span className="text-sm font-medium text-right">
+                          {selectedBooking.amount}
+                          <Link href="/admin/settings" className="text-blue-600 hover:underline ml-1.5 text-xs">Learn more</Link>
+                        </span>
+                      </div>
+                    )}
+                    {selectedBooking.notes && <DetailRow label="Notes" value={selectedBooking.notes} className="text-right" />}
+                    <div className="flex justify-between items-center pt-1">
+                      <span className="text-gray-500 text-sm">Status</span>
+                      <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">{selectedBooking.status}</span>
+                    </div>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+              </div>
+
+              <Button
+                variant="outline"
+                className="w-full mt-4 border-gray-300 text-gray-700 hover:bg-gray-50"
+                onClick={() => {
+                  router.push(`/admin/bookings?booking=${selectedBooking.id}`);
+                  setSelectedBooking(null);
+                }}
+              >
+                View in Bookings
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

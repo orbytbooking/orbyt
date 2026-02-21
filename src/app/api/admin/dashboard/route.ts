@@ -131,11 +131,14 @@ export async function GET() {
       });
     }
 
-    // Helper function to get provider for a booking
-    const getProviderForBooking = (bookingId) => {
-      const assignment = assignmentMap.get(bookingId);
+    // Helper function to get provider for a booking (checks assignment first, then booking.provider_id)
+    const getProviderForBooking = (booking) => {
+      const assignment = assignmentMap.get(booking.id);
       if (assignment && assignment.provider_id) {
         return providerMap.get(assignment.provider_id);
+      }
+      if (booking.provider_id) {
+        return providerMap.get(booking.provider_id);
       }
       return null;
     };
@@ -257,7 +260,7 @@ export async function GET() {
       .map(booking => {
         try {
           // Get provider for this booking
-          const provider = getProviderForBooking(booking.id);
+          const provider = getProviderForBooking(booking);
           const customer = getCustomerForBooking(booking.customer_id);
           
           // Use hybrid approach: customer_* fields from bookings table (no joins to avoid schema issues)
@@ -299,7 +302,14 @@ export async function GET() {
             status: booking.status || 'pending',
             amount: `$${(booking.total_price || 0).toFixed(2)}`,
             paymentMethod: booking.payment_method,
-            notes: booking.notes || ''
+            notes: booking.notes || '',
+            zipCode: booking.zip_code,
+            frequency: booking.frequency,
+            customization: booking.customization,
+            durationMinutes: booking.duration_minutes != null ? Number(booking.duration_minutes) : null,
+            providerWage: booking.provider_wage != null ? Number(booking.provider_wage) : null,
+            aptNo: booking.apt_no,
+            address: booking.address
           };
         } catch (bookingError) {
           console.error('Error processing booking:', booking.id, bookingError);
@@ -317,7 +327,14 @@ export async function GET() {
             status: 'error',
             amount: '$0.00',
             paymentMethod: '',
-            notes: 'Error processing booking'
+            notes: 'Error processing booking',
+            zipCode: null,
+            frequency: null,
+            customization: null,
+            durationMinutes: null,
+            providerWage: null,
+            aptNo: null,
+            address: null
           };
         }
       });
@@ -328,7 +345,7 @@ export async function GET() {
       .map(booking => {
         try {
           // Get provider for this booking
-          const provider = getProviderForBooking(booking.id);
+          const provider = getProviderForBooking(booking);
           const customer = getCustomerForBooking(booking.customer_id);
           
           // Use hybrid approach: customer_* fields from bookings table (no joins to avoid schema issues)
@@ -370,7 +387,14 @@ export async function GET() {
             status: booking.status || 'pending',
             amount: `$${(booking.total_price || 0).toFixed(2)}`,
             paymentMethod: booking.payment_method,
-            notes: booking.notes || ''
+            notes: booking.notes || '',
+            zipCode: booking.zip_code,
+            frequency: booking.frequency,
+            customization: booking.customization,
+            durationMinutes: booking.duration_minutes != null ? Number(booking.duration_minutes) : null,
+            providerWage: booking.provider_wage != null ? Number(booking.provider_wage) : null,
+            aptNo: booking.apt_no,
+            address: booking.address
           };
         } catch (bookingError) {
           console.error('Error processing booking:', booking.id, bookingError);
@@ -388,19 +412,28 @@ export async function GET() {
             status: 'error',
             amount: '$0.00',
             paymentMethod: '',
-            notes: 'Error processing booking'
+            notes: 'Error processing booking',
+            zipCode: null,
+            frequency: null,
+            customization: null,
+            durationMinutes: null,
+            providerWage: null,
+            aptNo: null,
+            address: null
           };
         }
       });
 
-    // Get booking assignments count for each provider
+    // Get booking count per provider (from both booking_assignments AND bookings.provider_id)
+    // Assigning from dashboard updates bookings.provider_id only, so we must count from actual bookings
     const assignmentCounts = new Map();
-    if (bookingAssignments && Array.isArray(bookingAssignments)) {
-      bookingAssignments.forEach(assignment => {
-        const currentCount = assignmentCounts.get(assignment.provider_id) || 0;
-        assignmentCounts.set(assignment.provider_id, currentCount + 1);
-      });
-    }
+    safeBookings.forEach(booking => {
+      const provider = getProviderForBooking(booking);
+      if (provider && provider.id) {
+        const currentCount = assignmentCounts.get(provider.id) || 0;
+        assignmentCounts.set(provider.id, currentCount + 1);
+      }
+    });
 
     // Get available providers for the Available Providers section
     const availableProviders = providers && Array.isArray(providers) 

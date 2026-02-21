@@ -33,11 +33,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'customer_id is required' }, { status: 400 });
     }
     const customerEmail = (searchParams.get('customer_email') || '').trim();
+    const escapeIlike = (s: string) => s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
 
     // Fetch by customer_id (primary)
     const { data: byId, error: errId } = await supabase
       .from('bookings')
-      .select('id, service, scheduled_date, scheduled_time, date, time, total_price, customer_name, address, status, provider_id, provider_name')
+      .select('id, service, scheduled_date, scheduled_time, date, time, total_price, customer_name, customer_email, customer_phone, address, apt_no, zip_code, notes, status, provider_id, provider_name, payment_method, payment_status, frequency, customization, provider_wage, duration_minutes')
       .eq('business_id', businessId)
       .eq('customer_id', customerId)
       .order('scheduled_date', { ascending: false })
@@ -54,10 +55,10 @@ export async function GET(request: NextRequest) {
     if (customerEmail) {
       const { data: byEmail } = await supabase
         .from('bookings')
-        .select('id, service, scheduled_date, scheduled_time, date, time, total_price, customer_name, address, status, provider_id, provider_name')
+        .select('id, service, scheduled_date, scheduled_time, date, time, total_price, customer_name, customer_email, customer_phone, address, apt_no, zip_code, notes, status, provider_id, provider_name, payment_method, payment_status, frequency, customization, provider_wage, duration_minutes')
         .eq('business_id', businessId)
         .is('customer_id', null)
-        .eq('customer_email', customerEmail)
+        .ilike('customer_email', escapeIlike(customerEmail))
         .order('scheduled_date', { ascending: false })
         .order('scheduled_time', { ascending: false })
         .limit(100);
@@ -78,7 +79,26 @@ export async function GET(request: NextRequest) {
       if (da !== db) return db.localeCompare(da);
       return (b.scheduled_time || b.time || '').localeCompare(a.scheduled_time || a.time || '');
     });
-    const bookings = merged.slice(0, 100);
+
+    // Resolve provider_name when null: fetch from service_providers for provider_ids (works for portal & non-portal customers)
+    const needProviderName = merged.filter((b: any) => b.provider_id && !b.provider_name);
+    const providerIds = [...new Set(needProviderName.map((b: any) => b.provider_id))];
+    let providerNamesById: Record<string, string> = {};
+    if (providerIds.length > 0) {
+      const { data: providers } = await supabase
+        .from('service_providers')
+        .select('id, first_name, last_name')
+        .in('id', providerIds);
+      if (providers) {
+        for (const p of providers) {
+          const name = `${(p.first_name || '').trim()} ${(p.last_name || '').trim()}`.trim();
+          if (name) providerNamesById[p.id] = name;
+        }
+      }
+    }
+    const bookings = merged.slice(0, 100).map((b: any) =>
+      b.provider_name ? b : { ...b, provider_name: providerNamesById[b.provider_id] || null }
+    );
 
     return NextResponse.json({ bookings });
   } catch (e) {

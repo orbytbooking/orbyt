@@ -103,8 +103,7 @@ type Customer = {
   lastBooking?: string;
 };
 
-const INDUSTRY_NAME = "Home Cleaning";
-const FALLBACK_INDUSTRY_NAME = "Industry";
+type Industry = { id: string; name: string };
 
 const createEmptyBookingForm = () => ({
   customerType: "new",
@@ -115,7 +114,7 @@ const createEmptyBookingForm = () => ({
   phone: "",
   address: "",
   service: "",
-  duration: "02",
+  duration: "",
   durationUnit: "Hours",
   frequency: "",
   selectedExtras: [] as string[],
@@ -202,401 +201,153 @@ function AddBookingPage() {
   const [loadingTimeSlots, setLoadingTimeSlots] = useState(false);
   const [filteredProvidersByDate, setFilteredProvidersByDate] = useState<Provider[]>([]);
   const [loadingProviders, setLoadingProviders] = useState(false);
+  const [industries, setIndustries] = useState<Industry[]>([]);
+  const [selectedIndustryId, setSelectedIndustryId] = useState<string>("");
+  const [hasLocationBasedFrequencies, setHasLocationBasedFrequencies] = useState(false);
 
-  // Load frequencies from API
+  // Load industries from API (runs once)
   useEffect(() => {
-    const fetchFrequencies = async () => {
+    const fetchIndustries = async () => {
       if (!currentBusiness) return;
-      
       try {
-        // First get the industry ID for Home Cleaning
-        const industriesResponse = await fetch(`/api/industries?business_id=${currentBusiness.id}`);
-        const industriesData = await industriesResponse.json();
-        
-        if (!industriesResponse.ok || !industriesData.industries) {
-          console.error('Failed to fetch industries:', industriesData.error);
-          return;
-        }
-        
-        const currentIndustry = industriesData.industries.find((ind: any) => ind.name === INDUSTRY_NAME);
-        
-        if (!currentIndustry) {
-          console.log('Home Cleaning industry not found, checking for fallback industry');
-          const fallbackIndustry = industriesData.industries.find((ind: any) => ind.name === FALLBACK_INDUSTRY_NAME);
-          
-          if (!fallbackIndustry) {
-            console.log('No suitable industry found');
-            return;
-          }
-          
-          // Use fallback industry (pass zipcode for location-based filtering; includeAll when no zipcode so admin sees all)
-          const zipParam = newBooking.zipCode?.trim().replace(/\s/g, "");
-          const fallbackUrl = `/api/industry-frequency?industryId=${fallbackIndustry.id}${zipParam && zipParam.length >= 5 ? `&zipcode=${encodeURIComponent(zipParam)}` : "&includeAll=true"}`;
-          const frequenciesResponse = await fetch(fallbackUrl);
-          const frequenciesData = await frequenciesResponse.json();
-          
-          if (frequenciesResponse.ok && frequenciesData.frequencies) {
-            const visibleFrequencies = frequenciesData.frequencies.filter(
-              (f: any) => f && (f.display === "Both" || f.display === "Booking")
-            );
-            
-            if (visibleFrequencies.length > 0) {
-              setFrequencies(visibleFrequencies);
-              
-              const defaultFrequency = visibleFrequencies.find((f: any) => f.isDefault) || visibleFrequencies[0];
-              if (defaultFrequency) {
-                setNewBooking(prev => 
-                  prev.frequency ? prev : { ...prev, frequency: defaultFrequency.name }
-                );
-              }
-            }
-          }
-        } else {
-          // Use Home Cleaning industry (pass zipcode for location-based filtering; includeAll when no zipcode so admin sees all)
-          const zipParam = newBooking.zipCode?.trim().replace(/\s/g, "");
-          const industryUrl = `/api/industry-frequency?industryId=${currentIndustry.id}${zipParam && zipParam.length >= 5 ? `&zipcode=${encodeURIComponent(zipParam)}` : "&includeAll=true"}`;
-          const frequenciesResponse = await fetch(industryUrl);
-          const frequenciesData = await frequenciesResponse.json();
-          
-          if (frequenciesResponse.ok && frequenciesData.frequencies) {
-            const visibleFrequencies = frequenciesData.frequencies.filter(
-              (f: any) => f && (f.display === "Both" || f.display === "Booking")
-            );
-            
-            if (visibleFrequencies.length > 0) {
-              setFrequencies(visibleFrequencies);
-              
-              const defaultFrequency = visibleFrequencies.find((f: any) => f.isDefault) || visibleFrequencies[0];
-              if (defaultFrequency) {
-                setNewBooking(prev => 
-                  prev.frequency ? prev : { ...prev, frequency: defaultFrequency.name }
-                );
-              }
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error loading frequencies:', error);
+        const res = await fetch(`/api/industries?business_id=${currentBusiness.id}`);
+        const data = await res.json();
+        if (!res.ok || !data.industries?.length) return;
+        setIndustries(data.industries);
+        setSelectedIndustryId((prev) => prev || data.industries[0]?.id || "");
+      } catch (e) {
+        console.error("Error loading industries:", e);
       }
     };
+    fetchIndustries();
+  }, [currentBusiness]);
 
+  // Detect if industry uses location-based frequency filtering (required for zip-gating services)
+  useEffect(() => {
+    if (!selectedIndustryId) {
+      setHasLocationBasedFrequencies(false);
+      return;
+    }
+    fetch(`/api/industry-frequency?industryId=${selectedIndustryId}&includeAll=true`)
+      .then((r) => r.json())
+      .then((data) => {
+        const freqs = data.frequencies || [];
+        const hasLocation = freqs.some((f: any) => f?.show_based_on_location === true);
+        setHasLocationBasedFrequencies(hasLocation);
+      })
+      .catch(() => setHasLocationBasedFrequencies(false));
+  }, [selectedIndustryId]);
+
+  // Load frequencies from API (uses selected industry; requires zip when location-based)
+  useEffect(() => {
+    if (!currentBusiness || !selectedIndustryId) return;
+    const zipParam = newBooking.zipCode?.trim().replace(/\s/g, "");
+    const zipValid = zipParam && zipParam.length >= 5;
+    if (hasLocationBasedFrequencies && !zipValid) {
+      setFrequencies([]);
+      setNewBooking(prev => prev.service || prev.frequency ? { ...prev, service: "", frequency: "", selectedExtras: [], extraQuantities: {}, excludeQuantities: {}, categoryValues: {} } : prev);
+      setCategoryValues({});
+      setServiceCategories([]);
+      return;
+    }
+    const fetchFrequencies = async () => {
+      try {
+        const url = hasLocationBasedFrequencies
+          ? `/api/industry-frequency?industryId=${selectedIndustryId}&zipcode=${encodeURIComponent(zipParam)}`
+          : `/api/industry-frequency?industryId=${selectedIndustryId}&includeAll=true`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (!res.ok || !data.frequencies) return;
+        const visible = data.frequencies.filter((f: any) => f && (f.display === "Both" || f.display === "Booking"));
+        if (visible.length > 0) {
+          setFrequencies(visible);
+          const defaultFreq = visible.find((f: any) => f.isDefault) || visible[0];
+          if (defaultFreq) {
+            setNewBooking(prev => prev.frequency ? prev : { ...prev, frequency: defaultFreq.name });
+          }
+        } else {
+          setFrequencies([]);
+        }
+      } catch (e) {
+        console.error("Error loading frequencies:", e);
+      }
+    };
     fetchFrequencies();
-  }, [currentBusiness, newBooking.zipCode]);
+  }, [currentBusiness, selectedIndustryId, newBooking.zipCode, hasLocationBasedFrequencies]);
 
   // Load frequency dependencies when frequency changes
   useEffect(() => {
-    const fetchFrequencyDependencies = async () => {
-      if (!currentBusiness || !newBooking.frequency) {
-        setFrequencyDependencies(null);
-        return;
-      }
-      
-      try {
-        // Get the industry ID for Home Cleaning
-        const industriesResponse = await fetch(`/api/industries?business_id=${currentBusiness.id}`);
-        const industriesData = await industriesResponse.json();
-        
-        if (!industriesResponse.ok || !industriesData.industries) {
-          console.error('Failed to fetch industries:', industriesData.error);
-          return;
-        }
-        
-        const currentIndustry = industriesData.industries.find((ind: any) => ind.name === INDUSTRY_NAME);
-        
-        if (!currentIndustry) {
-          console.log('Home Cleaning industry not found, checking for fallback industry');
-          const fallbackIndustry = industriesData.industries.find((ind: any) => ind.name === FALLBACK_INDUSTRY_NAME);
-          
-          if (!fallbackIndustry) {
-            console.log('No suitable industry found for frequency dependencies');
-            return;
-          }
-          
-          const dependencies = await getFrequencyDependencies(fallbackIndustry.id, newBooking.frequency);
-          setFrequencyDependencies(dependencies);
-        } else {
-          const dependencies = await getFrequencyDependencies(currentIndustry.id, newBooking.frequency);
-          setFrequencyDependencies(dependencies);
-        }
-      } catch (error) {
-        console.error('Error loading frequency dependencies:', error);
-        setFrequencyDependencies(null);
-      }
-    };
+    if (!selectedIndustryId || !newBooking.frequency) {
+      setFrequencyDependencies(null);
+      return;
+    }
+    getFrequencyDependencies(selectedIndustryId, newBooking.frequency)
+      .then(setFrequencyDependencies)
+      .catch(() => setFrequencyDependencies(null));
+  }, [selectedIndustryId, newBooking.frequency]);
 
-    fetchFrequencyDependencies();
-  }, [currentBusiness, newBooking.frequency]);
-
-  // Update exclude parameters when frequency dependencies change
+  // Update exclude parameters when frequency dependencies or industry change
   useEffect(() => {
-    const updateExcludeParameters = async () => {
-      if (!currentBusiness) return;
-      
-      try {
-        // Get the industry ID for Home Cleaning
-        const industriesResponse = await fetch(`/api/industries?business_id=${currentBusiness.id}`);
-        const industriesData = await industriesResponse.json();
-        
-        if (!industriesResponse.ok || !industriesData.industries) {
-          console.error('Failed to fetch industries:', industriesData.error);
-          return;
-        }
-        
-        const currentIndustry = industriesData.industries.find((ind: any) => ind.name === INDUSTRY_NAME);
-        
-        if (!currentIndustry) {
-          console.log('Home Cleaning industry not found, checking for fallback industry');
-          const fallbackIndustry = industriesData.industries.find((ind: any) => ind.name === FALLBACK_INDUSTRY_NAME);
-          
-          if (!fallbackIndustry) {
-            console.log('No suitable industry found for exclude parameters');
-            return;
-          }
-          
-          // Fetch exclude parameters
-          const excludeResponse = await fetch(`/api/exclude-parameters?industryId=${fallbackIndustry.id}`);
-          const excludeData = await excludeResponse.json();
-          
-          if (excludeData.excludeParameters) {
-            if (frequencyDependencies?.excludeParameters?.length > 0) {
-              const filteredExcludeParams = excludeData.excludeParameters.filter((param: any) =>
-                frequencyDependencies.excludeParameters.includes(param.name)
-              );
-              setExcludeParameters(filteredExcludeParams);
-            } else {
-              setExcludeParameters(excludeData.excludeParameters);
-            }
-          }
+    if (!selectedIndustryId) return;
+    fetch(`/api/exclude-parameters?industryId=${selectedIndustryId}`)
+      .then((r) => r.json())
+      .then((excludeData) => {
+        if (!excludeData.excludeParameters) return;
+        if (frequencyDependencies?.excludeParameters?.length > 0) {
+          setExcludeParameters(
+            excludeData.excludeParameters.filter((param: any) =>
+              frequencyDependencies.excludeParameters.includes(param.name)
+            )
+          );
         } else {
-          const excludeResponse = await fetch(`/api/exclude-parameters?industryId=${currentIndustry.id}`);
-          const excludeData = await excludeResponse.json();
-          if (excludeData.excludeParameters) {
-            if (frequencyDependencies?.excludeParameters?.length > 0) {
-              const filteredExcludeParams = excludeData.excludeParameters.filter((param: any) =>
-                frequencyDependencies.excludeParameters.includes(param.name)
-              );
-              setExcludeParameters(filteredExcludeParams);
-            } else {
-              setExcludeParameters(excludeData.excludeParameters);
-            }
-          }
+          setExcludeParameters(excludeData.excludeParameters);
         }
-      } catch (error) {
-        console.error('Error updating exclude parameters:', error);
-        setExcludeParameters([]);
-      }
-    };
+      })
+      .catch(() => setExcludeParameters([]));
+  }, [frequencyDependencies, selectedIndustryId]);
 
-    updateExcludeParameters();
-  }, [frequencyDependencies, currentBusiness]);
-
-  // Load extras from API (initial load only - no filtering)
+  // Load extras from API (uses selected industry)
   useEffect(() => {
-    const fetchExtras = async () => {
-      if (!currentBusiness) return;
-      
-      try {
-        // First get the industry ID for Home Cleaning
-        const industriesResponse = await fetch(`/api/industries?business_id=${currentBusiness.id}`);
-        const industriesData = await industriesResponse.json();
-        
-        if (!industriesResponse.ok || !industriesData.industries) {
-          console.error('Failed to fetch industries:', industriesData.error);
-          return;
-        }
-        
-        const currentIndustry = industriesData.industries.find((ind: any) => ind.name === INDUSTRY_NAME);
-        
-        if (!currentIndustry) {
-          console.log('Home Cleaning industry not found, checking for fallback industry');
-          const fallbackIndustry = industriesData.industries.find((ind: any) => ind.name === FALLBACK_INDUSTRY_NAME);
-          
-          if (!fallbackIndustry) {
-            console.log('No suitable industry found for extras');
-            return;
-          }
-          
-          // Use fallback industry
-          const extrasResponse = await fetch(`/api/extras?industryId=${fallbackIndustry.id}`);
-          const extrasData = await extrasResponse.json();
-          
-          if (extrasResponse.ok && extrasData.extras) {
-            const visibleExtras = extrasData.extras.filter(
-              (e: any) => e && (e.display === "frontend-backend-admin" || e.display === "Both" || e.display === "Booking")
-            );
-            
-            // Convert database format to form format (no filtering here - service-specific useEffect handles it)
-            const formattedExtras = visibleExtras.map((e: any) => ({
-              id: e.id,
-              name: e.name,
-              icon: e.icon,
-              time: e.time_minutes,
-              serviceCategory: e.service_category || '',
-              price: e.price,
-              display: e.display,
-              qtyBased: e.qty_based,
-              maximumQuantity: e.maximum_quantity,
-              exemptFromDiscount: e.exempt_from_discount,
-              description: e.description,
-              serviceChecklists: []
-            }));
-            
-            console.log('=== EXTRAS DEBUG (FALLBACK) ===');
-            console.log('Raw extras data:', visibleExtras);
-            console.log('Formatted extras:', formattedExtras);
-            console.log('qtyBased values:', formattedExtras.map(extra => ({ name: extra.name, qtyBased: extra.qtyBased })));
-            
-            setAllExtras(formattedExtras);
-            // Don't set extras here - let the filtering useEffect handle it
-          }
-        } else {
-          // Use Home Cleaning industry
-          const extrasResponse = await fetch(`/api/extras?industryId=${currentIndustry.id}`);
-          const extrasData = await extrasResponse.json();
-          
-          if (extrasResponse.ok && extrasData.extras) {
-            const visibleExtras = extrasData.extras.filter(
-              (e: any) => e && (e.display === "frontend-backend-admin" || e.display === "Both" || e.display === "Booking")
-            );
-            
-            // Convert database format to form format (no filtering here - service-specific useEffect handles it)
-            const formattedExtras = visibleExtras.map((e: any) => ({
-              id: e.id,
-              name: e.name,
-              icon: e.icon,
-              time: e.time_minutes,
-              serviceCategory: e.service_category || '',
-              price: e.price,
-              display: e.display,
-              qtyBased: e.qty_based,
-              maximumQuantity: e.maximum_quantity,
-              exemptFromDiscount: e.exempt_from_discount,
-              description: e.description,
-              serviceChecklists: []
-            }));
-            
-            console.log('=== EXTRAS DEBUG (MAIN) ===');
-            console.log('Raw extras data:', visibleExtras);
-            console.log('Formatted extras:', formattedExtras);
-            console.log('qtyBased values:', formattedExtras.map(extra => ({ name: extra.name, qtyBased: extra.qtyBased })));
-            
-            setAllExtras(formattedExtras);
-            // Don't set extras here - let the filtering useEffect handle it
-          }
-        }
-      } catch (error) {
-        console.error('Error loading extras:', error);
-      }
-    };
+    if (!selectedIndustryId) return;
+    fetch(`/api/extras?industryId=${selectedIndustryId}`)
+      .then((r) => r.json())
+      .then((extrasData) => {
+        if (!extrasData.extras) return;
+        const visible = extrasData.extras.filter(
+          (e: any) => e && (e.display === "frontend-backend-admin" || e.display === "Both" || e.display === "Booking")
+        );
+        setAllExtras(visible.map((e: any) => ({
+          id: e.id,
+          name: e.name,
+          icon: e.icon,
+          time: e.time_minutes,
+          serviceCategory: e.service_category || '',
+          price: e.price,
+          display: e.display,
+          qtyBased: e.qty_based,
+          maximumQuantity: e.maximum_quantity,
+          exemptFromDiscount: e.exempt_from_discount,
+          description: e.description,
+          serviceChecklists: []
+        })));
+      })
+      .catch((e) => console.error("Error loading extras:", e));
+  }, [selectedIndustryId]);
 
-    fetchExtras();
-  }, [currentBusiness]);
-
-  // Update service categories when frequency dependencies change
+  // Update service categories when frequency dependencies or industry change
   useEffect(() => {
-    const updateServiceCategories = async () => {
-      if (!currentBusiness) return;
-      
-      try {
-        // Get the industry ID for Home Cleaning
-        const industriesResponse = await fetch(`/api/industries?business_id=${currentBusiness.id}`);
-        const industriesData = await industriesResponse.json();
-        
-        if (!industriesResponse.ok || !industriesData.industries) {
-          console.error('Failed to fetch industries:', industriesData.error);
-          return;
+    if (!selectedIndustryId) return;
+    serviceCategoriesService.getServiceCategoriesByIndustry(selectedIndustryId).then((categories) => {
+      const filtered = categories.filter((category: ServiceCategory) => {
+        if (!category.service_category_frequency) return true;
+        if (frequencyDependencies?.serviceCategories?.length > 0) {
+          return frequencyDependencies.serviceCategories.includes(String(category.id));
         }
-        
-        const currentIndustry = industriesData.industries.find((ind: any) => ind.name === INDUSTRY_NAME);
-        
-        if (!currentIndustry) {
-          console.log('Home Cleaning industry not found, checking for fallback industry');
-          const fallbackIndustry = industriesData.industries.find((ind: any) => ind.name === FALLBACK_INDUSTRY_NAME);
-          
-          if (!fallbackIndustry) {
-            console.log('No suitable industry found for service categories');
-            return;
-          }
-          
-          // Fetch service categories
-          const categories = await serviceCategoriesService.getServiceCategoriesByIndustry(fallbackIndustry.id);
-          
-          console.log('=== ADMIN BOOKING DEBUG ===');
-          console.log('Fetched categories:', categories);
-          console.log('Selected frequency:', newBooking.frequency);
-          console.log('Frequency dependencies:', frequencyDependencies);
-          console.log('All categories with frequency settings:', categories.map(cat => ({
-            name: cat.name,
-            service_category_frequency: cat.service_category_frequency,
-            selected_frequencies: cat.selected_frequencies
-          })));
-          
-          // Apply frequency-based filtering logic
-          let filteredCategories = categories.filter((category: ServiceCategory) => {
-            // If service_category_frequency is false (No), always show the service category
-            if (!category.service_category_frequency) {
-              console.log(`Service "${category.name}": service_category_frequency is false, showing always`);
-              return true;
-            }
-            
-            // If service_category_frequency is true (Yes), filter by frequency dependencies
-            if (frequencyDependencies && frequencyDependencies.serviceCategories && frequencyDependencies.serviceCategories.length > 0) {
-              const isIncluded = frequencyDependencies.serviceCategories.includes(String(category.id));
-              console.log(`Service "${category.name}": service_category_frequency is true, frequency filter result: ${isIncluded}`);
-              return isIncluded;
-            }
-            
-            // If no frequency dependencies are available yet, hide frequency-dependent services
-            console.log(`Service "${category.name}": service_category_frequency is true, but no frequency dependencies available`);
-            return false;
-          });
-          
-          console.log('Filtered categories:', filteredCategories);
-          setServiceCategories(filteredCategories);
-        } else {
-          // Fetch service categories
-          const categories = await serviceCategoriesService.getServiceCategoriesByIndustry(currentIndustry.id);
-          console.log('=== ADMIN BOOKING DEBUG (CURRENT INDUSTRY) ===');
-          console.log('Fetched categories:', categories);
-          console.log('Selected frequency:', newBooking.frequency);
-          console.log('Frequency dependencies:', frequencyDependencies);
-          console.log('All categories with frequency settings:', categories.map(cat => ({
-            name: cat.name,
-            service_category_frequency: cat.service_category_frequency,
-            selected_frequencies: cat.selected_frequencies
-          })));
-          
-          // Apply frequency-based filtering logic
-          let filteredCategories = categories.filter((category: ServiceCategory) => {
-            // If service_category_frequency is false (No), always show the service category
-            if (!category.service_category_frequency) {
-              console.log(`Service "${category.name}": service_category_frequency is false, showing always`);
-              return true;
-            }
-            
-            // If service_category_frequency is true (Yes), filter by frequency dependencies
-            if (frequencyDependencies && frequencyDependencies.serviceCategories && frequencyDependencies.serviceCategories.length > 0) {
-              const isIncluded = frequencyDependencies.serviceCategories.includes(String(category.id));
-              console.log(`Service "${category.name}": service_category_frequency is true, frequency filter result: ${isIncluded}`);
-              return isIncluded;
-            }
-            
-            // If no frequency dependencies are available yet, hide frequency-dependent services
-            console.log(`Service "${category.name}": service_category_frequency is true, but no frequency dependencies available`);
-            return false;
-          });
-          
-          console.log('Filtered categories:', filteredCategories);
-          setServiceCategories(filteredCategories);
-        }
-      } catch (error) {
-        console.error('Error updating service categories:', error);
-        setServiceCategories([]);
-      }
-    };
-
-    updateServiceCategories();
-  }, [frequencyDependencies, currentBusiness, newBooking.frequency]);
+        return false;
+      });
+      setServiceCategories(filtered);
+    }).catch(() => setServiceCategories([]));
+  }, [frequencyDependencies, selectedIndustryId]);
 
   // Debug extras rendering
   useEffect(() => {
@@ -748,99 +499,27 @@ function AddBookingPage() {
     fetchCustomers();
   }, [currentBusiness]);
 
-  // Load pricing parameters and service categories from database
+  // Load pricing parameters from database (uses selected industry)
   useEffect(() => {
-    const fetchPricingParameters = async () => {
+    if (!selectedIndustryId) return;
+    const load = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-
-        const { data: business } = await supabase
-          .from('businesses')
-          .select('id')
-          .eq('owner_id', user.id)
-          .single();
-
-        if (!business) return;
-
-        const industriesResponse = await fetch(`/api/industries?business_id=${business.id}`);
-        const industriesData = await industriesResponse.json();
-        const currentIndustry = industriesData.industries?.find((ind: any) => ind.name === INDUSTRY_NAME);
-        
-        if (!currentIndustry) return;
-
-        const pricingResponse = await fetch(`/api/pricing-parameters?industryId=${currentIndustry.id}`);
-        const pricingData = await pricingResponse.json();
-        
+        const pricingRes = await fetch(`/api/pricing-parameters?industryId=${selectedIndustryId}`);
+        const pricingData = await pricingRes.json();
         if (pricingData.pricingParameters) {
-          console.log('=== LOADED PRICING PARAMETERS ===');
-          console.log('Raw pricing data:', pricingData.pricingParameters);
-          pricingData.pricingParameters.forEach((param: any, index: number) => {
-            console.log(`${index + 1}. ${param.name}:`, {
-              id: param.id,
-              variable_category: param.variable_category,
-              show_based_on_frequency: param.show_based_on_frequency,
-              show_based_on_service_category: param.show_based_on_service_category,
-              frequency: param.frequency,
-              service_category: param.service_category
-            });
-          });
-          
           setPricingParameters(pricingData.pricingParameters);
-          
-          // Extract unique variable categories
-          const categories = Array.from(
-            new Set(pricingData.pricingParameters.map((p: PricingParameter) => p.variable_category))
-          ).filter(Boolean) as string[];
-          
-          setVariableCategories(categories);
-          
-          // Initialize category values
-          const initialValues: Record<string, string> = {};
-          categories.forEach(cat => {
-            initialValues[cat] = '';
-          });
-          setCategoryValues(initialValues);
+          const cats = Array.from(new Set(pricingData.pricingParameters.map((p: PricingParameter) => p.variable_category))).filter(Boolean) as string[];
+          setVariableCategories(cats);
+          const initial: Record<string, string> = {};
+          cats.forEach(c => { initial[c] = ''; });
+          setCategoryValues(initial);
         }
-
-        // Fetch exclude parameters
-        const excludeResponse = await fetch(`/api/exclude-parameters?industryId=${currentIndustry.id}`);
-        const excludeData = await excludeResponse.json();
-        
-        if (excludeData.excludeParameters) {
-          // Apply frequency dependency filter only when frequency has a specific exclude list; otherwise show all
-          if (frequencyDependencies && frequencyDependencies.excludeParameters && frequencyDependencies.excludeParameters.length > 0) {
-            const filteredExcludeParams = excludeData.excludeParameters.filter((param: any) =>
-              frequencyDependencies.excludeParameters.includes(param.name)
-            );
-            setExcludeParameters(filteredExcludeParams);
-          } else {
-            setExcludeParameters(excludeData.excludeParameters);
-          }
-        }
-
-        // Fetch service categories
-        const categories = await serviceCategoriesService.getServiceCategoriesByIndustry(currentIndustry.id);
-        
-        // Apply frequency dependency filter if frequency is selected
-        let filteredCategories = categories;
-        if (frequencyDependencies && frequencyDependencies.serviceCategories && frequencyDependencies.serviceCategories.length > 0) {
-          filteredCategories = categories.filter((category: ServiceCategory) => 
-            frequencyDependencies.serviceCategories.includes(String(category.id))
-          );
-        } else {
-          // If no frequency dependencies or no service categories selected, show none
-          filteredCategories = [];
-        }
-        
-        setServiceCategories(filteredCategories);
-      } catch (error) {
-        console.error('Error loading pricing parameters:', error);
+      } catch (e) {
+        console.error("Error loading pricing parameters:", e);
       }
     };
-
-    fetchPricingParameters();
-  }, []);
+    load();
+  }, [selectedIndustryId]);
 
   // Handle query parameters for pre-filling customer information (e.g. from customer profile)
   useEffect(() => {
@@ -1004,8 +683,8 @@ const handleAddBooking = async (status: string = 'pending') => {
         frequency_discount: calculateFrequencyDiscount,
         payment_method: newBooking.paymentMethod || null,
         notes: newBooking.notes,
-        duration: newBooking.duration,
-        duration_unit: newBooking.durationUnit,
+        duration: newBooking.duration || (calculatedDurationMinutes != null ? String(Math.round(calculatedDurationMinutes)) : ''),
+        duration_unit: newBooking.duration ? newBooking.durationUnit : (calculatedDurationMinutes != null ? 'Minutes' : 'Hours'),
         selected_extras: newBooking.selectedExtras,
         extra_quantities: newBooking.extraQuantities,
         category_values: categoryValues,
@@ -1414,52 +1093,36 @@ const handleAddBooking = async (status: string = 'pending') => {
     });
   };
 
-  // Calculate service total based on pricing parameters
+  // Calculate service total: sum prices from all matching variable category parameters (same logic as customer portal)
   const calculateServiceTotal = useMemo(() => {
     if (!newBooking.service || !newBooking.frequency) {
       console.log('⚠️ calculateServiceTotal: Missing service or frequency', { service: newBooking.service, frequency: newBooking.frequency });
       return 0;
     }
 
-    // Find matching pricing parameter based on selected variables
-    const matchingParam = pricingParameters.find(param => {
-      // Check if all variable categories match
-      let matches = true;
-      
-      // Check frequency match if parameter uses frequency filtering
-      if (param.show_based_on_frequency && param.frequency) {
-        const allowedFrequencies = param.frequency.split(', ').map(f => f.trim());
-        if (!allowedFrequencies.includes(newBooking.frequency)) {
-          matches = false;
-        }
-      }
-      
-      // Check service category match if parameter uses service category filtering
-      if (param.show_based_on_service_category && param.service_category) {
-        const allowedServices = param.service_category.split(', ').map(s => s.trim());
-        if (!allowedServices.includes(newBooking.service)) {
-          matches = false;
-        }
-      }
-      
-      // Check if variable category value matches (skip when "None" or empty - customer doesn't have this)
-      if (param.variable_category) {
-        const selected = categoryValues[param.variable_category];
-        if (!selected?.trim() || selected.trim().toLowerCase() === "none") {
-          matches = false;
-        } else if (param.name !== selected) {
-          matches = false;
-        }
-      }
-      
-      return matches;
-    });
+    let sum = 0;
 
-    // If matching pricing parameter found, use its price
-    if (matchingParam?.price) {
-      console.log('✅ calculateServiceTotal: Using pricing parameter', { param: matchingParam.name, price: matchingParam.price });
-      return matchingParam.price;
+    // Sum prices for each selected variable category (Bathroom, Bedroom, Living Room, Sq Ft, Storage, etc.)
+    for (const [categoryKey, optionName] of Object.entries(categoryValues)) {
+      if (!optionName?.trim() || optionName.trim().toLowerCase() === "none") continue;
+      const param = pricingParameters.find(p => {
+        if (p.variable_category !== categoryKey || p.name !== optionName) return false;
+        if (p.show_based_on_frequency && p.frequency) {
+          const allowed = p.frequency.split(', ').map(f => f.trim());
+          if (!allowed.includes(newBooking.frequency)) return false;
+        }
+        if (p.show_based_on_service_category && p.service_category) {
+          const allowed = p.service_category.split(', ').map(s => s.trim());
+          if (!allowed.includes(newBooking.service)) return false;
+        }
+        return true;
+      });
+      if (param && typeof param.price === "number" && !Number.isNaN(param.price)) {
+        sum += param.price;
+      }
     }
+
+    if (sum > 0) return sum;
 
     // Fallback: Check if service category has a fixed price
     const selectedServiceCategory = serviceCategories.find(cat => cat.name === newBooking.service);
@@ -1492,6 +1155,58 @@ const handleAddBooking = async (status: string = 'pending') => {
     });
     return 0;
   }, [newBooking.service, newBooking.frequency, newBooking.duration, categoryValues, pricingParameters, serviceCategories]);
+
+  // Duration from pricing parameters (sum all matching variable categories) + extras time
+  const calculatedDurationMinutes = useMemo(() => {
+    if (!newBooking.service || !newBooking.frequency) return null;
+    // When user has manually set duration (e.g. for Hourly services), prefer that
+    if (newBooking.duration) return null;
+
+    let totalMinutes = 0;
+
+    // Sum time from all matching pricing parameters (one per selected variable category - Bathroom, Bedroom, Living Room, etc.)
+    for (const [categoryKey, optionName] of Object.entries(categoryValues)) {
+      if (!optionName?.trim() || optionName.trim().toLowerCase() === "none") continue;
+      const param = pricingParameters.find(p => {
+        if (p.variable_category !== categoryKey || p.name !== optionName) return false;
+        if (p.show_based_on_frequency && p.frequency) {
+          const allowed = p.frequency.split(', ').map(f => f.trim());
+          if (!allowed.includes(newBooking.frequency)) return false;
+        }
+        if (p.show_based_on_service_category && p.service_category) {
+          const allowed = p.service_category.split(', ').map(s => s.trim());
+          if (!allowed.includes(newBooking.service)) return false;
+        }
+        return true;
+      });
+      if (param?.time_minutes && param.time_minutes > 0) {
+        totalMinutes += param.time_minutes;
+      }
+    }
+
+    // Add time from selected extras
+    newBooking.selectedExtras?.forEach(extraId => {
+      const extra = extras.find(e => e.id === extraId);
+      if (extra && typeof extra.time === "number" && extra.time > 0) {
+        const qty = extra.qtyBased ? (newBooking.extraQuantities[extraId] || 1) : 1;
+        totalMinutes += extra.time * qty;
+      }
+    });
+
+    // Subtract time from excluded areas when partial cleaning is enabled
+    if (isPartialCleaning && selectedExcludeParams.length > 0) {
+      selectedExcludeParams.forEach(paramId => {
+        const param = excludeParameters.find((p: any) => p.id === paramId);
+        if (param && typeof param.time_minutes === "number" && param.time_minutes > 0) {
+          const qty = param.qty_based ? (newBooking.excludeQuantities[paramId] || 1) : 1;
+          totalMinutes -= param.time_minutes * qty;
+        }
+      });
+      totalMinutes = Math.max(0, totalMinutes);
+    }
+
+    return totalMinutes > 0 ? totalMinutes : null;
+  }, [newBooking.service, newBooking.frequency, newBooking.duration, categoryValues, pricingParameters, newBooking.selectedExtras, newBooking.extraQuantities, extras, isPartialCleaning, selectedExcludeParams, excludeParameters, newBooking.excludeQuantities]);
 
   // Calculate extras total (respect qtyBased: use quantity only when extra is quantity-based)
   const calculateExtrasTotal = useMemo(() => {
@@ -1648,9 +1363,22 @@ const handleAddBooking = async (status: string = 'pending') => {
               <CardTitle className="text-base">Booking Summary</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center gap-2">
                 <span className="text-muted-foreground">Industry</span>
-                <span className="font-medium">Home Cleaning</span>
+                {industries.length > 1 ? (
+                  <Select value={selectedIndustryId} onValueChange={(v) => { setSelectedIndustryId(v); setNewBooking(prev => ({ ...prev, service: "", frequency: "", duration: "", selectedExtras: [], extraQuantities: {}, excludeQuantities: {}, categoryValues: {} })); setCategoryValues({}); }}>
+                    <SelectTrigger className="w-[180px] h-8">
+                      <SelectValue placeholder="Select industry" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {industries.map((ind) => (
+                        <SelectItem key={ind.id} value={ind.id}>{ind.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <span className="font-medium">{industries.find(i => i.id === selectedIndustryId)?.name || "—"}</span>
+                )}
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Service</span>
@@ -1665,17 +1393,29 @@ const handleAddBooking = async (status: string = 'pending') => {
                 const adjustedDuration = calculateAdjustedDuration;
                 const isRecurring = selectedFreq?.occurrence_time === 'recurring';
                 const hasAdjustment = isRecurring && selectedFreq?.shorter_job_length === 'yes' && parseFloat(selectedFreq?.shorter_job_length_by || '0') > 0;
+                const durationMinutes = newBooking.duration
+                  ? (newBooking.durationUnit === "Hours" ? parseFloat(newBooking.duration) * 60 : parseFloat(newBooking.duration))
+                  : calculatedDurationMinutes;
+                const displayLength = !newBooking.service
+                  ? "—"
+                  : hasAdjustment && adjustedDuration.displayText
+                    ? adjustedDuration.displayText
+                    : durationMinutes != null
+                      ? (() => {
+                          const mins = Math.round(durationMinutes);
+                          const hrs = Math.floor(mins / 60);
+                          const m = mins % 60;
+                          return hrs > 0 ? `${hrs} Hr${m > 0 ? ` ${m} Min` : ""}` : `${mins} Min`;
+                        })()
+                      : "—";
                 
                 return (
                   <>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Length</span>
-                      <span className="font-medium">
-                        {hasAdjustment && adjustedDuration.displayText ? adjustedDuration.displayText : 
-                          `${newBooking.duration} ${newBooking.durationUnit === "Hours" ? "Hr" : "Min"}${newBooking.duration !== "01" && newBooking.durationUnit === "Hours" ? " 0 Min" : ""}`}
-                      </span>
+                      <span className="font-medium">{displayLength}</span>
                     </div>
-                    {hasAdjustment && (
+                    {hasAdjustment && newBooking.duration && (
                       <div className="flex justify-between text-xs">
                         <span className="text-muted-foreground">Original Length</span>
                         <span className="text-muted-foreground line-through">
@@ -2019,6 +1759,9 @@ const handleAddBooking = async (status: string = 'pending') => {
                 value={newBooking.zipCode}
                 onChange={(e) => setNewBooking({ ...newBooking, zipCode: e.target.value })}
               />
+              {hasLocationBasedFrequencies && (
+                <p className="text-xs text-muted-foreground mt-1">Required to see available services for your area</p>
+              )}
             </div>
 
             {/* Name Fields */}
@@ -2088,7 +1831,15 @@ const handleAddBooking = async (status: string = 'pending') => {
 
             {/* Service Type */}
             <div>
-              <div className="flex items-center gap-2 mb-2">
+              <Label className="text-sm font-medium mb-2 block">Select service</Label>
+              {hasLocationBasedFrequencies && (!newBooking.zipCode?.trim() || newBooking.zipCode.trim().length < 5) ? (
+                <div className="flex flex-col gap-1">
+                  <div className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+                    Enter zip code above to see available services
+                  </div>
+                  <p className="text-xs text-muted-foreground">Services are based on your location. Enter a valid zip code first.</p>
+                </div>
+              ) : (
                 <Select value={newBooking.service} onValueChange={(value) => { setNewBooking({ ...newBooking, service: value }); setErrors(prev => ({ ...prev, service: false })); }}>
                   <SelectTrigger className={errors.service ? "border-red-500" : ""}>
                     <SelectValue placeholder="Select service" />
@@ -2107,7 +1858,7 @@ const handleAddBooking = async (status: string = 'pending') => {
                     )}
                   </SelectContent>
                 </Select>
-              </div>
+              )}
             </div>
 
             {newBooking.service ? (
