@@ -52,6 +52,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { Switch } from '@/components/ui/switch';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import Link from 'next/link';
 import { toast } from 'sonner';
 
@@ -190,6 +191,19 @@ export default function GeneralSettingsPage() {
   const [paymentRefundWhenDecreasedWithLogs, setPaymentRefundWhenDecreasedWithLogs] = useState<'yes' | 'no'>('yes');
   const [paymentDeclinedPrePayment, setPaymentDeclinedPrePayment] = useState<'leave' | 'cancel_24h'>('leave');
   const [paymentIndividualChargeNotifications, setPaymentIndividualChargeNotifications] = useState<'yes' | 'no'>('no');
+
+  // Admin tab (store options): gift card, referral, payment descriptions
+  const [giftCardMinAmount, setGiftCardMinAmount] = useState('150.00');
+  const [giftCardEditBelowMin, setGiftCardEditBelowMin] = useState<'yes' | 'no'>('no');
+  const [giftCardMaxLimitEnabled, setGiftCardMaxLimitEnabled] = useState<'yes' | 'no'>('yes');
+  const [giftCardMaxAmount, setGiftCardMaxAmount] = useState('');
+  const [referralCreditsReferred, setReferralCreditsReferred] = useState('50.00');
+  const [referralCreditsReferrer, setReferralCreditsReferrer] = useState('50.00');
+  const [cardHoldDescription, setCardHoldDescription] = useState('Card hold for premierprocleaner by OrbytBooking -');
+  const [chargeBookingDescription, setChargeBookingDescription] = useState('Amount charged by OrbytBooking.');
+  const [separateChargeDescription, setSeparateChargeDescription] = useState('');
+  const [chargeInvoiceDescription, setChargeInvoiceDescription] = useState('');
+  const [adminSettingsSaving, setAdminSettingsSaving] = useState(false);
 
   const fetchAccessSettings = async () => {
     if (!currentBusiness?.id) return;
@@ -2643,10 +2657,293 @@ export default function GeneralSettingsPage() {
                   Provider settings – Currently under development.
                 </p>
               </TabsContent>
-              <TabsContent value="admin" className="mt-0">
+              <TabsContent value="admin" className="mt-0 space-y-6">
                 <p className="text-sm text-muted-foreground">
-                  Admin settings – Currently under development.
+                  In this section you can set up the minimum amount a gift card can be purchased for as well as the default referral amount a customer will get if they successfully refer a new customer to your business.
                 </p>
+
+                {/* Gift card */}
+                <div className="rounded-lg border bg-card p-6 space-y-6">
+                  <h4 className="text-lg font-semibold">Gift card</h4>
+                  <TooltipProvider>
+                    <div className="space-y-6 max-w-xl">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <Label className="font-semibold">Minimum gift card amount</Label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0">
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-xs">
+                              The minimum value a customer can purchase when buying a gift card.
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <div className="flex items-center rounded-md border bg-background">
+                          <span className="pl-3 text-muted-foreground">$</span>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            placeholder="0.00"
+                            value={giftCardMinAmount}
+                            onChange={(e) => setGiftCardMinAmount(e.target.value)}
+                            className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-l-none"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <Label className="font-semibold">Are you able to edit a gift card to have a total less than its minimum requirement?</Label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0">
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-xs">
+                              When enabled, admins can reduce a gift card balance below the minimum purchase amount.
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <RadioGroup value={giftCardEditBelowMin} onValueChange={(v) => setGiftCardEditBelowMin(v as 'yes' | 'no')} className="flex gap-4 pt-1">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <RadioGroupItem value="yes" id="gift-edit-below-yes" />
+                            <span className="text-sm">Yes</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <RadioGroupItem value="no" id="gift-edit-below-no" />
+                            <span className="text-sm">No</span>
+                          </label>
+                        </RadioGroup>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <Label className="font-semibold">Enable the maximum gift card amount limit?</Label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0">
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-xs">
+                              When enabled, customers cannot purchase gift cards above the maximum amount.
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <RadioGroup value={giftCardMaxLimitEnabled} onValueChange={(v) => setGiftCardMaxLimitEnabled(v as 'yes' | 'no')} className="flex gap-4 pt-1">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <RadioGroupItem value="yes" id="gift-max-enable-yes" />
+                            <span className="text-sm">Yes</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <RadioGroupItem value="no" id="gift-max-enable-no" />
+                            <span className="text-sm">No</span>
+                          </label>
+                        </RadioGroup>
+                      </div>
+                      {giftCardMaxLimitEnabled === 'yes' && (
+                        <div className="space-y-2">
+                          <Label className="font-semibold">Maximum gift card amount</Label>
+                          <div className="flex items-center rounded-md border bg-background">
+                            <span className="pl-3 text-muted-foreground">$</span>
+                            <Input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              placeholder="Amount"
+                              value={giftCardMaxAmount}
+                              onChange={(e) => setGiftCardMaxAmount(e.target.value)}
+                              className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-l-none"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </TooltipProvider>
+                </div>
+
+                {/* Referral */}
+                <div className="rounded-lg border bg-card p-6 space-y-6">
+                  <h4 className="text-lg font-semibold">Referral</h4>
+                  <TooltipProvider>
+                    <div className="space-y-6 max-w-xl">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <Label className="font-semibold">Amount of credits given to the person being referred</Label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0">
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-xs">
+                              Credit amount the new customer receives when referred.
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <div className="flex items-center rounded-md border bg-background">
+                          <span className="pl-3 text-muted-foreground">$</span>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            placeholder="0.00"
+                            value={referralCreditsReferred}
+                            onChange={(e) => setReferralCreditsReferred(e.target.value)}
+                            className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-l-none"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <Label className="font-semibold">Amount of credits given to the person referring someone</Label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0">
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-xs">
+                              Credit amount the referrer receives when their referral signs up.
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <div className="flex items-center rounded-md border bg-background">
+                          <span className="pl-3 text-muted-foreground">$</span>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            placeholder="0.00"
+                            value={referralCreditsReferrer}
+                            onChange={(e) => setReferralCreditsReferrer(e.target.value)}
+                            className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-l-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </TooltipProvider>
+                </div>
+
+                {/* Payment descriptions */}
+                <div className="rounded-lg border bg-card p-6 space-y-6">
+                  <h4 className="text-lg font-semibold">Payment descriptions</h4>
+                  <Alert className="rounded-md border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-800 text-red-800 dark:text-red-200">
+                    <AlertDescription>
+                      Please Note: Payment gateways do not allow description updates. As a result, a card-hold description will become permanent upon successfully charging the customer. If a card is not &quot;on hold&quot; prior to charging, the charge booking description will be used instead of the card hold description.
+                    </AlertDescription>
+                  </Alert>
+                  <TooltipProvider>
+                    <div className="space-y-6 max-w-2xl">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <Label className="font-semibold">Card hold description</Label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0">
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-xs">
+                              Description shown on the customer&apos;s statement for the card hold.
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <Textarea
+                          placeholder="Card hold for premierprocleaner by OrbytBooking -"
+                          value={cardHoldDescription}
+                          onChange={(e) => setCardHoldDescription(e.target.value)}
+                          className="min-h-[80px] resize-y"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <Label className="font-semibold">Charge booking description</Label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0">
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-xs">
+                              Description used when charging if no card hold was placed.
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <Textarea
+                          placeholder="Amount charged by OrbytBooking."
+                          value={chargeBookingDescription}
+                          onChange={(e) => setChargeBookingDescription(e.target.value)}
+                          className="min-h-[80px] resize-y"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <Label className="font-semibold">Separate charge description</Label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0">
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-xs">
+                              Description shown for separate/additional charges.
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <Textarea
+                          placeholder="Separate charges by Premier Pro Cleaners."
+                          value={separateChargeDescription}
+                          onChange={(e) => setSeparateChargeDescription(e.target.value)}
+                          className="min-h-[80px] resize-y"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <Label className="font-semibold">Charge invoice description</Label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0">
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-xs">
+                              Description shown on the invoice charge.
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <Textarea
+                          placeholder="Invoice Amount charged by Premier Pro Cleaners."
+                          value={chargeInvoiceDescription}
+                          onChange={(e) => setChargeInvoiceDescription(e.target.value)}
+                          className="min-h-[80px] resize-y"
+                        />
+                      </div>
+                    </div>
+                  </TooltipProvider>
+                </div>
+
+                <Button
+                  onClick={async () => {
+                    setAdminSettingsSaving(true);
+                    try {
+                      // TODO: wire to API when backend is ready
+                      await new Promise((r) => setTimeout(r, 400));
+                      toast.success('Admin settings saved.');
+                    } catch {
+                      toast.error('Failed to save admin settings.');
+                    } finally {
+                      setAdminSettingsSaving(false);
+                    }
+                  }}
+                  disabled={adminSettingsSaving}
+                >
+                  {adminSettingsSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Save
+                </Button>
               </TabsContent>
               <TabsContent value="scheduling" className="mt-0">
                 <p className="text-sm text-muted-foreground">
