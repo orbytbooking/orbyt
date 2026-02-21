@@ -27,7 +27,8 @@ import {
   List,
   Clock,
   Sun,
-  Moon
+  Moon,
+  DollarSign
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -75,7 +76,16 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   const isMarketingPath = pathname?.startsWith("/admin/marketing") ?? false;
   const isStaffPath = pathname?.startsWith("/admin/settings/staff") ?? false;
   const [marketingOpen, setMarketingOpen] = useState(isMarketingPath);
+  const isBookingsPath = pathname?.startsWith("/admin/booking") ?? false; // covers /admin/bookings and /admin/booking-charges
+  const [bookingsOpen, setBookingsOpen] = useState(isBookingsPath);
+  const isProvidersPath = pathname?.startsWith("/admin/provider") ?? false; // covers /admin/providers and /admin/provider-payments
+  const [providersOpen, setProvidersOpen] = useState(isProvidersPath);
   const [industries, setIndustries] = useState<Industry[]>([]);
+
+  useEffect(() => {
+    if (pathname?.startsWith("/admin/booking")) setBookingsOpen(true);
+    if (pathname?.startsWith("/admin/provider")) setProvidersOpen(true);
+  }, [pathname]);
   type NotificationItem = { id: string; title: string; description: string; read?: boolean; link?: string | null };
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
@@ -259,7 +269,11 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
       label: "Bookings", 
       path: "/admin/bookings",
       iconBg: "bg-green-100",
-      iconColor: "text-green-600"
+      iconColor: "text-green-600",
+      children: [
+        { label: "All Bookings", path: "/admin/bookings" },
+        { label: "Booking Charges", path: "/admin/booking-charges" },
+      ],
     },
     { 
       icon: Users, 
@@ -287,7 +301,11 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
       label: "Providers", 
       path: "/admin/providers",
       iconBg: "bg-amber-100",
-      iconColor: "text-amber-600"
+      iconColor: "text-amber-600",
+      children: [
+        { label: "All Providers", path: "/admin/providers" },
+        { label: "Provider Payments", path: "/admin/provider-payments" },
+      ],
     },
     { 
       icon: Megaphone, 
@@ -323,6 +341,13 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
           path: '/admin/settings/general',
           iconBg: 'bg-blue-100',
           iconColor: 'text-blue-600'
+        },
+        { 
+          icon: Clock,
+          label: 'Scheduling', 
+          path: '/admin/settings/scheduling',
+          iconBg: 'bg-amber-100',
+          iconColor: 'text-amber-600'
         },
         { label: "Account", path: "/admin/settings/account" },
         { label: "Website & Form Design", path: "/admin/settings/design" },
@@ -462,6 +487,10 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                   ? settingsOpen
                   : item.label === "Marketing"
                   ? marketingOpen
+                  : item.label === "Bookings"
+                  ? bookingsOpen
+                  : item.label === "Providers"
+                  ? providersOpen
                   : false
                 : false;
               const isActive = hasChildren 
@@ -479,12 +508,10 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                       type="button"
                       onClick={() => {
                         if (!sidebarOpen) return;
-                        if (item.label === "Settings") {
-                          setSettingsOpen((prev) => !prev);
-                        }
-                        if (item.label === "Marketing") {
-                          setMarketingOpen((prev) => !prev);
-                        }
+                        if (item.label === "Settings") setSettingsOpen((prev) => !prev);
+                        if (item.label === "Marketing") setMarketingOpen((prev) => !prev);
+                        if (item.label === "Bookings") setBookingsOpen((prev) => !prev);
+                        if (item.label === "Providers") setProvidersOpen((prev) => !prev);
                       }}
                       className={`relative flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
                         shouldHighlight
@@ -510,7 +537,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                   ) : (
                     <Link
                       href={item.path}
-                      onClick={() => { setSettingsOpen(false); setMarketingOpen(false); }}
+                      onClick={() => { setSettingsOpen(false); setMarketingOpen(false); setBookingsOpen(false); setProvidersOpen(false); }}
                       className={`flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
                         isActive
                           ? "text-white shadow-lg neon-cyan"

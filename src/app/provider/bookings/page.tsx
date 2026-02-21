@@ -40,7 +40,7 @@ type Booking = {
   service: string;
   date: string;
   time: string;
-  status: "pending" | "confirmed" | "completed" | "cancelled";
+  status: "pending" | "confirmed" | "in_progress" | "completed" | "cancelled";
   amount: string;
   location: string;
   notes?: string;
@@ -102,6 +102,13 @@ const ProviderBookings = () => {
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const [isPhotoDialogOpen, setIsPhotoDialogOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [clockEnabled, setClockEnabled] = useState(false);
+  const [timeLog, setTimeLog] = useState<{
+    provider_status?: string;
+    clocked_in_at?: string;
+    clocked_out_at?: string;
+  } | null>(null);
+  const [clockLoading, setClockLoading] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -143,6 +150,15 @@ const ProviderBookings = () => {
 
     fetchBookingsData();
   }, [toast, statusFilter, searchQuery]);
+
+  useEffect(() => {
+    if (selectedBooking?.id) {
+      fetchClockConfigAndLog(selectedBooking.id);
+    } else {
+      setClockEnabled(false);
+      setTimeLog(null);
+    }
+  }, [selectedBooking?.id]);
 
   const updateBookingStatus = async (bookingId: string, newStatus: string) => {
     try {
@@ -260,6 +276,71 @@ const ProviderBookings = () => {
       description: `Booking for ${booking.customer.name} marked as completed`,
     });
     setSelectedBooking(null);
+  };
+
+  const fetchClockConfigAndLog = async (bookingId: string) => {
+    try {
+      const { data: { session } } = await getSupabaseProviderClient().auth.getSession();
+      if (!session) return;
+      const [configRes, logRes] = await Promise.all([
+        fetch("/api/provider/config", { headers: { Authorization: `Bearer ${session.access_token}` } }),
+        fetch(`/api/provider/clock?bookingId=${bookingId}`, { headers: { Authorization: `Bearer ${session.access_token}` } }),
+      ]);
+      const configData = await configRes.json();
+      const logData = await logRes.json();
+      setClockEnabled(configData.clock_in_out_enabled ?? false);
+      setTimeLog(logData.timeLog ?? null);
+    } catch {
+      setClockEnabled(false);
+      setTimeLog(null);
+    }
+  };
+
+  const handleClockAction = async (bookingId: string, action: string) => {
+    setClockLoading(true);
+    try {
+      const { data: { session } } = await getSupabaseProviderClient().auth.getSession();
+      if (!session) return;
+      const res = await fetch("/api/provider/clock", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ bookingId, action }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Error", description: data.error || "Failed to update", variant: "destructive" });
+        return;
+      }
+      setTimeLog(data.timeLog ?? { provider_status: action });
+      if (action === "clocked_in") {
+        setSelectedBooking((prev) => (prev ? { ...prev, status: "in_progress" as const } : null));
+      }
+      if (action === "clocked_out") {
+        toast({ title: "Job completed", description: "Time logged successfully." });
+        setBookingsData((prev) =>
+          prev
+            ? {
+                ...prev,
+                bookings: prev.bookings.map((b) =>
+                  b.id === bookingId ? { ...b, status: "completed" as const } : b
+                ),
+                stats: {
+                  ...prev.stats,
+                  completed: prev.stats.completed + 1,
+                  confirmed: Math.max(0, prev.stats.confirmed - 1),
+                },
+              }
+            : null
+        );
+      }
+    } catch {
+      toast({ title: "Error", description: "Something went wrong", variant: "destructive" });
+    } finally {
+      setClockLoading(false);
+    }
   };
 
   const hasPhotos = (bookingId: string): boolean => {
@@ -468,6 +549,70 @@ const ProviderBookings = () => {
                 <div>
                   <p className="text-sm text-muted-foreground mb-1">Special Notes</p>
                   <p className="text-sm p-3 bg-muted/50 rounded-lg">{selectedBooking.notes}</p>
+                </div>
+              )}
+
+              {/* Clock In/Out (Booking Koala style) */}
+              {clockEnabled && (selectedBooking.status === "confirmed" || selectedBooking.status === "in_progress") && (
+                <div className="p-4 border rounded-lg space-y-3">
+                  <p className="font-semibold">Time Tracking</p>
+                  <div className="flex flex-wrap gap-2">
+                    {!timeLog?.provider_status && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={clockLoading}
+                        onClick={() => selectedBooking && handleClockAction(selectedBooking.id, "on_the_way")}
+                      >
+                        On the Way
+                      </Button>
+                    )}
+                    {timeLog?.provider_status === "on_the_way" && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={clockLoading}
+                          onClick={() => selectedBooking && handleClockAction(selectedBooking.id, "at_location")}
+                        >
+                          At Location
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={clockLoading}
+                          onClick={() => selectedBooking && handleClockAction(selectedBooking.id, "clocked_in")}
+                        >
+                          Clock In
+                        </Button>
+                      </>
+                    )}
+                    {timeLog?.provider_status === "at_location" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={clockLoading}
+                        onClick={() => selectedBooking && handleClockAction(selectedBooking.id, "clocked_in")}
+                      >
+                        Clock In
+                      </Button>
+                    )}
+                    {timeLog?.provider_status === "clocked_in" && (
+                      <Button
+                        size="sm"
+                        className="bg-green-600 hover:bg-green-700"
+                        disabled={clockLoading}
+                        onClick={() => selectedBooking && handleClockAction(selectedBooking.id, "clocked_out")}
+                      >
+                        Clock Out
+                      </Button>
+                    )}
+                  </div>
+                  {timeLog?.provider_status && (
+                    <p className="text-xs text-muted-foreground">
+                      Status: {timeLog.provider_status.replace("_", " ")}
+                    </p>
+                  )}
                 </div>
               )}
 

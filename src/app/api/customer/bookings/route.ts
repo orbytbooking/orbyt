@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
+import { processBookingScheduling } from '@/lib/bookingScheduling';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -337,6 +338,12 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+
+  processBookingScheduling(booking.id, businessId, {
+    providerId: booking.provider_id,
+    scheduledDate: booking.scheduled_date ?? booking.date,
+    service: booking.service,
+  }).catch((e) => console.warn('Scheduling processing failed:', e));
 
   const bkRef = `BK${String(booking.id).slice(-6).toUpperCase()}`;
   await createAdminNotification(businessId, 'new_booking', {

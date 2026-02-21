@@ -13,7 +13,9 @@ import {
   X,
   Clock,
   Settings,
-  FolderOpen
+  FolderOpen,
+  Briefcase,
+  Mail
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
@@ -23,6 +25,8 @@ import { Providers } from "@/app/providers";
 const navigation = [
   { name: "Dashboard", href: "/provider/dashboard", icon: LayoutDashboard },
   { name: "My Bookings", href: "/provider/bookings", icon: Calendar },
+  { name: "Unassigned Jobs", href: "/provider/unassigned", icon: Briefcase },
+  { name: "My Invitations", href: "/provider/invitations", icon: Mail },
   { name: "Earnings", href: "/provider/earnings", icon: DollarSign },
   { name: "Profile", href: "/provider/profile", icon: User },
   { name: "Manage Availability", href: "/provider/availability", icon: Clock },
