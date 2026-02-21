@@ -45,6 +45,7 @@ type Booking = {
   amount: string;
   location: string;
   notes?: string;
+  service_provider_notes?: string[];
 };
 
 type BookingPhotos = {
@@ -580,6 +581,18 @@ const ProviderBookings = () => {
                 <div>
                   <p className="text-sm text-muted-foreground mb-1">Special Notes</p>
                   <p className="text-sm p-3 bg-muted/50 rounded-lg">{selectedBooking.notes}</p>
+                </div>
+              )}
+
+              {/* Note For Service Provider (from admin) */}
+              {selectedBooking.service_provider_notes && selectedBooking.service_provider_notes.length > 0 && (
+                <div>
+                  <p className="text-sm text-muted-foreground mb-1">Note For You</p>
+                  <div className="text-sm p-3 bg-muted/50 rounded-lg space-y-1">
+                    {selectedBooking.service_provider_notes.map((note, i) => (
+                      <p key={i}>{note}</p>
+                    ))}
+                  </div>
                 </div>
               )}
 

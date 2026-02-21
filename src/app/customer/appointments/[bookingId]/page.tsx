@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, CalendarDays, Clock, MapPin, User, Phone, Sparkles, NotebookText } from "lucide-react";
 
@@ -46,6 +46,15 @@ export default function BookingDetailsPage() {
   const { customerName, customerEmail, customerAccount, accountLoading, handleLogout } = useCustomerAccount();
 
   const booking = useMemo(() => bookings.find((item) => item.id.toLowerCase() === bookingId.toLowerCase()), [bookings, bookingId]);
+  const [cancellationDisclaimer, setCancellationDisclaimer] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!businessId || !booking) return;
+    fetch(`/api/cancellation-policy?businessId=${encodeURIComponent(businessId)}`)
+      .then((r) => r.json())
+      .then((data) => setCancellationDisclaimer(data.disclaimerText ?? null))
+      .catch(() => setCancellationDisclaimer(null));
+  }, [businessId, booking?.id]);
 
   const initials = useMemo(() => (
     customerName
@@ -216,6 +225,20 @@ export default function BookingDetailsPage() {
                       <Sparkles className="h-4 w-4 text-muted-foreground" />
                       <span className="text-lg font-semibold">{formatCurrency(booking.price)}</span>
                     </div>
+                  </div>
+                  {(["canceled", "cancelled"].includes(booking.status?.toLowerCase() ?? "") && booking.cancellationFeeAmount != null && booking.cancellationFeeAmount > 0) && (
+                    <div>
+                      {detailLabel("Cancellation fee applied")}
+                      <div className="mt-1 flex items-center gap-2">
+                        <span className="text-lg font-semibold">{booking.cancellationFeeCurrency ?? "$"}{booking.cancellationFeeAmount.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    {detailLabel("Cancellation disclaimer")}
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {cancellationDisclaimer ?? "Based on our cancellation policy, a fee may apply if you cancel within the policy window."}
+                    </p>
                   </div>
                   <div>
                     {detailLabel("Customization summary")}

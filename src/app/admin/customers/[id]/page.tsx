@@ -92,6 +92,8 @@ export default function CustomerProfilePage() {
     customization?: Record<string, unknown>;
     providerWage?: number | null;
     durationMinutes?: number | null;
+    privateCustomerNotes?: string[];
+    privateBookingNotes?: string[];
   };
   const [allBookings, setAllBookings] = useState<Booking[]>([]);
   /** Bookings for this customer from API (shown on Dashboard calendar) */
@@ -340,6 +342,10 @@ export default function CustomerProfilePage() {
             customization: b.customization,
             providerWage: b.provider_wage != null ? Number(b.provider_wage) : undefined,
             durationMinutes: b.duration_minutes != null ? Number(b.duration_minutes) : undefined,
+            cancellationFeeAmount: b.cancellation_fee_amount != null ? Number(b.cancellation_fee_amount) : undefined,
+            cancellationFeeCurrency: b.cancellation_fee_currency ?? undefined,
+            privateCustomerNotes: Array.isArray(b.private_customer_notes) ? b.private_customer_notes.filter((n: unknown) => typeof n === "string") : [],
+            privateBookingNotes: Array.isArray(b.private_booking_notes) ? b.private_booking_notes.filter((n: unknown) => typeof n === "string") : [],
           };
         });
         setCustomerBookings(list);
@@ -490,9 +496,9 @@ export default function CustomerProfilePage() {
   };
 
   const DetailRow = ({ label, value, isLink, className }: { label: string; value: string; isLink?: boolean; className?: string }) => (
-    <div className="flex justify-between items-start gap-4">
+    <div className="flex justify-between items-start gap-3 min-w-0">
       <span className="text-gray-500 text-sm shrink-0">{label}</span>
-      <span className={cn("text-sm font-medium text-right text-gray-900", isLink && "text-blue-600 hover:underline cursor-pointer", className)}>{value}</span>
+      <span className={cn("text-sm font-medium text-right text-gray-900 break-words min-w-0", isLink && "text-blue-600 hover:underline cursor-pointer", className)}>{value}</span>
     </div>
   );
 
@@ -1891,20 +1897,20 @@ export default function CustomerProfilePage() {
 
       {/* Booking Summary modal (BookingKoala-style) */}
       <Dialog open={!!selectedBooking} onOpenChange={(open) => !open && setSelectedBooking(null)}>
-        <DialogContent className="max-w-md p-0 gap-0 overflow-hidden sm:rounded-lg">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-lg max-h-[90vh] overflow-y-auto overflow-x-hidden p-0 gap-0 sm:rounded-lg">
           <div className="px-5 pt-5 pb-0">
             <DialogHeader className="space-y-0">
               <DialogTitle className="text-base font-semibold">Booking summary</DialogTitle>
             </DialogHeader>
           </div>
           {selectedBooking && (
-            <div className="px-5 pb-5">
+            <div className="px-5 pb-5 min-w-0">
               {/* Customer info block - BookingKoala style */}
-              <div className="flex gap-4 pt-4">
+              <div className="flex gap-4 pt-4 min-w-0">
                 <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gray-200">
                   <UserIcon className="h-6 w-6 text-gray-500" />
                 </div>
-                <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="min-w-0 flex-1 space-y-1.5 overflow-hidden">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold text-[15px]">
                       {selectedBooking.customer?.name || customer?.name || "Customer"}
@@ -1935,9 +1941,9 @@ export default function CustomerProfilePage() {
               </div>
 
               {/* Collapsible Booking details - BookingKoala style with Minus icon */}
-              <div className="border-t border-gray-200 mt-4 pt-4">
+              <div className="border-t border-gray-200 mt-4 pt-4 min-w-0">
                 <Collapsible defaultOpen className="group">
-                  <CollapsibleTrigger className="flex w-full items-center justify-between py-2 text-left font-semibold text-sm hover:opacity-80 transition-opacity">
+                  <CollapsibleTrigger className="flex w-full items-center justify-between py-2 text-left font-semibold text-sm hover:opacity-80 transition-opacity min-w-0">
                     <span>Booking details</span>
                     <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-gray-300 group-data-[state=open]:hidden">
                       <Plus className="h-3 w-3" />
@@ -1947,7 +1953,7 @@ export default function CustomerProfilePage() {
                     </span>
                   </CollapsibleTrigger>
                 <CollapsibleContent>
-                  <div className="space-y-2.5 text-sm pt-3">
+                  <div className="space-y-2.5 text-sm pt-3 min-w-0">
                     <DetailRow label="Booking id" value={String(selectedBooking.id)} />
                     {selectedBooking.zipCode && <DetailRow label="Zip/Postal code" value={selectedBooking.zipCode} />}
                     {industries[0]?.name && <DetailRow label="Industry" value={industries[0].name} />}
@@ -1996,11 +2002,11 @@ export default function CustomerProfilePage() {
                     />
                     <DetailRow label="Assigned to" value={selectedBooking.provider?.name || "Unassigned"} className="font-bold text-gray-900" />
                     {selectedBooking.providerWage != null && selectedBooking.providerWage > 0 && (
-                      <div className="flex justify-between items-center gap-4">
+                      <div className="flex justify-between items-center gap-3 min-w-0 flex-wrap sm:flex-nowrap">
                         <span className="text-gray-500 text-sm shrink-0">Provider payment</span>
-                        <span className="text-sm font-medium text-right">
+                        <span className="text-sm font-medium text-right shrink-0">
                           ${Number(selectedBooking.providerWage).toFixed(2)}
-                          <Link href="/admin/settings" className="text-blue-600 hover:underline ml-1.5 text-xs">Learn more</Link>
+                          <Link href="/admin/settings" className="text-blue-600 hover:underline ml-1.5 text-xs whitespace-nowrap">Learn more</Link>
                         </span>
                       </div>
                     )}
@@ -2012,10 +2018,10 @@ export default function CustomerProfilePage() {
                       />
                     )}
                     {selectedBooking.paymentMethod && (
-                      <div className="flex justify-between items-center gap-4">
-                        <span className="text-gray-500 text-sm">Payment method</span>
+                      <div className="flex justify-between items-center gap-3 min-w-0">
+                        <span className="text-gray-500 text-sm shrink-0">Payment method</span>
                         <span className={cn(
-                          "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium",
+                          "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium shrink-0",
                           (selectedBooking.paymentMethod === "online" || selectedBooking.paymentMethod === "card")
                             ? "bg-green-100 text-green-800"
                             : "bg-green-100 text-green-800"
@@ -2025,18 +2031,53 @@ export default function CustomerProfilePage() {
                       </div>
                     )}
                     {selectedBooking.amount && (
-                      <div className="flex justify-between items-center gap-4">
+                      <div className="flex justify-between items-center gap-3 min-w-0 flex-wrap sm:flex-nowrap">
                         <span className="text-gray-500 text-sm shrink-0">Price details</span>
-                        <span className="text-sm font-medium text-right">
+                        <span className="text-sm font-medium text-right shrink-0">
                           {selectedBooking.amount}
-                          <Link href="/admin/settings" className="text-blue-600 hover:underline ml-1.5 text-xs">Learn more</Link>
+                          <Link href="/admin/settings" className="text-blue-600 hover:underline ml-1.5 text-xs whitespace-nowrap">Learn more</Link>
+                        </span>
+                      </div>
+                    )}
+                    {selectedBooking.status === "cancelled" && (selectedBooking as any).cancellationFeeAmount != null && Number((selectedBooking as any).cancellationFeeAmount) > 0 && (
+                      <div className="flex justify-between items-center gap-4">
+                        <span className="text-gray-500 text-sm shrink-0">Cancellation fee (applied)</span>
+                        <span className="text-sm font-medium text-right">
+                          {(selectedBooking as any).cancellationFeeCurrency ?? "$"}{Number((selectedBooking as any).cancellationFeeAmount).toFixed(2)}
                         </span>
                       </div>
                     )}
                     {selectedBooking.notes && <DetailRow label="Notes" value={selectedBooking.notes} className="text-right" />}
+                    {selectedBooking.privateBookingNotes && selectedBooking.privateBookingNotes.length > 0 && (
+                      <div className="pt-1 min-w-0">
+                        <div className="text-gray-500 text-sm mb-1.5">Private booking note(s)</div>
+                        <div className="space-y-1.5">
+                          {selectedBooking.privateBookingNotes.map((note, i) => (
+                            <div key={i} className="text-sm bg-slate-100 border border-slate-200 rounded-md px-3 py-2 text-gray-800 break-words">
+                              {note}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {selectedBooking.privateCustomerNotes && selectedBooking.privateCustomerNotes.length > 0 && (
+                      <div className="pt-1 min-w-0">
+                        <div className="text-gray-500 text-sm mb-1.5">Private customer note(s)</div>
+                        <div className="space-y-1.5">
+                          {selectedBooking.privateCustomerNotes.map((note, i) => (
+                            <div key={i} className="text-sm bg-amber-50 border border-amber-200 rounded-md px-3 py-2 text-gray-800 break-words">
+                              {note}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div className="flex justify-between items-center pt-1">
                       <span className="text-gray-500 text-sm">Status</span>
                       <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">{selectedBooking.status}</span>
+                    </div>
+                    <div className="pt-1.5 mt-1.5 border-t border-gray-200 min-w-0">
+                      <p className="text-xs text-gray-500 break-words">Cancellation policy and fee are set in Settings → General → Cancellation.</p>
                     </div>
                   </div>
                 </CollapsibleContent>

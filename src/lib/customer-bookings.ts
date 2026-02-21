@@ -20,6 +20,9 @@ export type Booking = {
   price: number;
   tipAmount?: number;
   tipUpdatedAt?: string;
+  /** Set when booking was cancelled and a fee was applied (from settings) */
+  cancellationFeeAmount?: number;
+  cancellationFeeCurrency?: string;
   customization?: {
     frequency?: string;
     squareMeters?: string;

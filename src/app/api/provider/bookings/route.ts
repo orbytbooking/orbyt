@@ -108,7 +108,8 @@ export async function GET(request: NextRequest) {
       status: booking.status || 'pending',
       amount: formatPrice(booking.total_price ?? booking.amount),
       location: booking.address || '',
-      notes: booking.notes
+      notes: booking.notes,
+      service_provider_notes: Array.isArray(booking.service_provider_notes) ? booking.service_provider_notes : (booking.service_provider_notes ? [booking.service_provider_notes] : [])
     })) || [];
 
     // Calculate stats

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,10 +12,79 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Info, Loader2 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Info, Loader2, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, List, Link as LinkIcon, Plus, Trash2, AlertCircle, ChevronDown, Pencil } from "lucide-react";
 import { serviceCategoriesService, ServiceCategory } from "@/lib/serviceCategories";
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/lib/supabaseClient";
+
+// Simple Rich Text Editor for popup content
+function RichTextEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const editorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (editorRef.current) editorRef.current.innerHTML = value || "";
+  }, [value]);
+  const execCommand = (command: string, value?: string) => {
+    document.execCommand(command, false, value);
+    editorRef.current?.focus();
+    if (editorRef.current) onChange(editorRef.current.innerHTML);
+  };
+  const updateContent = () => {
+    if (editorRef.current) onChange(editorRef.current.innerHTML);
+  };
+  return (
+    <div className="border rounded-lg overflow-hidden bg-white dark:bg-background">
+      <div className="border-b bg-muted/50 p-2 flex items-center gap-2 flex-wrap">
+        <Button type="button" variant="ghost" size="sm" onClick={() => execCommand("bold")} className="h-8 w-8 p-0" title="Bold">
+          <Bold className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => execCommand("italic")} className="h-8 w-8 p-0" title="Italic">
+          <Italic className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => execCommand("underline")} className="h-8 w-8 p-0" title="Underline">
+          <Underline className="h-4 w-4" />
+        </Button>
+        <div className="w-px h-6 bg-border mx-1" />
+        <Button type="button" variant="ghost" size="sm" onClick={() => execCommand("justifyLeft")} className="h-8 w-8 p-0" title="Align Left">
+          <AlignLeft className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => execCommand("justifyCenter")} className="h-8 w-8 p-0" title="Align Center">
+          <AlignCenter className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => execCommand("justifyRight")} className="h-8 w-8 p-0" title="Align Right">
+          <AlignRight className="h-4 w-4" />
+        </Button>
+        <div className="w-px h-6 bg-border mx-1" />
+        <Button type="button" variant="ghost" size="sm" onClick={() => execCommand("insertUnorderedList")} className="h-8 w-8 p-0" title="Bullet List">
+          <List className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => { const url = prompt("Enter URL:"); if (url) execCommand("createLink", url); }} className="h-8 w-8 p-0" title="Insert Link">
+          <LinkIcon className="h-4 w-4" />
+        </Button>
+      </div>
+      <div ref={editorRef} contentEditable onInput={updateContent} className="min-h-[200px] p-4 focus:outline-none focus:ring-2 focus:ring-primary/20" style={{ whiteSpace: "pre-wrap" }} />
+    </div>
+  );
+}
 
 export default function ServiceCategoryNewPage() {
   const params = useSearchParams();
@@ -31,6 +100,10 @@ export default function ServiceCategoryNewPage() {
   const [form, setForm] = useState({
     name: "",
     description: "",
+    showExplanationIconOnForm: false,
+    explanationTooltipText: "",
+    enablePopupOnSelection: false,
+    popupContent: "",
     excludedProviders: [] as string[],
     serviceCategoryFrequency: false,
     selectedFrequencies: [] as string[],
@@ -44,14 +117,19 @@ export default function ServiceCategoryNewPage() {
     selectedExcludeParameters: [] as string[],
     display: "customer_frontend_backend_admin",
     displayServiceLengthCustomer: "admin_only",
+    enableServiceLengthTooltipCustomer: false,
+    serviceLengthTooltipTextCustomer: "",
     displayServiceLengthProvider: false,
+    enableServiceLengthTooltipProvider: false,
+    serviceLengthTooltipTextProvider: "",
     canCustomerEditService: false,
     serviceFeeEnabled: false,
     expeditedCharge: {
       enabled: false,
       amount: "",
       displayText: "",
-      currency: "$"
+      currency: "$",
+      textToDisplayEnabled: false
     },
     cancellationFee: {
       enabled: false,
@@ -63,7 +141,20 @@ export default function ServiceCategoryNewPage() {
       providerCurrency: "$",
       chargeTiming: 'beforeDay' as 'beforeDay' | 'hoursBefore',
       beforeDayTime: "",
-      hoursBefore: ""
+      hoursBefore: "",
+      multipleFees: [] as Array<{
+        id: string;
+        fee: string;
+        currency: string;
+        chargeTiming: 'beforeDay' | 'hoursBefore';
+        beforeDayTime: string;
+        daysBefore?: string;
+        hoursBefore: string;
+        minutesBefore?: string;
+        payProvider: boolean;
+        providerFee: string;
+        providerCurrency: string;
+      }>
     },
     hourlyService: {
       enabled: false,
@@ -93,7 +184,7 @@ export default function ServiceCategoryNewPage() {
     overrideProviderPay: {
       enabled: false,
       amount: "",
-      currency: "$"
+      payType: "hourly" as "fixed" | "hourly"
     },
     extrasConfig: {
       tip: {
@@ -121,6 +212,7 @@ export default function ServiceCategoryNewPage() {
   // Error state for real-time validation
   const [errors, setErrors] = useState<{
     cancellationFee?: string;
+    cancellationMultipleFeesEmpty?: string;
     providerFee?: string;
     beforeDayTime?: string;
     hoursBefore?: string;
@@ -131,6 +223,139 @@ export default function ServiceCategoryNewPage() {
     minimumPrice?: string;
     overrideProviderPay?: string;
   }>({});
+
+  // Add cancellation fee modal (for multiple fees)
+  const [addCancellationFeeModalOpen, setAddCancellationFeeModalOpen] = useState(false);
+  const [editingFeeId, setEditingFeeId] = useState<string | null>(null);
+  const [addFeeModalError, setAddFeeModalError] = useState<string | null>(null);
+  const [newCancellationFee, setNewCancellationFee] = useState({
+    chargeTiming: 'beforeDay' as 'beforeDay' | 'hoursBefore',
+    beforeDayTime: '01:00',
+    daysBefore: '1',
+    hoursBefore: '1',
+    minutesBefore: '00',
+    fee: '',
+    currency: '$',
+    payProvider: false,
+    providerFee: '',
+    providerCurrency: '$'
+  });
+
+  // Format 24h time "HH:mm" to "01:00 AM"
+  const formatTimeToAmPm = (time24: string) => {
+    if (!time24) return '';
+    const [h, m] = time24.split(':').map(Number);
+    if (isNaN(h)) return time24;
+    const period = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    return `${String(h12).padStart(2, '0')}:${String(m || 0).padStart(2, '0')} ${period}`;
+  };
+
+  const getFeeTimeDescription = (entry: { chargeTiming: string; beforeDayTime: string; daysBefore?: string; hoursBefore: string; minutesBefore?: string }) => {
+    if (entry.chargeTiming === 'beforeDay') {
+      const time = formatTimeToAmPm(entry.beforeDayTime);
+      const days = entry.daysBefore || '1';
+      return `If they cancel after ${time} the ${days} day(s) before the job.`;
+    }
+    const h = entry.hoursBefore || '0';
+    const m = entry.minutesBefore || '00';
+    return `If they cancel ${h} hour${h !== '1' ? 's' : ''} ${m} minutes before the job.`;
+  };
+
+  const openAddFeeModal = () => {
+    setEditingFeeId(null);
+    setNewCancellationFee({
+      chargeTiming: 'beforeDay',
+      beforeDayTime: '01:00',
+      daysBefore: '1',
+      hoursBefore: '1',
+      minutesBefore: '00',
+      fee: '',
+      currency: '$',
+      payProvider: false,
+      providerFee: '',
+      providerCurrency: '$'
+    });
+    setAddFeeModalError(null);
+    setAddCancellationFeeModalOpen(true);
+  };
+
+  const openEditFeeModal = (entry: typeof form.cancellationFee.multipleFees[0]) => {
+    setEditingFeeId(entry.id);
+    setNewCancellationFee({
+      chargeTiming: entry.chargeTiming,
+      beforeDayTime: entry.beforeDayTime || '01:00',
+      daysBefore: entry.daysBefore || '1',
+      hoursBefore: entry.hoursBefore || '1',
+      minutesBefore: entry.minutesBefore || '00',
+      fee: entry.fee,
+      currency: entry.currency,
+      payProvider: entry.payProvider,
+      providerFee: entry.providerFee,
+      providerCurrency: entry.providerCurrency
+    });
+    setAddFeeModalError(null);
+    setAddCancellationFeeModalOpen(true);
+  };
+
+  const addFeeFromModal = () => {
+    if (!newCancellationFee.fee.trim()) {
+      setAddFeeModalError('Please enter a valid cancellation fees.');
+      return;
+    }
+    setAddFeeModalError(null);
+    if (editingFeeId) {
+      setForm(p => ({
+        ...p,
+        cancellationFee: {
+          ...p.cancellationFee,
+          multipleFees: p.cancellationFee.multipleFees.map(f =>
+            f.id === editingFeeId
+              ? {
+                  ...f,
+                  fee: newCancellationFee.fee.trim(),
+                  currency: newCancellationFee.currency,
+                  chargeTiming: newCancellationFee.chargeTiming,
+                  beforeDayTime: newCancellationFee.chargeTiming === 'beforeDay' ? newCancellationFee.beforeDayTime : '',
+                  daysBefore: newCancellationFee.chargeTiming === 'beforeDay' ? newCancellationFee.daysBefore : undefined,
+                  hoursBefore: newCancellationFee.chargeTiming === 'hoursBefore' ? newCancellationFee.hoursBefore : '',
+                  minutesBefore: newCancellationFee.chargeTiming === 'hoursBefore' ? newCancellationFee.minutesBefore : undefined,
+                  payProvider: newCancellationFee.payProvider,
+                  providerFee: newCancellationFee.providerFee,
+                  providerCurrency: newCancellationFee.providerCurrency
+                }
+              : f
+          )
+        }
+      }));
+    } else {
+      setForm(p => ({
+        ...p,
+        cancellationFee: {
+          ...p.cancellationFee,
+          multipleFees: [
+            ...p.cancellationFee.multipleFees,
+            {
+              id: `fee-${Date.now()}`,
+              fee: newCancellationFee.fee.trim(),
+              currency: newCancellationFee.currency,
+              chargeTiming: newCancellationFee.chargeTiming,
+              beforeDayTime: newCancellationFee.chargeTiming === 'beforeDay' ? newCancellationFee.beforeDayTime : '',
+              daysBefore: newCancellationFee.chargeTiming === 'beforeDay' ? newCancellationFee.daysBefore : undefined,
+              hoursBefore: newCancellationFee.chargeTiming === 'hoursBefore' ? newCancellationFee.hoursBefore : '',
+              minutesBefore: newCancellationFee.chargeTiming === 'hoursBefore' ? newCancellationFee.minutesBefore : undefined,
+              payProvider: newCancellationFee.payProvider,
+              providerFee: newCancellationFee.providerFee,
+              providerCurrency: newCancellationFee.providerCurrency
+            }
+          ]
+        }
+      }));
+      setErrors(prev => ({ ...prev, cancellationMultipleFeesEmpty: undefined }));
+    }
+    setEditingFeeId(null);
+    setAddCancellationFeeModalOpen(false);
+  };
 
   useEffect(() => {
     if (editId) {
@@ -162,6 +387,14 @@ export default function ServiceCategoryNewPage() {
         setForm({
           name: category.name,
           description: category.description || "",
+          showExplanationIconOnForm: category.show_explanation_icon_on_form ?? false,
+          explanationTooltipText: category.explanation_tooltip_text || "",
+          enablePopupOnSelection: category.enable_popup_on_selection ?? false,
+          popupContent: category.popup_content || "",
+          enableServiceLengthTooltipCustomer: category.enable_service_length_tooltip_customer ?? false,
+          serviceLengthTooltipTextCustomer: category.service_length_tooltip_text_customer || "",
+          enableServiceLengthTooltipProvider: category.enable_service_length_tooltip_provider ?? false,
+          serviceLengthTooltipTextProvider: category.service_length_tooltip_text_provider || "",
           excludedProviders: category.excluded_providers || [],
           serviceCategoryFrequency: category.service_category_frequency || false,
           selectedFrequencies: category.selected_frequencies || [],
@@ -178,24 +411,44 @@ export default function ServiceCategoryNewPage() {
           displayServiceLengthProvider: category.display_service_length_provider || false,
           canCustomerEditService: category.can_customer_edit_service || false,
           serviceFeeEnabled: category.service_fee_enabled || false,
-          expeditedCharge: category.expedited_charge || {
-            enabled: false,
-            amount: "",
-            displayText: "",
-            currency: "$"
-          },
-          cancellationFee: category.cancellation_fee || {
-            enabled: false,
-            type: 'single',
-            fee: "",
-            currency: "$",
-            payProvider: false,
-            providerFee: "",
-            providerCurrency: "$",
-            chargeTiming: 'beforeDay',
-            beforeDayTime: "",
-            hoursBefore: ""
-          },
+          expeditedCharge: (() => {
+            const ec = category.expedited_charge || { enabled: false, amount: "", displayText: "", currency: "$" };
+            return {
+              ...ec,
+              textToDisplayEnabled: !!(ec.displayText && ec.displayText.trim())
+            };
+          })(),
+          cancellationFee: (() => {
+            const cf = category.cancellation_fee || {
+              enabled: false,
+              type: 'single' as const,
+              fee: "",
+              currency: "$",
+              payProvider: false,
+              providerFee: "",
+              providerCurrency: "$",
+              chargeTiming: 'beforeDay' as const,
+              beforeDayTime: "",
+              hoursBefore: ""
+            };
+            const multipleFees = (category.cancellation_fee as any)?.multiple_fees ?? [];
+            return {
+              ...cf,
+              multipleFees: Array.isArray(multipleFees) ? multipleFees.map((f: any, i: number) => ({
+                id: f.id ?? `fee-${i}-${Date.now()}`,
+                fee: f.fee ?? "",
+                currency: f.currency ?? "$",
+                chargeTiming: f.chargeTiming ?? f.charge_timing ?? 'beforeDay',
+                beforeDayTime: f.beforeDayTime ?? f.before_day_time ?? "",
+                daysBefore: f.daysBefore ?? f.days_before,
+                hoursBefore: f.hoursBefore ?? f.hours_before ?? "",
+                minutesBefore: f.minutesBefore ?? f.minutes_before,
+                payProvider: f.payProvider ?? f.pay_provider ?? false,
+                providerFee: f.providerFee ?? f.provider_fee ?? "",
+                providerCurrency: f.providerCurrency ?? f.provider_currency ?? "$"
+              })) : []
+            };
+          })(),
           hourlyService: category.hourly_service || {
             enabled: false,
             price: "",
@@ -221,11 +474,12 @@ export default function ServiceCategoryNewPage() {
             textToDisplay: false,
             noticeText: ""
           },
-          overrideProviderPay: category.override_provider_pay || {
-            enabled: false,
-            amount: "",
-            currency: "$"
-          },
+          overrideProviderPay: (() => {
+            const o = category.override_provider_pay as { enabled?: boolean; amount?: string; currency?: string; payType?: "fixed" | "hourly" } | undefined;
+            if (!o) return { enabled: false, amount: "", payType: "hourly" as "fixed" | "hourly" };
+            const payType = o.payType ?? (o.currency === "$" ? "fixed" : "hourly");
+            return { enabled: !!o.enabled, amount: o.amount ?? "", payType };
+          })(),
           extrasConfig: category.extras_config || {
             tip: {
               enabled: false,
@@ -239,6 +493,10 @@ export default function ServiceCategoryNewPage() {
             }
           }
         });
+        const cf = category.cancellation_fee as any;
+        if (cf?.type === 'multiple' && (!Array.isArray(cf?.multiple_fees) || cf.multiple_fees.length === 0)) {
+          setErrors(prev => ({ ...prev, cancellationMultipleFeesEmpty: "It should not remain empty, please add at least one cancellation fee." }));
+        }
       }
     } catch (error) {
       console.error('Error loading category:', error);
@@ -592,17 +850,21 @@ export default function ServiceCategoryNewPage() {
       return;
     }
 
-    if (form.cancellationFee.enabled && !form.cancellationFee.fee.trim()) {
-      alert("Cancellation fee amount is required when cancellation fee is enabled");
+    if (form.cancellationFee.enabled && form.cancellationFee.type === 'multiple' && form.cancellationFee.multipleFees.length === 0) {
+      setErrors(prev => ({ ...prev, cancellationMultipleFeesEmpty: "It should not remain empty, please add at least one cancellation fee." }));
+      alert("Please add at least one cancellation fee when using multiple fees.");
       return;
     }
 
-    if (form.cancellationFee.payProvider && !form.cancellationFee.providerFee.trim()) {
-      alert("Provider fee amount is required when paying provider is enabled");
-      return;
-    }
-
-    if (form.cancellationFee.enabled) {
+    if (form.cancellationFee.enabled && form.cancellationFee.type === 'single') {
+      if (!form.cancellationFee.fee.trim()) {
+        alert("Cancellation fee amount is required when cancellation fee is enabled");
+        return;
+      }
+      if (form.cancellationFee.payProvider && !form.cancellationFee.providerFee.trim()) {
+        alert("Provider fee amount is required when paying provider is enabled");
+        return;
+      }
       if (form.cancellationFee.chargeTiming === 'beforeDay' && !form.cancellationFee.beforeDayTime.trim()) {
         alert("Time is required when 'If they cancel after' option is selected");
         return;
@@ -674,6 +936,14 @@ export default function ServiceCategoryNewPage() {
         industry_id: industryId,
         name: form.name.trim(),
         description: form.description,
+        show_explanation_icon_on_form: form.showExplanationIconOnForm,
+        explanation_tooltip_text: form.explanationTooltipText || undefined,
+        enable_popup_on_selection: form.enablePopupOnSelection,
+        popup_content: form.popupContent || undefined,
+        enable_service_length_tooltip_customer: form.enableServiceLengthTooltipCustomer,
+        service_length_tooltip_text_customer: form.serviceLengthTooltipTextCustomer || undefined,
+        enable_service_length_tooltip_provider: form.enableServiceLengthTooltipProvider,
+        service_length_tooltip_text_provider: form.serviceLengthTooltipTextProvider || undefined,
         display: form.display as 'customer_frontend_backend_admin' | 'customer_backend_admin' | 'admin_only',
         display_service_length_customer: form.displayServiceLengthCustomer as 'customer_frontend_backend_admin' | 'customer_backend_admin' | 'admin_only',
         display_service_length_provider: form.displayServiceLengthProvider,
@@ -686,8 +956,29 @@ export default function ServiceCategoryNewPage() {
         selected_exclude_parameters: form.selectedExcludeParameters,
         extras: form.extras,
         extras_config: form.extrasConfig,
-        expedited_charge: form.expeditedCharge,
-        cancellation_fee: form.cancellationFee,
+        expedited_charge: (() => {
+          const ec = form.expeditedCharge;
+          return { enabled: ec.enabled, amount: ec.amount, displayText: ec.displayText, currency: ec.currency || "$" };
+        })(),
+        cancellation_fee: (() => {
+          const cf = form.cancellationFee;
+          const base = {
+            enabled: cf.enabled,
+            type: cf.type,
+            fee: cf.fee,
+            currency: cf.currency,
+            payProvider: cf.payProvider,
+            providerFee: cf.providerFee,
+            providerCurrency: cf.providerCurrency,
+            chargeTiming: cf.chargeTiming,
+            beforeDayTime: cf.beforeDayTime,
+            hoursBefore: cf.hoursBefore
+          };
+          if (cf.type === 'multiple' && cf.multipleFees?.length) {
+            return { ...base, multiple_fees: cf.multipleFees };
+          }
+          return base;
+        })(),
         hourly_service: form.hourlyService,
         service_category_price: form.serviceCategoryPrice,
         service_category_time: form.serviceCategoryTime,
@@ -719,24 +1010,41 @@ export default function ServiceCategoryNewPage() {
           tip: { enabled: false, saveTo: 'all', display: 'customer_frontend_backend_admin' },
           parking: { enabled: false, saveTo: 'all', display: 'customer_frontend_backend_admin' }
         },
-        expedited_charge: form.expeditedCharge || {
-          enabled: false,
-          amount: "",
-          displayText: "",
-          currency: "$"
-        },
-        cancellation_fee: form.cancellationFee || {
-          enabled: false,
-          type: 'single',
-          fee: "",
-          currency: "$",
-          payProvider: false,
-          providerFee: "",
-          providerCurrency: "$",
-          chargeTiming: 'beforeDay',
-          beforeDayTime: "",
-          hoursBefore: ""
-        },
+        expedited_charge: (() => {
+          const ec = form.expeditedCharge || { enabled: false, amount: "", displayText: "", currency: "$" };
+          return { enabled: ec.enabled, amount: ec.amount, displayText: ec.displayText, currency: ec.currency || "$" };
+        })(),
+        cancellation_fee: (() => {
+          const cf = form.cancellationFee || {
+            enabled: false,
+            type: 'single' as const,
+            fee: "",
+            currency: "$",
+            payProvider: false,
+            providerFee: "",
+            providerCurrency: "$",
+            chargeTiming: 'beforeDay' as const,
+            beforeDayTime: "",
+            hoursBefore: "",
+            multipleFees: []
+          };
+          const base = {
+            enabled: cf.enabled,
+            type: cf.type,
+            fee: cf.fee,
+            currency: cf.currency,
+            payProvider: cf.payProvider,
+            providerFee: cf.providerFee,
+            providerCurrency: cf.providerCurrency,
+            chargeTiming: cf.chargeTiming,
+            beforeDayTime: cf.beforeDayTime,
+            hoursBefore: cf.hoursBefore
+          };
+          if (cf.type === 'multiple' && cf.multipleFees?.length) {
+            return { ...base, multiple_fees: cf.multipleFees };
+          }
+          return base;
+        })(),
         hourly_service: form.hourlyService || {
           enabled: false,
           price: "",
@@ -765,7 +1073,7 @@ export default function ServiceCategoryNewPage() {
         override_provider_pay: form.overrideProviderPay || {
           enabled: false,
           amount: "",
-          currency: "$"
+          payType: "hourly"
         }
       };
 
@@ -863,6 +1171,82 @@ export default function ServiceCategoryNewPage() {
                 />
               </div>
 
+              {/* Show explanation icon on form */}
+              <div className="space-y-2 rounded-lg border bg-muted/30 p-4">
+                <TooltipProvider>
+                  <div className="flex items-start gap-2">
+                    <Checkbox
+                      id="show-explanation-icon"
+                      checked={form.showExplanationIconOnForm}
+                      onCheckedChange={(checked) => setForm(p => ({ ...p, showExplanationIconOnForm: !!checked }))}
+                    />
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <Label htmlFor="show-explanation-icon" className="text-sm font-medium cursor-pointer">
+                          Show explanation icon on form
+                        </Label>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none">
+                              <Info className="h-4 w-4" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="max-w-xs">
+                            When enabled, an info icon is shown on the form. Use the tooltip text below to explain this service category.
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                      {form.showExplanationIconOnForm && (
+                        <Textarea
+                          placeholder="Add Tooltip Text"
+                          value={form.explanationTooltipText}
+                          onChange={(e) => setForm(p => ({ ...p, explanationTooltipText: e.target.value }))}
+                          className="min-h-[80px] resize-y bg-background mt-2"
+                        />
+                      )}
+                    </div>
+                  </div>
+                </TooltipProvider>
+              </div>
+
+              {/* Enable popup on selection */}
+              <div className="space-y-2 rounded-lg border bg-muted/30 p-4">
+                <TooltipProvider>
+                  <div className="flex items-start gap-2">
+                    <Checkbox
+                      id="enable-popup-on-selection"
+                      checked={form.enablePopupOnSelection}
+                      onCheckedChange={(checked) => setForm(p => ({ ...p, enablePopupOnSelection: !!checked }))}
+                    />
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <Label htmlFor="enable-popup-on-selection" className="text-sm font-medium cursor-pointer">
+                          Enable popup on selection
+                        </Label>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none">
+                              <Info className="h-4 w-4" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="max-w-xs">
+                            When enabled, a popup with the content below is shown when this service category is selected on the booking form.
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                      {form.enablePopupOnSelection && (
+                        <div className="mt-2">
+                          <RichTextEditor
+                            value={form.popupContent}
+                            onChange={(v) => setForm(p => ({ ...p, popupContent: v }))}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </TooltipProvider>
+              </div>
+
               {/* Display Settings */}
               <div className="space-y-3">
                 <h4 className="text-sm font-medium">Display</h4>
@@ -903,15 +1287,59 @@ export default function ServiceCategoryNewPage() {
                     <RadioGroupItem value="admin_only" /> Admin only
                   </label>
                 </RadioGroup>
+                <TooltipProvider>
+                  <div className="flex items-start gap-2 pt-2">
+                    <Checkbox
+                      id="enable-service-length-tooltip-customer"
+                      checked={form.enableServiceLengthTooltipCustomer}
+                      onCheckedChange={(checked) => setForm(p => ({ ...p, enableServiceLengthTooltipCustomer: !!checked }))}
+                    />
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <Label htmlFor="enable-service-length-tooltip-customer" className="text-sm font-medium cursor-pointer">
+                          Enable tooltip for service length on customer end
+                        </Label>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none">
+                              <Info className="h-4 w-4" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="max-w-xs">
+                            When enabled, a tooltip with the text below is shown for the service length on the customer end.
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                      {form.enableServiceLengthTooltipCustomer && (
+                        <Textarea
+                          placeholder="Add Length Tooltip Text"
+                          value={form.serviceLengthTooltipTextCustomer}
+                          onChange={(e) => setForm(p => ({ ...p, serviceLengthTooltipTextCustomer: e.target.value }))}
+                          className="min-h-[80px] resize-y bg-background mt-2"
+                        />
+                      )}
+                    </div>
+                  </div>
+                </TooltipProvider>
               </div>
 
               {/* Display Service Length on Provider End */}
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <h4 className="text-sm font-medium">Display service length on provider end</h4>
-                  <Info className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <RadioGroup
+              <TooltipProvider>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-sm font-medium">Display service length on provider end</h4>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none">
+                          <Info className="h-4 w-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-xs">
+                        Choose whether providers can see how long the service will take.
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <RadioGroup
                   value={form.displayServiceLengthProvider ? "yes" : "no"}
                   onValueChange={(value) => setForm(p => ({ ...p, displayServiceLengthProvider: value === "yes" }))}
                   className="grid gap-2"
@@ -923,7 +1351,42 @@ export default function ServiceCategoryNewPage() {
                     <RadioGroupItem value="no" /> No
                   </label>
                 </RadioGroup>
-              </div>
+                  <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <Checkbox
+                        id="enable-service-length-tooltip-provider"
+                        checked={form.enableServiceLengthTooltipProvider}
+                        onCheckedChange={(checked) => setForm(p => ({ ...p, enableServiceLengthTooltipProvider: !!checked }))}
+                      />
+                      <div className="flex-1 space-y-1">
+                        <div className="flex items-center gap-1.5">
+                          <Label htmlFor="enable-service-length-tooltip-provider" className="text-sm font-medium cursor-pointer">
+                            Enable tooltip for service length on provider end
+                          </Label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none">
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-xs">
+                              When enabled, a tooltip with the text below is shown for the service length on the provider end.
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        {form.enableServiceLengthTooltipProvider && (
+                          <Textarea
+                            placeholder="Add Length Tooltip Text"
+                            value={form.serviceLengthTooltipTextProvider}
+                            onChange={(e) => setForm(p => ({ ...p, serviceLengthTooltipTextProvider: e.target.value }))}
+                            className="min-h-[80px] resize-y bg-background mt-2"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </TooltipProvider>
 
               {/* Can Customer Edit Service */}
               <div className="space-y-3">
@@ -960,190 +1423,492 @@ export default function ServiceCategoryNewPage() {
               </div>
 
               {/* Expedited Charge */}
-              <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="expedited-charge"
-                      checked={form.expeditedCharge.enabled}
-                      onCheckedChange={(checked) => setForm(p => ({ 
-                        ...p, 
-                        expeditedCharge: { ...p.expeditedCharge, enabled: checked as boolean }
-                      }))}
-                    />
-                    <Label htmlFor="expedited-charge" className="text-sm font-medium">
-                      Expedited charge (same day)
-                    </Label>
-                  </div>
-                  
-                  {form.expeditedCharge.enabled && (
-                    <div className="ml-6 space-y-3">
-                      <div className="space-y-2">
-                        <Label htmlFor="expedited-amount" className="text-sm">Amount</Label>
-                        <div className="flex gap-2 items-center">
-                          <Input
-                            id="expedited-amount"
-                            type="number"
-                            placeholder="0.00"
-                            value={form.expeditedCharge.amount}
-                            onChange={(e) => {
-                              setForm(p => ({ 
-                                ...p, 
-                                expeditedCharge: { ...p.expeditedCharge, amount: e.target.value }
-                              }));
-                              validateExpeditedCharge(e.target.value);
-                            }}
-                            onBlur={(e) => validateExpeditedCharge(e.target.value)}
-                            className={`w-24 ${errors.expeditedCharge ? 'border-red-500' : ''}`}
-                          />
-                          <span className="text-sm font-medium">$</span>
+              <div className="space-y-4 rounded-lg border bg-muted/30 p-4">
+                <TooltipProvider>
+                  <div className="space-y-4">
+                    {/* Expedited charge (same day) */}
+                    <div className="flex items-start gap-2">
+                      <Checkbox
+                        id="expedited-charge"
+                        checked={form.expeditedCharge.enabled}
+                        onCheckedChange={(checked) => {
+                          const enabled = !!checked;
+                          setForm(p => ({
+                            ...p,
+                            expeditedCharge: { ...p.expeditedCharge, enabled }
+                          }));
+                          if (!enabled) setErrors(prev => ({ ...prev, expeditedCharge: undefined }));
+                        }}
+                      />
+                      <div className="flex-1 space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <Label htmlFor="expedited-charge" className="text-sm font-medium cursor-pointer">
+                            Expedited charge (same day)
+                          </Label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none">
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-xs">
+                              Charge applied for same-day or expedited bookings.
+                            </TooltipContent>
+                          </Tooltip>
                         </div>
-                        {errors.expeditedCharge && (
+                        {form.expeditedCharge.enabled && (
+                          <div className="flex items-center rounded-md border bg-background overflow-hidden">
+                            <span className="flex items-center px-3 h-10 text-sm font-medium border-r bg-muted/50 text-muted-foreground">$</span>
+                            <Input
+                              id="expedited-amount"
+                              type="text"
+                              inputMode="decimal"
+                              placeholder="Amount"
+                              value={form.expeditedCharge.amount}
+                              onChange={(e) => {
+                                setForm(p => ({
+                                  ...p,
+                                  expeditedCharge: { ...p.expeditedCharge, amount: e.target.value }
+                                }));
+                                validateExpeditedCharge(e.target.value);
+                              }}
+                              onBlur={(e) => validateExpeditedCharge(e.target.value)}
+                              className={`border-0 rounded-none focus-visible:ring-0 focus-visible:ring-offset-0 w-32 ${errors.expeditedCharge && !form.expeditedCharge.amount.trim() ? 'border-red-500' : ''}`}
+                            />
+                          </div>
+                        )}
+                        {form.expeditedCharge.enabled && !form.expeditedCharge.amount.trim() && errors.expeditedCharge && (
                           <p className="text-red-700 dark:text-red-400 text-xs font-semibold">{errors.expeditedCharge}</p>
                         )}
                       </div>
-                      
-                      <div className="space-y-2">
-                        <Label htmlFor="expedited-display-text" className="text-sm">Text to display</Label>
-                        <Input
-                          id="expedited-display-text"
-                          placeholder="Enter text to display"
-                          value={form.expeditedCharge.displayText}
-                          onChange={(e) => setForm(p => ({ 
-                            ...p, 
-                            expeditedCharge: { ...p.expeditedCharge, displayText: e.target.value }
+                    </div>
+
+                    {/* Text to display - only when expedited charge is enabled; align checkbox with $ symbol */}
+                    {form.expeditedCharge.enabled && (
+                      <div className="flex items-start gap-2 ml-6">
+                        <Checkbox
+                          id="expedited-text-to-display"
+                          checked={form.expeditedCharge.textToDisplayEnabled}
+                          onCheckedChange={(checked) => setForm(p => ({
+                            ...p,
+                            expeditedCharge: { ...p.expeditedCharge, textToDisplayEnabled: !!checked }
                           }))}
                         />
+                        <div className="flex-1 space-y-2">
+                          <Label htmlFor="expedited-text-to-display" className="text-sm font-medium cursor-pointer">
+                            Text to display
+                          </Label>
+                          {form.expeditedCharge.textToDisplayEnabled && (
+                            <Textarea
+                              id="expedited-display-text"
+                              placeholder="Add Expedited Text"
+                              value={form.expeditedCharge.displayText}
+                              onChange={(e) => setForm(p => ({
+                                ...p,
+                                expeditedCharge: { ...p.expeditedCharge, displayText: e.target.value }
+                              }))}
+                              className="min-h-[80px] resize-y bg-background"
+                            />
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                </TooltipProvider>
               </div>
 
               {/* Cancellation Fee */}
               <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="cancellation-fee"
-                    checked={form.cancellationFee.enabled}
-                    onCheckedChange={(checked) => setForm(p => ({ 
-                      ...p, 
-                      cancellationFee: { ...p.cancellationFee, enabled: checked as boolean }
-                    }))}
-                  />
-                  <Label htmlFor="cancellation-fee" className="text-sm font-medium">
-                    Cancellation fee
-                  </Label>
-                </div>
-                
+                <TooltipProvider>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="cancellation-fee"
+                      checked={form.cancellationFee.enabled}
+                      onCheckedChange={(checked) => {
+                        const enabled = !!checked;
+                        setForm(p => ({ ...p, cancellationFee: { ...p.cancellationFee, enabled } }));
+                        if (!enabled) setErrors(prev => ({ ...prev, cancellationFee: undefined, cancellationMultipleFeesEmpty: undefined }));
+                      }}
+                    />
+                    <Label htmlFor="cancellation-fee" className="text-sm font-medium cursor-pointer">
+                      Cancellation fee
+                    </Label>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none">
+                          <Info className="h-4 w-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-xs">
+                        Charge applied when a customer cancels according to your timing rules.
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                </TooltipProvider>
+
                 {form.cancellationFee.enabled && (
                   <div className="ml-6 space-y-4">
-                    {/* Fee Type */}
+                    {/* Fee Type: Single or Multiple */}
                     <div className="space-y-2">
-                      <Label className="text-sm">Do you want to set a single cancellation fee or multiple cancellation fees?</Label>
+                      <div className="flex items-center gap-1.5">
+                        <Label className="text-sm font-semibold">Do you want to set a single cancellation fee or multiple cancellation fees?</Label>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none">
+                              <Info className="h-4 w-4" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="max-w-xs">
+                            Single: one fee for all cancellations. Multiple: different fees for different timeframes (e.g. 24h vs 48h before).
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
                       <RadioGroup
                         value={form.cancellationFee.type}
-                        onValueChange={(value: 'single' | 'multiple') => setForm(p => ({ 
-                          ...p, 
-                          cancellationFee: { ...p.cancellationFee, type: value }
-                        }))}
-                        className="grid gap-2"
+                        onValueChange={(value: 'single' | 'multiple') => {
+                          setForm(p => ({ ...p, cancellationFee: { ...p.cancellationFee, type: value } }));
+                          if (value === 'single') {
+                            setErrors(prev => ({ ...prev, cancellationMultipleFeesEmpty: undefined }));
+                          } else if (value === 'multiple' && form.cancellationFee.multipleFees.length === 0) {
+                            setErrors(prev => ({ ...prev, cancellationMultipleFeesEmpty: "It should not remain empty, please add at least one cancellation fee." }));
+                          } else {
+                            setErrors(prev => ({ ...prev, cancellationMultipleFeesEmpty: undefined }));
+                          }
+                        }}
+                        className="flex gap-4 pt-1"
                       >
-                        <label className="flex items-center gap-2 text-sm">
+                        <label className="flex items-center gap-2 text-sm cursor-pointer">
                           <RadioGroupItem value="single" /> Single
                         </label>
-                        <label className="flex items-center gap-2 text-sm">
+                        <label className="flex items-center gap-2 text-sm cursor-pointer">
                           <RadioGroupItem value="multiple" /> Multiple
                         </label>
                       </RadioGroup>
                     </div>
 
-                    {/* Fee Amount */}
-                    <div className="space-y-2">
-                      <Label htmlFor="cancellation-fee-amount" className="text-sm">Cancellation fee</Label>
-                      <div className="flex gap-2 items-center">
-                        <Input
-                          id="cancellation-fee-amount"
-                          type="number"
-                          placeholder="50.00"
-                          value={form.cancellationFee.fee}
-                          onChange={(e) => {
-                            setForm(p => ({ 
-                              ...p, 
-                              cancellationFee: { ...p.cancellationFee, fee: e.target.value }
-                            }));
-                            validateCancellationFee(e.target.value);
-                          }}
-                          onBlur={(e) => validateCancellationFee(e.target.value)}
-                          className={`w-24 ${errors.cancellationFee ? 'border-red-500' : ''}`}
-                        />
-                        <Select
-                          value={form.cancellationFee.currency}
-                          onValueChange={(value) => setForm(p => ({ 
-                            ...p, 
-                            cancellationFee: { ...p.cancellationFee, currency: value }
-                          }))}
+                    {form.cancellationFee.type === 'single' && (
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="cancellation-fee-amount" className="text-sm">Cancellation fee</Label>
+                          <div className="flex gap-2 items-center">
+                            <Input
+                              id="cancellation-fee-amount"
+                              type="number"
+                              placeholder="50.00"
+                              value={form.cancellationFee.fee}
+                              onChange={(e) => {
+                                setForm(p => ({ ...p, cancellationFee: { ...p.cancellationFee, fee: e.target.value } }));
+                                validateCancellationFee(e.target.value);
+                              }}
+                              onBlur={(e) => validateCancellationFee(e.target.value)}
+                              className={`w-24 ${errors.cancellationFee ? 'border-red-500' : ''}`}
+                            />
+                            <Select
+                              value={form.cancellationFee.currency}
+                              onValueChange={(value) => setForm(p => ({ ...p, cancellationFee: { ...p.cancellationFee, currency: value } }))}
+                            >
+                              <SelectTrigger className="w-16">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="$">$</SelectItem>
+                                <SelectItem value="%">%</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {errors.cancellationFee && (
+                            <p className="text-red-700 dark:text-red-400 text-xs font-semibold">{errors.cancellationFee}</p>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Label className="text-sm">Do you want to pay a cancellation fee to the Provider?</Label>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Switch
+                                id="pay-provider"
+                                checked={form.cancellationFee.payProvider}
+                                onCheckedChange={(checked) => setForm(p => ({ ...p, cancellationFee: { ...p.cancellationFee, payProvider: checked } }))}
+                              />
+                              <Label htmlFor="pay-provider" className="text-sm">{form.cancellationFee.payProvider ? "Enabled" : "Disabled"}</Label>
+                            </div>
+                          </div>
+                        </div>
+                        {form.cancellationFee.payProvider && (
+                          <div className="space-y-2">
+                            <Label htmlFor="provider-fee-amount" className="text-sm">Provider fee amount</Label>
+                            <div className="flex gap-2 items-center">
+                              <Input
+                                id="provider-fee-amount"
+                                type="number"
+                                placeholder="0.00"
+                                value={form.cancellationFee.providerFee}
+                                onChange={(e) => {
+                                  setForm(p => ({ ...p, cancellationFee: { ...p.cancellationFee, providerFee: e.target.value } }));
+                                  validateProviderFee(e.target.value);
+                                }}
+                                onBlur={(e) => validateProviderFee(e.target.value)}
+                                className={`w-24 ${errors.providerFee ? 'border-red-500' : ''}`}
+                              />
+                              <Select value={form.cancellationFee.providerCurrency} onValueChange={(value) => setForm(p => ({ ...p, cancellationFee: { ...p.cancellationFee, providerCurrency: value } }))}>
+                                <SelectTrigger className="w-16"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="$">$</SelectItem>
+                                  <SelectItem value="%">%</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            {errors.providerFee && <p className="text-red-700 dark:text-red-400 text-xs font-semibold">{errors.providerFee}</p>}
+                          </div>
+                        )}
+                        <div className="space-y-2">
+                          <Label className="text-sm">When will your customers be charged a cancellation fee?</Label>
+                          <RadioGroup
+                            value={form.cancellationFee.chargeTiming}
+                            onValueChange={(value: 'beforeDay' | 'hoursBefore') => setForm(p => ({ ...p, cancellationFee: { ...p.cancellationFee, chargeTiming: value } }))}
+                            className="grid gap-2"
+                          >
+                            <label className="flex items-center gap-2 text-sm">
+                              <RadioGroupItem value="beforeDay" />
+                              If they cancel after:
+                              <Input
+                                type="time"
+                                value={form.cancellationFee.beforeDayTime}
+                                onChange={(e) => {
+                                  setForm(p => ({ ...p, cancellationFee: { ...p.cancellationFee, beforeDayTime: e.target.value } }));
+                                  validateBeforeDayTime(e.target.value);
+                                }}
+                                onBlur={(e) => validateBeforeDayTime(e.target.value)}
+                                className={`w-32 h-8 ${errors.beforeDayTime ? 'border-red-500' : ''}`}
+                              />
+                              the day before the job.
+                            </label>
+                            {errors.beforeDayTime && <p className="text-red-700 dark:text-red-400 text-xs ml-6 font-semibold">{errors.beforeDayTime}</p>}
+                            <label className="flex items-center gap-2 text-sm">
+                              <RadioGroupItem value="hoursBefore" />
+                              If they cancel:
+                              <Input
+                                type="number"
+                                min={1}
+                                max={24}
+                                value={form.cancellationFee.hoursBefore}
+                                onChange={(e) => {
+                                  setForm(p => ({ ...p, cancellationFee: { ...p.cancellationFee, hoursBefore: e.target.value } }));
+                                  validateHoursBefore(e.target.value);
+                                }}
+                                onBlur={(e) => validateHoursBefore(e.target.value)}
+                                className={`w-16 h-8 ${errors.hoursBefore ? 'border-red-500' : ''}`}
+                              />
+                              Hours before the job.
+                            </label>
+                            {errors.hoursBefore && <p className="text-red-700 dark:text-red-400 text-xs ml-6 font-semibold">{errors.hoursBefore}</p>}
+                          </RadioGroup>
+                        </div>
+                      </>
+                    )}
+
+                    {form.cancellationFee.type === 'multiple' && (
+                      <>
+                        <h4 className="text-sm font-semibold">Cancellation fee</h4>
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                          <p className="text-xs text-muted-foreground max-w-xl">
+                            Create multiple cancellation fees based on different cancellation timeframes. In the case of multiple cancellation fees for the same time period, the most recent cancellation fee settings will be used.
+                          </p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={openAddFeeModal}
+                          >
+                            <Plus className="h-4 w-4 mr-1" />
+                            Add Fee
+                          </Button>
+                        </div>
+                        {form.cancellationFee.multipleFees.length > 0 && (
+                          <div className="rounded-lg border">
+                            <Table>
+                              <TableHeader>
+                                <TableRow className="bg-muted/50 hover:bg-muted/50">
+                                  <TableHead className="font-semibold">Amount Charged</TableHead>
+                                  <TableHead className="font-semibold">Provider Compensation</TableHead>
+                                  <TableHead className="font-semibold">Time</TableHead>
+                                  <TableHead className="font-semibold w-[100px]">Action</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {form.cancellationFee.multipleFees.map((entry) => (
+                                  <TableRow key={entry.id}>
+                                    <TableCell>
+                                      {entry.currency} {entry.fee ? (isNaN(Number(entry.fee)) ? entry.fee : Number(entry.fee).toFixed(2)) : '0.00'}
+                                    </TableCell>
+                                    <TableCell>
+                                      {entry.payProvider && entry.providerFee ? `${entry.providerCurrency} ${(isNaN(Number(entry.providerFee)) ? entry.providerFee : Number(entry.providerFee).toFixed(2))}` : '-'}
+                                    </TableCell>
+                                    <TableCell className="text-muted-foreground">
+                                      {getFeeTimeDescription(entry)}
+                                    </TableCell>
+                                    <TableCell>
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <Button variant="ghost" size="sm" className="h-8 gap-1">
+                                            Options
+                                            <ChevronDown className="h-4 w-4" />
+                                          </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                          <DropdownMenuItem onClick={() => openEditFeeModal(entry)}>
+                                            <Pencil className="h-4 w-4 mr-2" />
+                                            Edit
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem
+                                            className="text-destructive focus:text-destructive"
+                                            onClick={() => {
+                                              const nextFees = form.cancellationFee.multipleFees.filter(f => f.id !== entry.id);
+                                              setForm(p => ({
+                                                ...p,
+                                                cancellationFee: { ...p.cancellationFee, multipleFees: nextFees }
+                                              }));
+                                              if (nextFees.length === 0) {
+                                                setErrors(prev => ({ ...prev, cancellationMultipleFeesEmpty: "It should not remain empty, please add at least one cancellation fee." }));
+                                              } else {
+                                                setErrors(prev => ({ ...prev, cancellationMultipleFeesEmpty: undefined }));
+                                              }
+                                            }}
+                                          >
+                                            <Trash2 className="h-4 w-4 mr-2" />
+                                            Delete
+                                          </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        )}
+                        {form.cancellationFee.type === 'multiple' && form.cancellationFee.multipleFees.length === 0 && (
+                          <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3">
+                            <p className="text-sm font-medium text-destructive">
+                              {errors.cancellationMultipleFeesEmpty ?? "It should not remain empty, please add at least one cancellation fee."}
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Add a cancellation fee modal */}
+              <Dialog open={addCancellationFeeModalOpen} onOpenChange={(open) => { setAddCancellationFeeModalOpen(open); if (!open) { setAddFeeModalError(null); setEditingFeeId(null); } }}>
+                <DialogContent className="max-w-xl sm:max-w-2xl" onPointerDownOutside={(e) => e.preventDefault()}>
+                  <DialogHeader>
+                    <DialogTitle className="text-xl font-bold">{editingFeeId ? 'Edit cancellation fee' : 'Add a cancellation fee'}</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-6 py-2">
+                    <TooltipProvider>
+                      {/* Section 1: When will your customers be charged */}
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-1.5">
+                          <Label className="text-sm font-semibold">When will your customers be charged a cancellation fee?</Label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button type="button" className="inline-flex text-orange-500 hover:text-orange-600">
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-xs">
+                              Set the timeframe after which a cancellation will incur this fee.
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <RadioGroup
+                          value={newCancellationFee.chargeTiming}
+                          onValueChange={(v: 'beforeDay' | 'hoursBefore') => setNewCancellationFee(p => ({ ...p, chargeTiming: v }))}
+                          className="space-y-3"
                         >
-                          <SelectTrigger className="w-16">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="$">$</SelectItem>
-                            <SelectItem value="%">%</SelectItem>
-                          </SelectContent>
-                        </Select>
+                          <label className="flex flex-wrap items-center gap-2 text-sm cursor-pointer">
+                            <RadioGroupItem value="beforeDay" />
+                            If they cancel after:
+                            <Input
+                              type="time"
+                              className="w-28 h-8"
+                              value={newCancellationFee.beforeDayTime}
+                              onChange={(e) => setNewCancellationFee(p => ({ ...p, beforeDayTime: e.target.value }))}
+                            />
+                            the
+                            <Select
+                              value={newCancellationFee.daysBefore}
+                              onValueChange={(v) => setNewCancellationFee(p => ({ ...p, daysBefore: v }))}
+                            >
+                              <SelectTrigger className="w-16 h-8">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {Array.from({ length: 31 }, (_, i) => i + 1).map((n) => (
+                                  <SelectItem key={n} value={String(n)}>{String(n).padStart(2, '0')}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            day(s) before the job.
+                          </label>
+                          <label className="flex flex-wrap items-center gap-2 text-sm cursor-pointer">
+                            <RadioGroupItem value="hoursBefore" />
+                            If they cancel:
+                            <Select
+                              value={newCancellationFee.hoursBefore}
+                              onValueChange={(v) => setNewCancellationFee(p => ({ ...p, hoursBefore: v }))}
+                            >
+                              <SelectTrigger className="w-16 h-8">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {Array.from({ length: 24 }, (_, i) => i + 1).map((n) => (
+                                  <SelectItem key={n} value={String(n)}>{String(n).padStart(2, '0')}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            hour
+                            <Select
+                              value={newCancellationFee.minutesBefore}
+                              onValueChange={(v) => setNewCancellationFee(p => ({ ...p, minutesBefore: v }))}
+                            >
+                              <SelectTrigger className="w-16 h-8">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {Array.from({ length: 60 }, (_, i) => {
+                                  const m = String(i).padStart(2, '0');
+                                  return <SelectItem key={m} value={m}>{m}</SelectItem>;
+                                })}
+                              </SelectContent>
+                            </Select>
+                            minutes before the job.
+                          </label>
+                        </RadioGroup>
                       </div>
-                      {errors.cancellationFee && (
-                        <p className="text-red-700 dark:text-red-400 text-xs font-semibold">{errors.cancellationFee}</p>
-                      )}
-                    </div>
 
-                    {/* Pay Provider */}
-                    <div className="space-y-2">
-                      <Label className="text-sm">Do you want to pay a cancellation fee to the Provider?</Label>
-                      <div className="flex items-center gap-2">
-                        <Switch
-                          id="pay-provider"
-                          checked={form.cancellationFee.payProvider}
-                          onCheckedChange={(checked) => setForm(p => ({ 
-                            ...p, 
-                            cancellationFee: { ...p.cancellationFee, payProvider: checked }
-                          }))}
-                        />
-                        <Label htmlFor="pay-provider" className="text-sm">
-                          {form.cancellationFee.payProvider ? "Enabled" : "Disabled"}
-                        </Label>
-                      </div>
-                    </div>
-
-                    {/* Provider Fee Amount - Only show when payProvider is enabled */}
-                    {form.cancellationFee.payProvider && (
+                      {/* Section 2: Cancellation fee amount */}
                       <div className="space-y-2">
-                        <Label htmlFor="provider-fee-amount" className="text-sm">Provider fee amount</Label>
+                        <Label className="text-sm font-semibold">Cancellation fee</Label>
                         <div className="flex gap-2 items-center">
                           <Input
-                            id="provider-fee-amount"
-                            type="number"
-                            placeholder="0.00"
-                            value={form.cancellationFee.providerFee}
+                            type="text"
+                            inputMode="decimal"
+                            placeholder="Amount"
+                            value={newCancellationFee.fee}
                             onChange={(e) => {
-                              setForm(p => ({ 
-                                ...p, 
-                                cancellationFee: { ...p.cancellationFee, providerFee: e.target.value }
-                              }));
-                              validateProviderFee(e.target.value);
+                              setNewCancellationFee(p => ({ ...p, fee: e.target.value }));
+                              if (addFeeModalError) setAddFeeModalError(null);
                             }}
-                            onBlur={(e) => validateProviderFee(e.target.value)}
-                            className={`w-24 ${errors.providerFee ? 'border-red-500' : ''}`}
+                            className={`flex-1 ${addFeeModalError ? 'border-destructive' : ''}`}
                           />
                           <Select
-                            value={form.cancellationFee.providerCurrency}
-                            onValueChange={(value) => setForm(p => ({ 
-                              ...p, 
-                              cancellationFee: { ...p.cancellationFee, providerCurrency: value }
-                            }))}
+                            value={newCancellationFee.currency}
+                            onValueChange={(v) => setNewCancellationFee(p => ({ ...p, currency: v }))}
                           >
-                            <SelectTrigger className="w-16">
+                            <SelectTrigger className="w-20">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -1152,72 +1917,49 @@ export default function ServiceCategoryNewPage() {
                             </SelectContent>
                           </Select>
                         </div>
-                        {errors.providerFee && (
-                          <p className="text-red-700 dark:text-red-400 text-xs font-semibold">{errors.providerFee}</p>
+                        {addFeeModalError && (
+                          <p className="text-sm text-destructive flex items-center gap-1.5">
+                            <AlertCircle className="h-4 w-4 shrink-0" />
+                            {addFeeModalError}
+                          </p>
                         )}
                       </div>
-                    )}
 
-                    {/* Charge Timing */}
-                    <div className="space-y-2">
-                      <Label className="text-sm">When will your customers be charged a cancellation fee?</Label>
-                      <RadioGroup
-                        value={form.cancellationFee.chargeTiming}
-                        onValueChange={(value: 'beforeDay' | 'hoursBefore') => setForm(p => ({ 
-                          ...p, 
-                          cancellationFee: { ...p.cancellationFee, chargeTiming: value }
-                        }))}
-                        className="grid gap-2"
-                      >
-                        <label className="flex items-center gap-2 text-sm">
-                          <RadioGroupItem value="beforeDay" />
-                          If they cancel after: 
-                          <Input
-                            type="time"
-                            value={form.cancellationFee.beforeDayTime}
-                            onChange={(e) => {
-                              setForm(p => ({ 
-                                ...p, 
-                                cancellationFee: { ...p.cancellationFee, beforeDayTime: e.target.value }
-                              }));
-                              validateBeforeDayTime(e.target.value);
-                            }}
-                            onBlur={(e) => validateBeforeDayTime(e.target.value)}
-                            className={`w-32 h-8 ${errors.beforeDayTime ? 'border-red-500' : ''}`}
+                      {/* Section 3: Pay to provider */}
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <Label className="text-sm font-semibold">Is some or all of the cancellation fee paid to the provider?</Label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button type="button" className="inline-flex text-orange-500 hover:text-orange-600">
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-xs">
+                              When enabled, a portion of the fee can be paid to the provider.
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <div className="flex items-center gap-2 flex-nowrap min-w-0">
+                          <Switch
+                            checked={newCancellationFee.payProvider}
+                            onCheckedChange={(c) => setNewCancellationFee(p => ({ ...p, payProvider: !!c }))}
                           />
-                          the day before the job.
-                        </label>
-                        {errors.beforeDayTime && (
-                          <p className="text-red-700 dark:text-red-400 text-xs ml-6 font-semibold">{errors.beforeDayTime}</p>
-                        )}
-                        <label className="flex items-center gap-2 text-sm">
-                          <RadioGroupItem value="hoursBefore" />
-                          If they cancel: 
-                          <Input
-                            type="number"
-                            min="1"
-                            max="24"
-                            value={form.cancellationFee.hoursBefore}
-                            onChange={(e) => {
-                              setForm(p => ({ 
-                                ...p, 
-                                cancellationFee: { ...p.cancellationFee, hoursBefore: e.target.value }
-                              }));
-                              validateHoursBefore(e.target.value);
-                            }}
-                            onBlur={(e) => validateHoursBefore(e.target.value)}
-                            className={`w-16 h-8 ${errors.hoursBefore ? 'border-red-500' : ''}`}
-                          />
-                          Hours before the job.
-                        </label>
-                        {errors.hoursBefore && (
-                          <p className="text-red-700 dark:text-red-400 text-xs ml-6 font-semibold">{errors.hoursBefore}</p>
-                        )}
-                      </RadioGroup>
-                    </div>
+                          <span className="text-sm whitespace-nowrap">{newCancellationFee.payProvider ? 'Enabled' : 'Disabled'}</span>
+                        </div>
+                      </div>
+                    </TooltipProvider>
                   </div>
-                )}
-              </div>
+                  <DialogFooter className="gap-2 sm:gap-0">
+                    <Button type="button" variant="default" onClick={addFeeFromModal}>
+                      {editingFeeId ? 'Save' : 'Next'}
+                    </Button>
+                    <Button type="button" variant="destructive" onClick={() => { setAddCancellationFeeModalOpen(false); setAddFeeModalError(null); }}>
+                      Cancel
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
 
               {/* Set Service Category Price */}
               <div className="space-y-3">
@@ -1472,15 +2214,28 @@ export default function ServiceCategoryNewPage() {
                   <Label htmlFor="override-provider-pay" className="text-sm font-medium">
                     Override provider pay
                   </Label>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button type="button" className="inline-flex text-amber-500 hover:text-amber-600 focus:outline-none">
+                          <Info className="h-4 w-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-sm text-muted-foreground font-normal">
+                        Every provider can have a specific amount they get paid, but here you can override the fee. For example, if you have a re-clean service and you want to pay the provider $0 for this service, you can put $0 in this field. If a customer books this service, the provider will get $0 no matter what the customer selects under this service. You can still override this and give them any amount you want during the booking. Simply change the $0 that will by default show there to any number you want.
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
 
                 {form.overrideProviderPay.enabled && (
                   <div className="ml-6 space-y-2">
-                    <div className="flex gap-2 items-center">
-                      <span className="text-sm font-medium">$</span>
+                    <div className="flex gap-2 items-center flex-wrap">
                       <Input
                         id="override-provider-pay-amount"
                         type="number"
+                        step="0.01"
+                        min="0"
                         placeholder="0.00"
                         value={form.overrideProviderPay.amount}
                         onChange={(e) => {
@@ -1493,6 +2248,21 @@ export default function ServiceCategoryNewPage() {
                         onBlur={(e) => validateOverrideProviderPay(e.target.value)}
                         className={`w-24 ${errors.overrideProviderPay ? 'border-red-500' : ''}`}
                       />
+                      <Select
+                        value={form.overrideProviderPay.payType}
+                        onValueChange={(value: "fixed" | "hourly") => setForm(p => ({
+                          ...p,
+                          overrideProviderPay: { ...p.overrideProviderPay, payType: value }
+                        }))}
+                      >
+                        <SelectTrigger className="w-[120px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="fixed">$</SelectItem>
+                          <SelectItem value="hourly">Hourly</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                     {errors.overrideProviderPay && (
                       <p className="text-red-700 dark:text-red-400 text-xs font-semibold">{errors.overrideProviderPay}</p>

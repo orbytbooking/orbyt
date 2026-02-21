@@ -201,7 +201,7 @@ export async function POST(request: NextRequest) {
           override_provider_pay: override_provider_pay || {
             enabled: false,
             amount: "",
-            currency: "$"
+            payType: "hourly"
           },
           excluded_providers: excluded_providers || [],
           sort_order: sort_order || 0,

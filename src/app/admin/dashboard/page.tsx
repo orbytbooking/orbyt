@@ -957,9 +957,20 @@ const Dashboard = () => {
                           </span>
                         </div>
                       )}
+                      {(selectedBooking as any).status === "cancelled" && (selectedBooking as any).cancellation_fee_amount != null && Number((selectedBooking as any).cancellation_fee_amount) > 0 && (
+                        <div className="flex justify-between items-center gap-4 py-1.5">
+                          <span className="text-gray-500 text-sm shrink-0">Cancellation fee (applied)</span>
+                          <span className="text-sm font-medium text-right">
+                            {(selectedBooking as any).cancellation_fee_currency ?? "$"}{Number((selectedBooking as any).cancellation_fee_amount).toFixed(2)}
+                          </span>
+                        </div>
+                      )}
                       <div className="flex justify-between items-center gap-4 py-1.5">
                         <span className="text-gray-500 text-sm">Status</span>
                         <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 capitalize">{selectedBooking.status}</span>
+                      </div>
+                      <div className="pt-1.5 mt-1.5 border-t border-gray-200">
+                        <p className="text-xs text-gray-500">Cancellation policy and fee are set in Settings → General → Cancellation.</p>
                       </div>
                     </DetailSection>
                   </div>

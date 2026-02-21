@@ -1238,14 +1238,20 @@ toast({
                           className="text-right"
                         />
                       )}
-                      {((selectedBooking as any).payment_method === "online" || (selectedBooking as any).payment_method === "card" || (selectedBooking as any).payment_method === "cash" || (selectedBooking as any).payment_method) && (
+                      {(selectedBooking.status === "cancelled" || (selectedBooking as any).status === "cancelled") && (selectedBooking as any).cancellation_fee_amount != null && Number((selectedBooking as any).cancellation_fee_amount) > 0 && (
                         <div className="flex justify-between items-center gap-4 py-1.5">
-                          <span className="text-muted-foreground text-sm">Payment method</span>
-                          <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                            {(selectedBooking as any).payment_method === "online" || (selectedBooking as any).payment_method === "card" ? "CC" : (selectedBooking as any).payment_method === "cash" ? "Cash/Check" : (selectedBooking as any).payment_method}
+                          <span className="text-muted-foreground text-sm shrink-0">Cancellation fee (applied)</span>
+                          <span className="text-sm font-medium text-right">
+                            {(selectedBooking as any).cancellation_fee_currency ?? "$"}{Number((selectedBooking as any).cancellation_fee_amount).toFixed(2)}
                           </span>
                         </div>
                       )}
+                      <div className="flex justify-between items-center gap-4 py-1.5">
+                        <span className="text-muted-foreground text-sm">Payment method</span>
+                        <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                          {(selectedBooking as any).payment_method === "online" || (selectedBooking as any).payment_method === "card" ? "CC" : (selectedBooking as any).payment_method === "cash" ? "Cash/Check" : (selectedBooking as any).payment_method}
+                        </span>
+                      </div>
                       <div className="flex justify-between items-center gap-4 py-1.5">
                         <span className="text-muted-foreground text-sm shrink-0">Price details</span>
                         <span className="text-sm font-medium text-right">
@@ -1257,7 +1263,68 @@ toast({
                           <Link href="/admin/settings" className="text-orange-600 hover:underline ml-1.5 text-xs">Learn more</Link>
                         </span>
                       </div>
+                      <div className="pt-1.5 mt-1.5 border-t border-border/50">
+                        <p className="text-xs text-muted-foreground">Cancellation policy and fee are set in Settings → General → Cancellation.</p>
+                      </div>
                     </div>
+
+                    {/* Partial cleaning */}
+                    {(() => {
+                      const cust = (selectedBooking as any).customization as BookingCustomization | undefined;
+                      if (!cust?.isPartialCleaning && !(cust?.excludedAreas?.length)) return null;
+                      return (
+                        <div className="mt-4 rounded-lg bg-amber-50/80 dark:bg-amber-950/20 p-3 border border-amber-100 dark:border-amber-900/30">
+                          <h4 className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-600 mb-2">Partial cleaning</h4>
+                          <div className="space-y-1.5">
+                            <DetailRow label="Partial cleaning" value={cust?.isPartialCleaning ? "Yes" : "No"} />
+                            {cust?.excludedAreas?.length ? (
+                              <div>
+                                <span className="text-muted-foreground text-sm">Excluded areas: </span>
+                                <span className="text-sm font-medium">
+                                  {(cust.excludedAreas || []).map((paramId) => {
+                                    const qty = cust.excludeQuantities?.[paramId] ?? 1;
+                                    const name = excludeParamNames[paramId] || `${paramId.slice(0, 8)}…`;
+                                    return `${name}${qty > 1 ? ` × ${qty}` : ""}`;
+                                  }).join(", ")}
+                                </span>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Notes */}
+                    {selectedBooking.notes && (
+                      <div className="mt-4 rounded-lg bg-muted/50 p-3 border">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Notes</h4>
+                        <p className="text-sm">{selectedBooking.notes}</p>
+                      </div>
+                    )}
+
+                    {/* Private booking note(s) */}
+                    {(selectedBooking as any).private_booking_notes && Array.isArray((selectedBooking as any).private_booking_notes) && (selectedBooking as any).private_booking_notes.length > 0 && (
+                      <div className="mt-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 p-3 border border-slate-200 dark:border-slate-700">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">Private booking note(s)</h4>
+                        <div className="space-y-2">
+                          {((selectedBooking as any).private_booking_notes as string[]).map((note: string, i: number) => (
+                            <p key={i} className="text-sm text-gray-800 dark:text-gray-200 break-words">{note}</p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Private customer note(s) */}
+                    {(selectedBooking as any).private_customer_notes && Array.isArray((selectedBooking as any).private_customer_notes) && (selectedBooking as any).private_customer_notes.length > 0 && (
+                      <div className="mt-4 rounded-lg bg-amber-50 dark:bg-amber-950/30 p-3 border border-amber-200 dark:border-amber-800">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-amber-800 dark:text-amber-200 mb-1.5">Private customer note(s)</h4>
+                        <div className="space-y-2">
+                          {((selectedBooking as any).private_customer_notes as string[]).map((note: string, i: number) => (
+                            <p key={i} className="text-sm text-gray-800 dark:text-gray-200 break-words">{note}</p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </CollapsibleContent>
                 </Collapsible>
               </div>

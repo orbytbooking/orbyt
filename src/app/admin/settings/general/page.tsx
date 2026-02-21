@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Store, Tag, MailX, Plus, Minus, Loader2, Pencil, Trash2, Info, Clock, Users, Bell } from 'lucide-react';
+import { Store, Tag, MailX, Receipt, List, Plug, Plus, Minus, Loader2, Pencil, Trash2, Info, Clock, Users, Bell } from 'lucide-react';
 import { useBusiness } from '@/contexts/BusinessContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -173,6 +173,8 @@ export default function GeneralSettingsPage() {
   const [cancellationServiceCategories, setCancellationServiceCategories] = useState<{ id: string; name: string; industry_id?: string }[]>([]);
   const [cancellationServiceCategoriesLoading, setCancellationServiceCategoriesLoading] = useState(false);
   const [cancellationIndustries, setCancellationIndustries] = useState<{ id: string; name: string }[]>([]);
+  const [cancellationSettingsLoading, setCancellationSettingsLoading] = useState(false);
+  const [cancellationSettingsSaving, setCancellationSettingsSaving] = useState(false);
   const [reschedulingFeesExpanded, setReschedulingFeesExpanded] = useState(false);
   const [chargeRescheduleFee, setChargeRescheduleFee] = useState<'yes' | 'no'>('yes');
   const [rescheduleFeeAmount, setRescheduleFeeAmount] = useState('');
@@ -384,9 +386,73 @@ export default function GeneralSettingsPage() {
     }
   };
 
+  const fetchCancellationSettings = async () => {
+    if (!currentBusiness?.id) return;
+    setCancellationSettingsLoading(true);
+    try {
+      const res = await fetch(
+        `/api/admin/cancellation-settings?businessId=${encodeURIComponent(currentBusiness.id)}`,
+        { headers: { 'x-business-id': currentBusiness.id } }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch cancellation settings');
+      const s = data.settings || {};
+      if (s.chargeFee !== undefined) setCancellationChargeFee(s.chargeFee === 'no' ? 'no' : 'yes');
+      if (s.feeType !== undefined) setCancellationFeeType(s.feeType === 'multiple' ? 'multiple' : 'single');
+      if (s.feeAmount !== undefined) setCancellationFeeAmount(String(s.feeAmount ?? '50.00'));
+      if (s.feeCurrency !== undefined) setCancellationFeeCurrency(s.feeCurrency || '$');
+      if (s.payProvider !== undefined) setCancellationPayProvider(!!s.payProvider);
+      if (s.overrideServiceCategory !== undefined) setCancellationOverrideServiceCategory(!!s.overrideServiceCategory);
+      if (s.chargeWhen !== undefined) setCancellationChargeWhen(s.chargeWhen === 'hours_before' ? 'hours_before' : 'after_time_day_before');
+      if (s.afterTime !== undefined) setCancellationAfterTime(s.afterTime || '06:00');
+      if (s.afterAmPm !== undefined) setCancellationAfterAmPm(s.afterAmPm === 'AM' ? 'AM' : 'PM');
+      if (s.hoursBefore !== undefined) setCancellationHoursBefore(s.hoursBefore || '1');
+      if (s.excludeSameDay !== undefined) setCancellationExcludeSameDay(!!s.excludeSameDay);
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : 'Failed to load cancellation settings');
+    } finally {
+      setCancellationSettingsLoading(false);
+    }
+  };
+
+  const saveCancellationSettings = async () => {
+    if (!currentBusiness?.id) return;
+    setCancellationSettingsSaving(true);
+    try {
+      const res = await fetch('/api/admin/cancellation-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'x-business-id': currentBusiness.id },
+        body: JSON.stringify({
+          businessId: currentBusiness.id,
+          chargeFee: cancellationChargeFee,
+          feeType: cancellationFeeType,
+          feeAmount: cancellationFeeAmount,
+          feeCurrency: cancellationFeeCurrency,
+          payProvider: cancellationPayProvider,
+          overrideServiceCategory: cancellationOverrideServiceCategory,
+          chargeWhen: cancellationChargeWhen,
+          afterTime: cancellationAfterTime,
+          afterAmPm: cancellationAfterAmPm,
+          hoursBefore: cancellationHoursBefore,
+          excludeSameDay: cancellationExcludeSameDay,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save cancellation settings');
+      toast.success('Cancellation settings saved');
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : 'Failed to save cancellation settings');
+    } finally {
+      setCancellationSettingsSaving(false);
+    }
+  };
+
   useEffect(() => {
     if (cancellationExpanded && currentBusiness?.id) {
       fetchCancellationServiceCategories();
+      fetchCancellationSettings();
     }
   }, [cancellationExpanded, currentBusiness?.id]);
 
@@ -514,7 +580,7 @@ export default function GeneralSettingsPage() {
       </div>
       <Separator />
       <Tabs defaultValue="store-options" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="store-options" className="flex items-center gap-2">
             <Store className="h-4 w-4" />
             <span>Store options</span>
@@ -523,9 +589,21 @@ export default function GeneralSettingsPage() {
             <Tag className="h-4 w-4" />
             <span>Tags</span>
           </TabsTrigger>
+          <TabsTrigger value="taxes" className="flex items-center gap-2">
+            <Receipt className="h-4 w-4" />
+            <span>Taxes</span>
+          </TabsTrigger>
+          <TabsTrigger value="email-lists" className="flex items-center gap-2">
+            <List className="h-4 w-4" />
+            <span>Email lists</span>
+          </TabsTrigger>
           <TabsTrigger value="undelivered-emails" className="flex items-center gap-2">
             <MailX className="h-4 w-4" />
             <span>Undelivered emails</span>
+          </TabsTrigger>
+          <TabsTrigger value="apps-integrations" className="flex items-center gap-2">
+            <Plug className="h-4 w-4" />
+            <span>Apps & Integrations</span>
           </TabsTrigger>
         </TabsList>
         <TabsContent value="store-options" className="pt-6 space-y-0">
@@ -1470,6 +1548,9 @@ export default function GeneralSettingsPage() {
                                   </SelectContent>
                                 </Select>
                               </div>
+                              <p className="text-xs text-muted-foreground">
+                                This cancellation fee is applied based on the settings above when customers cancel within the policy window (e.g. after the set time the day before or within the set hours before the appointment).
+                              </p>
                             </div>
                           )}
                           <div className="space-y-2">
@@ -1791,6 +1872,18 @@ export default function GeneralSettingsPage() {
                                 <span className="text-sm">Both</span>
                               </label>
                             </RadioGroup>
+                          </div>
+                          <div className="pt-4 border-t">
+                            <Button onClick={saveCancellationSettings} disabled={cancellationSettingsSaving || cancellationSettingsLoading}>
+                              {cancellationSettingsSaving ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                  Saving...
+                                </>
+                              ) : (
+                                'Save cancellation settings'
+                              )}
+                            </Button>
                           </div>
                         </div>
                       </TooltipProvider>
@@ -3352,6 +3445,21 @@ export default function GeneralSettingsPage() {
         <TabsContent value="undelivered-emails" className="pt-6 space-y-4">
           <p className="text-sm text-muted-foreground">
             Undelivered emails settings will be implemented here.
+          </p>
+        </TabsContent>
+        <TabsContent value="taxes" className="pt-6 space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Taxes settings will be implemented here.
+          </p>
+        </TabsContent>
+        <TabsContent value="email-lists" className="pt-6 space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Email lists settings will be implemented here.
+          </p>
+        </TabsContent>
+        <TabsContent value="apps-integrations" className="pt-6 space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Apps & Integrations settings will be implemented here.
           </p>
         </TabsContent>
       </Tabs>

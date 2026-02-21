@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
+import { getCancellationFeeForBooking } from '@/lib/cancellationFee';
 
 export async function GET(
   request: Request,
@@ -102,6 +103,44 @@ export async function PUT(
 
     // Parse request body
     const updateData = await request.json();
+
+    if (updateData.status === 'cancelled') {
+      const { data: existing } = await supabase
+        .from('bookings')
+        .select('id, business_id, scheduled_date, scheduled_time, date, time, service_id, exclude_cancellation_fee')
+        .eq('id', params.id)
+        .eq('business_id', businessId)
+        .single();
+      if (existing?.business_id && !existing.exclude_cancellation_fee) {
+        const { data: cancelSettings } = await supabase
+          .from('business_cancellation_settings')
+          .select('settings')
+          .eq('business_id', existing.business_id)
+          .maybeSingle();
+        let categoryFee = null;
+        if (existing.service_id) {
+          const { data: cat } = await supabase
+            .from('industry_service_category')
+            .select('cancellation_fee')
+            .eq('id', existing.service_id)
+            .eq('business_id', existing.business_id)
+            .maybeSingle();
+          if (cat?.cancellation_fee) categoryFee = cat.cancellation_fee as Record<string, unknown>;
+        }
+        const fee = getCancellationFeeForBooking(
+          existing,
+          (cancelSettings?.settings as Record<string, unknown>) || null,
+          categoryFee
+        );
+        if (fee) {
+          updateData.cancellation_fee_amount = fee.amount;
+          updateData.cancellation_fee_currency = fee.currency;
+        }
+      } else if (existing?.exclude_cancellation_fee) {
+        updateData.cancellation_fee_amount = null;
+        updateData.cancellation_fee_currency = null;
+      }
+    }
 
     // Update booking
     const { data: booking, error: bookingError } = await supabase

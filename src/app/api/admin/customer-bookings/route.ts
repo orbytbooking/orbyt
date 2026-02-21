@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     // Fetch by customer_id (primary)
     const { data: byId, error: errId } = await supabase
       .from('bookings')
-      .select('id, service, scheduled_date, scheduled_time, date, time, total_price, customer_name, customer_email, customer_phone, address, apt_no, zip_code, notes, status, provider_id, provider_name, payment_method, payment_status, frequency, customization, provider_wage, duration_minutes')
+      .select('id, service, scheduled_date, scheduled_time, date, time, total_price, customer_name, customer_email, customer_phone, address, apt_no, zip_code, notes, status, provider_id, provider_name, payment_method, payment_status, frequency, customization, provider_wage, duration_minutes, cancellation_fee_amount, cancellation_fee_currency, private_booking_notes, private_customer_notes, service_provider_notes')
       .eq('business_id', businessId)
       .eq('customer_id', customerId)
       .order('scheduled_date', { ascending: false })
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
     if (customerEmail) {
       const { data: byEmail } = await supabase
         .from('bookings')
-        .select('id, service, scheduled_date, scheduled_time, date, time, total_price, customer_name, customer_email, customer_phone, address, apt_no, zip_code, notes, status, provider_id, provider_name, payment_method, payment_status, frequency, customization, provider_wage, duration_minutes')
+        .select('id, service, scheduled_date, scheduled_time, date, time, total_price, customer_name, customer_email, customer_phone, address, apt_no, zip_code, notes, status, provider_id, provider_name, payment_method, payment_status, frequency, customization, provider_wage, duration_minutes, cancellation_fee_amount, cancellation_fee_currency, private_booking_notes, private_customer_notes, service_provider_notes')
         .eq('business_id', businessId)
         .is('customer_id', null)
         .ilike('customer_email', escapeIlike(customerEmail))

@@ -229,6 +229,19 @@ export async function POST(request: Request) {
       bookingWithBusiness.provider_wage_type = providerWageType;
     }
 
+    // Exclude flags from add-booking form
+    if (bookingData.exclude_cancellation_fee === true) bookingWithBusiness.exclude_cancellation_fee = true;
+    if (bookingData.exclude_customer_notification === true) bookingWithBusiness.exclude_customer_notification = true;
+    if (bookingData.exclude_provider_notification === true) bookingWithBusiness.exclude_provider_notification = true;
+
+    // Private booking notes, private customer notes, notes for service provider (arrays stored as jsonb)
+    const privateBookingNotes = Array.isArray(bookingData.private_booking_notes) ? bookingData.private_booking_notes.filter((n: unknown) => typeof n === 'string') : [];
+    const privateCustomerNotes = Array.isArray(bookingData.private_customer_notes) ? bookingData.private_customer_notes.filter((n: unknown) => typeof n === 'string') : [];
+    const serviceProviderNotes = Array.isArray(bookingData.service_provider_notes) ? bookingData.service_provider_notes.filter((n: unknown) => typeof n === 'string') : [];
+    bookingWithBusiness.private_booking_notes = privateBookingNotes;
+    bookingWithBusiness.private_customer_notes = privateCustomerNotes;
+    bookingWithBusiness.service_provider_notes = serviceProviderNotes;
+
     // Convert duration + duration_unit to duration_minutes
     const durationVal = parseFloat(bookingData.duration);
     const durationUnit = (bookingData.duration_unit || 'Hours').toString();
@@ -274,6 +287,20 @@ export async function POST(request: Request) {
       if (msg.includes('duration_minutes')) {
         console.log('⚠️ duration_minutes column not found, retrying without it...');
         delete bookingWithBusiness.duration_minutes;
+        didStrip = true;
+      }
+      if (msg.includes('exclude_cancellation_fee') || msg.includes('exclude_customer_notification') || msg.includes('exclude_provider_notification')) {
+        console.log('⚠️ exclude_* columns not found, retrying without them...');
+        delete bookingWithBusiness.exclude_cancellation_fee;
+        delete bookingWithBusiness.exclude_customer_notification;
+        delete bookingWithBusiness.exclude_provider_notification;
+        didStrip = true;
+      }
+      if (msg.includes('private_booking_notes') || msg.includes('private_customer_notes') || msg.includes('service_provider_notes')) {
+        console.log('⚠️ note columns not found, retrying without them...');
+        delete bookingWithBusiness.private_booking_notes;
+        delete bookingWithBusiness.private_customer_notes;
+        delete bookingWithBusiness.service_provider_notes;
         didStrip = true;
       }
       if (didStrip) {

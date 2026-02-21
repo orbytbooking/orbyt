@@ -341,6 +341,7 @@ function BookingPageContent() {
 
   // Ref to store the total shown in the booking summary so we send that exact amount when saving (avoids stale closure giving 0)
   const summaryTotalRef = useRef<number>(0);
+  const [cancellationPolicyDisclaimer, setCancellationPolicyDisclaimer] = useState<string | null>(null);
 
   // Handle phone number input to ensure it's a valid number
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>, field: any) => {
@@ -499,6 +500,17 @@ function BookingPageContent() {
 
     getBusinessContext();
   }, [searchParams]);
+
+  // Fetch cancellation policy when on payment step for Booking Summary disclaimer (must be before any conditional return)
+  useEffect(() => {
+    if (currentStep !== "payment") return;
+    const bid = searchParams.get("business");
+    if (!bid) return;
+    fetch(`/api/cancellation-policy?businessId=${encodeURIComponent(bid)}`)
+      .then((r) => r.json())
+      .then((data) => setCancellationPolicyDisclaimer(data.disclaimerText ?? null))
+      .catch(() => setCancellationPolicyDisclaimer(null));
+  }, [currentStep, searchParams]);
 
   // Only clear selection when the selected industry was actually removed (not when options are loading/empty)
   useEffect(() => {
@@ -740,18 +752,23 @@ function BookingPageContent() {
   const existingAddressAvailable = Boolean(storedAddress?.address || customerAddress);
   const disableAddressFields = addressPreference === "existing" && existingAddressAvailable;
 
-  // Fetch frequencies (location-based: pass zipcode when available)
+  // Fetch frequencies (location-based: pass zipcode when available; businessId required for correct scope).
+  // Ref runs on deps; we read zip from form inside so the entered value is always used.
+  const fetchFrequenciesRef = useRef<() => void>(() => {});
   useEffect(() => {
     const industryId = selectedIndustryId;
-    if (!industryId || !searchParams.get("business")) {
+    const businessIdParam = searchParams.get("business");
+    if (!industryId || !businessIdParam) {
       setFrequencyOptions([]);
       return;
     }
     const url = new URL("/api/industry-frequency", window.location.origin);
     url.searchParams.set("industryId", industryId);
-    const zip = String(zipCode || "").trim().replace(/\s/g, "");
-    if (zip.length >= 5) url.searchParams.set("zipcode", zip);
-    const fetchFrequencies = async () => {
+    url.searchParams.set("businessId", businessIdParam);
+    // Read zip from form so we use the value the user actually entered (avoids stale closure)
+    const zipFromForm = String(form.getValues("zipCode") ?? "").trim().replace(/\s/g, "");
+    if (zipFromForm.length >= 5) url.searchParams.set("zipcode", zipFromForm);
+    const doFetch = async () => {
       try {
         const res = await fetch(url.toString());
         if (res.ok) {
@@ -773,8 +790,32 @@ function BookingPageContent() {
         setFrequencyOptions([]);
       }
     };
-    fetchFrequencies();
+    fetchFrequenciesRef.current = () => {
+      // Re-read zip in case user just typed it (e.g. called from zip field onBlur)
+      const zip = String(form.getValues("zipCode") ?? "").trim().replace(/\s/g, "");
+      const u = new URL("/api/industry-frequency", window.location.origin);
+      u.searchParams.set("industryId", industryId);
+      u.searchParams.set("businessId", businessIdParam);
+      if (zip.length >= 5) u.searchParams.set("zipcode", zip);
+      fetch(u.toString())
+        .then((res) => res.ok ? res.json() : { frequencies: [] })
+        .then((data) => {
+          if (data.frequencies && Array.isArray(data.frequencies)) {
+            const names = (data.frequencies as any[])
+              .filter((f: any) => f?.is_active !== false)
+              .map((f: any) => f.name || f.occurrence_time)
+              .filter(Boolean);
+            setFrequencyOptions(names);
+          } else setFrequencyOptions([]);
+        })
+        .catch(() => setFrequencyOptions([]));
+    };
+    doFetch();
   }, [selectedIndustryId, searchParams, zipCode]);
+
+  const refetchFrequenciesOnZipChange = useCallback(() => {
+    fetchFrequenciesRef.current();
+  }, []);
 
   // Handle provider selection
   const handleProviderSelect = (provider: any) => {
@@ -1836,6 +1877,13 @@ function BookingPageContent() {
                     <span>Total:</span>
                     <span>${total.toFixed(2)}</span>
                   </div>
+                  <div className={styles.divider}></div>
+                  <div className="mt-2">
+                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Cancellation disclaimer</p>
+                    <p className="text-xs text-slate-600">
+                      {cancellationPolicyDisclaimer ?? "Based on our cancellation policy, a fee may apply if you cancel within the policy window."}
+                    </p>
+                  </div>
                   <Button
                     variant="outline"
                     onClick={() => setCurrentStep("details")}
@@ -1935,9 +1983,16 @@ function BookingPageContent() {
                           placeholder="Zip Code"
                           maxLength={10}
                           {...field}
+                          onChange={(e) => {
+                            field.onChange(e);
+                            // Refetch frequencies when user types a valid zip so dropdown updates
+                            const zip = String(e.target.value ?? "").trim().replace(/\s/g, "");
+                            if (zip.length >= 5) refetchFrequenciesOnZipChange();
+                          }}
                           onBlur={(e) => {
                             field.onBlur();
                             form.trigger("zipCode");
+                            refetchFrequenciesOnZipChange();
                           }}
                         />
                       </FormControl>
