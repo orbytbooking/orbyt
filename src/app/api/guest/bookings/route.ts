@@ -96,11 +96,27 @@ export async function POST(request: NextRequest) {
   if (customerEmail) {
     const { data: existing } = await supabase
       .from('customers')
-      .select('id')
+      .select('id, booking_blocked')
       .eq('business_id', businessId)
       .ilike('email', customerEmail)
       .maybeSingle();
-    if (existing?.id) customerId = existing.id;
+    if (existing?.id) {
+      if (existing.booking_blocked) {
+        const { data: accessRow } = await supabase
+          .from('business_access_settings')
+          .select('customer_blocked_message')
+          .eq('business_id', businessId)
+          .maybeSingle();
+        const message =
+          accessRow?.customer_blocked_message ||
+          'We apologize for the inconvenience. Please contact our office if you have any questions.';
+        return NextResponse.json(
+          { error: 'BOOKING_BLOCKED', message },
+          { status: 403 }
+        );
+      }
+      customerId = existing.id;
+    }
   }
 
   const customizationRaw = body.customization;

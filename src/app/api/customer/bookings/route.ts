@@ -228,13 +228,28 @@ export async function POST(request: NextRequest) {
 
   const { data: customer, error: customerError } = await supabase
     .from('customers')
-    .select('id, name, email, phone')
+    .select('id, name, email, phone, access_blocked, booking_blocked')
     .eq('auth_user_id', user.id)
     .eq('business_id', businessId)
     .single();
 
   if (customerError || !customer) {
     return NextResponse.json({ error: 'Customer profile not found for this business' }, { status: 403 });
+  }
+
+  if ((customer as { access_blocked?: boolean }).access_blocked || (customer as { booking_blocked?: boolean }).booking_blocked) {
+    const { data: accessRow } = await supabase
+      .from('business_access_settings')
+      .select('customer_blocked_message')
+      .eq('business_id', businessId)
+      .maybeSingle();
+    const message =
+      accessRow?.customer_blocked_message ||
+      'We apologize for the inconvenience. Please contact our office if you have any questions.';
+    return NextResponse.json(
+      { error: 'BOOKING_BLOCKED', message },
+      { status: 403 }
+    );
   }
 
   const date = body.date ?? '';
