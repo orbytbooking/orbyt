@@ -1199,6 +1199,30 @@ toast({
                         <p className="text-sm">{selectedBooking.notes}</p>
                       </div>
                     )}
+
+                    {/* Private booking note(s) */}
+                    {(selectedBooking as any).private_booking_notes && Array.isArray((selectedBooking as any).private_booking_notes) && (selectedBooking as any).private_booking_notes.length > 0 && (
+                      <div className="mt-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 p-3 border border-slate-200 dark:border-slate-700">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">Private booking note(s)</h4>
+                        <div className="space-y-2">
+                          {((selectedBooking as any).private_booking_notes as string[]).map((note: string, i: number) => (
+                            <p key={i} className="text-sm text-gray-800 dark:text-gray-200 break-words">{note}</p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Private customer note(s) */}
+                    {(selectedBooking as any).private_customer_notes && Array.isArray((selectedBooking as any).private_customer_notes) && (selectedBooking as any).private_customer_notes.length > 0 && (
+                      <div className="mt-4 rounded-lg bg-amber-50 dark:bg-amber-950/30 p-3 border border-amber-200 dark:border-amber-800">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-amber-800 dark:text-amber-200 mb-1.5">Private customer note(s)</h4>
+                        <div className="space-y-2">
+                          {((selectedBooking as any).private_customer_notes as string[]).map((note: string, i: number) => (
+                            <p key={i} className="text-sm text-gray-800 dark:text-gray-200 break-words">{note}</p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </CollapsibleContent>
                 </Collapsible>
               </div>
