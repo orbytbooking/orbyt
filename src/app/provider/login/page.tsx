@@ -94,22 +94,24 @@ export default function ProviderLoginPage() {
         return;
       }
 
-      // Check if access is blocked
-      if (providerData.access_blocked) {
+      // Check if access is blocked or provider is inactive – show configured message
+      const businessId = providerData.business_id ?? (providerData.businesses as { id?: string } | null)?.id;
+      if (providerData.access_blocked || providerData.status !== 'active') {
+        let message = "We apologize for the inconvenience. Please contact our office if you have any questions.";
+        if (businessId) {
+          try {
+            const res = await fetch(`/api/admin/access-settings?businessId=${encodeURIComponent(businessId)}`);
+            const data = await res.json();
+            if (res.ok && data.settings?.provider_deactivated_message) {
+              message = data.settings.provider_deactivated_message;
+            }
+          } catch (_) {
+            // use default message
+          }
+        }
         toast({
-          title: "Access Blocked",
-          description: "Your access to the provider portal has been revoked. Please contact your administrator.",
-          variant: "destructive",
-        });
-        await getSupabaseProviderClient().auth.signOut();
-        return;
-      }
-
-      // Check provider status
-      if (providerData.status !== 'active') {
-        toast({
-          title: "Account Inactive",
-          description: `Your provider account is currently ${providerData.status}. Please contact your administrator.`,
+          title: providerData.access_blocked ? "Access Blocked" : "Account Inactive",
+          description: message,
           variant: "destructive",
         });
         await getSupabaseProviderClient().auth.signOut();

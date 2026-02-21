@@ -77,15 +77,27 @@ export default function ProviderLayout({
         // Verify provider access is not blocked (admin may have blocked while logged in)
         const { data: providerData } = await getSupabaseProviderClient()
           .from('service_providers')
-          .select('access_blocked')
+          .select('access_blocked, business_id')
           .eq('user_id', session.user.id)
           .single();
 
         if (providerData?.access_blocked) {
+          let message = "We apologize for the inconvenience. Please contact our office if you have any questions.";
+          if (providerData.business_id) {
+            try {
+              const res = await fetch(`/api/admin/access-settings?businessId=${encodeURIComponent(providerData.business_id)}`);
+              const data = await res.json();
+              if (res.ok && data.settings?.provider_deactivated_message) {
+                message = data.settings.provider_deactivated_message;
+              }
+            } catch (_) {
+              // use default
+            }
+          }
           await getSupabaseProviderClient().auth.signOut();
           toast({
             title: "Access Blocked",
-            description: "Your access to the provider portal has been revoked. Please contact your administrator.",
+            description: message,
             variant: "destructive",
           });
           router.push("/provider/login");

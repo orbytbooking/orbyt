@@ -307,7 +307,7 @@ export default function CustomerAuthPage() {
         // Query customer record for this specific business (requires RLS policy "Customers can view own data")
         const { data: customer, error: customerError } = await supabase
           .from('customers')
-          .select('id, name, business_id')
+          .select('id, name, business_id, access_blocked, booking_blocked')
           .eq('auth_user_id', data.user.id)
           .eq('business_id', businessId)
           .single();
@@ -321,6 +321,27 @@ export default function CustomerAuthPage() {
             );
           }
           throw new Error('Customer account not found for this business. Please sign up first.');
+        }
+
+        // If customer account is blocked, show configured message and sign out
+        if ((customer as { access_blocked?: boolean }).access_blocked) {
+          let message = 'We apologize for the inconvenience. Please contact our office if you have any questions.';
+          try {
+            const res = await fetch(`/api/admin/access-settings?businessId=${encodeURIComponent(businessId)}`);
+            const msgData = await res.json();
+            if (res.ok && msgData.settings?.customer_blocked_message) {
+              message = msgData.settings.customer_blocked_message;
+            }
+          } catch (_) {
+            // use default
+          }
+          await supabase.auth.signOut();
+          toast({
+            title: 'Account not available',
+            description: message,
+            variant: 'destructive',
+          });
+          return;
         }
         
         // Double-check business match (should always be true at this point)

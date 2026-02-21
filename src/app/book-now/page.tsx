@@ -1261,14 +1261,17 @@ function BookingPageContent() {
           return { ...newBooking, id: savedId };
         }
 
+        const isBlocked = res.status === 403 && data?.error === "BOOKING_BLOCKED" && data?.message;
         const msg =
-          (data && typeof data === "object" ? (data.error ?? data.details ?? data.message) : null) ||
-          rawText ||
-          `Save failed (${res.status})`;
-        const hint = data.hint ? ` ${data.hint}` : "";
+          isBlocked
+            ? data.message
+            : (data && typeof data === "object" ? (data.error ?? data.details ?? data.message) : null) ||
+              rawText ||
+              `Save failed (${res.status})`;
+        const hint = !isBlocked && data?.hint ? ` ${data.hint}` : "";
         toast({
-          title: "Error",
-          description: msg === "Customer profile not found for this business"
+          title: isBlocked ? "Booking not available" : "Error",
+          description: !isBlocked && msg === "Customer profile not found for this business"
             ? "Please log in as a customer for this business to see this booking in your dashboard."
             : `${msg}${hint}`,
           variant: "destructive",
@@ -1554,8 +1557,13 @@ function BookingPageContent() {
         const saved = (data.data ?? data.booking) ?? data;
         return saved?.id ?? data.id ?? null;
       }
-      const msg = (typeof data === "object" ? (data.error ?? data.message) : null) || rawText;
-      toast({ title: "Error", description: msg || `Save failed (${res.status})`, variant: "destructive" });
+      const isBlocked = res.status === 403 && data?.error === "BOOKING_BLOCKED" && data?.message;
+      const msg = isBlocked ? data.message : (typeof data === "object" ? (data.error ?? data.message) : null) || rawText;
+      toast({
+        title: isBlocked ? "Booking not available" : "Error",
+        description: msg || `Save failed (${res.status})`,
+        variant: "destructive",
+      });
       return null;
     } catch (err) {
       console.warn("createDraftBookingForStripe failed", err);
