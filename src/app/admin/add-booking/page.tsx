@@ -204,6 +204,32 @@ function AddBookingPage() {
   const [industries, setIndustries] = useState<Industry[]>([]);
   const [selectedIndustryId, setSelectedIndustryId] = useState<string>("");
   const [hasLocationBasedFrequencies, setHasLocationBasedFrequencies] = useState(false);
+  const [cancellationFeeDisplay, setCancellationFeeDisplay] = useState<{ enabled: boolean; amount: number; currency: string } | null>(null);
+
+  // Load cancellation settings for Payment Summary display
+  useEffect(() => {
+    if (!currentBusiness?.id) return;
+    fetch(`/api/admin/cancellation-settings?businessId=${encodeURIComponent(currentBusiness.id)}`, {
+      headers: { "x-business-id": currentBusiness.id },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        const s = data.settings || {};
+        if (s.chargeFee === "yes" && s.feeAmount != null) {
+          const amount = parseFloat(String(s.feeAmount));
+          if (!Number.isNaN(amount) && amount >= 0) {
+            setCancellationFeeDisplay({
+              enabled: true,
+              amount,
+              currency: s.feeCurrency || "$",
+            });
+            return;
+          }
+        }
+        setCancellationFeeDisplay({ enabled: false, amount: 0, currency: "$" });
+      })
+      .catch(() => setCancellationFeeDisplay(null));
+  }, [currentBusiness?.id]);
 
   // Load industries from API (runs once)
   useEffect(() => {
@@ -348,6 +374,18 @@ function AddBookingPage() {
       setServiceCategories(filtered);
     }).catch(() => setServiceCategories([]));
   }, [frequencyDependencies, selectedIndustryId]);
+
+  // Pre-fill provider wage from service category override when service is selected
+  useEffect(() => {
+    if (!newBooking.service || serviceCategories.length === 0) return;
+    const category = serviceCategories.find((cat: ServiceCategory) => cat.name === newBooking.service);
+    const override = category?.override_provider_pay as { enabled?: boolean; amount?: string; payType?: 'fixed' | 'hourly'; currency?: string } | undefined;
+    if (override?.enabled && override.amount !== undefined && override.amount !== null) {
+      setProviderWage(String(override.amount));
+      const payType = override.payType ?? (override.currency === '$' ? 'fixed' : 'hourly');
+      setProviderWageType(payType === 'fixed' ? 'fixed' : 'hourly');
+    }
+  }, [newBooking.service, serviceCategories]);
 
   // Debug extras rendering
   useEffect(() => {
@@ -700,6 +738,9 @@ const handleAddBooking = async (status: string = 'pending') => {
         waiting_list: newBooking.waitingList,
         priority: newBooking.priority,
         zip_code: newBooking.zipCode,
+        exclude_cancellation_fee: newBooking.excludeCancellationFee,
+        exclude_customer_notification: newBooking.excludeCustomerNotification,
+        exclude_provider_notification: newBooking.excludeProviderNotification,
       }),
       });
     } catch (fetchError) {
@@ -1093,66 +1134,65 @@ const handleAddBooking = async (status: string = 'pending') => {
     });
   };
 
-  // Calculate service total: sum prices from all matching variable category parameters (same logic as customer portal)
+  // Calculate service total: service base price (if set) + sum of selected options (Bathroom, Bedroom, etc.)
   const calculateServiceTotal = useMemo(() => {
     if (!newBooking.service || !newBooking.frequency) {
       console.log('⚠️ calculateServiceTotal: Missing service or frequency', { service: newBooking.service, frequency: newBooking.frequency });
       return 0;
     }
 
-    let sum = 0;
+    const selectedServiceCategory = serviceCategories.find(cat => cat.name === newBooking.service);
 
-    // Sum prices for each selected variable category (Bathroom, Bedroom, Living Room, Sq Ft, Storage, etc.)
+    // 1) Base price from service type (e.g. Deep Cleaning) when "Set service category price" is enabled
+    let basePrice = 0;
+    if (selectedServiceCategory?.service_category_price?.enabled) {
+      const priceStr = selectedServiceCategory.service_category_price?.price;
+      if (priceStr !== undefined && priceStr !== null && String(priceStr).trim() !== '') {
+        const p = parseFloat(String(priceStr).trim());
+        if (!Number.isNaN(p) && p >= 0) basePrice = p;
+      }
+    }
+
+    // 2) Add prices for each selected option (Bathroom, Bedroom, Living Room, Sq Ft, Storage, etc.)
+    let optionsSum = 0;
     for (const [categoryKey, optionName] of Object.entries(categoryValues)) {
       if (!optionName?.trim() || optionName.trim().toLowerCase() === "none") continue;
       const param = pricingParameters.find(p => {
         if (p.variable_category !== categoryKey || p.name !== optionName) return false;
         if (p.show_based_on_frequency && p.frequency) {
-          const allowed = p.frequency.split(', ').map(f => f.trim());
+          const allowed = (p.frequency || '').split(', ').map((f: string) => f.trim());
           if (!allowed.includes(newBooking.frequency)) return false;
         }
         if (p.show_based_on_service_category && p.service_category) {
-          const allowed = p.service_category.split(', ').map(s => s.trim());
+          const allowed = (p.service_category || '').split(', ').map((s: string) => s.trim());
           if (!allowed.includes(newBooking.service)) return false;
         }
         return true;
       });
-      if (param && typeof param.price === "number" && !Number.isNaN(param.price)) {
-        sum += param.price;
+      if (param) {
+        const price = Number(param.price);
+        if (!Number.isNaN(price) && price >= 0) optionsSum += price;
       }
     }
 
-    if (sum > 0) return sum;
+    let total = basePrice + optionsSum;
+    if (total > 0) return total;
 
-    // Fallback: Check if service category has a fixed price
-    const selectedServiceCategory = serviceCategories.find(cat => cat.name === newBooking.service);
+    // 3) Fallback: if no base/options, use service category fixed price (legacy single-price mode)
     if (selectedServiceCategory?.service_category_price?.enabled && selectedServiceCategory.service_category_price?.price) {
       const price = parseFloat(selectedServiceCategory.service_category_price.price);
-      if (!isNaN(price) && price > 0) {
-        console.log('✅ calculateServiceTotal: Using service category fixed price', { price });
-        return price;
-      }
+      if (!isNaN(price) && price > 0) return price;
     }
 
-    // Fallback: Check if service category has hourly pricing
+    // 4) Fallback: hourly pricing when duration is set
     if (selectedServiceCategory?.hourly_service?.enabled && selectedServiceCategory.hourly_service?.price) {
       const hourlyPrice = parseFloat(selectedServiceCategory.hourly_service.price);
       if (!isNaN(hourlyPrice) && hourlyPrice > 0 && newBooking.duration) {
         const hours = parseFloat(newBooking.duration) || 0;
-        const calculatedPrice = hourlyPrice * hours;
-        console.log('✅ calculateServiceTotal: Using hourly pricing', { hourlyPrice, hours, calculatedPrice });
-        return calculatedPrice;
+        return hourlyPrice * hours;
       }
     }
 
-    console.warn('⚠️ calculateServiceTotal: No pricing found', { 
-      service: newBooking.service, 
-      frequency: newBooking.frequency,
-      pricingParamsCount: pricingParameters.length,
-      serviceCategoryFound: !!selectedServiceCategory,
-      categoryPriceEnabled: selectedServiceCategory?.service_category_price?.enabled,
-      hourlyPriceEnabled: selectedServiceCategory?.hourly_service?.enabled
-    });
     return 0;
   }, [newBooking.service, newBooking.frequency, newBooking.duration, categoryValues, pricingParameters, serviceCategories]);
 
@@ -1356,8 +1396,8 @@ const handleAddBooking = async (status: string = 'pending') => {
   return (
     <div className="space-y-6">
       <div className="grid gap-6 lg:grid-cols-[0.8fr_2fr]">
-        {/* Summary Sidebar - Now on the LEFT */}
-        <div className="space-y-4">
+        {/* Summary Sidebar - sticky so it stays visible while customer details scroll */}
+        <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Booking Summary</CardTitle>
@@ -1480,6 +1520,14 @@ const handleAddBooking = async (status: string = 'pending') => {
                 }
                 return null;
               })()}
+              {cancellationFeeDisplay?.enabled && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span className="text-xs">Cancellation Fee (if cancelled within policy)</span>
+                  <span className="text-xs font-medium">
+                    {cancellationFeeDisplay.currency}{cancellationFeeDisplay.amount.toFixed(2)}
+                  </span>
+                </div>
+              )}
               <div className="border-t pt-2 mt-2"></div>
               <div className="flex justify-between font-semibold text-base">
                 <span>TOTAL</span>
@@ -1650,11 +1698,19 @@ const handleAddBooking = async (status: string = 'pending') => {
             </div>
             <div className="flex items-center space-x-2">
               <Checkbox
-                id="exclude-minimum-fee"
-                checked={newBooking.excludeMinimumFee}
-                onCheckedChange={(checked) => setNewBooking({ ...newBooking, excludeMinimumFee: !!checked })}
+                id="exclude-customer-notification"
+                checked={newBooking.excludeCustomerNotification}
+                onCheckedChange={(checked) => setNewBooking({ ...newBooking, excludeCustomerNotification: !!checked })}
               />
-              <Label htmlFor="exclude-minimum-fee" className="text-sm text-white">Exclude minimum fee</Label>
+              <Label htmlFor="exclude-customer-notification" className="text-sm text-white">Exclude customer notification</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="exclude-provider-notification"
+                checked={newBooking.excludeProviderNotification}
+                onCheckedChange={(checked) => setNewBooking({ ...newBooking, excludeProviderNotification: !!checked })}
+              />
+              <Label htmlFor="exclude-provider-notification" className="text-sm text-white">Exclude provider notification</Label>
             </div>
           </div>
 

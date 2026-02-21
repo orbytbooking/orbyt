@@ -64,6 +64,10 @@ const CustomerAppointmentsPage = () => {
   const [search, setSearch] = useState("");
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [detailsBooking, setDetailsBooking] = useState<Booking | null>(null);
+  const [cancelDialogBooking, setCancelDialogBooking] = useState<Booking | null>(null);
+  const [cancellationDisclaimer, setCancellationDisclaimer] = useState<string | null>(null);
+  const [cancellationPolicyLoading, setCancellationPolicyLoading] = useState(false);
+  const [detailsCancellationDisclaimer, setDetailsCancellationDisclaimer] = useState<string | null>(null);
 
   const upcomingBookings = useMemo(
     () => bookings.filter((b) => !["completed", "canceled", "cancelled"].includes(b.status?.toLowerCase() ?? "")),
@@ -98,11 +102,25 @@ const CustomerAppointmentsPage = () => {
       .join("") || "PP"
   ), [customerName]);
 
-  const handleCancelBooking = async (booking: Booking) => {
-    if (typeof window !== "undefined") {
-      const confirmCancel = window.confirm(`Cancel this booking (${booking.service})?`);
-      if (!confirmCancel) return;
+  const handleCancelBookingClick = (booking: Booking) => {
+    setCancelDialogBooking(booking);
+    setCancellationDisclaimer(null);
+    if (businessId) {
+      setCancellationPolicyLoading(true);
+      fetch(`/api/cancellation-policy?businessId=${encodeURIComponent(businessId)}`)
+        .then((r) => r.json())
+        .then((data) => setCancellationDisclaimer(data.disclaimerText ?? "Based on our cancellation policy, fees may apply when you cancel."))
+        .catch(() => setCancellationDisclaimer("Based on our cancellation policy, fees may apply when you cancel."))
+        .finally(() => setCancellationPolicyLoading(false));
+    } else {
+      setCancellationDisclaimer("Based on our cancellation policy, fees may apply when you cancel.");
     }
+  };
+
+  const handleCancelBookingConfirm = async () => {
+    const booking = cancelDialogBooking;
+    if (!booking) return;
+    setCancelDialogBooking(null);
     setCancellingId(booking.id);
     try {
       const supabase = getSupabaseCustomerClient();
@@ -115,7 +133,7 @@ const CustomerAppointmentsPage = () => {
         });
         return;
       }
-      const res = await fetch(`/api/customer/bookings/${encodeURIComponent(booking.id)}`, {
+      const res = await fetch(`/api/customer/bookings/${encodeURIComponent(booking.id)}?business=${encodeURIComponent(businessId)}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -153,6 +171,13 @@ const CustomerAppointmentsPage = () => {
 
   const handleViewDetails = (booking: Booking) => {
     setDetailsBooking(booking);
+    setDetailsCancellationDisclaimer(null);
+    if (businessId) {
+      fetch(`/api/cancellation-policy?businessId=${encodeURIComponent(businessId)}`)
+        .then((r) => r.json())
+        .then((data) => setDetailsCancellationDisclaimer(data.disclaimerText ?? null))
+        .catch(() => setDetailsCancellationDisclaimer(null));
+    }
   };
 
   const handleEditReschedule = (booking: Booking) => {
@@ -218,10 +243,42 @@ const CustomerAppointmentsPage = () => {
             <BookingsTable
               bookings={filteredBookings}
               emptyMessage="No appointments yet. Schedule your first service to get started."
-              onCancelBooking={handleCancelBooking}
+              onCancelBooking={handleCancelBookingClick}
               onViewDetails={handleViewDetails}
               onEditReschedule={handleEditReschedule}
             />
+
+            <Dialog open={!!cancelDialogBooking} onOpenChange={(open) => !open && setCancelDialogBooking(null)}>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Cancel booking</DialogTitle>
+                </DialogHeader>
+                {cancelDialogBooking && (
+                  <div className="space-y-4 py-2">
+                    <p className="text-sm text-muted-foreground">
+                      Are you sure you want to cancel <span className="font-medium text-foreground">{cancelDialogBooking.service}</span>?
+                    </p>
+                    <div className="rounded-lg border bg-muted/50 p-3 text-sm">
+                      {cancellationPolicyLoading ? (
+                        <p className="text-muted-foreground">Loading cancellation disclaimer...</p>
+                      ) : (
+                        <p className="text-muted-foreground">
+                          {cancellationDisclaimer ?? "Based on our cancellation policy, fees may apply when you cancel."}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2">
+                      <Button variant="outline" onClick={() => setCancelDialogBooking(null)}>
+                        Keep booking
+                      </Button>
+                      <Button variant="destructive" onClick={handleCancelBookingConfirm} disabled={cancellingId === cancelDialogBooking.id}>
+                        {cancellingId === cancelDialogBooking.id ? "Canceling…" : "Cancel booking"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </DialogContent>
+            </Dialog>
 
             <Dialog open={!!detailsBooking} onOpenChange={(open) => !open && setDetailsBooking(null)}>
               <DialogContent className="sm:max-w-lg">
@@ -363,6 +420,22 @@ const CustomerAppointmentsPage = () => {
                         <span className="text-sm font-medium text-muted-foreground">Total amount</span>
                       </div>
                       <span className="text-lg font-bold">{formatCurrency(detailsBooking.price)}</span>
+                    </div>
+
+                    {/* Cancellation fee (if booking was cancelled and fee was applied) */}
+                    {(["canceled", "cancelled"].includes(detailsBooking.status?.toLowerCase() ?? "") && detailsBooking.cancellationFeeAmount != null && detailsBooking.cancellationFeeAmount > 0) && (
+                      <div className="flex items-center justify-between rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 px-4 py-3">
+                        <span className="text-sm font-medium text-muted-foreground">Cancellation fee applied</span>
+                        <span className="font-semibold">{detailsBooking.cancellationFeeCurrency ?? "$"}{detailsBooking.cancellationFeeAmount.toFixed(2)}</span>
+                      </div>
+                    )}
+
+                    {/* Cancellation policy disclaimer */}
+                    <div className="rounded-xl border bg-muted/30 px-4 py-3">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Cancellation disclaimer</p>
+                      <p className="text-sm text-muted-foreground">
+                        {detailsCancellationDisclaimer ?? "Based on our cancellation policy, a fee may apply if you cancel within the policy window."}
+                      </p>
                     </div>
 
                     {detailsBooking.notes?.trim() && (

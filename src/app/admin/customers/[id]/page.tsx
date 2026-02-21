@@ -340,6 +340,8 @@ export default function CustomerProfilePage() {
             customization: b.customization,
             providerWage: b.provider_wage != null ? Number(b.provider_wage) : undefined,
             durationMinutes: b.duration_minutes != null ? Number(b.duration_minutes) : undefined,
+            cancellationFeeAmount: b.cancellation_fee_amount != null ? Number(b.cancellation_fee_amount) : undefined,
+            cancellationFeeCurrency: b.cancellation_fee_currency ?? undefined,
           };
         });
         setCustomerBookings(list);
@@ -2033,10 +2035,21 @@ export default function CustomerProfilePage() {
                         </span>
                       </div>
                     )}
+                    {selectedBooking.status === "cancelled" && (selectedBooking as any).cancellationFeeAmount != null && Number((selectedBooking as any).cancellationFeeAmount) > 0 && (
+                      <div className="flex justify-between items-center gap-4">
+                        <span className="text-gray-500 text-sm shrink-0">Cancellation fee (applied)</span>
+                        <span className="text-sm font-medium text-right">
+                          {(selectedBooking as any).cancellationFeeCurrency ?? "$"}{Number((selectedBooking as any).cancellationFeeAmount).toFixed(2)}
+                        </span>
+                      </div>
+                    )}
                     {selectedBooking.notes && <DetailRow label="Notes" value={selectedBooking.notes} className="text-right" />}
                     <div className="flex justify-between items-center pt-1">
                       <span className="text-gray-500 text-sm">Status</span>
                       <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">{selectedBooking.status}</span>
+                    </div>
+                    <div className="pt-1.5 mt-1.5 border-t border-gray-200">
+                      <p className="text-xs text-gray-500">Cancellation policy and fee are set in Settings → General → Cancellation.</p>
                     </div>
                   </div>
                 </CollapsibleContent>

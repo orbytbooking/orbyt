@@ -95,6 +95,8 @@ function dbToCustomerBooking(row: any, providerNameById?: Record<string, string>
     tipAmount: row.tip_amount != null ? Number(row.tip_amount) : undefined,
     tipUpdatedAt: row.tip_updated_at ?? undefined,
     customization: row.customization != null && typeof row.customization === 'object' ? row.customization : undefined,
+    cancellationFeeAmount: row.cancellation_fee_amount != null ? Number(row.cancellation_fee_amount) : undefined,
+    cancellationFeeCurrency: row.cancellation_fee_currency ?? undefined,
   };
 }
 

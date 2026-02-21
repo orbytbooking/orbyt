@@ -52,6 +52,19 @@ export interface ServiceCategory {
     chargeTiming: 'beforeDay' | 'hoursBefore';
     beforeDayTime: string;
     hoursBefore: string;
+    multiple_fees?: Array<{
+      id: string;
+      fee: string;
+      currency: string;
+      chargeTiming: 'beforeDay' | 'hoursBefore';
+      beforeDayTime: string;
+      daysBefore?: string;
+      hoursBefore: string;
+      minutesBefore?: string;
+      payProvider: boolean;
+      providerFee: string;
+      providerCurrency: string;
+    }>;
   };
   hourly_service?: {
     enabled: boolean;
@@ -81,9 +94,19 @@ export interface ServiceCategory {
   override_provider_pay?: {
     enabled: boolean;
     amount: string;
-    currency: string;
+    /** @deprecated use payType */
+    currency?: string;
+    payType?: 'fixed' | 'hourly';
   };
   excluded_providers?: string[];
+  show_explanation_icon_on_form?: boolean;
+  explanation_tooltip_text?: string;
+  enable_popup_on_selection?: boolean;
+  popup_content?: string;
+  enable_service_length_tooltip_customer?: boolean;
+  service_length_tooltip_text_customer?: string;
+  enable_service_length_tooltip_provider?: boolean;
+  service_length_tooltip_text_provider?: string;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -120,6 +143,14 @@ export interface CreateServiceCategoryData {
   minimum_price?: ServiceCategory['minimum_price'];
   override_provider_pay?: ServiceCategory['override_provider_pay'];
   excluded_providers?: string[];
+  show_explanation_icon_on_form?: boolean;
+  explanation_tooltip_text?: string;
+  enable_popup_on_selection?: boolean;
+  popup_content?: string;
+  enable_service_length_tooltip_customer?: boolean;
+  service_length_tooltip_text_customer?: string;
+  enable_service_length_tooltip_provider?: boolean;
+  service_length_tooltip_text_provider?: string;
   sort_order?: number;
 }
 
@@ -359,7 +390,7 @@ class ServiceCategoriesService {
         override_provider_pay: category.overrideProviderPay || {
           enabled: false,
           amount: "",
-          currency: "$"
+          payType: "hourly"
         },
         excluded_providers: category.excludedProviders || [],
         sort_order: index

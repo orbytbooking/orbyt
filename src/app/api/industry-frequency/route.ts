@@ -88,14 +88,21 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Filter by zipcode when "Should the frequency show based on the location?" = Yes
-    // - includeAll/admin: return all frequencies (admin list, settings) – no filtering
-    // - zipcode provided: filter by location (customer booking flow)
-    // - no zipcode: hide location-based frequencies until customer enters zipcode
+    // For customer booking: only show frequencies with display 'Both' or 'Booking' (treat null/undefined as Both)
+    const forCustomer = !includeAll;
     let filtered = frequencies ?? [];
+    if (forCustomer) {
+      filtered = (filtered as any[]).filter(
+        (f: any) => !f.display || f.display === 'Both' || f.display === 'Booking'
+      );
+    }
+
+    // Filter by zipcode when "Should the frequency show based on the location?" = Yes
+    // - includeAll/admin: no location filtering
+    // - zipcode provided: include non-location-based + location-based where zip in range
+    // - no zipcode: only non-location-based
     if (includeAll) {
-      // Admin context – return all frequencies unfiltered
-      filtered = frequencies ?? [];
+      // keep as is
     } else if (zipcode) {
       const results: typeof frequencies = [];
       for (const freq of filtered) {
@@ -109,6 +116,12 @@ export async function GET(request: NextRequest) {
         }
       }
       filtered = results;
+      // If zip filtering left nothing, show non-location-based so customer still sees options
+      if (filtered.length === 0) {
+        filtered = (frequencies ?? []).filter(
+          (f: any) => (!f.display || f.display === 'Both' || f.display === 'Booking') && f.show_based_on_location !== true
+        );
+      }
     } else {
       filtered = (filtered as any[]).filter(
         (f) => f.show_based_on_location !== true

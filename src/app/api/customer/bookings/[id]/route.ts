@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
+import { getCancellationFeeForBooking } from '@/lib/cancellationFee';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -50,6 +51,8 @@ function dbToCustomerBooking(row: any): Record<string, unknown> {
     tipAmount: row.tip_amount != null ? Number(row.tip_amount) : undefined,
     tipUpdatedAt: row.tip_updated_at ?? undefined,
     customization: row.customization != null && typeof row.customization === 'object' ? row.customization : undefined,
+    cancellationFeeAmount: row.cancellation_fee_amount != null ? Number(row.cancellation_fee_amount) : undefined,
+    cancellationFeeCurrency: row.cancellation_fee_currency ?? undefined,
   };
 }
 
@@ -102,6 +105,7 @@ export async function GET(
       scheduled_date, scheduled_time, date, time, address, apt_no, zip_code,
       notes, total_price, amount, payment_method, payment_status, tip_amount, tip_updated_at,
       customer_name, customer_email, customer_phone, customization, frequency, provider_name,
+      cancellation_fee_amount, cancellation_fee_currency,
       service_providers ( first_name, last_name )
     `)
     .eq('id', bookingId)
@@ -169,7 +173,7 @@ export async function PATCH(
 
   const { data: booking, error: fetchError } = await supabase
     .from('bookings')
-    .select('id, customer_id, business_id')
+    .select('id, customer_id, business_id, scheduled_date, scheduled_time, date, time, service_id')
     .eq('id', bookingId)
     .single();
 
@@ -186,6 +190,33 @@ export async function PATCH(
 
   const updates: Record<string, unknown> = {};
   if (status) updates.status = status;
+
+  if (status === 'cancelled' && booking.business_id) {
+    const { data: cancelSettings } = await supabase
+      .from('business_cancellation_settings')
+      .select('settings')
+      .eq('business_id', booking.business_id)
+      .maybeSingle();
+    let categoryFee = null;
+    if (booking.service_id) {
+      const { data: cat } = await supabase
+        .from('industry_service_category')
+        .select('cancellation_fee')
+        .eq('id', booking.service_id)
+        .eq('business_id', booking.business_id)
+        .maybeSingle();
+      if (cat?.cancellation_fee) categoryFee = cat.cancellation_fee as Record<string, unknown>;
+    }
+    const fee = getCancellationFeeForBooking(
+      booking,
+      (cancelSettings?.settings as Record<string, unknown>) || null,
+      categoryFee
+    );
+    if (fee) {
+      updates.cancellation_fee_amount = fee.amount;
+      updates.cancellation_fee_currency = fee.currency;
+    }
+  }
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: 'No updates provided' }, { status: 400 });

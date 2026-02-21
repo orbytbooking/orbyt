@@ -1148,9 +1148,20 @@ toast({
                             <Link href="/admin/settings" className="text-orange-600 hover:underline ml-1.5 text-xs">Learn more</Link>
                           </span>
                         </div>
+                        {(selectedBooking.status === "cancelled" || (selectedBooking as any).status === "cancelled") && (selectedBooking as any).cancellation_fee_amount != null && Number((selectedBooking as any).cancellation_fee_amount) > 0 && (
+                          <div className="flex justify-between items-center gap-4 py-1.5">
+                            <span className="text-muted-foreground text-sm shrink-0">Cancellation fee (applied)</span>
+                            <span className="text-sm font-medium text-right">
+                              {(selectedBooking as any).cancellation_fee_currency ?? "$"}{Number((selectedBooking as any).cancellation_fee_amount).toFixed(2)}
+                            </span>
+                          </div>
+                        )}
                         <div className="flex justify-between items-center gap-4 py-1.5">
                           <span className="text-muted-foreground text-sm">Status</span>
                           {getStatusBadge(selectedBooking.status)}
+                        </div>
+                        <div className="pt-1.5 mt-1.5 border-t border-border/50">
+                          <p className="text-xs text-muted-foreground">Cancellation policy and fee are set in Settings → General → Cancellation.</p>
                         </div>
                       </DetailSection>
                     </div>
