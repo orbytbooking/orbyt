@@ -1803,7 +1803,7 @@ function BookingPageContent() {
                     <span>${subtotal.toFixed(2)}</span>
                   </div>
                   <div className={styles.priceRow}>
-                    <span>Tax (8%):</span>
+                    <span>Service Charge:</span>
                     <span>${tax.toFixed(2)}</span>
                   </div>
                   <div className={styles.divider}></div>

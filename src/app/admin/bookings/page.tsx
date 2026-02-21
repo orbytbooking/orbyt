@@ -448,6 +448,24 @@ export default function BookingsPage() {
     setShowDetails(true);
   };
 
+  const createBookingNotification = async (title: string, description: string) => {
+    if (!currentBusiness?.id) return;
+    try {
+      await fetch('/api/admin/notifications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          description,
+          business_id: currentBusiness.id,
+          link: '/admin/bookings',
+        }),
+      });
+    } catch {
+      // Non-blocking
+    }
+  };
+
   const handleStatusChange = async (bookingId: string, newStatus: string) => {
     const { error } = await supabase.from('bookings').update({ status: newStatus }).eq('id', bookingId);
     if (error) {
@@ -458,6 +476,8 @@ export default function BookingsPage() {
       });
       return;
     }
+    const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
+    await createBookingNotification('Booking modified', `Booking ${bkRef} status changed to ${newStatus}.`);
     setBookings((prev) => {
   const updated = prev.map((booking) =>
     booking.id === bookingId ? { ...booking, status: newStatus } : booking
@@ -501,6 +521,9 @@ toast({
       });
       return;
     }
+
+    const bkRef = `BK${String(selectedBooking.id).slice(-6).toUpperCase()}`;
+    await createBookingNotification('Booking assigned', `Provider ${providerName} assigned to booking ${bkRef}.`);
     
     setBookings((prev) => {
       const updated = prev.map((booking) =>

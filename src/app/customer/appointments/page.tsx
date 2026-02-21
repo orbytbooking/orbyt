@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Calendar, Clock, DollarSign, LayoutDashboard, MapPin, Search, User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -55,6 +55,7 @@ const statusLabels: Record<string, string> = {
 };
 
 const CustomerAppointmentsPage = () => {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const businessId = searchParams?.get("business") ?? "";
   const { bookings, loading: bookingsLoading, updateBookings } = useCustomerBookings();
@@ -154,6 +155,12 @@ const CustomerAppointmentsPage = () => {
     setDetailsBooking(booking);
   };
 
+  const handleEditReschedule = (booking: Booking) => {
+    const params = new URLSearchParams({ bookingId: booking.id });
+    if (businessId) params.set("business", businessId);
+    router.push(`/book-now?${params.toString()}`);
+  };
+
   if (bookingsLoading || accountLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-muted/40">
@@ -213,6 +220,7 @@ const CustomerAppointmentsPage = () => {
               emptyMessage="No appointments yet. Schedule your first service to get started."
               onCancelBooking={handleCancelBooking}
               onViewDetails={handleViewDetails}
+              onEditReschedule={handleEditReschedule}
             />
 
             <Dialog open={!!detailsBooking} onOpenChange={(open) => !open && setDetailsBooking(null)}>

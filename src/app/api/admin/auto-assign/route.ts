@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { createAdminNotification } from '@/lib/adminProviderSync';
 
 export async function POST(request: NextRequest) {
   try {
@@ -250,6 +251,14 @@ export async function POST(request: NextRequest) {
         rule_applied: 'auto-assignment algorithm',
         created_at: new Date().toISOString()
       });
+
+    const providerName = `${bestMatch.provider.first_name || ''} ${bestMatch.provider.last_name || ''}`.trim();
+    const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
+    await createAdminNotification(businessId, 'booking_assigned', {
+      title: 'Booking assigned',
+      message: `Provider ${providerName} was assigned to booking ${bkRef}.`,
+      link: '/admin/bookings',
+    });
 
     return NextResponse.json({
       success: true,

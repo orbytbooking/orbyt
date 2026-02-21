@@ -181,7 +181,7 @@ export default function GeneralSettingsPage() {
         </TabsList>
         <TabsContent value="store-options" className="pt-6 space-y-4">
           <p className="text-sm text-muted-foreground">
-            Store options settings will be implemented here.
+            Store options settings – Currently under development.
           </p>
         </TabsContent>
         <TabsContent value="tags" className="pt-6 space-y-4">

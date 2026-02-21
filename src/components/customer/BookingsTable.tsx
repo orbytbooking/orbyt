@@ -23,6 +23,7 @@ type BookingsTableProps = {
   emptyMessage: string;
   onCancelBooking?: (booking: Booking) => void;
   onViewDetails?: (booking: Booking) => void;
+  onEditReschedule?: (booking: Booking) => void;
   customActions?: (booking: Booking) => CustomAction[];
 };
 
@@ -82,8 +83,8 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-export const BookingsTable = ({ bookings, emptyMessage, onCancelBooking, onViewDetails, customActions }: BookingsTableProps) => {
-  const showActions = Boolean(onCancelBooking || onViewDetails || customActions);
+export const BookingsTable = ({ bookings, emptyMessage, onCancelBooking, onViewDetails, onEditReschedule, customActions }: BookingsTableProps) => {
+  const showActions = Boolean(onCancelBooking || onViewDetails || onEditReschedule || customActions);
   const colCount = 7 + (showActions ? 1 : 0); // +1 for Status column
 
   return (
@@ -149,6 +150,11 @@ export const BookingsTable = ({ bookings, emptyMessage, onCancelBooking, onViewD
                           View details
                         </DropdownMenuItem>
                       )}
+                      {onEditReschedule && (
+                        <DropdownMenuItem onSelect={() => onEditReschedule(booking)}>
+                          Edit / Reschedule
+                        </DropdownMenuItem>
+                      )}
                       {onCancelBooking && (
                         <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
@@ -160,7 +166,7 @@ export const BookingsTable = ({ bookings, emptyMessage, onCancelBooking, onViewD
                           Cancel booking
                         </DropdownMenuItem>
                       )}
-                      {customActions && (onViewDetails || onCancelBooking) && customActions(booking).length > 0 && (
+                      {customActions && (onViewDetails || onEditReschedule || onCancelBooking) && customActions(booking).length > 0 && (
                         <DropdownMenuSeparator />
                       )}
                       {customActions?.(booking).map((action) => (

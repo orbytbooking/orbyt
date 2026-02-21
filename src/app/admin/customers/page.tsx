@@ -474,6 +474,23 @@ const Customers = () => {
       } catch {}
     }
 
+    if (currentBusiness?.id) {
+      try {
+        await fetch('/api/admin/notifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: 'New customer',
+            description: `${name || newCustomer.email} has been added.`,
+            business_id: currentBusiness.id,
+            link: data?.id ? `/admin/customers/${data.id}` : '/admin/customers',
+          }),
+        });
+      } catch {
+        // Non-blocking: notification creation failed
+      }
+    }
+
     toast({
       title: "Customer Added",
       description: `${name || newCustomer.email} has been added successfully.`,
