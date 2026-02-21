@@ -2,6 +2,16 @@
 
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+
+const TAB_DESCRIPTIONS: Record<string, string> = {
+  all: "All your bookings are shown here.",
+  today: "Bookings scheduled for today are shown here.",
+  upcoming: "Any bookings that have not started yet are shown here. The topmost booking is the next job to run.",
+  unassigned: "Bookings that do not have a provider assigned yet.",
+  draft: "Draft and quote bookings that have not been confirmed.",
+  cancelled: "Cancelled bookings are shown here.",
+  history: "Past and completed bookings.",
+};
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +31,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import Link from "next/link";
 import {
@@ -40,6 +56,7 @@ import {
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
+  RotateCw,
   Send,
   UserPlus,
   Calendar,
@@ -47,7 +64,12 @@ import {
   FileText,
   Archive,
   History,
-  User as UserIcon
+  User as UserIcon,
+  Pencil,
+  Receipt,
+  CreditCard,
+  ListChecks,
+  Image
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
@@ -194,6 +216,27 @@ export default function BookingsPage() {
   const [providersLoading, setProvidersLoading] = useState(false);
   const [viewMode, setViewMode] = useState<"list" | "calendar">("calendar");
   const [showSendScheduleDialog, setShowSendScheduleDialog] = useState(false);
+  const [frequencyFilter, setFrequencyFilter] = useState("all");
+
+  // Sync activeTab with URL
+  useEffect(() => {
+    const tab = searchParams.get("tab") || "all";
+    if (["all", "today", "upcoming", "unassigned", "draft", "cancelled", "history"].includes(tab)) {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
+
+  // Open booking summary when ?id=xxx in URL (e.g. from booking-charges)
+  useEffect(() => {
+    const id = searchParams.get("id") || searchParams.get("booking");
+    if (id && bookings.length > 0) {
+      const b = bookings.find((x) => String(x.id) === String(id));
+      if (b) {
+        setSelectedBooking(b);
+        setShowDetails(true);
+      }
+    }
+  }, [searchParams, bookings]);
   const [excludeParamNames, setExcludeParamNames] = useState<Record<string, string>>({});
   const [industries, setIndustries] = useState<{ id: string; name: string }[]>([]);
   const [extrasMap, setExtrasMap] = useState<Record<string, string>>({});
@@ -270,6 +313,7 @@ export default function BookingsPage() {
     }
   }, [activeTab]);
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     async function fetchBookings() {
@@ -336,7 +380,7 @@ export default function BookingsPage() {
       setLoading(false);
     }
     fetchBookings();
-  }, [currentBusiness?.id]); // Add dependency on business ID
+  }, [currentBusiness?.id, refreshKey]); // Refetch when refreshKey changes
 
   // Fetch providers from database
   useEffect(() => {
@@ -432,16 +476,26 @@ export default function BookingsPage() {
   const filteredBookings = useMemo(() => {
     const tabBookings = getTabBookings(activeTab);
     return tabBookings.filter((booking) => {
-      const matchesSearch = 
-        booking.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        booking.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        booking.service.toLowerCase().includes(searchTerm.toLowerCase());
-      
+      const search = searchTerm.toLowerCase();
+      const matchesSearch =
+        (booking.id && String(booking.id).toLowerCase().includes(search)) ||
+        (booking.customer_name && booking.customer_name.toLowerCase().includes(search)) ||
+        (booking.customer_email && booking.customer_email.toLowerCase().includes(search)) ||
+        (booking.customer_phone && booking.customer_phone.replace(/\D/g, "").includes(search.replace(/\D/g, ""))) ||
+        (booking.service && booking.service.toLowerCase().includes(search)) ||
+        (booking.address && booking.address.toLowerCase().includes(search));
+
       const matchesStatus = statusFilter === "all" || booking.status === statusFilter;
-      
-      return matchesSearch && matchesStatus;
+
+      const freq = (booking as any).frequency?.toLowerCase?.() || "";
+      const matchesFrequency =
+        frequencyFilter === "all" ||
+        (frequencyFilter === "one-time" && (!freq || freq === "one-time" || freq === "onetime")) ||
+        freq.includes(frequencyFilter);
+
+      return matchesSearch && matchesStatus && matchesFrequency;
     });
-  }, [bookings, activeTab, searchTerm, statusFilter]);
+  }, [bookings, activeTab, searchTerm, statusFilter, frequencyFilter]);
 
   const handleViewDetails = (booking: Booking) => {
     setSelectedBooking(booking);
@@ -602,9 +656,9 @@ toast({
   };
 
   const DetailRow = ({ label, value, className }: { label: string; value: string; className?: string }) => (
-    <div className="flex justify-between items-start gap-4 py-1.5">
+    <div className="flex justify-between items-start gap-4 py-1.5 min-w-0">
       <span className="text-muted-foreground text-sm shrink-0">{label}</span>
-      <span className={cn("text-sm font-medium text-right break-words max-w-[60%]", className)}>{value}</span>
+      <span className={cn("text-sm font-medium text-right break-words break-all min-w-0 flex-1", className)}>{value}</span>
     </div>
   );
 
@@ -615,15 +669,49 @@ toast({
     </div>
   );
 
+  const tabLabels: Record<string, string> = {
+    all: "All bookings",
+    today: "Today's bookings",
+    upcoming: "Upcoming bookings",
+    unassigned: "Unassigned",
+    draft: "Draft/Quote",
+    cancelled: "Cancelled",
+    history: "History",
+  };
+
   return (
     <div className="space-y-6">
+      {/* Page Title & Description */}
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight">
+          {tabLabels[activeTab] || "Bookings"}
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          {TAB_DESCRIPTIONS[activeTab] || TAB_DESCRIPTIONS.all}
+        </p>
+      </div>
+
       {/* Header Actions */}
       <div className="flex flex-col sm:flex-row gap-4 justify-between">
-        <div className="flex-1 flex gap-3">
-          <div className="relative flex-1 max-w-sm">
+        <div className="flex-1 flex gap-3 flex-wrap">
+          {(["all", "upcoming", "today"].includes(activeTab)) && (
+            <Select value={frequencyFilter} onValueChange={setFrequencyFilter}>
+              <SelectTrigger className="w-36 bg-background text-foreground">
+                <SelectValue placeholder="Frequency" className="text-foreground" />
+              </SelectTrigger>
+              <SelectContent className="bg-background border-border">
+                <SelectItem value="all" className="text-foreground hover:bg-accent">All</SelectItem>
+                <SelectItem value="one-time" className="text-foreground hover:bg-accent">One-time</SelectItem>
+                <SelectItem value="weekly" className="text-foreground hover:bg-accent">Weekly</SelectItem>
+                <SelectItem value="biweekly" className="text-foreground hover:bg-accent">Biweekly</SelectItem>
+                <SelectItem value="monthly" className="text-foreground hover:bg-accent">Monthly</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search bookings..."
+              placeholder="Search by name, email, phone, id or address"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 bg-background text-foreground placeholder:text-muted-foreground"
@@ -696,7 +784,17 @@ toast({
       </div>
 
       {/* Tabs Navigation */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => {
+          setActiveTab(v);
+          const params = new URLSearchParams(searchParams.toString());
+          if (v === "all") params.delete("tab");
+          else params.set("tab", v);
+          router.replace(`/admin/bookings${params.toString() ? `?${params.toString()}` : ""}`, { scroll: false });
+        }}
+        className="space-y-4"
+      >
         <TabsList className="grid w-full grid-cols-7 bg-muted/50">
           <TabsTrigger value="all" className="flex items-center gap-2">
             <List className="h-4 w-4" />
@@ -887,22 +985,38 @@ toast({
       {viewMode === "calendar" && (
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <CardTitle>{monthNames[month]} {year}</CardTitle>
               <div className="flex gap-2">
                 <Button
                   variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentDate(new Date())}
+                  className="shrink-0"
+                >
+                  Today
+                </Button>
+                <Button
+                  variant="outline"
                   size="icon"
-                  onClick={() => navigateMonth('prev')}
+                  onClick={() => navigateMonth("prev")}
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <Button
                   variant="outline"
                   size="icon"
-                  onClick={() => navigateMonth('next')}
+                  onClick={() => navigateMonth("next")}
                 >
                   <ChevronRight className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setRefreshKey((k) => k + 1)}
+                  title="Refresh"
+                >
+                  <RotateCw className="h-4 w-4" />
                 </Button>
               </div>
             </div>
@@ -950,15 +1064,19 @@ toast({
                         <div className="flex-1 space-y-0.5 overflow-y-auto">
                           {dayBookings.slice(0, 2).map((booking) => {
                             const tone = getStatusTone(booking.status);
+                            const nameParts = (booking.customer_name || "Booking").trim().split(/\s+/);
+                            const shortName = nameParts.length >= 2
+                              ? `${nameParts[0]} ${nameParts[nameParts.length - 1].charAt(0)}`
+                              : nameParts[0] || "Booking";
                             return (
                               <div
                                 key={booking.id}
                                 onClick={() => handleViewDetails(booking)}
-                                className="text-[10px] px-1 py-0.5 rounded cursor-pointer hover:opacity-80 transition-opacity text-white"
+                                className="text-[10px] px-1 py-0.5 rounded cursor-pointer hover:opacity-80 transition-opacity text-white truncate"
                                 style={{ background: tone.chip }}
+                                title={`${booking.customer_name || "Booking"} - ${booking.service}`}
                               >
-                                <div className="truncate font-medium">{booking.time}</div>
-                                <div className="truncate">{booking.service}</div>
+                                {shortName}
                               </div>
                             );
                           })}
@@ -1000,281 +1118,213 @@ toast({
         </TabsContent>
       </Tabs>
 
-      {/* Booking Details Dialog - improved UI matching dashboard */}
-      <Dialog open={showDetails} onOpenChange={setShowDetails}>
-        <DialogContent className="max-w-2xl p-0 overflow-hidden max-h-[85vh] flex flex-col data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 duration-300">
-          <DialogHeader className="px-6 pt-6 pb-0 animate-in fade-in-0 slide-in-from-top-2 duration-300">
-            <DialogTitle>Booking summary</DialogTitle>
-            <DialogDescription className="sr-only">View and manage booking information</DialogDescription>
-          </DialogHeader>
+      {/* Booking Summary - right side panel (BookingKoala style) */}
+      <Sheet open={showDetails} onOpenChange={setShowDetails}>
+        <SheetContent side="right" className="w-full sm:max-w-lg p-0 flex flex-col h-screen max-h-screen overflow-hidden [&>button]:text-red-500 [&>button]:hover:text-red-600">
+          <SheetHeader className="px-6 pt-6 pb-4 shrink-0 border-b border-transparent">
+            <SheetTitle className="text-lg font-bold">Booking summary</SheetTitle>
+          </SheetHeader>
 
           {selectedBooking && (
-            <div className="flex-1 overflow-y-auto px-6 pb-6">
-              {/* Customer info block */}
-              <div className="flex gap-4 pt-5 animate-in fade-in-0 slide-in-from-left-2 duration-300 delay-75">
-                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-muted to-muted/80 ring-2 ring-background transition-transform hover:scale-105">
-                  <UserIcon className="h-7 w-7 text-muted-foreground" />
+            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-6 py-4 flex flex-col gap-4 overscroll-contain">
+              {/* Customer info */}
+              <div className="flex gap-4 pt-4">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gray-200 dark:bg-gray-700">
+                  <UserIcon className="h-7 w-7 text-gray-500" />
                 </div>
-                <div className="min-w-0 flex-1 space-y-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-base">
-                      {selectedBooking.customer_name || "Customer"}
-                    </span>
-                  </div>
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <p className="font-semibold text-base">{selectedBooking.customer_name || "Customer"}</p>
                   {selectedBooking.customer_email && (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Mail className="h-3.5 w-3.5 shrink-0" />
                       <span className="truncate">{selectedBooking.customer_email}</span>
                     </div>
                   )}
                   {selectedBooking.customer_phone && (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Phone className="h-3.5 w-3.5 shrink-0" />
                       <span>{selectedBooking.customer_phone}</span>
                     </div>
                   )}
                   {selectedBooking.address && (
-                    <div className="flex items-start gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground">
+                    <div className="flex items-start gap-2 text-sm text-muted-foreground">
                       <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                      <span className="break-words">
-                        {((selectedBooking as any).apt_no ? `Apt - ${(selectedBooking as any).apt_no}, ` : "")}{selectedBooking.address}
-                      </span>
+                      <span className="break-words">{((selectedBooking as any).apt_no ? `Apt - ${(selectedBooking as any).apt_no}, ` : "")}{selectedBooking.address}</span>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Collapsible Booking details */}
-              <div className="border-t mt-5 pt-5 animate-in fade-in-0 duration-300 delay-100">
+              {/* Booking details - light grey card */}
+              <div className="rounded-lg bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 min-w-0 shrink-0">
                 <Collapsible defaultOpen className="group">
-                  <CollapsibleTrigger className="flex w-full items-center justify-between py-2.5 px-3 -mx-3 rounded-lg text-left font-semibold text-sm hover:bg-muted/50 transition-colors duration-200">
+                  <CollapsibleTrigger className="flex w-full items-center justify-between py-3 px-4 text-left font-semibold text-sm hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition-colors shrink-0">
                     <span>Booking details</span>
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-background group-data-[state=open]:hidden transition-all duration-200">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-white dark:bg-gray-800 group-data-[state=open]:hidden">
                       <Plus className="h-3.5 w-3.5 text-muted-foreground" />
                     </span>
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-background hidden group-data-[state=open]:flex transition-all duration-200">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-white dark:bg-gray-800 hidden group-data-[state=open]:flex">
                       <Minus className="h-3.5 w-3.5 text-muted-foreground" />
                     </span>
                   </CollapsibleTrigger>
-                  <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-1 duration-200">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3">
-                      <DetailSection title="Booking info">
-                        <DetailRow label="Booking id" value={String(selectedBooking.id)} />
-                        {(selectedBooking as any).zip_code && <DetailRow label="Zip/Postal code" value={(selectedBooking as any).zip_code} />}
-                        {industries[0]?.name && <DetailRow label="Industry" value={industries[0].name} />}
-                        <DetailRow label="Service" value={selectedBooking.service || "—"} />
-                        {(selectedBooking as any).frequency && <DetailRow label="Frequency" value={(selectedBooking as any).frequency} />}
-                      </DetailSection>
-                      <DetailSection title="Service details">
-                        {selectedBooking.customization && typeof selectedBooking.customization === "object" && (() => {
-                          const c = selectedBooking.customization as Record<string, unknown>;
-                          const cv = (c.categoryValues || {}) as Record<string, string>;
-                          const bath = cv.Bathroom ?? cv.bathroom ?? c.bathroom ?? c.bathrooms;
-                          const sqft = cv["Sq Ft"] ?? cv.sqFt ?? c.squareMeters ?? c.sqFt ?? c.sqft;
-                          const bed = cv.Bedroom ?? cv.bedroom ?? c.bedroom ?? c.bedrooms;
-                          const livingRoom = cv["Living Room"] ?? cv.livingRoom ?? c.livingRoom;
-                          const storage = cv.Storage ?? cv.storage ?? c.storage;
-                          const items: { label: string; value: string }[] = [];
-                          if (bath != null && String(bath).trim()) items.push({ label: "Bathrooms", value: String(bath) });
-                          if (sqft != null && String(sqft).trim()) items.push({ label: "Sq Ft", value: String(sqft) });
-                          if (bed != null && String(bed).trim()) items.push({ label: "Bedrooms", value: String(bed) });
-                          if (livingRoom != null && String(livingRoom).trim()) items.push({ label: "Living Room", value: String(livingRoom) });
-                          if (storage != null && String(storage).trim()) items.push({ label: "Storage", value: String(storage) });
-                          if (items.length === 0) return null;
-                          return <>{items.map(({ label, value }) => <DetailRow key={label} label={label} value={value} />)}</>;
-                        })()}
-                        {(() => {
-                          const c = (selectedBooking as any).customization as Record<string, unknown> | undefined;
-                          const ids = (c?.selectedExtras as string[]) || [];
-                          const names = ids.map((id: string) => extrasMap[id] || id).filter(Boolean);
-                          if (names.length === 0) return null;
-                          return <DetailRow label="Extras" value={names.join(", ")} className="text-right" />;
-                        })()}
-                        {selectedBooking.provider_id && <DetailRow label="Professionals" value="1" />}
-                        {(selectedBooking as any).duration_minutes != null && (selectedBooking as any).duration_minutes > 0 && (
-                          <DetailRow
-                            label="Length"
-                            value={
-                              (selectedBooking as any).duration_minutes >= 60
-                                ? `${Math.floor((selectedBooking as any).duration_minutes / 60)} Hr ${(selectedBooking as any).duration_minutes % 60 ? `${(selectedBooking as any).duration_minutes % 60} Min` : "0 Min"}`
-                                : `${(selectedBooking as any).duration_minutes} Min`
-                            }
-                          />
-                        )}
-                      </DetailSection>
-                      <DetailSection title="Schedule">
+                  <CollapsibleContent className="overflow-visible">
+                    <div className="px-4 pb-4 space-y-2">
+                      <DetailRow label="Booking id" value={String(selectedBooking.id)} />
+                      {(selectedBooking as any).zip_code && <DetailRow label="Zip/Postal code" value={(selectedBooking as any).zip_code} />}
+                      {industries[0]?.name && <DetailRow label="Industry" value={industries[0].name} />}
+                      {selectedBooking.service && <DetailRow label="Service" value={selectedBooking.service} />}
+                      {(selectedBooking as any).frequency && (
+                        <div className="flex justify-between items-start gap-4 py-1.5 min-w-0">
+                          <span className="text-muted-foreground text-sm shrink-0">Frequency</span>
+                          <span className="text-sm font-medium text-right flex items-center gap-1.5 break-words break-all min-w-0 flex-1">
+                            {(selectedBooking as any).frequency}
+                            {(selectedBooking as any).is_first_active_booking && (
+                              <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 shrink-0">First active booking</span>
+                            )}
+                          </span>
+                        </div>
+                      )}
+                      {(() => {
+                        const c = selectedBooking.customization as Record<string, unknown> | undefined;
+                        const cv = (c?.categoryValues || {}) as Record<string, string>;
+                        const bath = cv?.Bathroom ?? cv?.bathroom ?? (c as any)?.bathroom ?? (c as any)?.bathrooms;
+                        const sqft = cv?.["Sq Ft"] ?? cv?.sqFt ?? (c as any)?.squareMeters ?? (c as any)?.sqFt ?? (c as any)?.sqft;
+                        const bed = cv?.Bedroom ?? cv?.bedroom ?? (c as any)?.bedroom ?? (c as any)?.bedrooms;
+                        return (
+                          <>
+                            {bath != null && String(bath).trim() && <DetailRow label="Bathrooms" value={String(bath).trim()} />}
+                            {sqft != null && String(sqft).trim() && <DetailRow label="Sq Ft" value={String(sqft).trim()} />}
+                            {bed != null && String(bed).trim() && <DetailRow label="Bedrooms" value={String(bed).trim()} />}
+                          </>
+                        );
+                      })()}
+                      {(() => {
+                        const c = (selectedBooking as any).customization as Record<string, unknown> | undefined;
+                        const ids = (c?.selectedExtras as string[]) || [];
+                        const names = ids.map((id: string) => extrasMap[id] || id).filter(Boolean);
+                        return names.length > 0 ? <DetailRow label="Extras" value={names.join(", ")} /> : null;
+                      })()}
+                      {selectedBooking.provider_id && <DetailRow label="Professionals" value="1" />}
+                      {(selectedBooking as any).duration_minutes != null && (selectedBooking as any).duration_minutes > 0 && (
+                        <DetailRow
+                          label="Length"
+                          value={(selectedBooking as any).duration_minutes >= 60
+                            ? `${Math.floor((selectedBooking as any).duration_minutes / 60)} Hr ${(selectedBooking as any).duration_minutes % 60 || 0} Min`
+                            : `${(selectedBooking as any).duration_minutes} Min`}
+                        />
+                      )}
+                      {(selectedBooking.date || selectedBooking.time) && (
                         <DetailRow
                           label="Service date"
                           value={selectedBooking.date && selectedBooking.time
-                            ? `${new Date(selectedBooking.date + "T00:00:00").toLocaleDateString(undefined, { weekday: "short", month: "2-digit", day: "2-digit", year: "numeric" })} — ${formatTime(selectedBooking.time)}`
-                            : selectedBooking.date || "—"}
+                            ? `${new Date(selectedBooking.date + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "2-digit", day: "2-digit", year: "numeric" })}, ${formatTime(selectedBooking.time)}`
+                            : selectedBooking.date || formatTime(selectedBooking.time) || "—"}
                         />
-                        <DetailRow label="Assigned to" value={selectedBooking.assignedProvider || (selectedBooking as any).provider_name || "Unassigned"} className="font-bold" />
-                      </DetailSection>
-                      <DetailSection title="Payment & location">
-                        {(selectedBooking as any).provider_wage != null && (selectedBooking as any).provider_wage > 0 && (
-                          <div className="flex justify-between items-center gap-4 py-1.5">
-                            <span className="text-muted-foreground text-sm shrink-0">Provider payment</span>
-                            <span className="text-sm font-medium text-right">
-                              ${Number((selectedBooking as any).provider_wage).toFixed(2)}
-                              <Link href="/admin/settings" className="text-orange-600 hover:underline ml-1.5 text-xs">Learn more</Link>
-                            </span>
-                          </div>
-                        )}
-                        {((selectedBooking as any).apt_no || selectedBooking.address) && (
-                          <DetailRow
-                            label="Location"
-                            value={[(selectedBooking as any).apt_no ? `Apt - ${(selectedBooking as any).apt_no}` : null, selectedBooking.address].filter(Boolean).join(", ")}
-                            className="text-right"
-                          />
-                        )}
-                        <div className="flex justify-between items-center gap-4 py-1.5">
-                          <span className="text-muted-foreground text-sm">Payment method</span>
-                          <span className={cn(
-                            "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium",
-                            "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                          )}>
-                            {(selectedBooking as any).payment_method === "online" || (selectedBooking as any).payment_method === "card" ? "CC" : (selectedBooking as any).payment_method === "cash" ? "Cash/Check" : (selectedBooking as any).payment_method || "—"}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center gap-4 py-1.5">
-                          <span className="text-muted-foreground text-sm shrink-0">Price details</span>
-                          <span className="text-sm font-medium text-right">
-                            {(() => {
-                              const amount = (selectedBooking as any).total_price ?? selectedBooking.amount;
-                              const numAmount = typeof amount === "string" ? parseFloat(amount) : amount;
-                              return numAmount > 0 ? `$${numAmount.toFixed(2)}` : "$0.00";
-                            })()}
+                      )}
+                      <DetailRow label="Assigned to" value={selectedBooking.assignedProvider || (selectedBooking as any).provider_name || "Unassigned"} />
+                      {(selectedBooking as any).provider_wage != null && (selectedBooking as any).provider_wage > 0 && (
+                        <div className="flex justify-between items-center gap-4 py-1.5 min-w-0">
+                          <span className="text-muted-foreground text-sm shrink-0">Provider payment</span>
+                          <span className="text-sm font-medium text-right break-words min-w-0 flex-1">
+                            ${Number((selectedBooking as any).provider_wage).toFixed(2)}
                             <Link href="/admin/settings" className="text-orange-600 hover:underline ml-1.5 text-xs">Learn more</Link>
                           </span>
                         </div>
+                      )}
+                      {((selectedBooking as any).apt_no || selectedBooking.address) && (
+                        <DetailRow
+                          label="Location"
+                          value={[(selectedBooking as any).apt_no ? `Apt - ${(selectedBooking as any).apt_no}` : null, selectedBooking.address].filter(Boolean).join(", ")}
+                          className="text-right"
+                        />
+                      )}
+                      {((selectedBooking as any).payment_method === "online" || (selectedBooking as any).payment_method === "card" || (selectedBooking as any).payment_method === "cash" || (selectedBooking as any).payment_method) && (
                         <div className="flex justify-between items-center gap-4 py-1.5">
-                          <span className="text-muted-foreground text-sm">Status</span>
-                          {getStatusBadge(selectedBooking.status)}
+                          <span className="text-muted-foreground text-sm">Payment method</span>
+                          <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                            {(selectedBooking as any).payment_method === "online" || (selectedBooking as any).payment_method === "card" ? "CC" : (selectedBooking as any).payment_method === "cash" ? "Cash/Check" : (selectedBooking as any).payment_method}
+                          </span>
                         </div>
-                      </DetailSection>
-                    </div>
-
-                    {/* Partial cleaning */}
-                    {(() => {
-                      const cust = (selectedBooking as any).customization as BookingCustomization | undefined;
-                      if (!cust?.isPartialCleaning && !(cust?.excludedAreas?.length)) return null;
-                      return (
-                        <div className="mt-4 rounded-lg bg-amber-50/80 dark:bg-amber-950/20 p-3 border border-amber-100 dark:border-amber-900/30">
-                          <h4 className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-600 mb-2">Partial cleaning</h4>
-                          <div className="space-y-1.5">
-                            <DetailRow label="Partial cleaning" value={cust?.isPartialCleaning ? "Yes" : "No"} />
-                            {cust?.excludedAreas?.length ? (
-                              <div>
-                                <span className="text-muted-foreground text-sm">Excluded areas: </span>
-                                <span className="text-sm font-medium">
-                                  {(cust.excludedAreas || []).map((paramId) => {
-                                    const qty = cust.excludeQuantities?.[paramId] ?? 1;
-                                    const name = excludeParamNames[paramId] || `${paramId.slice(0, 8)}…`;
-                                    return `${name}${qty > 1 ? ` × ${qty}` : ""}`;
-                                  }).join(", ")}
-                                </span>
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    {/* Notes */}
-                    {selectedBooking.notes && (
-                      <div className="mt-4 rounded-lg bg-muted/50 p-3 border">
-                        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Notes</h4>
-                        <p className="text-sm">{selectedBooking.notes}</p>
+                      )}
+                      <div className="flex justify-between items-center gap-4 py-1.5">
+                        <span className="text-muted-foreground text-sm shrink-0">Price details</span>
+                        <span className="text-sm font-medium text-right">
+                          {(() => {
+                            const amount = (selectedBooking as any).total_price ?? selectedBooking.amount;
+                            const numAmount = typeof amount === "string" ? parseFloat(amount) : amount;
+                            return isNaN(numAmount) ? "$0.00" : `$${numAmount.toFixed(2)}`;
+                          })()}
+                          <Link href="/admin/settings" className="text-orange-600 hover:underline ml-1.5 text-xs">Learn more</Link>
+                        </span>
                       </div>
-                    )}
+                    </div>
                   </CollapsibleContent>
                 </Collapsible>
               </div>
 
-              {/* Actions */}
-              <div className="space-y-3 pt-5">
-                {/* Assign Provider Button - Show for any unassigned booking */}
+              {/* Note(s) - separate light grey card */}
+              <div className="rounded-lg bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 shrink-0">
+                <Collapsible defaultOpen={!!selectedBooking.notes} className="group">
+                  <CollapsibleTrigger className="flex w-full items-center justify-between py-3 px-4 text-left font-semibold text-sm hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition-colors">
+                    <span>Note(s)</span>
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-white dark:bg-gray-800 group-data-[state=open]:hidden">
+                      <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+                    </span>
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-white dark:bg-gray-800 hidden group-data-[state=open]:flex">
+                      <Minus className="h-3.5 w-3.5 text-muted-foreground" />
+                    </span>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="overflow-visible">
+                    <div className="px-4 pb-4">
+                      {selectedBooking.notes ? (
+                        <p className="text-sm text-muted-foreground">{selectedBooking.notes}</p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground italic">No notes</p>
+                      )}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+
+              {/* Action buttons - 9 full-width colored buttons */}
+              <div className="space-y-2 mt-auto pt-2">
                 {!selectedBooking.provider_id && !selectedBooking.assignedProvider && (
-                  <Button 
-                    className="w-full"
-                    style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}
-                    onClick={() => {
-                      setSelectedProvider(null); // Reset selected provider when opening dialog
-                      setShowProviderDialog(true);
-                    }}
-                  >
-                    <UserPlus className="h-4 w-4 mr-2" />
-                    Assign Provider
+                  <Button className="w-full text-white" style={{ backgroundColor: "#00BCD4" }} onClick={() => { setSelectedProvider(null); setShowProviderDialog(true); }}>
+                    <UserPlus className="h-4 w-4 mr-2" />Assign Provider
                   </Button>
                 )}
-                
-                {/* Show provider info if already assigned */}
-                {selectedBooking.provider_id && (
-                  <div className="p-3 bg-cyan-50 dark:bg-cyan-950/20 rounded-lg border border-cyan-200 dark:border-cyan-800">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1">Assigned Provider</p>
-                        <p className="text-sm font-semibold text-cyan-700 dark:text-cyan-300">
-                          {selectedBooking.assignedProvider || 'Provider Assigned'}
-                        </p>
-                      </div>
-                      <Button 
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowProviderDialog(true)}
-                        className="text-xs"
-                      >
-                        Change Provider
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Status Action Buttons */}
-                <div className="flex gap-2">
-                  {selectedBooking.status === "pending" && (
-                    <Button 
-                      className="flex-1"
-                      style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}
-                      onClick={() => handleStatusChange(selectedBooking.id, "confirmed")}
-                    >
-                      <CheckCircle2 className="h-4 w-4 mr-2" />
-                      Confirm Booking
-                    </Button>
-                  )}
-                  {selectedBooking.status === "confirmed" && (
-                    <Button 
-                      className="flex-1"
-                      style={{ background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)', color: 'white' }}
-                      onClick={() => handleStatusChange(selectedBooking.id, "completed")}
-                    >
-                      <CheckCircle2 className="h-4 w-4 mr-2" />
-                      Mark as Completed
-                    </Button>
-                  )}
-                  {(selectedBooking.status === "pending" || selectedBooking.status === "confirmed") && (
-                    <Button 
-                      variant="destructive"
-                      className="flex-1"
-                      onClick={() => handleStatusChange(selectedBooking.id, "cancelled")}
-                    >
-                      <XCircle className="h-4 w-4 mr-2" />
-                      Cancel Booking
-                    </Button>
-                  )}
-                </div>
+                <Button className="w-full text-white bg-blue-600 hover:bg-blue-700" onClick={() => router.push(`/admin/add-booking?bookingId=${selectedBooking.id}`)}>
+                  <Pencil className="h-4 w-4 mr-2" />Edit
+                </Button>
+                <Button className="w-full text-white bg-red-600 hover:bg-red-700" onClick={() => handleStatusChange(selectedBooking.id, "cancelled")} disabled={selectedBooking.status === "cancelled"}>
+                  <XCircle className="h-4 w-4 mr-2" />Cancel
+                </Button>
+                <Button className="w-full text-white bg-emerald-500 hover:bg-emerald-600" onClick={() => router.push(`/admin/leads?addBooking=${selectedBooking.id}`)}>
+                  Add to leads funnel
+                </Button>
+                <Button className="w-full text-white bg-pink-500 hover:bg-pink-600" onClick={() => { toast({ title: "Add card link", description: "Send Add card link feature." }); }}>
+                  <CreditCard className="h-4 w-4 mr-2" />Send &quot;Add card&quot; link
+                </Button>
+                <Button className="w-full text-white bg-sky-400 hover:bg-sky-500" onClick={() => { toast({ title: "Receipt", description: "Receipt will be resent to the customer." }); }}>
+                  <Receipt className="h-4 w-4 mr-2" />Resend Receipt
+                </Button>
+                <Button className="w-full text-white bg-amber-400 hover:bg-amber-500" onClick={() => router.push(`/admin/logs?booking=${selectedBooking.id}`)}>
+                  <FileText className="h-4 w-4 mr-2" />View Booking Log
+                </Button>
+                <Button className="w-full text-white bg-rose-400 hover:bg-rose-500" onClick={() => router.push(`/admin/booking-charges?precharge=${selectedBooking.id}`)}>
+                  Pre-charge
+                </Button>
+                <Button className="w-full text-white bg-orange-500 hover:bg-orange-600" onClick={() => { toast({ title: "Checklist", description: "View checklist for this booking." }); }}>
+                  <ListChecks className="h-4 w-4 mr-2" />View Checklist
+                </Button>
+                <Button className="w-full text-white bg-amber-300 hover:bg-amber-400 text-gray-900" onClick={() => { toast({ title: "Job Media", description: "View job media and photos." }); }}>
+                  <Image className="h-4 w-4 mr-2" />Job Media
+                </Button>
               </div>
             </div>
           )}
-
-          <DialogFooter className="px-6 pb-6 pt-2 gap-2">
-            <Button variant="outline" onClick={() => setShowDetails(false)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
 
       {/* Provider Assignment Dialog */}
       <Dialog open={showProviderDialog} onOpenChange={(open) => {

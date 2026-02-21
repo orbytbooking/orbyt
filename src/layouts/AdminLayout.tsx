@@ -273,6 +273,12 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
       iconColor: "text-green-600",
       children: [
         { label: "All Bookings", path: "/admin/bookings" },
+        { label: "Today's bookings", path: "/admin/bookings?tab=today" },
+        { label: "Upcoming bookings", path: "/admin/bookings?tab=upcoming" },
+        { label: "Unassigned", path: "/admin/bookings?tab=unassigned" },
+        { label: "Draft/Quote", path: "/admin/bookings?tab=draft" },
+        { label: "Cancelled", path: "/admin/bookings?tab=cancelled" },
+        { label: "History", path: "/admin/bookings?tab=history" },
         { label: "Booking Charges", path: "/admin/booking-charges" },
       ],
     },
@@ -342,13 +348,6 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
           path: '/admin/settings/general',
           iconBg: 'bg-blue-100',
           iconColor: 'text-blue-600'
-        },
-        { 
-          icon: Clock,
-          label: 'Scheduling', 
-          path: '/admin/settings/scheduling',
-          iconBg: 'bg-amber-100',
-          iconColor: 'text-amber-600'
         },
         { label: "Account", path: "/admin/settings/account" },
         { label: "Website & Form Design", path: "/admin/settings/design" },
@@ -545,7 +544,20 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                           <div className="mt-1 space-y-1">
                       {(item as any).children.map((child: any) => {
                         const childHasChildren = Array.isArray(child.children);
-                        const childActive = pathname === child.path;
+                        const childPathBase = (child.path || "").split("?")[0];
+                        const childTab = (child.path || "").includes("?tab=")
+                          ? new URLSearchParams((child.path || "").split("?")[1] || "").get("tab")
+                          : null;
+                        const childActive =
+                          item.label === "Bookings" && pathname === "/admin/bookings"
+                            ? childPathBase === "/admin/booking-charges"
+                              ? false
+                              : childTab === null
+                                ? !searchParams.get("tab") || searchParams.get("tab") === "all"
+                                : searchParams.get("tab") === childTab
+                            : item.label === "Bookings" && child.path === "/admin/booking-charges"
+                              ? pathname === "/admin/booking-charges"
+                              : pathname === child.path;
                         const grandchildActive = childHasChildren
                           ? child.children.some((gc: { path: string }) => pathname === gc.path)
                           : false;

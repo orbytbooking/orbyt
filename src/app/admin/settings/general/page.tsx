@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Store, Tag, MailX, Plus, Minus, Loader2, Pencil, Trash2, Info } from 'lucide-react';
+import { Store, Tag, MailX, Plus, Minus, Loader2, Pencil, Trash2, Info, Clock, Users, Bell } from 'lucide-react';
 import { useBusiness } from '@/contexts/BusinessContext';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -62,8 +63,34 @@ interface AdminTag {
   display_order: number;
 }
 
+type SchedulingType = "accepted_automatically" | "accept_or_decline" | "accepts_same_day_only";
+
+interface StoreOptions {
+  id?: string;
+  business_id?: string;
+  scheduling_type: SchedulingType;
+  accept_decline_timeout_minutes: number;
+  providers_can_see_unassigned: boolean;
+  providers_can_see_all_unassigned: boolean;
+  notify_providers_on_unassigned: boolean;
+  waitlist_enabled: boolean;
+  clock_in_out_enabled: boolean;
+}
+
+const SCHEDULING_DEFAULT_OPTIONS: StoreOptions = {
+  scheduling_type: "accepted_automatically",
+  accept_decline_timeout_minutes: 60,
+  providers_can_see_unassigned: true,
+  providers_can_see_all_unassigned: false,
+  notify_providers_on_unassigned: true,
+  waitlist_enabled: false,
+  clock_in_out_enabled: false,
+};
+
 export default function GeneralSettingsPage() {
   const { currentBusiness } = useBusiness();
+  const searchParams = useSearchParams();
+  const storeTab = searchParams.get('tab') || 'general';
   const [tags, setTags] = useState<AdminTag[]>([]);
   const [tagsLoading, setTagsLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -192,6 +219,11 @@ export default function GeneralSettingsPage() {
   const [paymentDeclinedPrePayment, setPaymentDeclinedPrePayment] = useState<'leave' | 'cancel_24h'>('leave');
   const [paymentIndividualChargeNotifications, setPaymentIndividualChargeNotifications] = useState<'yes' | 'no'>('no');
 
+  // Scheduling tab (store options)
+  const [schedulingOptions, setSchedulingOptions] = useState<StoreOptions>(SCHEDULING_DEFAULT_OPTIONS);
+  const [schedulingLoading, setSchedulingLoading] = useState(false);
+  const [schedulingSaving, setSchedulingSaving] = useState(false);
+
   // Admin tab (store options): gift card, referral, payment descriptions
   const [giftCardMinAmount, setGiftCardMinAmount] = useState('150.00');
   const [giftCardEditBelowMin, setGiftCardEditBelowMin] = useState<'yes' | 'no'>('no');
@@ -277,6 +309,48 @@ export default function GeneralSettingsPage() {
   useEffect(() => {
     if (currentBusiness?.id) fetchTags();
   }, [currentBusiness?.id]);
+
+  const fetchSchedulingOptions = async () => {
+    if (!currentBusiness?.id) return;
+    setSchedulingLoading(true);
+    try {
+      const res = await fetch(`/api/admin/store-options?businessId=${currentBusiness.id}`, {
+        headers: { "x-business-id": currentBusiness.id },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to fetch");
+      setSchedulingOptions(data.options ? { ...SCHEDULING_DEFAULT_OPTIONS, ...data.options } : SCHEDULING_DEFAULT_OPTIONS);
+    } catch {
+      toast.error("Failed to load scheduling settings");
+      setSchedulingOptions(SCHEDULING_DEFAULT_OPTIONS);
+    } finally {
+      setSchedulingLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentBusiness?.id) fetchSchedulingOptions();
+  }, [currentBusiness?.id]);
+
+  const handleSaveScheduling = async () => {
+    if (!currentBusiness?.id) return;
+    setSchedulingSaving(true);
+    try {
+      const res = await fetch("/api/admin/store-options", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "x-business-id": currentBusiness.id },
+        body: JSON.stringify({ ...schedulingOptions, businessId: currentBusiness.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save");
+      setSchedulingOptions(data.options ? { ...SCHEDULING_DEFAULT_OPTIONS, ...data.options } : schedulingOptions);
+      toast.success("Scheduling settings saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setSchedulingSaving(false);
+    }
+  };
 
   const fetchCancellationServiceCategories = async () => {
     if (!currentBusiness?.id) return;
@@ -455,7 +529,7 @@ export default function GeneralSettingsPage() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="store-options" className="pt-6 space-y-0">
-          <Tabs defaultValue="general" className="w-full">
+          <Tabs defaultValue={storeTab} className="w-full">
             <div className="border-b border-border">
               <TabsList className="h-auto w-full justify-start rounded-none border-0 bg-transparent p-0 gap-0">
                 <TabsTrigger
@@ -2945,10 +3019,186 @@ export default function GeneralSettingsPage() {
                   Save
                 </Button>
               </TabsContent>
-              <TabsContent value="scheduling" className="mt-0">
-                <p className="text-sm text-muted-foreground">
-                  Scheduling settings – Currently under development.
-                </p>
+              <TabsContent value="scheduling" className="mt-0 space-y-6">
+                {schedulingLoading ? (
+                  <div className="flex justify-center py-12">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Clock className="h-5 w-5" />
+                          Provider Assignment
+                        </CardTitle>
+                        <CardDescription>
+                          Choose how bookings get assigned to providers when customers book online
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-6">
+                        <div className="space-y-3">
+                          <Label>Scheduling type</Label>
+                          <div className="grid gap-3">
+                            <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/50">
+                              <input
+                                type="radio"
+                                name="scheduling_type"
+                                checked={schedulingOptions.scheduling_type === "accepted_automatically"}
+                                onChange={() => setSchedulingOptions((o) => ({ ...o, scheduling_type: "accepted_automatically" }))}
+                                className="mt-1"
+                              />
+                              <div>
+                                <p className="font-medium">Accepted Automatically</p>
+                                <p className="text-sm text-muted-foreground">
+                                  Bookings are auto-assigned by availability and priority. Customer gets confirmation immediately.
+                                </p>
+                              </div>
+                            </label>
+                            <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/50">
+                              <input
+                                type="radio"
+                                name="scheduling_type"
+                                checked={schedulingOptions.scheduling_type === "accept_or_decline"}
+                                onChange={() => setSchedulingOptions((o) => ({ ...o, scheduling_type: "accept_or_decline" }))}
+                                className="mt-1"
+                              />
+                              <div>
+                                <p className="font-medium">Accept or Decline</p>
+                                <p className="text-sm text-muted-foreground">
+                                  Invitations go to providers in priority order. Customer only gets confirmation after a provider accepts.
+                                </p>
+                              </div>
+                            </label>
+                            <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/50">
+                              <input
+                                type="radio"
+                                name="scheduling_type"
+                                checked={schedulingOptions.scheduling_type === "accepts_same_day_only"}
+                                onChange={() => setSchedulingOptions((o) => ({ ...o, scheduling_type: "accepts_same_day_only" }))}
+                                className="mt-1"
+                              />
+                              <div>
+                                <p className="font-medium">Accepts Same Day Only</p>
+                                <p className="text-sm text-muted-foreground">
+                                  Future bookings auto-assign; same-day bookings require provider acceptance.
+                                </p>
+                              </div>
+                            </label>
+                          </div>
+                        </div>
+
+                        {(schedulingOptions.scheduling_type === "accept_or_decline" ||
+                          schedulingOptions.scheduling_type === "accepts_same_day_only") && (
+                          <div className="space-y-2">
+                            <Label>Provider response timeout (minutes)</Label>
+                            <Input
+                              type="number"
+                              min={5}
+                              max={1440}
+                              value={schedulingOptions.accept_decline_timeout_minutes}
+                              onChange={(e) =>
+                                setSchedulingOptions((o) => ({
+                                  ...o,
+                                  accept_decline_timeout_minutes: Math.max(5, Math.min(1440, parseInt(e.target.value, 10) || 60)),
+                                }))
+                              }
+                            />
+                            <p className="text-sm text-muted-foreground">
+                              How long each provider has to accept before the next one is invited
+                            </p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Users className="h-5 w-5" />
+                          Unassigned Folder
+                        </CardTitle>
+                        <CardDescription>
+                          Settings for bookings without a provider
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-6">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label>Allow providers to see unassigned jobs</Label>
+                            <p className="text-sm text-muted-foreground">Providers can grab jobs from the unassigned folder</p>
+                          </div>
+                          <Switch
+                            checked={schedulingOptions.providers_can_see_unassigned}
+                            onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, providers_can_see_unassigned: v }))}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label>Show all unassigned jobs to providers</Label>
+                            <p className="text-sm text-muted-foreground">Override provider filters (locations, industries) for unassigned</p>
+                          </div>
+                          <Switch
+                            checked={schedulingOptions.providers_can_see_all_unassigned}
+                            onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, providers_can_see_all_unassigned: v }))}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label className="flex items-center gap-2">
+                              <Bell className="h-4 w-4" />
+                              Notify providers when new unassigned job
+                            </Label>
+                            <p className="text-sm text-muted-foreground">Send notification when a booking enters the unassigned folder</p>
+                          </div>
+                          <Switch
+                            checked={schedulingOptions.notify_providers_on_unassigned}
+                            onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, notify_providers_on_unassigned: v }))}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label>Waitlist for customers</Label>
+                            <p className="text-sm text-muted-foreground">Let customers request times when no slots are available</p>
+                          </div>
+                          <Switch
+                            checked={schedulingOptions.waitlist_enabled}
+                            onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, waitlist_enabled: v }))}
+                          />
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Clock className="h-5 w-5" />
+                          Time Tracking
+                        </CardTitle>
+                        <CardDescription>
+                          Enable clock in/out for providers (On the Way, At Location, Clock In, Clock Out)
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label>Enable clock in/out</Label>
+                            <p className="text-sm text-muted-foreground">Providers can track job time via the provider dashboard</p>
+                          </div>
+                          <Switch
+                            checked={schedulingOptions.clock_in_out_enabled}
+                            onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, clock_in_out_enabled: v }))}
+                          />
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Button onClick={handleSaveScheduling} disabled={schedulingSaving}>
+                      {schedulingSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                      Save Scheduling Settings
+                    </Button>
+                  </>
+                )}
               </TabsContent>
             </div>
           </Tabs>
