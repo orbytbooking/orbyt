@@ -720,9 +720,10 @@ export default function FrequencyNewPage() {
                   </div>
                 </div>
               )}
+              <div className="space-y-2">
+                <Label>Discount <span className="text-red-500">*</span></Label>
               <div className="grid grid-cols-3 gap-2 items-end">
-                <div className="col-span-2 space-y-2">
-                  <Label htmlFor="freq-discount">Discount <span className="text-red-500">*</span></Label>
+                <div className="col-span-2 space-y-0">
                   <Input 
                     id="freq-discount" 
                     type="number" 
@@ -747,15 +748,17 @@ export default function FrequencyNewPage() {
                     <p className="text-sm text-red-500">{errors.discount}</p>
                   )}
                 </div>
-                <div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Type</Label>
                   <Select value={form.discountType} onValueChange={(v: Row["discountType"]) => setForm(p => ({ ...p, discountType: v }))}>
-                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-full"><SelectValue placeholder="%" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="%">%</SelectItem>
-                      <SelectItem value="$">$</SelectItem>
+                      <SelectItem value="%">% (Percentage)</SelectItem>
+                      <SelectItem value="$">$ (Fixed)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
               </div>
               <div className="flex items-center gap-2">
                 <Checkbox id="default" checked={form.isDefault} onCheckedChange={(v) => setForm(p => ({ ...p, isDefault: !!v }))} />

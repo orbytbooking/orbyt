@@ -48,6 +48,7 @@ type FrequencyRow = {
   isDefault?: boolean;
   discount?: number;
   discountType?: "%" | "$";
+  discount_type?: "%" | "$";  // API returns snake_case
   occurrence_time?: "onetime" | "recurring";
   frequency_repeats?: string;
   shorter_job_length?: "yes" | "no";
@@ -1359,8 +1360,9 @@ const handleAddBooking = async (status: string = 'pending') => {
     }
 
     const subtotal = calculateServiceTotal + calculateExtrasTotal - calculatePartialCleaningDiscount;
-    
-    if (selectedFreq.discountType === '%') {
+    const discountType = selectedFreq.discountType ?? selectedFreq.discount_type ?? '%';
+
+    if (discountType === '%') {
       return (subtotal * selectedFreq.discount) / 100;
     } else {
       return selectedFreq.discount;
@@ -1513,7 +1515,7 @@ const handleAddBooking = async (status: string = 'pending') => {
                     <div className="flex justify-between text-xs">
                       <span className="text-amber-600">Frequency Discount (Applied from 2nd booking)</span>
                       <span className="text-amber-600">
-                        {selectedFreq.discountType === '%' ? `${selectedFreq.discount}%` : `$${selectedFreq.discount.toFixed(2)}`}
+                        {(selectedFreq.discountType ?? selectedFreq.discount_type) === '%' ? `${selectedFreq.discount}%` : `$${selectedFreq.discount.toFixed(2)}`}
                       </span>
                     </div>
                   );
