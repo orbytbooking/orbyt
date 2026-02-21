@@ -133,7 +133,7 @@ export default function IndustryForm1Page() {
         <CardHeader>
           <CardTitle>{industry} – Booking Form (Form 1)</CardTitle>
           <CardDescription>
-            Configure the main booking form for this industry – similar to BookingKoala&apos;s booking CRM.
+            Configure the main booking form for this industry.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
