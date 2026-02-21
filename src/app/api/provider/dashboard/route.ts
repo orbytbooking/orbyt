@@ -129,17 +129,21 @@ export async function GET(request: NextRequest) {
     ).length || 0;
     const averageRating = performance?.[0]?.average_rating || provider.rating || 0;
 
+    const formatPrice = (val: unknown) => `$${Number(val || 0).toFixed(2)}`;
+
     // Format upcoming bookings
     const upcomingBookings = bookings?.filter(booking => 
       booking.status === 'confirmed' || booking.status === 'pending'
     ).slice(0, 5).map(booking => ({
       id: booking.id,
       customer: booking.customer_name || 'Unknown Customer',
+      customer_email: booking.customer_email || '',
+      customer_phone: booking.customer_phone || '',
       service: booking.service || 'Service',
       date: booking.scheduled_date || booking.date || '',
       time: booking.scheduled_time || booking.time || '',
       status: booking.status,
-      amount: `$${booking.total_price || 0}`,
+      amount: formatPrice(booking.total_price),
       location: `${booking.address || ''}${booking.apt_no ? `, ${booking.apt_no}` : ''}${booking.zip_code ? `, ${booking.zip_code}` : ''}`
     })) || [];
 
@@ -154,7 +158,7 @@ export async function GET(request: NextRequest) {
         type: "completed",
         message: `Completed job for ${booking.customer_name} - ${booking.service}`,
         time: "2 hours ago",
-        amount: `$${booking.total_price || 0}`
+        amount: formatPrice(booking.total_price)
       }));
 
     // Add recent earnings
@@ -165,7 +169,7 @@ export async function GET(request: NextRequest) {
         type: "payment",
         message: "Payment received for completed services",
         time: "5 hours ago",
-        amount: `$${earning.net_amount || 0}`
+        amount: formatPrice(earning.net_amount)
       }));
 
     recentActivity.push(...(recentCompleted || []), ...(recentEarnings || []));

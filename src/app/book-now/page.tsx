@@ -337,6 +337,7 @@ function BookingPageContent() {
   const [dynamicTimeSlots, setDynamicTimeSlots] = useState<string[]>([]);
   const [availableProviders, setAvailableProviders] = useState<any[]>([]);
   const [providersLoading, setProvidersLoading] = useState(false);
+  const [schedulingType, setSchedulingType] = useState<string>("accepted_automatically");
 
   // Ref to store the total shown in the booking summary so we send that exact amount when saving (avoids stale closure giving 0)
   const summaryTotalRef = useRef<number>(0);
@@ -423,6 +424,23 @@ function BookingPageContent() {
       window.clearInterval(interval);
     };
   }, [searchParams]);
+
+  // Fetch scheduling type when businessId is set (for provider step visibility)
+  useEffect(() => {
+    if (!businessId) return;
+    const fetchScheduling = async () => {
+      try {
+        const res = await fetch(`/api/admin/store-options?businessId=${businessId}`);
+        const data = await res.json();
+        if (res.ok && data?.options?.scheduling_type) {
+          setSchedulingType(data.options.scheduling_type);
+        }
+      } catch {
+        // Keep default accepted_automatically
+      }
+    };
+    fetchScheduling();
+  }, [businessId]);
 
   // Get business context from URL params only (no localStorage - backend/scoped by link)
   useEffect(() => {
@@ -866,18 +884,17 @@ function BookingPageContent() {
   const isTimeSelected = Boolean(selectedTime);
   const isDateTimeSelected = isDateSelected && isTimeSelected;
 
-  // Fetch available providers when date and time are selected
+  // When Accept or Decline: skip provider step and don't send provider_id (invitation flow)
+  const showProviderStep = schedulingType !== "accept_or_decline";
+
+  // Fetch available providers when date and time are selected (only if provider step is shown)
   useEffect(() => {
     const fetchAvailableProviders = async () => {
-      console.log('=== PROVIDER FETCH DEBUG ===');
-      console.log('selectedDate:', selectedDate);
-      console.log('selectedTime:', selectedTime);
-      console.log('selectedService:', selectedService);
-      console.log('selectedServiceName:', selectedServiceName);
-      console.log('businessId:', businessId);
-      
+      if (!showProviderStep) {
+        setAvailableProviders([]);
+        return;
+      }
       if (!selectedDate || !selectedTime || !businessId || !selectedService || !selectedServiceName) {
-        console.log('Missing required data, skipping provider fetch');
         setAvailableProviders([]);
         return;
       }
@@ -916,7 +933,7 @@ function BookingPageContent() {
     };
 
     fetchAvailableProviders();
-  }, [selectedDate, selectedTime, selectedService, selectedServiceName, businessId]);
+  }, [showProviderStep, selectedDate, selectedTime, selectedService, selectedServiceName, businessId]);
 
   // Clear time selection when date is cleared
   useEffect(() => {
@@ -1196,7 +1213,7 @@ function BookingPageContent() {
           (amountFromCalc > 0 ? amountFromCalc : null) ??
           (fallbackPrice > 0 ? fallbackPrice : 0);
 
-        const selectedProviderId = form.getValues("provider") || null;
+        const selectedProviderId = showProviderStep ? (form.getValues("provider") || null) : null;
         const selectedProviderObj = selectedProviderId ? availableProviders.find((p: any) => p.id === selectedProviderId) : null;
         const payload = {
           business_id: currentBusinessId,
@@ -1277,7 +1294,7 @@ function BookingPageContent() {
       });
     }
     return null;
-  }, [bookingData, serviceCustomization, selectedService, toast, searchParams, form, availableProviders]);
+  }, [bookingData, serviceCustomization, selectedService, toast, searchParams, form, availableProviders, showProviderStep]);
 
   // Handle service selection (persist to card customizations so selection survives re-renders)
   const handleServiceSelect = (serviceName: string, customization?: ServiceCustomization) => {
@@ -1503,7 +1520,7 @@ function BookingPageContent() {
       const tot = calculateTotal();
       const amountToSend =
         (Number(tot.total) > 0 ? tot.total : null) ?? (Number(tot.subtotal) > 0 ? tot.subtotal : null) ?? Number(selectedService?.price ?? 0);
-      const selectedProviderId = form.getValues("provider") || null;
+      const selectedProviderId = showProviderStep ? (form.getValues("provider") || null) : null;
       const selectedProviderObj = selectedProviderId ? availableProviders.find((p: any) => p.id === selectedProviderId) : null;
       const payload = {
         business_id: currentBusinessId,
@@ -1545,7 +1562,7 @@ function BookingPageContent() {
       toast({ title: "Error", description: "Failed to create booking. Please try again.", variant: "destructive" });
       return null;
     }
-  }, [bookingData, serviceCustomization, selectedService, searchParams, form, availableProviders]);
+  }, [bookingData, serviceCustomization, selectedService, searchParams, form, availableProviders, showProviderStep]);
 
   // Handle online payment via Stripe Checkout (redirect)
   const handleOnlinePayment = async (_values?: z.infer<typeof paymentSchema>) => {
@@ -1566,7 +1583,7 @@ function BookingPageContent() {
         body: JSON.stringify({
           bookingId,
           amountInCents,
-          customerEmail: bookingData?.email ?? undefined,
+          customerEmail: undefined, // Leave empty so customer can edit email on Stripe Checkout
           businessId: businessId || undefined,
           lineItemDescription: `${selectedService?.name ?? "Booking"} – ${bookingData?.date ? format(bookingData.date instanceof Date ? bookingData.date : new Date(bookingData.date), "PPP") : ""}`,
         }),
@@ -2293,8 +2310,8 @@ function BookingPageContent() {
                         </div>
                       )}
 
-                      {/* Available Providers - Only show after date and time are selected */}
-                      {isDateTimeSelected && (
+                      {/* Available Providers - Only show when scheduling is not Accept or Decline */}
+                      {isDateTimeSelected && showProviderStep && (
                         <div className="col-span-full">
                           <div className={styles.formGroup}>
                             <FormLabel className={styles.formLabel}>

@@ -15,12 +15,15 @@ import {
   Users
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import { useToast } from "@/components/ui/use-toast";
 import { getSupabaseProviderClient } from "@/lib/supabaseProviderClient";
 
 type Booking = {
   id: string;
   customer: string;
+  customer_email?: string;
+  customer_phone?: string;
   service: string;
   date: string;
   time: string;
@@ -55,6 +58,8 @@ type DashboardData = {
   upcomingBookings: Array<{
     id: string;
     customer: string;
+    customer_email?: string;
+    customer_phone?: string;
     service: string;
     date: string;
     time: string;
@@ -80,6 +85,24 @@ const iconMap: Record<string, any> = {
   TrendingUp,
   Clock,
   Users
+};
+
+const formatTime = (t: string) => {
+  if (!t) return t;
+  const [h, m] = t.split(":").map((s) => parseInt(s || "0", 10));
+  const hr = h % 12 || 12;
+  const min = String(m).padStart(2, "0");
+  return h < 12 ? `${hr}:${min} AM` : `${hr}:${min} PM`;
+};
+
+const formatDate = (d: string) => {
+  if (!d) return d;
+  try {
+    const parsed = new Date(d + "T00:00:00");
+    return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return d;
+  }
 };
 
 const getStatusBadge = (status: string) => {
@@ -205,8 +228,8 @@ const ProviderDashboard = () => {
                   Your scheduled appointments
                 </p>
               </div>
-              <Button variant="outline" size="sm">
-                View All
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/provider/bookings">View All</Link>
               </Button>
             </div>
           </CardHeader>
@@ -234,11 +257,11 @@ const ProviderDashboard = () => {
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <Calendar className="h-4 w-4" />
-                        <span>{booking.date}</span>
+                        <span>{formatDate(booking.date)}</span>
                       </div>
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <Clock className="h-4 w-4" />
-                        <span>{booking.time}</span>
+                        <span>{formatTime(booking.time)}</span>
                       </div>
                       <div className="flex items-center gap-2 text-muted-foreground col-span-2">
                         <MapPin className="h-4 w-4" />
@@ -247,12 +270,21 @@ const ProviderDashboard = () => {
                     </div>
 
                     <div className="flex gap-2 mt-4">
-                      <Button size="sm" className="flex-1" style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}>
-                        <Phone className="h-4 w-4 mr-2" />
-                        Contact
-                      </Button>
-                      <Button size="sm" variant="outline" className="flex-1">
-                        View Details
+                      {(booking.customer_phone || booking.customer_email) ? (
+                        <Button size="sm" className="flex-1" style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }} asChild>
+                          <a href={booking.customer_phone ? `tel:${booking.customer_phone}` : `mailto:${booking.customer_email}`}>
+                            <Phone className="h-4 w-4 mr-2" />
+                            Contact
+                          </a>
+                        </Button>
+                      ) : (
+                        <Button size="sm" className="flex-1" style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }} disabled>
+                          <Phone className="h-4 w-4 mr-2" />
+                          Contact
+                        </Button>
+                      )}
+                      <Button size="sm" variant="outline" className="flex-1" asChild>
+                        <Link href={`/provider/bookings?bookingId=${booking.id}`}>View Details</Link>
                       </Button>
                     </div>
                   </div>

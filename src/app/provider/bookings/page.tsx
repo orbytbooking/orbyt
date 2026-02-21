@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   Calendar, 
@@ -69,6 +70,24 @@ type BookingsData = {
   };
 };
 
+const formatTime = (t: string) => {
+  if (!t) return t;
+  const [h, m] = t.split(":").map((s) => parseInt(s || "0", 10));
+  const hr = h % 12 || 12;
+  const min = String(m).padStart(2, "0");
+  return h < 12 ? `${hr}:${min} AM` : `${hr}:${min} PM`;
+};
+
+const formatDate = (d: string) => {
+  if (!d) return d;
+  try {
+    const parsed = new Date(d + "T00:00:00");
+    return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return d;
+  }
+};
+
 const getStatusBadge = (status: string) => {
   const styles = {
     pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400",
@@ -110,6 +129,18 @@ const ProviderBookings = () => {
   } | null>(null);
   const [clockLoading, setClockLoading] = useState(false);
   const { toast } = useToast();
+  const searchParams = useSearchParams();
+
+  // Open booking details when arriving with ?bookingId=xxx (e.g. from dashboard View Details)
+  useEffect(() => {
+    const bookingId = searchParams.get("bookingId");
+    if (bookingId && bookingsData?.bookings && !loading) {
+      const booking = bookingsData.bookings.find((b) => b.id === bookingId);
+      if (booking) {
+        setSelectedBooking(booking);
+      }
+    }
+  }, [searchParams, bookingsData, loading]);
 
   useEffect(() => {
     setMounted(true);
@@ -383,11 +414,11 @@ const ProviderBookings = () => {
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div className="flex items-center gap-2 text-muted-foreground">
               <Calendar className="h-4 w-4" />
-              <span>{booking.date}</span>
+              <span>{formatDate(booking.date)}</span>
             </div>
             <div className="flex items-center gap-2 text-muted-foreground">
               <Clock className="h-4 w-4" />
-              <span>{booking.time}</span>
+              <span>{formatTime(booking.time)}</span>
             </div>
             <div className="flex items-center gap-2 text-muted-foreground col-span-2">
               <MapPin className="h-4 w-4" />
@@ -527,11 +558,11 @@ const ProviderBookings = () => {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground mb-1">Date</p>
-                  <p className="font-medium">{selectedBooking.date}</p>
+                  <p className="font-medium">{formatDate(selectedBooking.date)}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground mb-1">Time</p>
-                  <p className="font-medium">{selectedBooking.time}</p>
+                  <p className="font-medium">{formatTime(selectedBooking.time)}</p>
                 </div>
               </div>
 
@@ -704,10 +735,19 @@ const ProviderBookings = () => {
                 Mark as Completed
               </Button>
             )}
-            <Button variant="outline">
-              <Phone className="h-4 w-4 mr-2" />
-              Contact Customer
-            </Button>
+            {(selectedBooking?.customer?.phone || selectedBooking?.customer?.email) ? (
+              <Button variant="outline" asChild>
+                <a href={selectedBooking.customer.phone ? `tel:${selectedBooking.customer.phone}` : `mailto:${selectedBooking.customer.email}`}>
+                  <Phone className="h-4 w-4 mr-2" />
+                  Contact Customer
+                </a>
+              </Button>
+            ) : (
+              <Button variant="outline" disabled>
+                <Phone className="h-4 w-4 mr-2" />
+                Contact Customer
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -92,6 +92,8 @@ export async function GET(request: NextRequest) {
       })));
     }
 
+    const formatPrice = (val: unknown) => `$${Number(val || 0).toFixed(2)}`;
+
     // Transform data to match frontend expectations
     const transformedBookings = bookings?.map(booking => ({
       id: booking.id,
@@ -104,7 +106,7 @@ export async function GET(request: NextRequest) {
       date: booking.scheduled_date || booking.date || '',
       time: booking.scheduled_time || booking.time || '',
       status: booking.status || 'pending',
-      amount: `$${booking.total_price || booking.amount || 0}`,
+      amount: formatPrice(booking.total_price ?? booking.amount),
       location: booking.address || '',
       notes: booking.notes
     })) || [];
