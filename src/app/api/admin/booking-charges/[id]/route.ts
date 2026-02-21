@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
+import { EmailService } from '@/lib/emailService';
 
 /**
  * POST: Process charge for a completed booking
@@ -20,7 +21,7 @@ export async function POST(
     }
 
     const body = await request.json();
-    const method = (body.method ?? 'cash') as 'cash' | 'online';
+    const method = (body.method ?? 'cash') as 'cash' | 'online' | 'void';
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -48,9 +49,46 @@ export async function POST(
       if (updateErr) {
         return NextResponse.json({ error: 'Failed to update payment status' }, { status: 500 });
       }
+
+      const custEmail = (booking as { customer_email?: string }).customer_email;
+      if (custEmail) {
+        try {
+          const { data: biz } = await supabase.from('businesses').select('name').eq('id', businessId).single();
+          const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
+          const emailService = new EmailService();
+          await emailService.sendReceiptEmail({
+            to: custEmail,
+            customerName: (booking as { customer_name?: string }).customer_name ?? 'Customer',
+            businessName: (biz as { name?: string } | null)?.name ?? 'Your Business',
+            service: (booking as { service?: string }).service ?? null,
+            amount: Number((booking as { total_price?: number }).total_price ?? 0),
+            bookingRef: bkRef,
+            paymentMethod: 'cash',
+          });
+        } catch (e) {
+          console.warn('Receipt email (cash) failed:', e);
+        }
+      }
+
       return NextResponse.json({
         success: true,
         message: 'Marked as paid (cash/check)',
+      });
+    }
+
+    if (method === 'void') {
+      const { error: updateErr } = await supabase
+        .from('bookings')
+        .update({ payment_status: 'voided', updated_at: new Date().toISOString() })
+        .eq('id', bookingId)
+        .eq('business_id', businessId);
+
+      if (updateErr) {
+        return NextResponse.json({ error: 'Failed to void payment' }, { status: 500 });
+      }
+      return NextResponse.json({
+        success: true,
+        message: 'Payment voided ($0)',
       });
     }
 
@@ -100,9 +138,22 @@ export async function POST(
       },
     };
 
-    const session = stripeConnectAccountId
-      ? await stripe.checkout.sessions.create(sessionParams, { stripeAccount: stripeConnectAccountId })
-      : await stripe.checkout.sessions.create(sessionParams);
+    let session;
+    try {
+      session = stripeConnectAccountId
+        ? await stripe.checkout.sessions.create(sessionParams, { stripeAccount: stripeConnectAccountId })
+        : await stripe.checkout.sessions.create(sessionParams);
+    } catch (stripeErr: unknown) {
+      const err = stripeErr as { type?: string; code?: string; message?: string };
+      console.error('Stripe Checkout error:', err);
+      const msg = err?.message ?? 'Stripe payment setup failed';
+      if (err?.code === 'account_invalid' || msg.includes('account')) {
+        return NextResponse.json({
+          error: 'Stripe Connect account is not ready for payments. Please complete onboarding in Settings, or remove the connected account to use platform payments.',
+        }, { status: 400 });
+      }
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
 
     return NextResponse.json({
       success: true,
@@ -111,6 +162,7 @@ export async function POST(
     });
   } catch (e) {
     console.error('Booking charge POST:', e);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    const msg = e instanceof Error ? e.message : 'Internal server error';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

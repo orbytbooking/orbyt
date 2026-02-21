@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseProviderClient } from '@/lib/supabaseProviderClient';
 import { createAdminNotification } from '@/lib/adminProviderSync';
+import { EmailService } from '@/lib/emailService';
 
 /**
  * GET: List pending invitations for the current provider
@@ -201,6 +202,42 @@ export async function POST(request: NextRequest) {
         message: `No provider accepted the booking. It remains in Unassigned.`,
         link: '/admin/bookings',
       });
+
+      const custEmail = await (async () => {
+        const { data: b } = await supabaseAdmin
+          .from('bookings')
+          .select('customer_email, customer_name, service, scheduled_date, scheduled_time')
+          .eq('id', invitation.booking_id)
+          .single();
+        return (b as { customer_email?: string } | null)?.customer_email;
+      })();
+      if (custEmail) {
+        try {
+          const { data: b } = await supabaseAdmin
+            .from('bookings')
+            .select('customer_name, service, scheduled_date, scheduled_time')
+            .eq('id', invitation.booking_id)
+            .single();
+          const { data: biz } = await supabaseAdmin
+            .from('businesses')
+            .select('name')
+            .eq('id', provider.business_id)
+            .single();
+          const bkRef = `BK${String(invitation.booking_id).slice(-6).toUpperCase()}`;
+          const emailService = new EmailService();
+          await emailService.sendNeverFoundProviderEmail({
+            to: custEmail,
+            customerName: (b as { customer_name?: string } | null)?.customer_name ?? 'Customer',
+            businessName: (biz as { name?: string } | null)?.name ?? 'Your Business',
+            service: (b as { service?: string } | null)?.service ?? null,
+            scheduledDate: (b as { scheduled_date?: string } | null)?.scheduled_date ?? null,
+            scheduledTime: (b as { scheduled_time?: string } | null)?.scheduled_time ?? null,
+            bookingRef: bkRef,
+          });
+        } catch (e) {
+          console.warn('Never found provider email failed:', e);
+        }
+      }
     }
 
     return NextResponse.json({ success: true, message: 'Invitation declined' });

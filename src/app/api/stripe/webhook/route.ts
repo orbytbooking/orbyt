@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
+import { EmailService } from "@/lib/emailService";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -63,6 +64,7 @@ export async function POST(request: Request) {
     });
 
     const bookingId = session.metadata?.booking_id;
+    const businessId = session.metadata?.business_id;
     if (bookingId) {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
       const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -80,6 +82,33 @@ export async function POST(request: Request) {
           );
         }
         console.log("[Stripe Webhook] Booking marked as paid:", bookingId);
+
+        const custEmail = session.customer_email ?? session.customer_details?.email;
+        if (custEmail) {
+          try {
+            const { data: booking } = await supabase
+              .from("bookings")
+              .select("customer_name, service, total_price")
+              .eq("id", bookingId)
+              .single();
+            const { data: biz } = businessId
+              ? await supabase.from("businesses").select("name").eq("id", businessId).single()
+              : { data: null };
+            const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
+            const emailService = new EmailService();
+            await emailService.sendReceiptEmail({
+              to: custEmail,
+              customerName: booking?.customer_name ?? "Customer",
+              businessName: (biz as { name?: string } | null)?.name ?? "Your Business",
+              service: booking?.service ?? null,
+              amount: Number(booking?.total_price ?? 0),
+              bookingRef: bkRef,
+              paymentMethod: "card",
+            });
+          } catch (e) {
+            console.warn("[Stripe Webhook] Receipt email failed:", e);
+          }
+        }
       } else {
         console.warn("[Stripe Webhook] Supabase not configured; booking not updated:", bookingId);
       }

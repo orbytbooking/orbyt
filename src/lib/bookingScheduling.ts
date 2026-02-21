@@ -6,6 +6,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { createAdminNotification } from './adminProviderSync';
+import { EmailService } from './emailService';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -93,6 +94,31 @@ export async function processBookingScheduling(
         message: 'A new booking was placed but no providers are available to invite.',
         link: '/admin/bookings',
       });
+
+      const { data: booking } = await supabase
+        .from('bookings')
+        .select('customer_email, customer_name, service, scheduled_date, scheduled_time')
+        .eq('id', bookingId)
+        .single();
+      const custEmail = (booking as { customer_email?: string } | null)?.customer_email;
+      if (custEmail) {
+        try {
+          const { data: biz } = await supabase.from('businesses').select('name').eq('id', businessId).single();
+          const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
+          const emailService = new EmailService();
+          await emailService.sendNeverFoundProviderEmail({
+            to: custEmail,
+            customerName: (booking as { customer_name?: string } | null)?.customer_name ?? 'Customer',
+            businessName: (biz as { name?: string } | null)?.name ?? 'Your Business',
+            service: (booking as { service?: string } | null)?.service ?? null,
+            scheduledDate: (booking as { scheduled_date?: string } | null)?.scheduled_date ?? null,
+            scheduledTime: (booking as { scheduled_time?: string } | null)?.scheduled_time ?? null,
+            bookingRef: bkRef,
+          });
+        } catch (e) {
+          console.warn('Never found provider email failed:', e);
+        }
+      }
       return;
     }
 

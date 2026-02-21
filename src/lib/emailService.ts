@@ -350,4 +350,244 @@ export class EmailService {
       return false;
     }
   }
+
+  /**
+   * Send booking confirmation to customer (Booking Koala style)
+   */
+  async sendBookingConfirmation(data: {
+    to: string;
+    customerName: string;
+    businessName: string;
+    service: string | null;
+    scheduledDate: string | null;
+    scheduledTime: string | null;
+    address: string | null;
+    totalPrice: number;
+    bookingRef: string;
+  }): Promise<boolean> {
+    try {
+      const { to, customerName, businessName, service, scheduledDate, scheduledTime, address, totalPrice, bookingRef } = data;
+      const dateStr = scheduledDate ? new Date(scheduledDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : 'TBD';
+      const timeStr = scheduledTime ? (String(scheduledTime).includes(':') ? String(scheduledTime).slice(0, 5) : String(scheduledTime)) : '';
+
+      const emailSubject = `Booking Confirmed - ${businessName}`;
+      const emailHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Booking Confirmed</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center; }
+            .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
+            .detail { background: white; padding: 16px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #00BCD4; }
+            .footer { text-align: center; color: #666; margin-top: 30px; font-size: 14px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>✓ Booking Confirmed</h1>
+              <p>Reference: ${bookingRef}</p>
+            </div>
+            <div class="content">
+              <p>Hi ${customerName},</p>
+              <p>Your booking with ${businessName} has been confirmed.</p>
+              <div class="detail">
+                <p><strong>Service:</strong> ${service || 'Service'}</p>
+                <p><strong>Date:</strong> ${dateStr}</p>
+                ${timeStr ? `<p><strong>Time:</strong> ${timeStr}</p>` : ''}
+                ${address ? `<p><strong>Address:</strong> ${address}</p>` : ''}
+                <p><strong>Amount:</strong> $${Number(totalPrice || 0).toFixed(2)}</p>
+              </div>
+              <p>If you have any questions, please contact ${businessName}.</p>
+              <p>Thank you for your booking!</p>
+              <p>Best regards,<br>The ${businessName} Team</p>
+            </div>
+            <div class="footer">
+              <p>This is an automated message. Please do not reply to this email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      if (!this.resendClient) {
+        console.log('[Email] Booking confirmation (Resend not configured):', to, bookingRef);
+        return true;
+      }
+      const { error } = await this.resendClient.emails.send({
+        from: process.env.RESEND_FROM_EMAIL || 'noreply@yourdomain.com',
+        to: [to],
+        subject: emailSubject,
+        html: emailHtml,
+      });
+      if (error) {
+        console.error('Booking confirmation email error:', error);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.error('sendBookingConfirmation error:', e);
+      return false;
+    }
+  }
+
+  /**
+   * Send payment receipt after successful charge (Booking Koala style)
+   */
+  async sendReceiptEmail(data: {
+    to: string;
+    customerName: string;
+    businessName: string;
+    service: string | null;
+    amount: number;
+    bookingRef: string;
+    paymentMethod?: 'card' | 'cash' | 'check';
+  }): Promise<boolean> {
+    try {
+      const { to, customerName, businessName, service, amount, bookingRef, paymentMethod = 'card' } = data;
+      const emailSubject = `Payment Receipt - ${businessName}`;
+      const emailHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Payment Receipt</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #4caf50 0%, #45a049 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center; }
+            .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
+            .amount { font-size: 24px; font-weight: bold; color: #4caf50; margin: 20px 0; }
+            .footer { text-align: center; color: #666; margin-top: 30px; font-size: 14px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Thank You for Your Payment</h1>
+              <p>Receipt for booking ${bookingRef}</p>
+            </div>
+            <div class="content">
+              <p>Hi ${customerName},</p>
+              <p>We've received your payment for the following service:</p>
+              <p><strong>Service:</strong> ${service || 'Service'}</p>
+              <div class="amount">Amount paid: $${Number(amount || 0).toFixed(2)}</div>
+              <p><strong>Payment method:</strong> ${paymentMethod === 'cash' || paymentMethod === 'check' ? 'Cash/Check' : 'Card'}</p>
+              <p>Thank you for choosing ${businessName}!</p>
+              <p>Best regards,<br>The ${businessName} Team</p>
+            </div>
+            <div class="footer">
+              <p>This is an automated receipt. Please do not reply to this email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      if (!this.resendClient) {
+        console.log('[Email] Receipt (Resend not configured):', to, bookingRef);
+        return true;
+      }
+      const { error } = await this.resendClient.emails.send({
+        from: process.env.RESEND_FROM_EMAIL || 'noreply@yourdomain.com',
+        to: [to],
+        subject: emailSubject,
+        html: emailHtml,
+      });
+      if (error) {
+        console.error('Receipt email error:', error);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.error('sendReceiptEmail error:', e);
+      return false;
+    }
+  }
+
+  /**
+   * Send "never found provider" email when all providers decline or none available (Booking Koala style)
+   */
+  async sendNeverFoundProviderEmail(data: {
+    to: string;
+    customerName: string;
+    businessName: string;
+    service: string | null;
+    scheduledDate: string | null;
+    scheduledTime: string | null;
+    bookingRef: string;
+  }): Promise<boolean> {
+    try {
+      const { to, customerName, businessName, service, scheduledDate, scheduledTime, bookingRef } = data;
+      const dateStr = scheduledDate ? new Date(scheduledDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : 'your requested date';
+      const timeStr = scheduledTime ? (String(scheduledTime).includes(':') ? String(scheduledTime).slice(0, 5) : String(scheduledTime)) : '';
+
+      const emailSubject = `Update on Your Booking - ${businessName}`;
+      const emailHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Booking Update</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center; }
+            .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
+            .highlight { background: #fff3e0; padding: 16px; border-left: 4px solid #ff9800; margin: 20px 0; }
+            .footer { text-align: center; color: #666; margin-top: 30px; font-size: 14px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Booking Update</h1>
+              <p>Reference: ${bookingRef}</p>
+            </div>
+            <div class="content">
+              <p>Hi ${customerName},</p>
+              <p>We wanted to let you know that we're currently unable to assign a service provider to your booking for <strong>${service || 'your service'}</strong> on ${dateStr}${timeStr ? ` at ${timeStr}` : ''}.</p>
+              <div class="highlight">
+                <p><strong>What happens next?</strong></p>
+                <p>Our team is working to find a provider for your booking. We will reach out to you shortly with an update or alternative options.</p>
+                <p>If you have any questions or would like to reschedule, please contact us directly.</p>
+              </div>
+              <p>We apologize for any inconvenience and thank you for your patience.</p>
+              <p>Best regards,<br>The ${businessName} Team</p>
+            </div>
+            <div class="footer">
+              <p>This is an automated message. Please do not reply to this email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      if (!this.resendClient) {
+        console.log('[Email] Never found provider (Resend not configured):', to, bookingRef);
+        return true;
+      }
+      const { error } = await this.resendClient.emails.send({
+        from: process.env.RESEND_FROM_EMAIL || 'noreply@yourdomain.com',
+        to: [to],
+        subject: emailSubject,
+        html: emailHtml,
+      });
+      if (error) {
+        console.error('Never found provider email error:', error);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.error('sendNeverFoundProviderEmail error:', e);
+      return false;
+    }
+  }
 }

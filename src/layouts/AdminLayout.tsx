@@ -40,6 +40,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useLogo } from "@/contexts/LogoContext";
 import defaultLogo from "@/assets/orbit.png";
@@ -504,63 +505,44 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
               return (
                 <div key={item.path}>
                   {hasChildren ? (
-                    <button
-                      type="button"
-                      onClick={() => {
+                    <Collapsible
+                      open={sidebarOpen ? isExpanded : false}
+                      onOpenChange={(open) => {
                         if (!sidebarOpen) return;
-                        if (item.label === "Settings") setSettingsOpen((prev) => !prev);
-                        if (item.label === "Marketing") setMarketingOpen((prev) => !prev);
-                        if (item.label === "Bookings") setBookingsOpen((prev) => !prev);
-                        if (item.label === "Providers") setProvidersOpen((prev) => !prev);
+                        if (item.label === "Settings") setSettingsOpen(open);
+                        if (item.label === "Marketing") setMarketingOpen(open);
+                        if (item.label === "Bookings") setBookingsOpen(open);
+                        if (item.label === "Providers") setProvidersOpen(open);
                       }}
-                      className={`relative flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
-                        shouldHighlight
-                          ? "text-white shadow-lg neon-cyan"
-                          : theme === 'dark' 
-                            ? "text-gray-300 hover:bg-white/5 hover:text-cyan-300"
-                            : "text-black hover:bg-black/5"
-                      }`}
-                      style={shouldHighlight ? { background: 'linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%)' } : {}}
                     >
-                      <div className={cn("flex h-8 w-8 items-center justify-center rounded-full", item.iconBg, item.iconColor)}>
-                        <Icon className="h-4 w-4" />
-                      </div>
+                      <CollapsibleTrigger asChild>
+                        <button
+                          type="button"
+                          className={`relative flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
+                            shouldHighlight
+                              ? "text-white shadow-lg neon-cyan"
+                              : theme === 'dark' 
+                                ? "text-gray-300 hover:bg-white/5 hover:text-cyan-300"
+                                : "text-black hover:bg-black/5"
+                          }`}
+                          style={shouldHighlight ? { background: 'linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%)' } : {}}
+                        >
+                          <div className={cn("flex h-8 w-8 items-center justify-center rounded-full", item.iconBg, item.iconColor)}>
+                            <Icon className="h-4 w-4" />
+                          </div>
+                          {sidebarOpen && (
+                            <>
+                              <span className="flex-1 text-sm font-medium text-left" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{item.label}</span>
+                              <ChevronDown
+                                className={`absolute right-3 h-4 w-4 transition-transform duration-200 ease-out ${isExpanded ? "rotate-180" : ""}`}
+                              />
+                            </>
+                          )}
+                        </button>
+                      </CollapsibleTrigger>
                       {sidebarOpen && (
-                        <>
-                          <span className="flex-1 text-sm font-medium text-left" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{item.label}</span>
-                          <ChevronDown
-                            className={`absolute right-3 h-4 w-4 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-                          />
-                        </>
-                      )}
-                    </button>
-                  ) : (
-                    <Link
-                      href={item.path}
-                      onClick={() => { setSettingsOpen(false); setMarketingOpen(false); setBookingsOpen(false); setProvidersOpen(false); }}
-                      className={`flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
-                        isActive
-                          ? "text-white shadow-lg neon-cyan"
-                          : theme === 'dark'
-                            ? "text-gray-300 hover:bg-white/5 hover:text-cyan-300"
-                            : "text-black hover:bg-black/5"
-                      }`}
-                      style={isActive ? { background: 'linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%)' } : {}}
-                    >
-                      <div className={cn("flex h-8 w-8 items-center justify-center rounded-full", item.iconBg, item.iconColor)}>
-                        <Icon className="h-4 w-4" />
-                      </div>
-                      {sidebarOpen && (
-                        <>
-                          <span className="flex-1 text-sm font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{item.label}</span>
-                          {shouldHighlight && <ChevronRight className="h-4 w-4" />}
-                        </>
-                      )}
-                    </Link>
-                  )}
-
-                  {hasChildren && sidebarOpen && isExpanded && (
-                    <div className="mt-1 space-y-1">
+                        <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down">
+                          <div className="mt-1 space-y-1">
                       {(item as any).children.map((child: any) => {
                         const childHasChildren = Array.isArray(child.children);
                         const childActive = pathname === child.path;
@@ -712,7 +694,33 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                           </Link>
                         );
                       })}
-                    </div>
+                      </div>
+                        </CollapsibleContent>
+                      )}
+                    </Collapsible>
+                  ) : (
+                    <Link
+                      href={item.path}
+                      onClick={() => { setSettingsOpen(false); setMarketingOpen(false); setBookingsOpen(false); setProvidersOpen(false); }}
+                      className={`flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
+                        isActive
+                          ? "text-white shadow-lg neon-cyan"
+                          : theme === 'dark'
+                            ? "text-gray-300 hover:bg-white/5 hover:text-cyan-300"
+                            : "text-black hover:bg-black/5"
+                      }`}
+                      style={isActive ? { background: 'linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%)' } : {}}
+                    >
+                      <div className={cn("flex h-8 w-8 items-center justify-center rounded-full", item.iconBg, item.iconColor)}>
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      {sidebarOpen && (
+                        <>
+                          <span className="flex-1 text-sm font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{item.label}</span>
+                          {shouldHighlight && <ChevronRight className="h-4 w-4" />}
+                        </>
+                      )}
+                    </Link>
                   )}
                 </div>
               );

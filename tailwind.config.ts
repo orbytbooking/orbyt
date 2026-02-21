@@ -89,10 +89,30 @@ export default {
             height: "0",
           },
         },
+        "collapsible-down": {
+          from: {
+            height: "0",
+          },
+          to: {
+            height: "var(--radix-collapsible-content-height)",
+          },
+        },
+        "collapsible-up": {
+          from: {
+            height: "var(--radix-collapsible-content-height)",
+          },
+          to: {
+            height: "0",
+          },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "accordion-down-smooth": "accordion-down 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+        "accordion-up-smooth": "accordion-up 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+        "collapsible-down": "collapsible-down 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+        "collapsible-up": "collapsible-up 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
       },
     },
   },

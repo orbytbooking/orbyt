@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
 import { processBookingScheduling } from '@/lib/bookingScheduling';
+import { EmailService } from '@/lib/emailService';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -351,6 +352,27 @@ export async function POST(request: NextRequest) {
     message: `Booking ${bkRef} has been confirmed.`,
     link: '/admin/bookings',
   });
+
+  const customerEmail = (booking.customer_email ?? customer?.email ?? '').toString().trim();
+  if (customerEmail) {
+    try {
+      const { data: biz } = await supabase.from('businesses').select('name').eq('id', businessId).single();
+      const emailService = new EmailService();
+      await emailService.sendBookingConfirmation({
+        to: customerEmail,
+        customerName: (booking.customer_name ?? customer?.name ?? 'Customer').toString(),
+        businessName: biz?.name || 'Your Business',
+        service: booking.service,
+        scheduledDate: booking.scheduled_date ?? booking.date,
+        scheduledTime: booking.scheduled_time ?? booking.time,
+        address: booking.address,
+        totalPrice: totalPrice,
+        bookingRef: bkRef,
+      });
+    } catch (e) {
+      console.warn('Booking confirmation email failed:', e);
+    }
+  }
 
   const payload = dbToCustomerBooking(booking);
   return NextResponse.json(
