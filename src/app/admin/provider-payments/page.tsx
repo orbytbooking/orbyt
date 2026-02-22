@@ -78,7 +78,7 @@ export default function ProviderPaymentsPage() {
       <div>
         <h1 className="text-2xl font-bold">Provider Payments</h1>
         <p className="text-muted-foreground mt-1">
-          Send payouts to providers (Booking Koala style). Mark pending earnings as paid after you process payment.
+          Send payouts to providers. Mark pending earnings as paid after you process payment.
         </p>
       </div>
 

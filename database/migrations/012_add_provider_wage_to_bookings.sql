@@ -2,7 +2,7 @@
 -- MIGRATION: ADD PROVIDER WAGE TO BOOKINGS
 -- ========================================
 -- This migration adds provider_wage and provider_wage_type columns to the bookings table
--- to support per-booking wage overrides (BookingKoala feature)
+-- to support per-booking wage overrides
 
 -- Add provider wage columns to bookings table
 ALTER TABLE public.bookings 

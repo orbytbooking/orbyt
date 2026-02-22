@@ -134,25 +134,63 @@ export default function ReserveSlotPage() {
   });
   const [newLocationName, setNewLocationName] = useState('');
 
-  // Load all settings from localStorage
+  // Load settings: API (spot limits, holidays) takes precedence when business exists; fallback to localStorage
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    try {
-      const saved = localStorage.getItem(RESERVE_SLOT_STORAGE_KEY);
-      if (saved) {
-        const data = JSON.parse(saved);
-        if (data.maxSettings) setMaxSettings(data.maxSettings);
-        if (data.dailySettings) setDailySettings(data.dailySettings);
-        if (data.slots) setSlots(data.slots);
-        if (data.holidays) setHolidays(data.holidays);
-        if (data.bookingSpots) setBookingSpots(data.bookingSpots);
+    const load = async () => {
+      try {
+        const saved = localStorage.getItem(RESERVE_SLOT_STORAGE_KEY);
+        if (saved) {
+          const data = JSON.parse(saved);
+          if (data.dailySettings) setDailySettings(data.dailySettings);
+          if (data.slots) setSlots(data.slots);
+          if (data.bookingSpots) setBookingSpots(data.bookingSpots);
+        }
+        if (currentBusiness?.id) {
+          const [limitsRes, holidaysRes] = await Promise.all([
+            fetch(`/api/admin/business-spot-limits?businessId=${currentBusiness.id}`, { headers: { 'x-business-id': currentBusiness.id } }),
+            fetch(`/api/admin/business-holidays?businessId=${currentBusiness.id}`, { headers: { 'x-business-id': currentBusiness.id } }),
+          ]);
+          const limitsData = await limitsRes.json();
+          const holidaysData = await holidaysRes.json();
+          if (limitsData.spotLimits && typeof limitsData.spotLimits === 'object') {
+            const l = limitsData.spotLimits;
+            setMaxSettings({
+              maxBookingsPerDay: l.max_bookings_per_day ?? 10,
+              maxBookingsPerWeek: l.max_bookings_per_week ?? 50,
+              maxBookingsPerMonth: l.max_bookings_per_month ?? 200,
+              maxAdvanceBookingDays: l.max_advance_booking_days ?? 90,
+              enabled: l.enabled ?? true,
+            });
+          } else if (saved) {
+            const data = JSON.parse(saved);
+            if (data.maxSettings) setMaxSettings(data.maxSettings);
+          }
+          if (Array.isArray(holidaysData.holidays) && holidaysData.holidays.length > 0) {
+            setHolidays(holidaysData.holidays.map((h: { id: string; name: string; holiday_date: string; recurring: boolean; created_at?: string }) => ({
+              id: h.id,
+              name: h.name,
+              date: h.holiday_date,
+              recurring: !!h.recurring,
+              createdAt: h.created_at || '',
+            })));
+          } else if (saved) {
+            const data = JSON.parse(saved);
+            if (data.holidays) setHolidays(data.holidays);
+          }
+        } else if (saved) {
+          const data = JSON.parse(saved);
+          if (data.maxSettings) setMaxSettings(data.maxSettings);
+          if (data.holidays) setHolidays(data.holidays);
+        }
+      } catch (e) {
+        console.error('Error loading settings:', e);
       }
-    } catch (e) {
-      console.error('Error loading settings:', e);
-    }
-  }, []);
+    };
+    load();
+  }, [currentBusiness?.id]);
 
-  // Save all settings to localStorage
+  // Save to localStorage and persist maxSettings/holidays to API when business exists
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
@@ -163,10 +201,24 @@ export default function ReserveSlotPage() {
         holidays,
         bookingSpots,
       }));
+      if (currentBusiness?.id) {
+        fetch('/api/admin/business-spot-limits', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'x-business-id': currentBusiness.id },
+          body: JSON.stringify({
+            businessId: currentBusiness.id,
+            max_bookings_per_day: maxSettings.maxBookingsPerDay,
+            max_bookings_per_week: maxSettings.maxBookingsPerWeek,
+            max_bookings_per_month: maxSettings.maxBookingsPerMonth,
+            max_advance_booking_days: maxSettings.maxAdvanceBookingDays,
+            enabled: maxSettings.enabled,
+          }),
+        }).catch(() => {});
+      }
     } catch (e) {
       console.error('Error saving settings:', e);
     }
-  }, [maxSettings, dailySettings, slots, holidays, bookingSpots]);
+  }, [maxSettings, dailySettings, slots, holidays, bookingSpots, currentBusiness?.id]);
 
   // Load locations from backend (Settings > Industries > Form 1 > Locations)
   useEffect(() => {
@@ -460,38 +512,87 @@ export default function ReserveSlotPage() {
     setHolidayForm(prev => ({ ...prev, date: format(date, 'yyyy-MM-dd') }));
   };
 
-  const handleAddHoliday = () => {
+  const handleAddHoliday = async () => {
     if (!holidayForm.name.trim()) {
       toast.error('Please enter a holiday name');
       return;
     }
-
-    const newHoliday: Holiday = {
-      id: Date.now().toString(),
-      ...holidayForm,
-      createdAt: new Date().toISOString()
-    };
-
-    setHolidays(prev => [newHoliday, ...prev]);
-    resetHolidayForm();
-    toast.success('Holiday added successfully');
+    if (!currentBusiness?.id) {
+      const newHoliday: Holiday = {
+        id: Date.now().toString(),
+        ...holidayForm,
+        createdAt: new Date().toISOString()
+      };
+      setHolidays(prev => [newHoliday, ...prev]);
+      resetHolidayForm();
+      toast.success('Holiday added successfully');
+      return;
+    }
+    try {
+      const res = await fetch('/api/admin/business-holidays', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-business-id': currentBusiness.id },
+        body: JSON.stringify({
+          businessId: currentBusiness.id,
+          name: holidayForm.name.trim(),
+          holiday_date: holidayForm.date,
+          recurring: holidayForm.recurring,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to add holiday');
+      const h = data.holiday;
+      setHolidays(prev => [{ id: h.id, name: h.name, date: h.holiday_date, recurring: !!h.recurring, createdAt: h.created_at || '' }, ...prev]);
+      resetHolidayForm();
+      toast.success('Holiday added successfully');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to add holiday');
+    }
   };
 
-  const handleUpdateHoliday = () => {
+  const handleUpdateHoliday = async () => {
     if (!editingHolidayId || !holidayForm.name.trim()) {
       toast.error('Please enter a holiday name');
       return;
     }
-
-    setHolidays(prev =>
-      prev.map(holiday =>
-        holiday.id === editingHolidayId ? { ...holiday, ...holidayForm } : holiday
-      )
-    );
-
-    setEditingHolidayId(null);
-    resetHolidayForm();
-    toast.success('Holiday updated successfully');
+    if (!currentBusiness?.id) {
+      setHolidays(prev =>
+        prev.map(holiday =>
+          holiday.id === editingHolidayId ? { ...holiday, ...holidayForm } : holiday
+        )
+      );
+      setEditingHolidayId(null);
+      resetHolidayForm();
+      toast.success('Holiday updated successfully');
+      return;
+    }
+    try {
+      const res = await fetch('/api/admin/business-holidays', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'x-business-id': currentBusiness.id },
+        body: JSON.stringify({
+          id: editingHolidayId,
+          businessId: currentBusiness.id,
+          name: holidayForm.name.trim(),
+          holiday_date: holidayForm.date,
+          recurring: holidayForm.recurring,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to update holiday');
+      }
+      setHolidays(prev =>
+        prev.map(holiday =>
+          holiday.id === editingHolidayId ? { ...holiday, ...holidayForm } : holiday
+        )
+      );
+      setEditingHolidayId(null);
+      resetHolidayForm();
+      toast.success('Holiday updated successfully');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update holiday');
+    }
   };
 
   const handleEditHoliday = (holiday: Holiday) => {
@@ -504,11 +605,25 @@ export default function ReserveSlotPage() {
     setIsAddingHoliday(true);
   };
 
-  const handleDeleteHoliday = (id: string) => {
-    if (confirm('Are you sure you want to delete this holiday?')) {
-      setHolidays(prev => prev.filter(holiday => holiday.id !== id));
-      toast.success('Holiday deleted');
+  const handleDeleteHoliday = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this holiday?')) return;
+    if (currentBusiness?.id) {
+      try {
+        const res = await fetch(`/api/admin/business-holidays?id=${id}&businessId=${currentBusiness.id}`, {
+          method: 'DELETE',
+          headers: { 'x-business-id': currentBusiness.id },
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || 'Failed to delete holiday');
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Failed to delete holiday');
+        return;
+      }
     }
+    setHolidays(prev => prev.filter(holiday => holiday.id !== id));
+    toast.success('Holiday deleted');
   };
 
   const resetHolidayForm = () => {

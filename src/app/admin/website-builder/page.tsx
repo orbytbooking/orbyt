@@ -346,7 +346,7 @@ export default function WebsiteBuilderPage() {
         secondaryColor: '#00BCD4',
         logo: '/images/orbit.png',
         companyName: businessName,
-        domain: `${businessName.toLowerCase().replace(/\s+/g, '')}.bookingkoala.com`,
+        domain: `${businessName.toLowerCase().replace(/\s+/g, '')}.orbyt.com`,
       },
       template: 'modern',
     };

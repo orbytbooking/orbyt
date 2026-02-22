@@ -1,4 +1,4 @@
--- Add voided and declined to payment_status for Booking Koala-style charge workflow
+-- Add voided and declined to payment_status for charge workflow
 -- voided: Job done but charged $0 (no payment taken)
 -- declined: Charge attempt failed (card declined, etc.)
 

@@ -427,17 +427,21 @@ function BookingPageContent() {
   }, [searchParams]);
 
   // Fetch scheduling type when businessId is set (for provider step visibility)
+  const [specificProviderForCustomers, setSpecificProviderForCustomers] = useState(true);
+
   useEffect(() => {
     if (!businessId) return;
     const fetchScheduling = async () => {
       try {
         const res = await fetch(`/api/admin/store-options?businessId=${businessId}`);
         const data = await res.json();
-        if (res.ok && data?.options?.scheduling_type) {
-          setSchedulingType(data.options.scheduling_type);
+        if (res.ok && data?.options) {
+          const opts = data.options;
+          if (opts.scheduling_type) setSchedulingType(opts.scheduling_type);
+          if (typeof opts.specific_provider_for_customers === "boolean") setSpecificProviderForCustomers(opts.specific_provider_for_customers);
         }
       } catch {
-        // Keep default accepted_automatically
+        // Keep defaults
       }
     };
     fetchScheduling();
@@ -925,8 +929,8 @@ function BookingPageContent() {
   const isTimeSelected = Boolean(selectedTime);
   const isDateTimeSelected = isDateSelected && isTimeSelected;
 
-  // When Accept or Decline: skip provider step and don't send provider_id (invitation flow)
-  const showProviderStep = schedulingType !== "accept_or_decline";
+  // When Accept or Decline: skip provider step. Also skip when specific_provider_for_customers is disabled.
+  const showProviderStep = schedulingType !== "accept_or_decline" && specificProviderForCustomers;
 
   // Fetch available providers when date and time are selected (only if provider step is shown)
   useEffect(() => {

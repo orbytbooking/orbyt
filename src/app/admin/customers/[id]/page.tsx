@@ -1895,7 +1895,7 @@ export default function CustomerProfilePage() {
         </TabsContent>
       </Tabs>
 
-      {/* Booking Summary modal (BookingKoala-style) */}
+      {/* Booking Summary modal */}
       <Dialog open={!!selectedBooking} onOpenChange={(open) => !open && setSelectedBooking(null)}>
         <DialogContent className="w-[calc(100vw-2rem)] max-w-lg max-h-[90vh] overflow-y-auto overflow-x-hidden p-0 gap-0 sm:rounded-lg">
           <div className="px-5 pt-5 pb-0">
@@ -1905,7 +1905,7 @@ export default function CustomerProfilePage() {
           </div>
           {selectedBooking && (
             <div className="px-5 pb-5 min-w-0">
-              {/* Customer info block - BookingKoala style */}
+              {/* Customer info block */}
               <div className="flex gap-4 pt-4 min-w-0">
                 <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gray-200">
                   <UserIcon className="h-6 w-6 text-gray-500" />
@@ -1940,7 +1940,7 @@ export default function CustomerProfilePage() {
                 </div>
               </div>
 
-              {/* Collapsible Booking details - BookingKoala style with Minus icon */}
+              {/* Collapsible Booking details */}
               <div className="border-t border-gray-200 mt-4 pt-4 min-w-0">
                 <Collapsible defaultOpen className="group">
                   <CollapsibleTrigger className="flex w-full items-center justify-between py-2 text-left font-semibold text-sm hover:opacity-80 transition-opacity min-w-0">

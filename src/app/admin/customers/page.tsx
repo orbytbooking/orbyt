@@ -524,7 +524,7 @@ const Customers = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header: Search + Add New (BookingKoala-style) */}
+      {/* Header: Search + Add New */}
       <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
         <div className="flex-1 w-full max-w-md relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -571,7 +571,7 @@ const Customers = () => {
         </div>
       </div>
 
-      {/* Customers Table (BookingKoala-style) */}
+      {/* Customers Table */}
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -849,7 +849,7 @@ const Customers = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Add Customer Dialog - BookingKoala style */}
+      {/* Add Customer Dialog */}
       <Dialog open={showAddCustomer} onOpenChange={(open) => {
         setShowAddCustomer(open);
         if (!open && searchParams.get("add") === "true") {

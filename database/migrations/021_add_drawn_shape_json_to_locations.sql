@@ -1,4 +1,4 @@
--- Store drawn service area as JSON (GeoJSON-style: type, coordinates, properties) for BookingKoala-style map
+-- Store drawn service area as JSON (GeoJSON-style: type, coordinates, properties)
 ALTER TABLE public.locations
 ADD COLUMN IF NOT EXISTS drawn_shape_json jsonb;
 

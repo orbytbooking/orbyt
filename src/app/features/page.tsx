@@ -32,7 +32,7 @@ export default function FeaturesPage() {
         </div>
       </header>
 
-      {/* Hero Section (Features overview like BookingKoala) */}
+      {/* Hero Section - Features overview */}
       <section className="py-16 px-4 bg-background">
         <div className="container mx-auto max-w-6xl">
           <div className="text-center max-w-3xl mx-auto mb-10">
@@ -45,7 +45,7 @@ export default function FeaturesPage() {
             </p>
           </div>
 
-          {/* Top feature shortcuts with icons (like BookingKoala row) */}
+          {/* Top feature shortcuts with icons */}
           <div className="grid gap-4 grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 text-sm mb-10">
             <a href="#customer-account" className="flex flex-col items-center gap-2 rounded-xl border bg-white p-3 hover:shadow-sm transition-shadow">
               <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary text-lg">

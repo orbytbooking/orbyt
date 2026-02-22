@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Store, Tag, MailX, Receipt, List, Plug, Plus, Minus, Loader2, Pencil, Trash2, Info, Clock, Users, Bell } from 'lucide-react';
+import { Store, Tag, MailX, Receipt, List, Plug, Plus, Minus, Loader2, Pencil, Trash2, Info, Clock, Users, Bell, Settings, Calendar, CalendarDays } from 'lucide-react';
 import { useBusiness } from '@/contexts/BusinessContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -54,6 +54,7 @@ import {
 } from '@/components/ui/tooltip';
 import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import Link from 'next/link';
 import { toast } from 'sonner';
 
@@ -65,6 +66,14 @@ interface AdminTag {
 
 type SchedulingType = "accepted_automatically" | "accept_or_decline" | "accepts_same_day_only";
 
+type BookingCompletionMode = "manual" | "automatic";
+
+type ProviderAssignmentMode = "manual" | "automatic";
+
+type RecurringUpdateDefault = "this_booking_only" | "all_future";
+
+type HolidayBlockedWho = "customer" | "both";
+
 interface StoreOptions {
   id?: string;
   business_id?: string;
@@ -75,6 +84,17 @@ interface StoreOptions {
   notify_providers_on_unassigned: boolean;
   waitlist_enabled: boolean;
   clock_in_out_enabled: boolean;
+  booking_completion_mode: BookingCompletionMode;
+  spots_based_on_provider_availability?: boolean;
+  provider_assignment_mode?: ProviderAssignmentMode;
+  recurring_update_default?: RecurringUpdateDefault;
+  specific_provider_for_customers?: boolean;
+  specific_provider_for_admin?: boolean;
+  same_provider_for_recurring_cron?: boolean;
+  max_minutes_per_provider_per_booking?: number;
+  spot_limits_enabled?: boolean;
+  holiday_skip_to_next?: boolean;
+  holiday_blocked_who?: HolidayBlockedWho;
 }
 
 const SCHEDULING_DEFAULT_OPTIONS: StoreOptions = {
@@ -85,6 +105,17 @@ const SCHEDULING_DEFAULT_OPTIONS: StoreOptions = {
   notify_providers_on_unassigned: true,
   waitlist_enabled: false,
   clock_in_out_enabled: false,
+  booking_completion_mode: "manual",
+  spots_based_on_provider_availability: true,
+  provider_assignment_mode: "automatic",
+  recurring_update_default: "all_future",
+  specific_provider_for_customers: false,
+  specific_provider_for_admin: true,
+  same_provider_for_recurring_cron: true,
+  max_minutes_per_provider_per_booking: 0,
+  spot_limits_enabled: false,
+  holiday_skip_to_next: false,
+  holiday_blocked_who: "customer",
 };
 
 export default function GeneralSettingsPage() {
@@ -3112,24 +3143,96 @@ export default function GeneralSettingsPage() {
                   Save
                 </Button>
               </TabsContent>
-              <TabsContent value="scheduling" className="mt-0 space-y-6">
+              <TabsContent value="scheduling" className="mt-0">
                 {schedulingLoading ? (
                   <div className="flex justify-center py-12">
                     <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                   </div>
                 ) : (
-                  <>
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <Clock className="h-5 w-5" />
-                          Provider Assignment
-                        </CardTitle>
-                        <CardDescription>
-                          Choose how bookings get assigned to providers when customers book online
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-6">
+                  <div className="space-y-0 rounded-lg bg-card p-6 border shadow-sm">
+                    <h2 className="text-xl font-semibold mb-1">Scheduling</h2>
+                    <p className="text-sm text-muted-foreground mb-6">
+                      In this section you can decide whether you want the spots based on provider availability or not. You can also set up if you want to choose providers manually or the system should pick a provider automatically from available providers and should assign it automatically or it should be based on accept/decline.
+                    </p>
+
+                    <div className="border rounded-lg divide-y bg-background/80">
+                    <Collapsible defaultOpen className="group">
+                      <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-4 text-left hover:bg-muted/50 transition-colors">
+                        <div>
+                          <p className="font-semibold">Availability & Assignment</p>
+                          <p className="text-sm text-muted-foreground mt-0.5">Control whether slots depend on provider availability and how providers are chosen</p>
+                        </div>
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
+                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                        </span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="px-4 pb-4 pt-0 space-y-6">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label>Spots based on provider availability</Label>
+                            <p className="text-sm text-muted-foreground">Only show times where at least one provider is free</p>
+                          </div>
+                          <Switch
+                            checked={schedulingOptions.spots_based_on_provider_availability ?? true}
+                            onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, spots_based_on_provider_availability: v }))}
+                          />
+                        </div>
+                        <div className="space-y-3">
+                          <Label>Provider assignment</Label>
+                          <div className="grid gap-3">
+                            <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/50">
+                              <input
+                                type="radio"
+                                name="provider_assignment_mode"
+                                checked={(schedulingOptions.provider_assignment_mode ?? "automatic") === "automatic"}
+                                onChange={() => setSchedulingOptions((o) => ({ ...o, provider_assignment_mode: "automatic" }))}
+                                className="mt-1"
+                              />
+                              <div>
+                                <p className="font-medium">Automatic</p>
+                                <p className="text-sm text-muted-foreground">
+                                  System picks or invites providers when date/time is selected. Customer gets confirmation per scheduling type below.
+                                </p>
+                              </div>
+                            </label>
+                            <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/50">
+                              <input
+                                type="radio"
+                                name="provider_assignment_mode"
+                                checked={(schedulingOptions.provider_assignment_mode ?? "automatic") === "manual"}
+                                onChange={() => setSchedulingOptions((o) => ({ ...o, provider_assignment_mode: "manual" }))}
+                                className="mt-1"
+                              />
+                              <div>
+                                <p className="font-medium">Manual</p>
+                                <p className="text-sm text-muted-foreground">
+                                  All bookings go to unassigned. Admin or providers assign manually or grab jobs.
+                                </p>
+                              </div>
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    </CollapsibleContent>
+                    </Collapsible>
+
+                    <Collapsible className="group">
+                      <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-4 text-left hover:bg-muted/50 transition-colors">
+                        <div>
+                          <p className="font-semibold">Provider Assignment (when automatic)</p>
+                          <p className="text-sm text-muted-foreground mt-0.5">Choose how automatic assignment works when customers book online</p>
+                        </div>
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
+                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                        </span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="px-4 pb-4 pt-0 space-y-6">
+                        {(schedulingOptions.provider_assignment_mode ?? "automatic") === "automatic" && (
+                        <>
                         <div className="space-y-3">
                           <Label>Scheduling type</Label>
                           <div className="grid gap-3">
@@ -3202,20 +3305,25 @@ export default function GeneralSettingsPage() {
                             </p>
                           </div>
                         )}
-                      </CardContent>
-                    </Card>
+                        </>
+                        )}
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
 
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <Users className="h-5 w-5" />
-                          Unassigned Folder
-                        </CardTitle>
-                        <CardDescription>
-                          Settings for bookings without a provider
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-6">
+                    <Collapsible className="group">
+                      <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-4 text-left hover:bg-muted/50 transition-colors">
+                        <div>
+                          <p className="font-semibold">Unassigned Folder</p>
+                          <p className="text-sm text-muted-foreground mt-0.5">Settings for bookings without a provider</p>
+                        </div>
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
+                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                        </span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="px-4 pb-4 pt-0 space-y-6">
                         <div className="flex items-center justify-between">
                           <div>
                             <Label>Allow providers to see unassigned jobs</Label>
@@ -3259,20 +3367,200 @@ export default function GeneralSettingsPage() {
                             onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, waitlist_enabled: v }))}
                           />
                         </div>
-                      </CardContent>
-                    </Card>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
 
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <Clock className="h-5 w-5" />
-                          Time Tracking
-                        </CardTitle>
-                        <CardDescription>
-                          Enable clock in/out for providers (On the Way, At Location, Clock In, Clock Out)
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
+                    <Collapsible className="group">
+                      <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-4 text-left hover:bg-muted/50 transition-colors">
+                        <div>
+                          <p className="font-semibold">Recurring Bookings</p>
+                          <p className="text-sm text-muted-foreground mt-0.5">Options to select how many recurring booking(s) you want to block into the future</p>
+                        </div>
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
+                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                        </span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="px-4 pb-4 pt-0 space-y-6">
+                        <div className="space-y-3">
+                          <Label>Default recurring update behavior</Label>
+                          <p className="text-sm text-muted-foreground">When editing a recurring booking, which option to pre-select</p>
+                          <div className="grid gap-2">
+                            <label className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50">
+                              <input
+                                type="radio"
+                                name="recurring_update_default"
+                                checked={(schedulingOptions.recurring_update_default ?? "all_future") === "all_future"}
+                                onChange={() => setSchedulingOptions((o) => ({ ...o, recurring_update_default: "all_future" }))}
+                                className="mt-1"
+                              />
+                              <span className="text-sm">For all future appointments</span>
+                            </label>
+                            <label className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50">
+                              <input
+                                type="radio"
+                                name="recurring_update_default"
+                                checked={(schedulingOptions.recurring_update_default ?? "all_future") === "this_booking_only"}
+                                onChange={() => setSchedulingOptions((o) => ({ ...o, recurring_update_default: "this_booking_only" }))}
+                                className="mt-1"
+                              />
+                              <span className="text-sm">This booking only</span>
+                            </label>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label>Same provider for recurring (cron)</Label>
+                            <p className="text-sm text-muted-foreground">When cron creates the next recurring booking, reuse the same provider</p>
+                          </div>
+                          <Switch
+                            checked={schedulingOptions.same_provider_for_recurring_cron ?? true}
+                            onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, same_provider_for_recurring_cron: v }))}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label>Enforce spot limits</Label>
+                            <p className="text-sm text-muted-foreground">Respect max bookings per day/week from Booking Spots settings</p>
+                          </div>
+                          <Switch
+                            checked={schedulingOptions.spot_limits_enabled ?? false}
+                            onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, spot_limits_enabled: v }))}
+                          />
+                        </div>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+
+                    <Collapsible className="group">
+                      <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-4 text-left hover:bg-muted/50 transition-colors">
+                        <div>
+                          <p className="font-semibold">Spots Availability</p>
+                          <p className="text-sm text-muted-foreground mt-0.5">Control over how system should check spots availability (holidays, limits)</p>
+                        </div>
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
+                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                        </span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="px-4 pb-4 pt-0 space-y-6">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label>Skip holidays in recurring</Label>
+                            <p className="text-sm text-muted-foreground">For recurring bookings, skip holiday dates and use next available</p>
+                          </div>
+                          <Switch
+                            checked={schedulingOptions.holiday_skip_to_next ?? false}
+                            onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, holiday_skip_to_next: v }))}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Who is blocked from booking on holidays</Label>
+                          <div className="grid gap-2">
+                            <label className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50">
+                              <input
+                                type="radio"
+                                name="holiday_blocked_who"
+                                checked={(schedulingOptions.holiday_blocked_who ?? "customer") === "customer"}
+                                onChange={() => setSchedulingOptions((o) => ({ ...o, holiday_blocked_who: "customer" }))}
+                                className="mt-1"
+                              />
+                              <span className="text-sm">Customer only (admin can still book holidays)</span>
+                            </label>
+                            <label className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50">
+                              <input
+                                type="radio"
+                                name="holiday_blocked_who"
+                                checked={(schedulingOptions.holiday_blocked_who ?? "customer") === "both"}
+                                onChange={() => setSchedulingOptions((o) => ({ ...o, holiday_blocked_who: "both" }))}
+                                className="mt-1"
+                              />
+                              <span className="text-sm">Both admin and customer</span>
+                            </label>
+                          </div>
+                        </div>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+
+                    <Collapsible className="group">
+                      <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-4 text-left hover:bg-muted/50 transition-colors">
+                        <div>
+                          <p className="font-semibold">Booking Options</p>
+                          <p className="text-sm text-muted-foreground mt-0.5">Manage the options to show on booking forms for customer and admin</p>
+                        </div>
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
+                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                        </span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="px-4 pb-4 pt-0 space-y-6">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label>Specific provider for customers</Label>
+                            <p className="text-sm text-muted-foreground">Let customers pick a provider on the booking form</p>
+                          </div>
+                          <Switch
+                            checked={schedulingOptions.specific_provider_for_customers ?? false}
+                            onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, specific_provider_for_customers: v }))}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label>Specific provider for admin/staff</Label>
+                            <p className="text-sm text-muted-foreground">Let admin choose a provider when adding bookings</p>
+                          </div>
+                          <Switch
+                            checked={schedulingOptions.specific_provider_for_admin ?? true}
+                            onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, specific_provider_for_admin: v }))}
+                          />
+                        </div>
+
+                        <Separator />
+
+                        <div className="space-y-3">
+                          <Label>Completion mode</Label>
+                          <div className="grid gap-3">
+                            <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/50">
+                              <input
+                                type="radio"
+                                name="booking_completion_mode"
+                                checked={schedulingOptions.booking_completion_mode === "manual"}
+                                onChange={() => setSchedulingOptions((o) => ({ ...o, booking_completion_mode: "manual" }))}
+                                className="mt-1"
+                              />
+                              <div>
+                                <p className="font-medium">Manual</p>
+                                <p className="text-sm text-muted-foreground">
+                                  Provider or admin must mark the booking as completed (clock out or &quot;Mark as Completed&quot; button).
+                                </p>
+                              </div>
+                            </label>
+                            <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/50">
+                              <input
+                                type="radio"
+                                name="booking_completion_mode"
+                                checked={schedulingOptions.booking_completion_mode === "automatic"}
+                                onChange={() => setSchedulingOptions((o) => ({ ...o, booking_completion_mode: "automatic" }))}
+                                className="mt-1"
+                              />
+                              <div>
+                                <p className="font-medium">Automatic</p>
+                                <p className="text-sm text-muted-foreground">
+                                  Bookings auto-complete when job length has passed (e.g. 3-hour job at 8am completes at 11:01am). Requires a cron job calling /api/cron/auto-complete-bookings every 5–15 minutes.
+                                </p>
+                              </div>
+                            </label>
+                          </div>
+                        </div>
+
+                        <Separator />
+
+                        <div className="space-y-6">
                         <div className="flex items-center justify-between">
                           <div>
                             <Label>Enable clock in/out</Label>
@@ -3283,14 +3571,35 @@ export default function GeneralSettingsPage() {
                             onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, clock_in_out_enabled: v }))}
                           />
                         </div>
-                      </CardContent>
-                    </Card>
+                        <div className="space-y-2">
+                          <Label>Max time per provider per booking (minutes)</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={1440}
+                            placeholder="0 = no limit"
+                            value={schedulingOptions.max_minutes_per_provider_per_booking ?? 0}
+                            onChange={(e) =>
+                              setSchedulingOptions((o) => ({
+                                ...o,
+                                max_minutes_per_provider_per_booking: Math.max(0, Math.min(1440, parseInt(e.target.value, 10) || 0)),
+                              }))
+                            }
+                          />
+                          <p className="text-sm text-muted-foreground">0 means this limit is not used when checking provider availability</p>
+                        </div>
+                        </div>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                    </div>
 
-                    <Button onClick={handleSaveScheduling} disabled={schedulingSaving}>
+
+                    <Button onClick={handleSaveScheduling} disabled={schedulingSaving} className="mt-6">
                       {schedulingSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                       Save Scheduling Settings
                     </Button>
-                  </>
+                  </div>
                 )}
               </TabsContent>
             </div>

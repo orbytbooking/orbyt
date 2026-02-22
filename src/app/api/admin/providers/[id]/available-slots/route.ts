@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getStoreOptionsScheduling, isDateHoliday } from '@/lib/schedulingFilters';
 
 /**
  * GET /api/admin/providers/[id]/available-slots
@@ -83,6 +84,20 @@ export async function GET(
         { error: 'Provider not found or access denied' },
         { status: 403 }
       );
+    }
+
+    // Holiday check: when holiday_blocked_who is 'both', admin is also blocked
+    const storeOpts = await getStoreOptionsScheduling(provider.business_id);
+    if (storeOpts?.holiday_blocked_who === 'both') {
+      const isHoliday = await isDateHoliday(provider.business_id, date);
+      if (isHoliday) {
+        return NextResponse.json({
+          providerId,
+          date,
+          availableSlots: [],
+          count: 0,
+        });
+      }
     }
 
     // Parse the date to get day of week

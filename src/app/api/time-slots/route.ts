@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseClient';
+import { getStoreOptionsScheduling, isDateHoliday, getSpotLimits, getBookingCountForDate } from '@/lib/schedulingFilters';
 
 export async function GET(request: Request) {
   try {
@@ -13,6 +14,41 @@ export async function GET(request: Request) {
 
     if (!businessId) {
       return NextResponse.json({ error: 'Business ID is required' }, { status: 400 });
+    }
+
+    const storeOpts = await getStoreOptionsScheduling(businessId);
+
+    // Holiday check: if customer is blocked on holidays, return empty for holiday dates
+    const holidayBlocked = storeOpts?.holiday_blocked_who === 'customer' || storeOpts?.holiday_blocked_who === 'both';
+    if (date && holidayBlocked) {
+      const isHoliday = await isDateHoliday(businessId, date);
+      if (isHoliday) {
+        return NextResponse.json({ timeSlots: [] });
+      }
+    }
+
+    // Spot limits: if enabled and day at capacity, return empty
+    if (date && storeOpts?.spot_limits_enabled) {
+      const limits = await getSpotLimits(businessId);
+      if (limits?.enabled && limits.max_bookings_per_day > 0) {
+        const count = await getBookingCountForDate(supabaseAdmin, businessId, date);
+        if (count >= limits.max_bookings_per_day) {
+          return NextResponse.json({ timeSlots: [] });
+        }
+      }
+    }
+
+    // Spots based on provider availability: when false, return default full-day slots (no provider filter)
+    const useProviderAvailability = storeOpts?.spots_based_on_provider_availability ?? true;
+    if (!useProviderAvailability && date) {
+      const defaultSlots: string[] = [];
+      for (let h = 7; h < 20; h++) {
+        defaultSlots.push(
+          new Date(2000, 0, 1, h, 0, 0).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
+          new Date(2000, 0, 1, h, 30, 0).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+        );
+      }
+      return NextResponse.json({ timeSlots: defaultSlots });
     }
 
     // Get the day of week from the date (0 = Sunday, 1 = Monday, etc.)

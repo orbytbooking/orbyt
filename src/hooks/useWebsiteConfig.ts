@@ -346,7 +346,7 @@ const getDefaultConfig = (businessName?: string): WebsiteConfig => ({
 
     companyName: businessName || 'ORBIT',
 
-    domain: 'yourbusiness.bookingkoala.com',
+    domain: 'yourbusiness.orbyt.com',
 
   },
 

@@ -342,6 +342,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
       iconBg: "bg-indigo-100",
       iconColor: "text-indigo-600",
       children: [
+        { label: "Account", path: "/admin/settings/account" },
         { 
           icon: Settings,
           label: 'General', 
@@ -349,7 +350,6 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
           iconBg: 'bg-blue-100',
           iconColor: 'text-blue-600'
         },
-        { label: "Account", path: "/admin/settings/account" },
         { label: "Website & Form Design", path: "/admin/settings/design" },
         {
           label: "Industries",

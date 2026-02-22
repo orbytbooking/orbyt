@@ -156,6 +156,9 @@ const createEmptyBookingForm = () => ({
   excludeMinimumFee: false,
   excludeCustomerNotification: false,
   excludeProviderNotification: false,
+  createRecurring: false,
+  recurringEndDate: "",
+  recurringOccurrencesAhead: 8,
 });
 
 function AddBookingPage() {
@@ -206,6 +209,31 @@ function AddBookingPage() {
   const [selectedIndustryId, setSelectedIndustryId] = useState<string>("");
   const [hasLocationBasedFrequencies, setHasLocationBasedFrequencies] = useState(false);
   const [cancellationFeeDisplay, setCancellationFeeDisplay] = useState<{ enabled: boolean; amount: number; currency: string } | null>(null);
+  const [specificProviderForAdmin, setSpecificProviderForAdmin] = useState(true);
+
+  // Load store options (specific_provider_for_admin)
+  useEffect(() => {
+    if (!currentBusiness?.id) return;
+    fetch(`/api/admin/store-options?businessId=${currentBusiness.id}`, {
+      headers: { "x-business-id": currentBusiness.id },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        const opts = data?.options;
+        if (opts && typeof opts.specific_provider_for_admin === "boolean") {
+          setSpecificProviderForAdmin(opts.specific_provider_for_admin);
+        }
+      })
+      .catch(() => {});
+  }, [currentBusiness?.id]);
+
+  // Clear provider selection when specific_provider_for_admin is disabled
+  useEffect(() => {
+    if (!specificProviderForAdmin) {
+      setSelectedProvider(null);
+      setNewBooking((prev) => (prev.serviceProvider ? { ...prev, serviceProvider: "" } : prev));
+    }
+  }, [specificProviderForAdmin]);
 
   // Load cancellation settings for Payment Summary display
   useEffect(() => {
@@ -742,6 +770,11 @@ const handleAddBooking = async (status: string = 'pending') => {
         exclude_cancellation_fee: newBooking.excludeCancellationFee,
         exclude_customer_notification: newBooking.excludeCustomerNotification,
         exclude_provider_notification: newBooking.excludeProviderNotification,
+        create_recurring: newBooking.createRecurring || undefined,
+        recurring_end_date: newBooking.createRecurring ? newBooking.recurringEndDate || null : undefined,
+        recurring_occurrences_ahead: newBooking.createRecurring ? (newBooking.recurringOccurrencesAhead ?? 8) : undefined,
+        industry_id: selectedIndustryId || undefined,
+        frequency_repeats: frequencies.find(f => f.name === newBooking.frequency)?.frequency_repeats ?? undefined,
       }),
       });
     } catch (fetchError) {
@@ -2060,6 +2093,56 @@ const handleAddBooking = async (status: string = 'pending') => {
               }
               return null;
             })()}
+
+            {/* Create as recurring series (when frequency is recurring) */}
+            {(() => {
+              const selectedFreq = frequencies.find(f => f.name === newBooking.frequency);
+              const isRecurring = selectedFreq?.occurrence_time === 'recurring';
+              if (!isRecurring) return null;
+              return (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="create-recurring"
+                        checked={newBooking.createRecurring}
+                        onCheckedChange={(v) => setNewBooking(prev => ({ ...prev, createRecurring: !!v }))}
+                      />
+                      <Label htmlFor="create-recurring" className="text-sm font-medium cursor-pointer">
+                        Create as recurring series
+                      </Label>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Create multiple future bookings at once (e.g. 8 weeks ahead). Extend on demand when viewing the calendar.
+                    </p>
+                    {newBooking.createRecurring && (
+                      <div className="grid gap-4 sm:grid-cols-2 pt-2">
+                        <div>
+                          <Label className="text-xs">Number of occurrences ahead</Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={24}
+                            value={newBooking.recurringOccurrencesAhead}
+                            onChange={(e) => setNewBooking(prev => ({ ...prev, recurringOccurrencesAhead: Math.min(24, Math.max(1, parseInt(e.target.value, 10) || 8)) }))}
+                            className="mt-1"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">End date (optional)</Label>
+                          <Input
+                            type="date"
+                            value={newBooking.recurringEndDate}
+                            onChange={(e) => setNewBooking(prev => ({ ...prev, recurringEndDate: e.target.value }))}
+                            className="mt-1"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
             
             {/* Dynamic Variable Categories from Pricing Parameters with Service Category and Frequency Filtering */}
             {variableCategories.length > 0 && (
@@ -2745,7 +2828,9 @@ const handleAddBooking = async (status: string = 'pending') => {
                   </div>
                 </div>
 
-                {/* Provider Selection */}
+                {/* Provider Selection - only when specific_provider_for_admin is enabled */}
+                {specificProviderForAdmin ? (
+                <div className="space-y-4">
                 <div>
                   <Label htmlFor="provider-select" className="text-sm font-medium mb-2 block text-white">
                     Select Provider {
@@ -2923,8 +3008,11 @@ const handleAddBooking = async (status: string = 'pending') => {
                     </Dialog>
                   </div>
                 )}
-                    
-                                      </div>
+                </div>
+                ) : (
+                  <p className="text-sm text-gray-400 py-2">Provider will be assigned manually or from the unassigned folder.</p>
+                )}
+              </div>
             </div>
             
             {/* Key Information & Job Notes */}

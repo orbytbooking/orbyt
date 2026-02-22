@@ -159,7 +159,7 @@ export function CreateInvoiceDialog({
           <DialogDescription>Create an invoice for this customer. Select from bookings or add custom line items.</DialogDescription>
         </DialogHeader>
 
-        {/* Customer block (Booking Koala style) */}
+        {/* Customer block */}
         {customer && (
           <div className="rounded-lg border bg-muted/40 p-4">
             <div className="flex items-center gap-3">

@@ -1,7 +1,7 @@
 -- ========================================
 -- MIGRATION: ENHANCE SERVICE_PROVIDERS TABLE
 -- ========================================
--- This migration adds missing BookingKoala-specific fields to the service_providers table
+-- This migration adds fields to the service_providers table
 
 -- Add missing columns to service_providers table
 ALTER TABLE public.service_providers 

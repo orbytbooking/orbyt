@@ -10,7 +10,7 @@ if (!supabaseUrl || !supabaseServiceRoleKey) {
 
 /**
  * POST /api/admin/providers/[id]/deactivate
- * BookingKoala-style deactivation: optionally unassign from upcoming bookings, then set status to inactive.
+ * Deactivation: optionally unassign from upcoming bookings, then set status to inactive.
  * Body: { unassignBookings?: boolean, excludeNotification?: boolean }
  */
 export async function POST(

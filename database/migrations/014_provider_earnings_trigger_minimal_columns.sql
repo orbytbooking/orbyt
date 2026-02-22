@@ -2,7 +2,7 @@
 -- FIX: Provider earnings trigger – use only existing columns
 -- ========================================
 -- Fixes: column "hours_worked" of relation "provider_earnings" does not exist
--- The provider_earnings table (from bookingkoala_additions) has no
+-- The provider_earnings table has no
 -- hours_worked, percentage_rate_used, flat_rate_used, hourly_rate_used.
 -- This updates the trigger to only INSERT columns that exist.
 

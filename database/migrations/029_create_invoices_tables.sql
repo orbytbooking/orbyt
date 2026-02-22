@@ -1,5 +1,5 @@
 -- ========================================
--- Invoices (Booking Koala style - per customer)
+-- Invoices (per customer)
 -- ========================================
 
 CREATE TABLE IF NOT EXISTS public.invoices (

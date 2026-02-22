@@ -596,7 +596,7 @@ const ProviderBookings = () => {
                 </div>
               )}
 
-              {/* Clock In/Out (Booking Koala style) */}
+              {/* Clock In/Out */}
               {clockEnabled && (selectedBooking.status === "confirmed" || selectedBooking.status === "in_progress") && (
                 <div className="p-4 border rounded-lg space-y-3">
                   <p className="font-semibold">Time Tracking</p>

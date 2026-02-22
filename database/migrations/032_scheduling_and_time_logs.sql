@@ -1,4 +1,4 @@
--- Booking Koala: Scheduling types, provider invitations, time logs
+-- Scheduling types, provider invitations, time logs
 -- Run after existing migrations
 
 -- 1. Business store options (scheduling settings per business)
@@ -44,7 +44,7 @@ CREATE INDEX IF NOT EXISTS idx_provider_booking_invitations_booking ON public.pr
 CREATE INDEX IF NOT EXISTS idx_provider_booking_invitations_provider ON public.provider_booking_invitations(provider_id);
 CREATE INDEX IF NOT EXISTS idx_provider_booking_invitations_status ON public.provider_booking_invitations(status);
 
--- 3. Booking time logs (clock in/out - Booking Koala style)
+-- 3. Booking time logs (clock in/out)
 CREATE TABLE IF NOT EXISTS public.booking_time_logs (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   booking_id uuid NOT NULL,

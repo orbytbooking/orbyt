@@ -808,7 +808,7 @@ const Dashboard = () => {
 
       
     </div>
-    {/* Booking Details Dialog - BookingKoala style with improved UI */}
+    {/* Booking Details Dialog */}
     <Dialog open={!!selectedBooking} onOpenChange={(o) => { if (!o) setSelectedBooking(null); }}>
       <DialogContent className="max-w-2xl p-0 overflow-hidden data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 duration-300">
         <DialogHeader className="px-6 pt-6 pb-0 animate-in fade-in-0 slide-in-from-top-2 duration-300">

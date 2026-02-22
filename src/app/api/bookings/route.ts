@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { MultiTenantHelper } from '@/lib/multiTenantSupabase';
 import { createAdminNotification } from '@/lib/adminProviderSync';
+import { getStoreOptionsScheduling, isDateHoliday } from '@/lib/schedulingFilters';
 
 export async function GET(request: Request) {
   try {
@@ -103,6 +104,20 @@ export async function POST(request: Request) {
 
     // Parse request body
     const bookingData = await request.json();
+
+    const scheduledDate = (bookingData.date ?? bookingData.selectedDate ?? '').toString().trim();
+    if (scheduledDate) {
+      const storeOpts = await getStoreOptionsScheduling(businessId);
+      if (storeOpts?.holiday_blocked_who === 'both') {
+        const isHoliday = await isDateHoliday(businessId, scheduledDate);
+        if (isHoliday) {
+          return NextResponse.json(
+            { error: 'HOLIDAY_BLOCKED', message: 'Booking is not available on this date (holiday).' },
+            { status: 400 }
+          );
+        }
+      }
+    }
 
     // Map payment method to valid database values
     let paymentMethod = 'cash'; // default
@@ -245,9 +260,70 @@ export async function POST(request: Request) {
     // Convert duration + duration_unit to duration_minutes
     const durationVal = parseFloat(bookingData.duration);
     const durationUnit = (bookingData.duration_unit || 'Hours').toString();
+    let durationMinutes = 0;
     if (!isNaN(durationVal) && durationVal >= 0) {
-      const minutes = durationUnit.toLowerCase().includes('hour') ? Math.round(durationVal * 60) : Math.round(durationVal);
-      if (minutes > 0) bookingWithBusiness.duration_minutes = minutes;
+      durationMinutes = durationUnit.toLowerCase().includes('hour') ? Math.round(durationVal * 60) : Math.round(durationVal);
+      if (durationMinutes > 0) bookingWithBusiness.duration_minutes = durationMinutes;
+    }
+    // Validate max_minutes_per_provider_per_booking
+    const storeOpts = await getStoreOptionsScheduling(businessId);
+    const maxMinutes = storeOpts?.max_minutes_per_provider_per_booking;
+    if (maxMinutes != null && maxMinutes > 0 && durationMinutes > maxMinutes) {
+      return NextResponse.json(
+        { error: 'DURATION_EXCEEDED', message: `Booking duration (${durationMinutes} min) exceeds maximum allowed (${maxMinutes} min) per provider.` },
+        { status: 400 }
+      );
+    }
+
+    // Recurring path: create series + N bookings
+    if (bookingData.create_recurring && scheduledDate && bookingData.frequency) {
+      const freqName = (bookingData.frequency || '').toString().trim();
+      let frequencyRepeats: string | null = bookingData.frequency_repeats ?? null;
+      if (!frequencyRepeats && bookingData.industry_id) {
+        const { data: freq } = await supabase
+          .from('industry_frequency')
+          .select('frequency_repeats')
+          .eq('industry_id', bookingData.industry_id)
+          .ilike('name', freqName)
+          .maybeSingle();
+        frequencyRepeats = (freq as { frequency_repeats?: string } | null)?.frequency_repeats ?? null;
+      }
+      const endDate = bookingData.recurring_end_date?.toString().trim() || null;
+      const occurrencesAhead = Math.min(Math.max(1, parseInt(bookingData.recurring_occurrences_ahead, 10) || 8), 24);
+      const sameProvider = bookingData.same_provider_for_recurring !== false;
+
+      try {
+        const { createRecurringSeries } = await import('@/lib/recurringBookings');
+        const template = { ...bookingWithBusiness };
+        const { seriesId, bookingIds } = await createRecurringSeries(supabase, businessId, template, {
+          startDate: scheduledDate,
+          endDate: endDate || undefined,
+          frequencyName: freqName,
+          frequencyRepeats,
+          occurrencesAhead,
+          sameProvider,
+        });
+        const { data: firstBooking } = await supabase.from('bookings').select('*').eq('id', bookingIds[0]).single();
+        const bkRef = `BK${String(bookingIds[0]).slice(-6).toUpperCase()}`;
+        await createAdminNotification(businessId, 'new_booking', {
+          title: 'Recurring series created',
+          message: `Recurring booking ${bkRef} created with ${bookingIds.length} occurrences.`,
+          link: '/admin/bookings',
+        });
+        return NextResponse.json({
+          success: true,
+          data: firstBooking,
+          seriesId,
+          bookingIds,
+          message: `Recurring series created with ${bookingIds.length} bookings`,
+        });
+      } catch (e: unknown) {
+        console.error('Recurring series error:', e);
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : 'Failed to create recurring series' },
+          { status: 500 }
+        );
+      }
     }
 
     // Insert booking directly

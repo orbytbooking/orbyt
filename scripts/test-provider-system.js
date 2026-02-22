@@ -1,17 +1,17 @@
-// Test script for BookingKoala system integration
+// Test script for provider system integration
 // Run this to verify all components are working together
 
-const testBookingKoalaSystem = async () => {
-  console.log('🧪 Testing BookingKoala System Integration...\n');
+const testProviderSystem = async () => {
+  console.log('🧪 Testing Provider System Integration...\n');
 
   try {
-    // Test 1: Check if BookingKoala tables exist
-    console.log('📋 Test 1: Checking BookingKoala tables...');
-    const tablesResponse = await fetch('/api/admin/providers/bookingkoala?businessId=test-business-id');
+    // Test 1: Check if provider tables exist
+    console.log('📋 Test 1: Checking provider tables...');
+    const tablesResponse = await fetch('/api/admin/providers/legacy?businessId=test-business-id');
     if (tablesResponse.ok) {
-      console.log('✅ BookingKoala API is accessible');
+      console.log('✅ Provider API is accessible');
     } else {
-      console.log('❌ BookingKoala API not working');
+      console.log('❌ Provider API not working');
     }
 
     // Test 2: Check available providers API
@@ -67,9 +67,9 @@ const testBookingKoalaSystem = async () => {
       console.log('✅ Enhanced booking API is accessible');
     }
 
-    console.log('\n🎉 BookingKoala System Integration Test Complete!');
+    console.log('\n🎉 Provider System Integration Test Complete!');
     console.log('\n📝 Next Steps:');
-    console.log('1. Run the SQL schema: database/bookingkoala_additions.sql');
+    console.log('1. Run the SQL schema: database/provider_additions.sql');
     console.log('2. Create test providers in your database');
     console.log('3. Test creating bookings from admin portal');
     console.log('4. Test creating bookings from customer portal');
@@ -82,16 +82,16 @@ const testBookingKoalaSystem = async () => {
 
 // Instructions for running this test
 console.log(`
-🧪 BookingKoala System Test Instructions:
+🧪 Provider System Test Instructions:
 
 1. Make sure your development server is running (npm run dev)
-2. Open browser console and run: testBookingKoalaSystem()
+2. Open browser console and run: testProviderSystem()
 3. Or save this as a script and run with node
 
 📋 Manual Testing Checklist:
 
 ✅ Database Schema:
-- [ ] Run database/bookingkoala_additions.sql in Supabase
+- [ ] Run database/provider_additions.sql in Supabase
 - [ ] Verify tables were created: provider_pay_rates, provider_earnings, booking_assignments, etc.
 
 ✅ Admin Portal:
@@ -117,10 +117,10 @@ console.log(`
 - [ ] Verify providers only see their business bookings
 - [ ] Test cross-business data leakage prevention
 
-🚀 Ready to test! Run testBookingKoalaSystem() in browser console.
+🚀 Ready to test! Run testProviderSystem() in browser console.
 `);
 
 // Export for use in browser
 if (typeof window !== 'undefined') {
-  window.testBookingKoalaSystem = testBookingKoalaSystem;
+  window.testProviderSystem = testProviderSystem;
 }

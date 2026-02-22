@@ -1046,7 +1046,7 @@ export default function ProviderProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Deactivate confirmation dialog (BookingKoala-style) */}
+      {/* Deactivate confirmation dialog */}
       <Dialog open={showDeactivateDialog} onOpenChange={setShowDeactivateDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>

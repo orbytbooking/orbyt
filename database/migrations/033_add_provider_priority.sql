@@ -1,4 +1,4 @@
--- Add provider priority for invitation order (Booking Koala: Set Priority)
+-- Add provider priority for invitation order
 ALTER TABLE public.service_providers
   ADD COLUMN IF NOT EXISTS invitation_priority integer DEFAULT 0;
 

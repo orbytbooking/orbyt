@@ -831,7 +831,7 @@ export default function FrequencyNewPage() {
                 <div className="space-y-3 mb-6">
                   <Label className="text-base font-semibold">Should the frequency show based on the location?</Label>
                   <p className="text-sm text-muted-foreground">
-                    <strong>Yes:</strong> Customer must enter their zip code first. This frequency will only show when their zip matches one of the selected locations below (Booking Koala style).<br />
+                    <strong>Yes:</strong> Customer must enter their zip code first. This frequency will only show when their zip matches one of the selected locations below.<br />
                     <strong>No:</strong> Frequency shows everywhere using your general location/service area settings.
                   </p>
                   <RadioGroup

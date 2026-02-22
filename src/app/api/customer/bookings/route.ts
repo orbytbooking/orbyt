@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
 import { processBookingScheduling } from '@/lib/bookingScheduling';
 import { EmailService } from '@/lib/emailService';
+import { getStoreOptionsScheduling, isDateHoliday, getSpotLimits, getBookingCountForDate, getBookingCountForWeek } from '@/lib/schedulingFilters';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -254,8 +255,47 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const date = body.date ?? '';
+  const date = (body.date ?? '').toString().trim();
   let timeRaw = body.time ?? '';
+
+  // Holiday check: if customer is blocked, reject booking on holiday dates
+  if (date) {
+    const storeOpts = await getStoreOptionsScheduling(businessId);
+    const holidayBlocked = storeOpts?.holiday_blocked_who === 'customer' || storeOpts?.holiday_blocked_who === 'both';
+    if (holidayBlocked) {
+      const isHoliday = await isDateHoliday(businessId, date);
+      if (isHoliday) {
+        return NextResponse.json(
+          { error: 'HOLIDAY_BLOCKED', message: 'Booking is not available on this date (holiday).' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Spot limits: reject if day or week at capacity
+    if (storeOpts?.spot_limits_enabled) {
+      const limits = await getSpotLimits(businessId);
+      if (limits?.enabled) {
+        const dayCount = await getBookingCountForDate(supabase, businessId, date);
+        if (limits.max_bookings_per_day > 0 && dayCount >= limits.max_bookings_per_day) {
+          return NextResponse.json(
+            { error: 'DAY_CAPACITY', message: 'This date has reached maximum bookings.' },
+            { status: 400 }
+          );
+        }
+        const weekStart = new Date(date);
+        weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+        const weekStartStr = weekStart.toISOString().split('T')[0];
+        const weekCount = await getBookingCountForWeek(supabase, businessId, weekStartStr);
+        if (limits.max_bookings_per_week > 0 && weekCount >= limits.max_bookings_per_week) {
+          return NextResponse.json(
+            { error: 'WEEK_CAPACITY', message: 'This week has reached maximum bookings.' },
+            { status: 400 }
+          );
+        }
+      }
+    }
+  }
 
   const parseNum = (v: unknown): number => {
     if (v == null) return 0;
@@ -293,6 +333,28 @@ export async function POST(request: NextRequest) {
 
   const notesVal = (body.notes ?? '').toString().trim();
 
+  // Parse duration_minutes from body (for max_minutes validation)
+  let durationMinutes = 0;
+  if (body.duration_minutes != null && typeof body.duration_minutes === 'number' && body.duration_minutes > 0) {
+    durationMinutes = Math.round(body.duration_minutes);
+  } else if (body.duration != null && (body.duration_unit || 'Hours')) {
+    const dv = parseFloat(String(body.duration));
+    const unit = (body.duration_unit || 'Hours').toString();
+    if (!isNaN(dv) && dv > 0) {
+      durationMinutes = unit.toLowerCase().includes('hour') ? Math.round(dv * 60) : Math.round(dv);
+    }
+  }
+  if (durationMinutes > 0) {
+    const storeOptsForDuration = await getStoreOptionsScheduling(businessId);
+    const maxMins = storeOptsForDuration?.max_minutes_per_provider_per_booking;
+    if (maxMins != null && maxMins > 0 && durationMinutes > maxMins) {
+      return NextResponse.json(
+        { error: 'DURATION_EXCEEDED', message: `Booking duration (${durationMinutes} min) exceeds maximum allowed (${maxMins} min).` },
+        { status: 400 }
+      );
+    }
+  }
+
   const insertMinimal: Record<string, unknown> = {
     business_id: businessId,
     customer_id: customer.id,
@@ -317,6 +379,7 @@ export async function POST(request: NextRequest) {
   };
 
   const insert: Record<string, unknown> = { ...insertMinimal };
+  if (durationMinutes > 0) insert.duration_minutes = durationMinutes;
   if (body.tipUpdatedAt) insert.tip_updated_at = body.tipUpdatedAt;
   const providerName = body.provider_name ?? body.providerName ?? null;
   if (providerName && String(providerName).trim()) insert.provider_name = String(providerName).trim();

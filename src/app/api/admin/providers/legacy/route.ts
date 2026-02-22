@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(request: NextRequest) {
   try {
-    console.log('=== BOOKINGKOALA PROVIDERS API ===');
+    console.log('=== PROVIDERS API ===');
     
     const { searchParams } = new URL(request.url);
     const businessId = searchParams.get('businessId');
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // Fetch BookingKoala-style provider data
+      // Fetch provider data
     const { data: providers, error } = await supabaseAdmin
       .from('service_providers')
       .select(`
@@ -91,15 +91,15 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('Error fetching BookingKoala providers:', error);
+      console.error('Error fetching providers:', error);
       return NextResponse.json(
         { error: `Failed to fetch providers: ${error.message}` },
         { status: 500 }
       );
     }
 
-    // Transform data for BookingKoala workflow
-    const bookingkoalaProviders = providers?.map(provider => {
+    // Transform data for provider workflow
+    const formattedProviders = providers?.map(provider => {
       const earnings = provider.provider_earnings || [];
       const reviews = provider.provider_reviews || [];
       const services = provider.provider_services || [];
@@ -122,7 +122,7 @@ export async function GET(request: NextRequest) {
         status: provider.status,
         availabilityStatus: provider.availability_status || 'available',
         
-        // BookingKoala specific fields
+        // Provider-specific fields
         hourlyRate: provider.hourly_rate || 0,
         payoutMethod: provider.payout_method || 'bank_transfer',
         totalEarned: provider.total_earned || 0,
@@ -187,16 +187,16 @@ export async function GET(request: NextRequest) {
     }) || [];
 
     return NextResponse.json({ 
-      providers: bookingkoalaProviders,
-      count: bookingkoalaProviders.length
+      providers: formattedProviders,
+      count: formattedProviders.length
     });
 
   } catch (error: any) {
-    console.error('BookingKoala providers API error:', error);
+    console.error('Providers API error:', error);
     return NextResponse.json(
       { 
         error: error.message || 'Internal server error',
-        details: 'Failed to fetch BookingKoala providers'
+        details: 'Failed to fetch providers'
       },
       { status: 500 }
     );
@@ -205,7 +205,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('=== CREATE BOOKINGKOALA PROVIDER API ===');
+    console.log('=== CREATE PROVIDER API ===');
     
     const body = await request.json();
     const {
@@ -217,7 +217,7 @@ export async function POST(request: NextRequest) {
       address,
       businessId,
       
-      // BookingKoala specific
+      // Provider-specific
       hourlyRate,
       payoutMethod,
       specialization,
@@ -292,7 +292,7 @@ export async function POST(request: NextRequest) {
         status: 'active',
         provider_type: 'individual',
         
-        // BookingKoala fields
+        // Provider fields
         hourly_rate: hourlyRate || 0,
         payout_method: payoutMethod || 'bank_transfer',
         total_earned: 0,
@@ -304,7 +304,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (providerError) {
-      console.error('Error creating BookingKoala provider:', providerError);
+      console.error('Error creating provider:', providerError);
       return NextResponse.json(
         { error: 'Failed to create provider' },
         { status: 500 }
@@ -405,15 +405,15 @@ export async function POST(request: NextRequest) {
         payoutMethod: provider.payout_method,
         businessId: provider.business_id
       },
-      message: 'BookingKoala provider created successfully'
+      message: 'Provider created successfully'
     });
 
   } catch (error: any) {
-    console.error('BookingKoala provider creation error:', error);
+    console.error('Provider creation error:', error);
     return NextResponse.json(
       { 
         error: error.message || 'Internal server error',
-        details: 'Failed to create BookingKoala provider'
+        details: 'Failed to create provider'
       },
       { status: 500 }
     );

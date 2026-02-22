@@ -1,5 +1,5 @@
 -- ========================================
--- BOOKINGKOALA PROVIDER MANAGEMENT SCHEMA
+-- Provider management schema
 -- ========================================
 -- This schema adds the missing tables for complete provider management
 -- Run this after the main schema to add provider-specific features

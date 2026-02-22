@@ -1,7 +1,7 @@
 -- ========================================
--- BOOKINGKOALA MINIMAL ADDITIONS
+-- Minimal additions
 -- ========================================
--- Add only the essential tables needed for BookingKoala functionality
+-- Add essential tables for scheduling and provider management
 
 -- 1. PROVIDER PAY RATES (CRITICAL)
 CREATE TABLE IF NOT EXISTS public.provider_pay_rates (

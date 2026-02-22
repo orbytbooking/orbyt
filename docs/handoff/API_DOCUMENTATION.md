@@ -1,6 +1,6 @@
 # Landing Page API Documentation
 
-This API allows your CRM (like Booking Koala) to manage landing page content, colors, sections, and images.
+This API allows your CRM to manage landing page content, colors, sections, and images.
 
 ## Base URL
 ```
@@ -155,7 +155,7 @@ Available section types:
 - `referral` - Referral program
 - `contact` - Contact form
 
-## Example: Booking Koala Integration
+## Example: CRM Integration
 
 ```javascript
 // Update brand colors from your CRM

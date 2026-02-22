@@ -1,5 +1,5 @@
 /**
- * Booking Koala scheduling: process new bookings based on store options
+ * Scheduling: process new bookings based on store options
  * - accepted_automatically: auto-assign
  * - accept_or_decline: create invitation for first provider
  * - accepts_same_day_only: same-day = invite, future = auto
@@ -31,11 +31,17 @@ export async function processBookingScheduling(
 
   const { data: storeOpts } = await supabase
     .from('business_store_options')
-    .select('scheduling_type')
+    .select('provider_assignment_mode, scheduling_type')
     .eq('business_id', businessId)
     .maybeSingle();
 
-  const schedulingType = storeOpts?.scheduling_type ?? 'accepted_automatically';
+  const providerAssignmentMode = (storeOpts as { provider_assignment_mode?: string } | null)?.provider_assignment_mode ?? 'automatic';
+  if (providerAssignmentMode === 'manual') {
+    // All bookings go to unassigned; admin or providers assign manually
+    return;
+  }
+
+  const schedulingType = (storeOpts as { scheduling_type?: string } | null)?.scheduling_type ?? 'accepted_automatically';
 
   const isSameDay = (() => {
     if (!opts.scheduledDate) return false;

@@ -323,6 +323,14 @@ export default function BookingsPage() {
       }
       
       setLoading(true);
+      // Extend recurring series (create next occurrences as needed)
+      try {
+        await fetch(`/api/admin/recurring/extend?businessId=${currentBusiness.id}`, {
+          headers: { 'x-business-id': currentBusiness.id },
+        });
+      } catch (e) {
+        console.warn('Recurring extend failed:', e);
+      }
       // Fetch bookings
       const { data: bookingsData, error } = await supabase
         .from('bookings')
@@ -1118,7 +1126,7 @@ toast({
         </TabsContent>
       </Tabs>
 
-      {/* Booking Summary - right side panel (BookingKoala style) */}
+      {/* Booking Summary - right side panel */}
       <Sheet open={showDetails} onOpenChange={setShowDetails}>
         <SheetContent side="right" className="w-full sm:max-w-lg p-0 flex flex-col h-screen max-h-screen overflow-hidden [&>button]:text-red-500 [&>button]:hover:text-red-600">
           <SheetHeader className="px-6 pt-6 pb-4 shrink-0 border-b border-transparent">

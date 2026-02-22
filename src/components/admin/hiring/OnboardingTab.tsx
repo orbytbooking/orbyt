@@ -214,7 +214,7 @@ export default function OnboardingTab() {
         <CardHeader>
           <CardTitle>Onboarding funnel</CardTitle>
           <CardDescription>
-            Visualize prospects moving through your hiring steps, similar to BookingKoala&apos;s onboarding board.
+            Visualize prospects moving through your hiring steps on an onboarding board.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

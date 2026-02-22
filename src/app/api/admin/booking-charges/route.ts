@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 
 /**
- * GET: List completed bookings for charges (Booking Koala style)
+ * GET: List completed bookings for charges
  * Query: tab=pending|declined|all, dateFrom, dateTo, search, frequency
  */
 export async function GET(request: NextRequest) {

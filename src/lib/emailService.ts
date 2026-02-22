@@ -352,7 +352,7 @@ export class EmailService {
   }
 
   /**
-   * Send booking confirmation to customer (Booking Koala style)
+   * Send booking confirmation to customer
    */
   async sendBookingConfirmation(data: {
     to: string;
@@ -437,7 +437,7 @@ export class EmailService {
   }
 
   /**
-   * Send payment receipt after successful charge (Booking Koala style)
+   * Send payment receipt after successful charge
    */
   async sendReceiptEmail(data: {
     to: string;
@@ -512,7 +512,7 @@ export class EmailService {
   }
 
   /**
-   * Send "never found provider" email when all providers decline or none available (Booking Koala style)
+   * Send "never found provider" email when all providers decline or none available
    */
   async sendNeverFoundProviderEmail(data: {
     to: string;

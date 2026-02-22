@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
+import { getStoreOptionsScheduling } from '@/lib/schedulingFilters';
 
 export async function POST(request: NextRequest) {
   try {
@@ -104,6 +105,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Max minutes per booking: filter providers if booking duration exceeds limit
+    const storeOpts = await getStoreOptionsScheduling(businessId);
+    const maxMinutes = storeOpts?.max_minutes_per_provider_per_booking;
+    const bookingDurationMins = booking.duration_minutes != null ? Number(booking.duration_minutes) : 60;
+
     // Filter and score providers
     const scoredProviders = providers
       .filter(provider => {
@@ -117,6 +123,11 @@ export async function POST(request: NextRequest) {
           ps => ps.service_id === booking.service_id
         );
         if (!canDoService) {
+          return false;
+        }
+
+        // Max minutes per provider: skip if booking duration exceeds limit
+        if (maxMinutes != null && maxMinutes > 0 && bookingDurationMins > maxMinutes) {
           return false;
         }
 

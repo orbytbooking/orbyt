@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 
 /**
- * GET: List providers with pending earnings (Booking Koala Provider Payments style)
+ * GET: List providers with pending earnings
  */
 export async function GET(request: NextRequest) {
   try {

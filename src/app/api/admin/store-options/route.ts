@@ -3,6 +3,12 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export type SchedulingType = 'accepted_automatically' | 'accept_or_decline' | 'accepts_same_day_only';
 
+export type BookingCompletionMode = 'manual' | 'automatic';
+
+export type ProviderAssignmentMode = 'manual' | 'automatic';
+export type RecurringUpdateDefault = 'this_booking_only' | 'all_future';
+export type HolidayBlockedWho = 'customer' | 'both';
+
 export interface BusinessStoreOptions {
   id: string;
   business_id: string;
@@ -13,6 +19,17 @@ export interface BusinessStoreOptions {
   notify_providers_on_unassigned: boolean;
   waitlist_enabled: boolean;
   clock_in_out_enabled: boolean;
+  booking_completion_mode: BookingCompletionMode;
+  spots_based_on_provider_availability: boolean;
+  provider_assignment_mode: ProviderAssignmentMode;
+  recurring_update_default: RecurringUpdateDefault;
+  specific_provider_for_customers: boolean;
+  specific_provider_for_admin: boolean;
+  same_provider_for_recurring_cron: boolean;
+  max_minutes_per_provider_per_booking: number;
+  spot_limits_enabled: boolean;
+  holiday_skip_to_next: boolean;
+  holiday_blocked_who: HolidayBlockedWho;
 }
 
 const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
@@ -23,6 +40,17 @@ const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
   notify_providers_on_unassigned: true,
   waitlist_enabled: false,
   clock_in_out_enabled: false,
+  booking_completion_mode: 'manual',
+  spots_based_on_provider_availability: true,
+  provider_assignment_mode: 'automatic',
+  recurring_update_default: 'all_future',
+  specific_provider_for_customers: false,
+  specific_provider_for_admin: true,
+  same_provider_for_recurring_cron: true,
+  max_minutes_per_provider_per_booking: 0,
+  spot_limits_enabled: false,
+  holiday_skip_to_next: false,
+  holiday_blocked_who: 'customer',
 };
 
 async function getSupabase() {
@@ -78,6 +106,25 @@ export async function PUT(request: NextRequest) {
       notify_providers_on_unassigned: body.notify_providers_on_unassigned ?? true,
       waitlist_enabled: body.waitlist_enabled ?? false,
       clock_in_out_enabled: body.clock_in_out_enabled ?? false,
+      booking_completion_mode: ['manual', 'automatic'].includes(body.booking_completion_mode)
+        ? body.booking_completion_mode
+        : 'manual',
+      spots_based_on_provider_availability: body.spots_based_on_provider_availability ?? true,
+      provider_assignment_mode: ['manual', 'automatic'].includes(body.provider_assignment_mode)
+        ? body.provider_assignment_mode
+        : 'automatic',
+      recurring_update_default: ['this_booking_only', 'all_future'].includes(body.recurring_update_default)
+        ? body.recurring_update_default
+        : 'all_future',
+      specific_provider_for_customers: body.specific_provider_for_customers ?? false,
+      specific_provider_for_admin: body.specific_provider_for_admin ?? true,
+      same_provider_for_recurring_cron: body.same_provider_for_recurring_cron ?? true,
+      max_minutes_per_provider_per_booking: Math.max(0, Math.min(1440, Number(body.max_minutes_per_provider_per_booking) || 0)),
+      spot_limits_enabled: body.spot_limits_enabled ?? false,
+      holiday_skip_to_next: body.holiday_skip_to_next ?? false,
+      holiday_blocked_who: ['customer', 'both'].includes(body.holiday_blocked_who)
+        ? body.holiday_blocked_who
+        : 'customer',
       updated_at: new Date().toISOString(),
     };
 

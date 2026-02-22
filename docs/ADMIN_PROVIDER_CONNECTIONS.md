@@ -64,7 +64,7 @@ POST /api/bookings (with providerId)
 #### **3. Pay Rate Configuration**
 ```typescript
 // Admin sets provider pay rates
-POST /api/admin/providers/bookingkoala
+POST /api/admin/providers/legacy
 → Updates provider_pay_rates table
 → Affects earnings calculations
 ```
@@ -149,7 +149,7 @@ PUT /api/provider/profile
 #### **Admin APIs**
 - `GET /api/admin/providers/realtime-status` → Live provider status
 - `POST /api/admin/auto-assign` → Smart provider assignment
-- `GET /api/admin/providers/bookingkoala` → Provider management
+- `GET /api/admin/providers/legacy` → Provider management
 
 ### **Database Triggers**
 ```sql
