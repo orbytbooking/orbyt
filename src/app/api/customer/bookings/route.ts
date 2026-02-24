@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
 import { processBookingScheduling } from '@/lib/bookingScheduling';
 import { EmailService } from '@/lib/emailService';
-import { getStoreOptionsScheduling, isDateHoliday, getSpotLimits, getBookingCountForDate, getBookingCountForWeek } from '@/lib/schedulingFilters';
+import { getStoreOptionsScheduling, isDateHoliday, getSpotLimits, getBookingCountForDate, getBookingCountForWeek, isTimeSlotAvailableForBooking } from '@/lib/schedulingFilters';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -350,6 +350,18 @@ export async function POST(request: NextRequest) {
     if (maxMins != null && maxMins > 0 && durationMinutes > maxMins) {
       return NextResponse.json(
         { error: 'DURATION_EXCEEDED', message: `Booking duration (${durationMinutes} min) exceeds maximum allowed (${maxMins} min).` },
+        { status: 400 }
+      );
+    }
+  }
+
+  // Booking Koala-style: per-time-spot capacity (Reserve Slot settings)
+  const dateStr = date && String(date).trim() ? String(date).trim() : null;
+  if (dateStr && timeForDb) {
+    const slotAvailable = await isTimeSlotAvailableForBooking(supabase, businessId, dateStr, timeForDb);
+    if (!slotAvailable) {
+      return NextResponse.json(
+        { error: 'SLOT_FULL', message: 'This time slot is full. Please choose another time.' },
         { status: 400 }
       );
     }

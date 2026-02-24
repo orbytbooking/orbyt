@@ -10,6 +10,7 @@ export type RecurringUpdateDefault = 'this_booking_only' | 'all_future';
 export type HolidayBlockedWho = 'customer' | 'both';
 export type TimeTrackingMode = 'timestamps_only' | 'timestamps_and_gps';
 export type DistanceUnit = 'miles' | 'kilometers';
+export type LocationManagement = 'zip' | 'name' | 'none';
 
 export interface BusinessStoreOptions {
   id: string;
@@ -43,6 +44,8 @@ export interface BusinessStoreOptions {
   completion_on_clock_out: boolean;
   allow_reclock_in: boolean;
   time_log_updates_booking: boolean;
+  location_management: LocationManagement;
+  wildcard_zip_enabled: boolean;
 }
 
 const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
@@ -75,6 +78,8 @@ const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
   completion_on_clock_out: false,
   allow_reclock_in: false,
   time_log_updates_booking: false,
+  location_management: 'zip',
+  wildcard_zip_enabled: true,
 };
 
 async function getSupabase() {
@@ -162,6 +167,10 @@ export async function PUT(request: NextRequest) {
       completion_on_clock_out: body.completion_on_clock_out ?? false,
       allow_reclock_in: body.allow_reclock_in ?? false,
       time_log_updates_booking: body.time_log_updates_booking ?? false,
+      location_management: ['zip', 'name', 'none'].includes(body.location_management)
+        ? body.location_management
+        : 'zip',
+      wildcard_zip_enabled: body.wildcard_zip_enabled ?? true,
       updated_at: new Date().toISOString(),
     };
 

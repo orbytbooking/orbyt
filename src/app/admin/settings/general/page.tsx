@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -106,6 +106,22 @@ interface StoreOptions {
   completion_on_clock_out?: boolean;
   allow_reclock_in?: boolean;
   time_log_updates_booking?: boolean;
+}
+
+// All IANA time zones (from Intl when available, else fallback list)
+function getAllTimeZones(): string[] {
+  try {
+    if (typeof Intl !== 'undefined' && 'supportedValuesOf' in Intl) {
+      return (Intl as unknown as { supportedValuesOf(key: string): string[] }).supportedValuesOf('timeZone').sort();
+    }
+  } catch {
+    // ignore
+  }
+  return [
+    'Africa/Cairo', 'Africa/Johannesburg', 'Africa/Lagos', 'America/Chicago', 'America/Los_Angeles', 'America/New_York',
+    'America/Toronto', 'America/Vancouver', 'Asia/Dubai', 'Asia/Hong_Kong', 'Asia/Kolkata', 'Asia/Singapore', 'Asia/Tokyo',
+    'Australia/Sydney', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Pacific/Auckland',
+  ];
 }
 
 const SCHEDULING_DEFAULT_OPTIONS: StoreOptions = {
@@ -380,7 +396,14 @@ export default function GeneralSettingsPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch");
-      setSchedulingOptions(data.options ? { ...SCHEDULING_DEFAULT_OPTIONS, ...data.options } : SCHEDULING_DEFAULT_OPTIONS);
+      const opts = data.options ? { ...SCHEDULING_DEFAULT_OPTIONS, ...data.options } : SCHEDULING_DEFAULT_OPTIONS;
+      setSchedulingOptions(opts);
+      // Location settings (from same store options)
+      if (data.options) {
+        const lm = data.options.location_management;
+        if (lm === 'zip' || lm === 'name' || lm === 'none') setLocationManagement(lm);
+        if (typeof data.options.wildcard_zip_enabled === 'boolean') setWildcardZipEnabled(data.options.wildcard_zip_enabled ? 'yes' : 'no');
+      }
     } catch {
       toast.error("Failed to load scheduling settings");
       setSchedulingOptions(SCHEDULING_DEFAULT_OPTIONS);
@@ -444,6 +467,36 @@ export default function GeneralSettingsPage() {
       toast.error(e instanceof Error ? e.message : "Failed to save");
     } finally {
       setSchedulingSaving(false);
+    }
+  };
+
+  const [locationSaving, setLocationSaving] = useState(false);
+  const allTimeZones = useMemo(() => getAllTimeZones(), []);
+  const saveLocationSettings = async () => {
+    if (!currentBusiness?.id) return;
+    setLocationSaving(true);
+    try {
+      const res = await fetch("/api/admin/store-options", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "x-business-id": currentBusiness.id },
+        body: JSON.stringify({
+          ...schedulingOptions,
+          businessId: currentBusiness.id,
+          location_management: locationManagement,
+          wildcard_zip_enabled: wildcardZipEnabled === 'yes',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save");
+      if (data.options) {
+        setLocationManagement(data.options.location_management ?? locationManagement);
+        setWildcardZipEnabled(data.options.wildcard_zip_enabled ? 'yes' : 'no');
+      }
+      toast.success("Location settings saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save location settings");
+    } finally {
+      setLocationSaving(false);
     }
   };
 
@@ -793,12 +846,12 @@ export default function GeneralSettingsPage() {
                               <SelectTrigger>
                                 <SelectValue placeholder="Select time zone" />
                               </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="America/Chicago">America/Chicago</SelectItem>
-                                <SelectItem value="America/New_York">America/New_York</SelectItem>
-                                <SelectItem value="America/Los_Angeles">America/Los_Angeles</SelectItem>
-                                <SelectItem value="Europe/London">Europe/London</SelectItem>
-                                <SelectItem value="Europe/Paris">Europe/Paris</SelectItem>
+                              <SelectContent className="max-h-[300px]">
+                                {allTimeZones.map((tz) => (
+                                  <SelectItem key={tz} value={tz}>
+                                    {tz.replace(/_/g, ' ')}
+                                  </SelectItem>
+                                ))}
                               </SelectContent>
                             </Select>
                           </div>
@@ -1076,6 +1129,10 @@ export default function GeneralSettingsPage() {
                           </label>
                         </RadioGroup>
                       </div>
+                      <Button onClick={saveLocationSettings} disabled={locationSaving} className="mt-2">
+                        {locationSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                        Save location settings
+                      </Button>
                     </div>
                   )}
                 </div>

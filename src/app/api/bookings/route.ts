@@ -249,6 +249,19 @@ export async function POST(request: Request) {
     if (bookingData.exclude_customer_notification === true) bookingWithBusiness.exclude_customer_notification = true;
     if (bookingData.exclude_provider_notification === true) bookingWithBusiness.exclude_provider_notification = true;
 
+    // Booking adjustments (service total, price, time)
+    if (bookingData.adjust_service_total === true) {
+      bookingWithBusiness.adjust_service_total = true;
+      const serviceTotalAmt = parseFloat(bookingData.adjustment_service_total_amount);
+      if (!isNaN(serviceTotalAmt)) bookingWithBusiness.adjustment_service_total_amount = serviceTotalAmt;
+    }
+    if (bookingData.adjust_price === true) {
+      bookingWithBusiness.adjust_price = true;
+      const priceAmt = parseFloat(bookingData.adjustment_amount);
+      if (!isNaN(priceAmt)) bookingWithBusiness.adjustment_amount = priceAmt;
+    }
+    if (bookingData.adjust_time === true) bookingWithBusiness.adjust_time = true;
+
     // Private booking notes, private customer notes, notes for service provider (arrays stored as jsonb)
     const privateBookingNotes = Array.isArray(bookingData.private_booking_notes) ? bookingData.private_booking_notes.filter((n: unknown) => typeof n === 'string') : [];
     const privateCustomerNotes = Array.isArray(bookingData.private_customer_notes) ? bookingData.private_customer_notes.filter((n: unknown) => typeof n === 'string') : [];
@@ -377,6 +390,15 @@ export async function POST(request: Request) {
         delete bookingWithBusiness.private_booking_notes;
         delete bookingWithBusiness.private_customer_notes;
         delete bookingWithBusiness.service_provider_notes;
+        didStrip = true;
+      }
+      if (msg.includes('adjust_service_total') || msg.includes('adjustment_service_total_amount') || msg.includes('adjust_price') || msg.includes('adjustment_amount') || msg.includes('adjust_time')) {
+        console.log('⚠️ booking adjustment columns not found, retrying without them...');
+        delete bookingWithBusiness.adjust_service_total;
+        delete bookingWithBusiness.adjustment_service_total_amount;
+        delete bookingWithBusiness.adjust_price;
+        delete bookingWithBusiness.adjustment_amount;
+        delete bookingWithBusiness.adjust_time;
         didStrip = true;
       }
       if (didStrip) {

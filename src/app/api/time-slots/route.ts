@@ -1,6 +1,46 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseClient';
-import { getStoreOptionsScheduling, isDateHoliday, getSpotLimits, getBookingCountForDate } from '@/lib/schedulingFilters';
+import {
+  getStoreOptionsScheduling,
+  isDateHoliday,
+  getSpotLimits,
+  getBookingCountForDate,
+  getReserveSlotSettings,
+  getBookingCountByTimeForDate,
+  getDayNameFromDate,
+  normalizeTimeToHHmm,
+} from '@/lib/schedulingFilters';
+
+/** Booking Koala-style: filter time slots by per-time-spot capacity from Reserve Slot settings */
+async function filterSlotsByReserveSlotCapacity(
+  slots: string[],
+  businessId: string,
+  dateStr: string | null,
+  supabase: any
+): Promise<string[]> {
+  if (!dateStr || !slots.length) return slots;
+  const settings = await getReserveSlotSettings(businessId);
+  if (!settings?.maximumByDay) return slots;
+  const dayName = getDayNameFromDate(dateStr);
+  const dayConfig = settings.maximumByDay[dayName];
+  if (!dayConfig?.enabled || !dayConfig.slots?.length) return slots;
+  const customerSlots = dayConfig.slots.filter(
+    (s) => (s.displayOn ?? 'Both') === 'Both'
+  );
+  if (!customerSlots.length) return slots;
+  const countsByTime = await getBookingCountByTimeForDate(supabase, businessId, dateStr);
+  const allowedHHmm = new Set<string>();
+  for (const s of customerSlots) {
+    const key = normalizeTimeToHHmm(s.time);
+    if (!key) continue;
+    const count = countsByTime[key] ?? 0;
+    if (count < (s.maxJobs ?? 1)) allowedHHmm.add(key);
+  }
+  return slots.filter((displayTime) => {
+    const hhmm = normalizeTimeToHHmm(displayTime);
+    return allowedHHmm.has(hhmm);
+  });
+}
 
 export async function GET(request: Request) {
   try {
@@ -48,7 +88,8 @@ export async function GET(request: Request) {
           new Date(2000, 0, 1, h, 30, 0).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
         );
       }
-      return NextResponse.json({ timeSlots: defaultSlots });
+      const filtered = await filterSlotsByReserveSlotCapacity(defaultSlots, businessId, date, supabaseAdmin);
+      return NextResponse.json({ timeSlots: filtered });
     }
 
     // Get the day of week from the date (0 = Sunday, 1 = Monday, etc.)
@@ -137,11 +178,25 @@ export async function GET(request: Request) {
         // Add 1 hour
         currentTime.setHours(currentTime.getHours() + 1);
       }
-      
-      return NextResponse.json({ timeSlots: defaultSlots });
+
+      // Booking Koala-style: per-time-spot capacity from Reserve Slot settings
+      const filteredDefault = await filterSlotsByReserveSlotCapacity(
+        defaultSlots,
+        businessId,
+        date,
+        supabaseAdmin
+      );
+      return NextResponse.json({ timeSlots: filteredDefault });
     }
 
-    return NextResponse.json({ timeSlots: fullTimeSlots });
+    // Booking Koala-style: per-time-spot capacity from Reserve Slot settings
+    const filteredSlots = await filterSlotsByReserveSlotCapacity(
+      fullTimeSlots,
+      businessId,
+      date,
+      supabaseAdmin
+    );
+    return NextResponse.json({ timeSlots: filteredSlots });
 
   } catch (error) {
     console.error('Error in time-slots API:', error);

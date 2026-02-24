@@ -1447,7 +1447,13 @@ toast({
                     </Button>
                   </>
                 )}
-                <Button className="w-full text-white bg-blue-600 hover:bg-blue-700" onClick={() => router.push(`/admin/add-booking?bookingId=${selectedBooking.id}`)}>
+                <Button
+                  className="w-full text-white bg-blue-600 hover:bg-blue-700"
+                  onClick={() => {
+                    setShowDetails(false);
+                    router.push(`/admin/add-booking?bookingId=${selectedBooking?.id ?? ''}`);
+                  }}
+                >
                   <Pencil className="h-4 w-4 mr-2" />Edit
                 </Button>
                 <Button className="w-full text-white bg-red-600 hover:bg-red-700" onClick={() => handleStatusChange(selectedBooking.id, "cancelled")} disabled={selectedBooking.status === "cancelled"}>

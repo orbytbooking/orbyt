@@ -13,21 +13,28 @@ function createSupabaseServiceClient() {
 
 /**
  * Check if a zipcode falls within any of the given location IDs via location_zip_codes.
+ * When useWildcard is true, matches zip_code that starts with the given zip (prefix match).
  */
 async function isZipcodeInLocations(
   supabase: ReturnType<typeof createSupabaseServiceClient>,
   zipcode: string,
-  locationIds: string[]
+  locationIds: string[],
+  useWildcard = false
 ): Promise<boolean> {
   if (!zipcode?.trim() || !locationIds?.length) return false;
   const zip = String(zipcode).trim().replace(/\s/g, '');
-  const { data, error } = await supabase
+  let query = supabase
     .from('location_zip_codes')
     .select('id')
-    .eq('zip_code', zip)
     .eq('active', true)
     .in('location_id', locationIds)
     .limit(1);
+  if (useWildcard) {
+    query = query.ilike('zip_code', zip + '%');
+  } else {
+    query = query.eq('zip_code', zip);
+  }
+  const { data, error } = await query;
   if (error) {
     console.error('Error checking zipcode in locations:', error);
     return false;
@@ -43,11 +50,12 @@ export async function GET(request: NextRequest) {
     const businessId = searchParams.get('businessId');
     const zipcode = searchParams.get('zipcode')?.trim();
     const includeAll = searchParams.get('includeAll') === 'true' || searchParams.get('admin') === 'true';
+    const useWildcard = searchParams.get('wildcard') === 'true';
 
     console.log('=== INDUSTRY FREQUENCY API DEBUG ===');
     console.log('Industry ID:', industryId);
     console.log('Business ID:', businessId);
-    console.log('Zipcode filter:', zipcode || '(none)');
+    console.log('Zipcode filter:', zipcode || '(none)', useWildcard ? '(wildcard)' : '');
 
     if (!industryId && !businessId) {
       return NextResponse.json(
@@ -111,7 +119,7 @@ export async function GET(request: NextRequest) {
         if (!showBasedOnLocation) {
           results.push(freq);
         } else {
-          const inRange = await isZipcodeInLocations(supabase, zipcode, locationIds);
+          const inRange = await isZipcodeInLocations(supabase, zipcode, locationIds, useWildcard);
           if (inRange) results.push(freq);
         }
       }

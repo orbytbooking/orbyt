@@ -52,7 +52,7 @@ const formSchema = z.object({
   addressPreference: z.enum(["existing", "new"]),
   address: z.string().min(5, "Please enter a valid address"),
   aptNo: z.union([z.string().max(20, "Apt. No. should be 20 characters or less"), z.literal("")]),
-  zipCode: z.string().min(5, "Please enter a valid zip code").max(10),
+  zipCode: z.string().max(30).optional().default(""),
   service: z.string().min(1, "Please select a service"),
   date: z.date({
     required_error: "A date is required.",
@@ -431,6 +431,8 @@ function BookingPageContent() {
   const [showProviderScoreToCustomers, setShowProviderScoreToCustomers] = useState(true);
   const [showProviderCompletedJobsToCustomers, setShowProviderCompletedJobsToCustomers] = useState(true);
   const [showProviderAvailabilityToCustomers, setShowProviderAvailabilityToCustomers] = useState(true);
+  const [locationManagement, setLocationManagement] = useState<"zip" | "name" | "none">("zip");
+  const [wildcardZipEnabled, setWildcardZipEnabled] = useState(false);
 
   useEffect(() => {
     if (!businessId) return;
@@ -445,6 +447,8 @@ function BookingPageContent() {
           if (typeof opts.show_provider_score_to_customers === "boolean") setShowProviderScoreToCustomers(opts.show_provider_score_to_customers);
           if (typeof opts.show_provider_completed_jobs_to_customers === "boolean") setShowProviderCompletedJobsToCustomers(opts.show_provider_completed_jobs_to_customers);
           if (typeof opts.show_provider_availability_to_customers === "boolean") setShowProviderAvailabilityToCustomers(opts.show_provider_availability_to_customers);
+          if (opts.location_management === "zip" || opts.location_management === "name" || opts.location_management === "none") setLocationManagement(opts.location_management);
+          if (typeof opts.wildcard_zip_enabled === "boolean") setWildcardZipEnabled(opts.wildcard_zip_enabled);
         }
       } catch {
         // Keep defaults
@@ -775,9 +779,13 @@ function BookingPageContent() {
     const url = new URL("/api/industry-frequency", window.location.origin);
     url.searchParams.set("industryId", industryId);
     url.searchParams.set("businessId", businessIdParam);
-    // Read zip from form so we use the value the user actually entered (avoids stale closure)
+    // Read zip/location from form
     const zipFromForm = String(form.getValues("zipCode") ?? "").trim().replace(/\s/g, "");
-    if (zipFromForm.length >= 5) url.searchParams.set("zipcode", zipFromForm);
+    const minLen = locationManagement === "name" ? 2 : 5;
+    if (zipFromForm.length >= minLen) {
+      url.searchParams.set("zipcode", zipFromForm);
+      if (wildcardZipEnabled) url.searchParams.set("wildcard", "true");
+    }
     const doFetch = async () => {
       try {
         const res = await fetch(url.toString());
@@ -801,12 +809,15 @@ function BookingPageContent() {
       }
     };
     fetchFrequenciesRef.current = () => {
-      // Re-read zip in case user just typed it (e.g. called from zip field onBlur)
       const zip = String(form.getValues("zipCode") ?? "").trim().replace(/\s/g, "");
+      const minLen = locationManagement === "name" ? 2 : 5;
       const u = new URL("/api/industry-frequency", window.location.origin);
       u.searchParams.set("industryId", industryId);
       u.searchParams.set("businessId", businessIdParam);
-      if (zip.length >= 5) u.searchParams.set("zipcode", zip);
+      if (zip.length >= minLen) {
+        u.searchParams.set("zipcode", zip);
+        if (wildcardZipEnabled) u.searchParams.set("wildcard", "true");
+      }
       fetch(u.toString())
         .then((res) => res.ok ? res.json() : { frequencies: [] })
         .then((data) => {
@@ -821,7 +832,7 @@ function BookingPageContent() {
         .catch(() => setFrequencyOptions([]));
     };
     doFetch();
-  }, [selectedIndustryId, searchParams, zipCode]);
+  }, [selectedIndustryId, searchParams, zipCode, locationManagement, wildcardZipEnabled]);
 
   const refetchFrequenciesOnZipChange = useCallback(() => {
     fetchFrequenciesRef.current();
@@ -1381,6 +1392,13 @@ function BookingPageContent() {
 
   // Handle booking form submission - move to payment step (no localStorage)
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    if (locationManagement === "zip") {
+      const zip = String(values.zipCode ?? "").trim().replace(/\s/g, "");
+      if (zip.length < 5) {
+        form.setError("zipCode", { message: "Please enter a valid zip code" });
+        return;
+      }
+    }
     setStoredAddress({
       address: values.address,
       ...(values.aptNo ? { aptNo: values.aptNo } : {}),
@@ -1992,40 +2010,44 @@ function BookingPageContent() {
               </p>
             </div>
 
-            {/* Zip Code Input - Above Select Services */}
-            <div className="mb-6">
-              <Form {...form}>
-                <FormField
-                  control={form.control}
-                  name="zipCode"
-                  render={({ field }) => (
-                    <FormItem className={styles.formGroup}>
-                      <FormLabel className={styles.formLabel}>Enter Zip Code</FormLabel>
-                      <FormControl>
-                        <Input
-                          className={styles.formInput}
-                          placeholder="Zip Code"
-                          maxLength={10}
-                          {...field}
-                          onChange={(e) => {
-                            field.onChange(e);
-                            // Refetch frequencies when user types a valid zip so dropdown updates
-                            const zip = String(e.target.value ?? "").trim().replace(/\s/g, "");
-                            if (zip.length >= 5) refetchFrequenciesOnZipChange();
-                          }}
-                          onBlur={(e) => {
-                            field.onBlur();
-                            form.trigger("zipCode");
-                            refetchFrequenciesOnZipChange();
-                          }}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </Form>
-            </div>
+            {/* Location input - Zip/Postal code or City/Town (based on store location settings) */}
+            {locationManagement !== "none" && (
+              <div className="mb-6">
+                <Form {...form}>
+                  <FormField
+                    control={form.control}
+                    name="zipCode"
+                    render={({ field }) => (
+                      <FormItem className={styles.formGroup}>
+                        <FormLabel className={styles.formLabel}>
+                          {locationManagement === "name" ? "Enter city or town name" : "Enter Zip Code"}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            className={styles.formInput}
+                            placeholder={locationManagement === "name" ? "City or town name" : "Zip Code"}
+                            maxLength={locationManagement === "name" ? 80 : 10}
+                            {...field}
+                            onChange={(e) => {
+                              field.onChange(e);
+                              const val = String(e.target.value ?? "").trim().replace(/\s/g, "");
+                              const minLen = locationManagement === "name" ? 2 : 5;
+                              if (val.length >= minLen) refetchFrequenciesOnZipChange();
+                            }}
+                            onBlur={(e) => {
+                              field.onBlur();
+                              form.trigger("zipCode");
+                              refetchFrequenciesOnZipChange();
+                            }}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </Form>
+              </div>
+            )}
 
             {/* Service Type Selection - Always show flip cards */}
             <div className="mb-8">

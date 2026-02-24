@@ -588,8 +588,134 @@ function AddBookingPage() {
     load();
   }, [selectedIndustryId]);
 
+  // When bookingId is in URL, load that booking and pre-fill the form (edit mode)
+  const rawBookingId = searchParams.get('bookingId') || null;
+  const editingBookingId =
+    rawBookingId &&
+    rawBookingId.trim() !== '' &&
+    rawBookingId !== 'undefined' &&
+    rawBookingId !== 'null'
+      ? rawBookingId.trim()
+      : null;
+  const [loadingBooking, setLoadingBooking] = useState(false);
+  const [bookingLoadError, setBookingLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!editingBookingId || !currentBusiness?.id) {
+      setBookingLoadError(null);
+      setLoadingBooking(false);
+      return;
+    }
+    let cancelled = false;
+    setLoadingBooking(true);
+    setBookingLoadError(null);
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          if (!cancelled) setBookingLoadError('Not authenticated');
+          return;
+        }
+        const res = await fetch(`/api/bookings/${editingBookingId}`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'x-business-id': currentBusiness.id,
+          },
+        });
+        const json = await res.json();
+        if (cancelled) return;
+        if (!res.ok) {
+          setBookingLoadError(json?.error || 'Failed to load booking');
+          setLoadingBooking(false);
+          return;
+        }
+        const b = json?.data;
+        if (!b) {
+          setBookingLoadError('Booking not found');
+          setLoadingBooking(false);
+          return;
+        }
+        const nameParts = (b.customer_name || '').trim().split(/\s+/);
+        const firstName = nameParts[0] || '';
+        const lastName = nameParts.slice(1).join(' ') || '';
+        const cust = (b.customization && typeof b.customization === 'object') ? b.customization : {};
+        const selectedExtras = Array.isArray(cust.selectedExtras) ? cust.selectedExtras : [];
+        const extraQuantities = cust.extraQuantities && typeof cust.extraQuantities === 'object' ? cust.extraQuantities : {};
+        const categoryValues = cust.categoryValues && typeof cust.categoryValues === 'object' ? cust.categoryValues : {};
+        const excludedAreas = Array.isArray(cust.excludedAreas) ? cust.excludedAreas : [];
+        const excludeQuantities = cust.excludeQuantities && typeof cust.excludeQuantities === 'object' ? cust.excludeQuantities : {};
+        let duration = '';
+        let durationUnit: 'Hours' | 'Minutes' = 'Hours';
+        if (b.duration_minutes != null && Number(b.duration_minutes) > 0) {
+          const mins = Number(b.duration_minutes);
+          if (mins >= 60) {
+            duration = String(mins / 60);
+            durationUnit = 'Hours';
+          } else {
+            duration = String(mins);
+            durationUnit = 'Minutes';
+          }
+        }
+        const paymentMethod = (b.payment_method === 'online' || b.payment_method === 'card' || b.payment_method === 'Credit Card') ? 'Credit Card' : 'Cash';
+        setNewBooking(prev => ({
+          ...prev,
+          customerType: b.customer_id ? 'existing' : prev.customerType,
+          customerId: b.customer_id || prev.customerId,
+          firstName,
+          lastName,
+          email: (b.customer_email || '').trim(),
+          phone: (b.customer_phone || '').trim(),
+          address: (b.address || '').trim(),
+          service: (b.service || '').trim(),
+          frequency: (b.frequency || '').trim(),
+          selectedDate: (b.scheduled_date || b.date || '').toString().trim(),
+          selectedTime: (b.scheduled_time || b.time || '').toString().trim(),
+          paymentMethod,
+          notes: (b.notes || '').trim(),
+          selectedExtras,
+          extraQuantities,
+          categoryValues,
+          excludeQuantities,
+          zipCode: (b.zip_code || '').trim(),
+          serviceProvider: (b.provider_id || '').trim(),
+          privateBookingNotes: Array.isArray(b.private_booking_notes) ? b.private_booking_notes : [],
+          privateCustomerNotes: Array.isArray(b.private_customer_notes) ? b.private_customer_notes : [],
+          serviceProviderNotes: Array.isArray(b.service_provider_notes) ? b.service_provider_notes : [],
+          duration,
+          durationUnit,
+          excludeCancellationFee: Boolean(b.exclude_cancellation_fee),
+          excludeCustomerNotification: Boolean(b.exclude_customer_notification),
+          excludeProviderNotification: Boolean(b.exclude_provider_notification),
+          adjustServiceTotal: Boolean(b.adjust_service_total),
+          adjustmentServiceTotalAmount: b.adjustment_service_total_amount != null ? String(b.adjustment_service_total_amount) : "",
+          adjustPrice: Boolean(b.adjust_price),
+          adjustmentAmount: b.adjustment_amount != null ? String(b.adjustment_amount) : "",
+          adjustTime: Boolean(b.adjust_time),
+          adjustedHours: b.duration_minutes != null
+            ? String(Math.floor(Number(b.duration_minutes) / 60)).padStart(2, '0')
+            : '00',
+          adjustedMinutes: b.duration_minutes != null
+            ? String(Math.round(Number(b.duration_minutes) % 60)).padStart(2, '0')
+            : '00',
+        }));
+        setCustomerSearch((b.customer_name || '').trim());
+        setIsPartialCleaning(Boolean(cust.isPartialCleaning));
+        setSelectedExcludeParams(excludedAreas);
+        setProviderWage(b.provider_wage != null ? String(b.provider_wage) : '');
+        setProviderWageType((b.provider_wage_type === 'percentage' || b.provider_wage_type === 'fixed' || b.provider_wage_type === 'hourly') ? b.provider_wage_type : 'hourly');
+      } catch (e) {
+        if (!cancelled) setBookingLoadError(e instanceof Error ? e.message : 'Failed to load booking');
+      } finally {
+        if (!cancelled) setLoadingBooking(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [editingBookingId, currentBusiness?.id]);
+
   // Handle query parameters for pre-filling customer information (e.g. from customer profile)
   useEffect(() => {
+    if (editingBookingId) return; // prefer edit mode data
     const customerId = searchParams.get('customerId');
     const customerName = searchParams.get('customerName');
     const customerEmail = searchParams.get('customerEmail');
@@ -626,7 +752,7 @@ function AddBookingPage() {
       };
       fetchCustomer();
     }
-  }, [searchParams]);
+  }, [searchParams, editingBookingId]);
 
   // Handle customer search
   const handleCustomerSearch = (search: string) => {
@@ -720,62 +846,85 @@ const handleAddBooking = async (status: string = 'pending') => {
       return;
     }
 
-    // Insert booking using the API endpoint
+    // Build request body (same for create and update)
+    const body: Record<string, unknown> = {
+      customer_id: newBooking.customerId || null,
+      customer_name: customerName,
+      customer_email: customerEmail,
+      customer_phone: customerPhone,
+      address: newBooking.address,
+      service: newBooking.service,
+      frequency: newBooking.frequency,
+      date: newBooking.selectedDate,
+      time: newBooking.selectedTime,
+      scheduled_date: newBooking.selectedDate,
+      scheduled_time: newBooking.selectedTime,
+      status: status,
+      amount: calculateTotalAmount,
+      total_price: calculateTotalAmount,
+      service_total: calculateServiceTotal,
+      extras_total: calculateExtrasTotal,
+      partial_cleaning_discount: calculatePartialCleaningDiscount,
+      frequency_discount: calculateFrequencyDiscount,
+      payment_method: newBooking.paymentMethod || null,
+      notes: newBooking.notes,
+      ...(newBooking.adjustTime
+        ? (() => {
+            const hrs = parseInt(newBooking.adjustedHours, 10) || 0;
+            const mins = parseInt(newBooking.adjustedMinutes, 10) || 0;
+            const totalMinutes = hrs * 60 + mins;
+            return { duration: String(totalMinutes), duration_unit: 'Minutes' as const };
+          })()
+        : {
+            duration: newBooking.duration || (calculatedDurationMinutes != null ? String(Math.round(calculatedDurationMinutes)) : ''),
+            duration_unit: (newBooking.duration ? newBooking.durationUnit : (calculatedDurationMinutes != null ? 'Minutes' : 'Hours')) as 'Hours' | 'Minutes',
+          }),
+      selected_extras: newBooking.selectedExtras,
+      extra_quantities: newBooking.extraQuantities,
+      category_values: categoryValues,
+      is_partial_cleaning: isPartialCleaning,
+      excluded_areas: selectedExcludeParams,
+      exclude_quantities: newBooking.excludeQuantities,
+      service_provider_id: newBooking.serviceProvider || null,
+      provider_wage: providerWage,
+      provider_wage_type: providerWageType,
+      private_booking_notes: newBooking.privateBookingNotes,
+      private_customer_notes: newBooking.privateCustomerNotes,
+      service_provider_notes: newBooking.serviceProviderNotes,
+      waiting_list: newBooking.waitingList,
+      priority: newBooking.priority,
+      zip_code: newBooking.zipCode,
+      exclude_cancellation_fee: newBooking.excludeCancellationFee,
+      exclude_customer_notification: newBooking.excludeCustomerNotification,
+      exclude_provider_notification: newBooking.excludeProviderNotification,
+      adjust_service_total: newBooking.adjustServiceTotal,
+      adjustment_service_total_amount: newBooking.adjustServiceTotal && newBooking.adjustmentServiceTotalAmount ? newBooking.adjustmentServiceTotalAmount : undefined,
+      adjust_price: newBooking.adjustPrice,
+      adjustment_amount: newBooking.adjustPrice && newBooking.adjustmentAmount ? newBooking.adjustmentAmount : undefined,
+      adjust_time: newBooking.adjustTime,
+      industry_id: selectedIndustryId || undefined,
+      frequency_repeats: frequencies.find(f => f.name === newBooking.frequency)?.frequency_repeats ?? undefined,
+    };
+    if (!editingBookingId) {
+      body.create_recurring = newBooking.createRecurring || undefined;
+      body.recurring_end_date = newBooking.createRecurring ? newBooking.recurringEndDate || null : undefined;
+      body.recurring_occurrences_ahead = newBooking.createRecurring ? (newBooking.recurringOccurrencesAhead ?? 8) : undefined;
+    }
+
     const { data: { session } } = await supabase.auth.getSession();
-    
+    const url = editingBookingId ? `/api/bookings/${editingBookingId}` : '/api/bookings';
+    const method = editingBookingId ? 'PUT' : 'POST';
+
     let response: Response;
     try {
-      response = await fetch('/api/bookings', {
-        method: 'POST',
+      response = await fetch(url, {
+        method,
         headers: {
           'Content-Type': 'application/json',
           'x-business-id': business.id,
           'Authorization': `Bearer ${session?.access_token || ''}`,
         },
-        body: JSON.stringify({
-        customer_id: newBooking.customerId || null,
-        customer_name: customerName,
-        customer_email: customerEmail,
-        customer_phone: customerPhone,
-        address: newBooking.address,
-        service: newBooking.service,
-        frequency: newBooking.frequency,
-        date: newBooking.selectedDate,
-        time: newBooking.selectedTime,
-        status: status,
-        amount: calculateTotalAmount,
-        service_total: calculateServiceTotal,
-        extras_total: calculateExtrasTotal,
-        partial_cleaning_discount: calculatePartialCleaningDiscount,
-        frequency_discount: calculateFrequencyDiscount,
-        payment_method: newBooking.paymentMethod || null,
-        notes: newBooking.notes,
-        duration: newBooking.duration || (calculatedDurationMinutes != null ? String(Math.round(calculatedDurationMinutes)) : ''),
-        duration_unit: newBooking.duration ? newBooking.durationUnit : (calculatedDurationMinutes != null ? 'Minutes' : 'Hours'),
-        selected_extras: newBooking.selectedExtras,
-        extra_quantities: newBooking.extraQuantities,
-        category_values: categoryValues,
-        is_partial_cleaning: isPartialCleaning,
-        excluded_areas: selectedExcludeParams,
-        exclude_quantities: newBooking.excludeQuantities,
-        service_provider_id: newBooking.serviceProvider,
-        provider_wage: providerWage,
-        provider_wage_type: providerWageType,
-        private_booking_notes: newBooking.privateBookingNotes,
-        private_customer_notes: newBooking.privateCustomerNotes,
-        service_provider_notes: newBooking.serviceProviderNotes,
-        waiting_list: newBooking.waitingList,
-        priority: newBooking.priority,
-        zip_code: newBooking.zipCode,
-        exclude_cancellation_fee: newBooking.excludeCancellationFee,
-        exclude_customer_notification: newBooking.excludeCustomerNotification,
-        exclude_provider_notification: newBooking.excludeProviderNotification,
-        create_recurring: newBooking.createRecurring || undefined,
-        recurring_end_date: newBooking.createRecurring ? newBooking.recurringEndDate || null : undefined,
-        recurring_occurrences_ahead: newBooking.createRecurring ? (newBooking.recurringOccurrencesAhead ?? 8) : undefined,
-        industry_id: selectedIndustryId || undefined,
-        frequency_repeats: frequencies.find(f => f.name === newBooking.frequency)?.frequency_repeats ?? undefined,
-      }),
+        body: JSON.stringify(body),
       });
     } catch (fetchError) {
       console.error('Fetch error:', fetchError);
@@ -812,7 +961,7 @@ const handleAddBooking = async (status: string = 'pending') => {
     }
 
     if (!response.ok) {
-      console.error('Booking insertion error:', { status: response.status, statusText: response.statusText, result, rawText });
+      console.error(editingBookingId ? 'Booking update error' : 'Booking insertion error', { status: response.status, statusText: response.statusText, result, rawText });
       const errorMessage =
         (result && typeof result === 'object' ? (result.error || result.details || result.message) : null) ||
         rawText ||
@@ -820,7 +969,7 @@ const handleAddBooking = async (status: string = 'pending') => {
       const errorHint = result.hint ? `\n\nHint: ${result.hint}` : '';
       toast({
         title: 'Error',
-        description: `Failed to add booking: ${errorMessage}${errorHint}`,
+        description: editingBookingId ? `Failed to update booking: ${errorMessage}${errorHint}` : `Failed to add booking: ${errorMessage}${errorHint}`,
         variant: 'destructive',
       });
       return;
@@ -836,8 +985,8 @@ const handleAddBooking = async (status: string = 'pending') => {
     }
 
     toast({
-      title: 'Booking Added',
-      description: `New booking created for ${customerName}`,
+      title: editingBookingId ? 'Booking updated' : 'Booking Added',
+      description: editingBookingId ? `Booking for ${customerName} has been updated.` : `New booking created for ${customerName}`,
     });
 
     setTimeout(() => {
@@ -1230,6 +1379,15 @@ const handleAddBooking = async (status: string = 'pending') => {
     return 0;
   }, [newBooking.service, newBooking.frequency, newBooking.duration, categoryValues, pricingParameters, serviceCategories]);
 
+  // Effective service total: when "Adjust Service Total" is on, use the entered amount (Booking Koala: overrides price before discounts)
+  const effectiveServiceTotal = useMemo(() => {
+    if (newBooking.adjustServiceTotal && newBooking.adjustmentServiceTotalAmount) {
+      const v = parseFloat(newBooking.adjustmentServiceTotalAmount);
+      if (!isNaN(v) && v >= 0) return v;
+    }
+    return calculateServiceTotal;
+  }, [calculateServiceTotal, newBooking.adjustServiceTotal, newBooking.adjustmentServiceTotalAmount]);
+
   // Duration from pricing parameters (sum all matching variable categories) + extras time
   const calculatedDurationMinutes = useMemo(() => {
     if (!newBooking.service || !newBooking.frequency) return null;
@@ -1392,7 +1550,7 @@ const handleAddBooking = async (status: string = 'pending') => {
       }
     }
 
-    const subtotal = calculateServiceTotal + calculateExtrasTotal - calculatePartialCleaningDiscount;
+    const subtotal = effectiveServiceTotal + calculateExtrasTotal - calculatePartialCleaningDiscount;
     const discountType = selectedFreq.discountType ?? selectedFreq.discount_type ?? '%';
 
     if (discountType === '%') {
@@ -1400,42 +1558,50 @@ const handleAddBooking = async (status: string = 'pending') => {
     } else {
       return selectedFreq.discount;
     }
-  }, [newBooking.frequency, frequencies, calculateServiceTotal, calculateExtrasTotal, calculatePartialCleaningDiscount, isFirstAppointment]);
+  }, [newBooking.frequency, frequencies, effectiveServiceTotal, calculateExtrasTotal, calculatePartialCleaningDiscount, isFirstAppointment]);
 
-  // Calculate total amount
+  // Calculate total amount (Booking Koala style: service total before discounts, then price adjustment overrides final after discounts)
   const calculateTotalAmount = useMemo(() => {
-    let subtotal = calculateServiceTotal + calculateExtrasTotal;
-    
-    // Apply service total adjustment if enabled
-    if (newBooking.adjustServiceTotal && newBooking.adjustmentServiceTotalAmount) {
-      const adjustment = parseFloat(newBooking.adjustmentServiceTotalAmount);
-      if (!isNaN(adjustment)) {
-        subtotal = adjustment; // Replace service total with adjusted amount
-      }
-    }
-    
+    const subtotal = effectiveServiceTotal + calculateExtrasTotal;
     const totalDiscount = calculatePartialCleaningDiscount + calculateFrequencyDiscount;
     let finalAmount = Math.max(0, subtotal - totalDiscount);
-    
-    // Apply final price adjustment if enabled
+
+    // Adjust Price: override final amount after coupons/discounts, before tax (Booking Koala)
     if (newBooking.adjustPrice && newBooking.adjustmentAmount) {
       const adjustment = parseFloat(newBooking.adjustmentAmount);
-      if (!isNaN(adjustment)) {
-        finalAmount = adjustment; // Replace final amount with adjusted amount
+      if (!isNaN(adjustment) && adjustment >= 0) {
+        finalAmount = adjustment;
       }
     }
-    
+
     return finalAmount;
-  }, [calculateServiceTotal, calculateExtrasTotal, calculatePartialCleaningDiscount, calculateFrequencyDiscount, newBooking.adjustServiceTotal, newBooking.adjustmentServiceTotalAmount, newBooking.adjustPrice, newBooking.adjustmentAmount]);
+  }, [effectiveServiceTotal, calculateExtrasTotal, calculatePartialCleaningDiscount, calculateFrequencyDiscount, newBooking.adjustPrice, newBooking.adjustmentAmount]);
 
   return (
     <div className="space-y-6">
+      {editingBookingId && (
+        <p className="text-sm text-muted-foreground">
+          {loadingBooking ? "Loading booking…" : bookingLoadError ? null : "Editing this booking. Change any details below and save."}
+        </p>
+      )}
+      {bookingLoadError && (
+        <Card className="border-destructive">
+          <CardContent className="pt-6">
+            <p className="text-destructive font-medium">{bookingLoadError}</p>
+            <Button variant="outline" className="mt-3" onClick={() => router.push("/admin/bookings")}>
+              Back to bookings
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+      {bookingLoadError || (editingBookingId && loadingBooking) ? null : (
+      <>
       <div className="grid gap-6 lg:grid-cols-[0.8fr_2fr]">
         {/* Summary Sidebar - sticky so it stays visible while customer details scroll */}
         <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Booking Summary</CardTitle>
+              <CardTitle className="text-base">{editingBookingId ? "Edit booking" : "Booking Summary"}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="flex justify-between items-center gap-2">
@@ -1468,21 +1634,29 @@ const handleAddBooking = async (status: string = 'pending') => {
                 const adjustedDuration = calculateAdjustedDuration;
                 const isRecurring = selectedFreq?.occurrence_time === 'recurring';
                 const hasAdjustment = isRecurring && selectedFreq?.shorter_job_length === 'yes' && parseFloat(selectedFreq?.shorter_job_length_by || '0') > 0;
-                const durationMinutes = newBooking.duration
-                  ? (newBooking.durationUnit === "Hours" ? parseFloat(newBooking.duration) * 60 : parseFloat(newBooking.duration))
-                  : calculatedDurationMinutes;
+                const durationMinutes = newBooking.adjustTime
+                  ? (parseInt(newBooking.adjustedHours, 10) || 0) * 60 + (parseInt(newBooking.adjustedMinutes, 10) || 0)
+                  : newBooking.duration
+                    ? (newBooking.durationUnit === "Hours" ? parseFloat(newBooking.duration) * 60 : parseFloat(newBooking.duration))
+                    : calculatedDurationMinutes;
                 const displayLength = !newBooking.service
                   ? "—"
-                  : hasAdjustment && adjustedDuration.displayText
-                    ? adjustedDuration.displayText
-                    : durationMinutes != null
-                      ? (() => {
-                          const mins = Math.round(durationMinutes);
-                          const hrs = Math.floor(mins / 60);
-                          const m = mins % 60;
-                          return hrs > 0 ? `${hrs} Hr${m > 0 ? ` ${m} Min` : ""}` : `${mins} Min`;
-                        })()
-                      : "—";
+                  : newBooking.adjustTime
+                    ? (() => {
+                        const hrs = parseInt(newBooking.adjustedHours, 10) || 0;
+                        const m = parseInt(newBooking.adjustedMinutes, 10) || 0;
+                        return hrs > 0 ? `${hrs} Hr${m > 0 ? ` ${m} Min` : ""}` : `${m} Min`;
+                      })()
+                    : hasAdjustment && adjustedDuration.displayText
+                      ? adjustedDuration.displayText
+                      : durationMinutes != null
+                        ? (() => {
+                            const mins = Math.round(durationMinutes);
+                            const hrs = Math.floor(mins / 60);
+                            const m = mins % 60;
+                            return hrs > 0 ? `${hrs} Hr${m > 0 ? ` ${m} Min` : ""}` : `${mins} Min`;
+                          })()
+                        : "—";
                 
                 return (
                   <>
@@ -1519,7 +1693,7 @@ const handleAddBooking = async (status: string = 'pending') => {
             <CardContent className="space-y-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Service Total</span>
-                <span className="font-medium">${calculateServiceTotal.toFixed(2)}</span>
+                <span className="font-medium">${effectiveServiceTotal.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Extras Total</span>
@@ -1555,6 +1729,12 @@ const handleAddBooking = async (status: string = 'pending') => {
                 }
                 return null;
               })()}
+              {newBooking.adjustPrice && newBooking.adjustmentAmount && !isNaN(parseFloat(newBooking.adjustmentAmount)) && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Adjusted Amount</span>
+                  <span className="font-medium">${parseFloat(newBooking.adjustmentAmount).toFixed(2)}</span>
+                </div>
+              )}
               {cancellationFeeDisplay?.enabled && (
                 <div className="flex justify-between text-muted-foreground">
                   <span className="text-xs">Cancellation Fee (if cancelled within policy)</span>
@@ -3221,6 +3401,8 @@ const handleAddBooking = async (status: string = 'pending') => {
         </Card>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }
