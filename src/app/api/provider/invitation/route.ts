@@ -1,18 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseProviderClient } from '@/lib/supabaseProviderClient';
 import { createAdminNotification } from '@/lib/adminProviderSync';
 import { EmailService } from '@/lib/emailService';
 
 /**
  * GET: List pending invitations for the current provider
+ * Auth: Bearer token from provider session (same as /api/provider/bookings).
  */
 export async function GET(request: NextRequest) {
   try {
-    const supabaseProvider = getSupabaseProviderClient();
-    const { data: { session }, error: authError } = await supabaseProvider.auth.getSession();
-
-    if (authError || !session?.user) {
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -22,55 +20,69 @@ export async function GET(request: NextRequest) {
       { auth: { persistSession: false } }
     );
 
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { data: provider } = await supabaseAdmin
       .from('service_providers')
       .select('id, business_id')
-      .eq('user_id', session.user.id)
+      .eq('user_id', user.id)
       .single();
 
     if (!provider) {
       return NextResponse.json({ error: 'Provider not found' }, { status: 404 });
     }
 
-    const { data: invitations } = await supabaseAdmin
+    // Fetch invitation rows first (no join) so we always return pending invitations even if booking join fails
+    const { data: invitationRows, error: invError } = await supabaseAdmin
       .from('provider_booking_invitations')
-      .select(`
-        id,
-        booking_id,
-        status,
-        sent_at,
-        bookings(
-          service,
-          scheduled_date,
-          scheduled_time,
-          address,
-          apt_no,
-          total_price,
-          customer_name,
-          customer_phone
-        )
-      `)
+      .select('id, booking_id, status, sent_at')
       .eq('provider_id', provider.id)
       .eq('business_id', provider.business_id)
       .eq('status', 'pending')
       .order('sent_at', { ascending: false });
 
-    const list = (invitations ?? []).map((inv: any) => ({
-      id: inv.id,
-      bookingId: inv.booking_id,
-      status: inv.status,
-      sentAt: inv.sent_at,
-      ...(inv.bookings && {
-        service: inv.bookings.service,
-        date: inv.bookings.scheduled_date,
-        time: inv.bookings.scheduled_time,
-        address: inv.bookings.address,
-        aptNo: inv.bookings.apt_no,
-        totalPrice: inv.bookings.total_price,
-        customerName: inv.bookings.customer_name,
-        customerPhone: inv.bookings.customer_phone,
-      }),
-    }));
+    if (invError) {
+      console.error('Provider invitations GET (invitations)', invError);
+      return NextResponse.json({ error: 'Failed to load invitations', invitations: [] }, { status: 500 });
+    }
+
+    const rows = invitationRows ?? [];
+    if (rows.length === 0) {
+      return NextResponse.json({ invitations: [] });
+    }
+
+    const bookingIds = [...new Set(rows.map((r: { booking_id: string }) => r.booking_id))];
+    const { data: bookingRows } = await supabaseAdmin
+      .from('bookings')
+      .select('id, service, scheduled_date, scheduled_time, date, time, address, apt_no, total_price, customer_name, customer_phone')
+      .in('id', bookingIds);
+
+    const bookingMap = new Map<string, any>();
+    (bookingRows ?? []).forEach((b: any) => bookingMap.set(b.id, b));
+
+    const list = rows.map((inv: any) => {
+      const b = bookingMap.get(inv.booking_id);
+      return {
+        id: inv.id,
+        bookingId: inv.booking_id,
+        status: inv.status,
+        sentAt: inv.sent_at,
+        ...(b && {
+          service: b.service,
+          date: b.scheduled_date ?? b.date,
+          time: b.scheduled_time ?? b.time,
+          address: b.address,
+          aptNo: b.apt_no,
+          totalPrice: b.total_price,
+          customerName: b.customer_name,
+          customerPhone: b.customer_phone,
+        }),
+      };
+    });
 
     return NextResponse.json({ invitations: list });
   } catch (e) {
@@ -82,13 +94,12 @@ export async function GET(request: NextRequest) {
 /**
  * POST: Accept or decline an invitation
  * Body: { invitationId: string, action: 'accept' | 'decline', notes?: string }
+ * Auth: Bearer token from provider session.
  */
 export async function POST(request: NextRequest) {
   try {
-    const supabaseProvider = getSupabaseProviderClient();
-    const { data: { session }, error: authError } = await supabaseProvider.auth.getSession();
-
-    if (authError || !session?.user) {
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -105,10 +116,16 @@ export async function POST(request: NextRequest) {
       { auth: { persistSession: false } }
     );
 
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { data: provider } = await supabaseAdmin
       .from('service_providers')
       .select('id, business_id, first_name, last_name')
-      .eq('user_id', session.user.id)
+      .eq('user_id', user.id)
       .single();
 
     if (!provider) {

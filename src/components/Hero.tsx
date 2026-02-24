@@ -4,9 +4,12 @@ import { Button } from "@/components/ui/button";
 import { ArrowRight, Sparkles, Shield, Clock } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/contexts/AuthContext";
+import { EditableText } from "@/components/builder/EditableText";
+import type { EditableTextHandle } from "@/components/builder/EditableText";
+import { InlineEditBlock } from "@/components/builder/InlineEditBlock";
 
 interface HeroProps {
   data?: {
@@ -19,6 +22,8 @@ interface HeroProps {
     button2Text?: string;
     button2Link?: string;
     serviceTag?: string;
+    /** Field keys to hide in builder (e.g. ['subtitle']) */
+    hiddenFields?: string[];
   };
   branding?: {
     primaryColor?: string;
@@ -26,6 +31,11 @@ interface HeroProps {
   };
   /** Business ID from URL for book-now link (no localStorage) */
   businessId?: string;
+  /** When true, text fields are editable in place (visual builder) */
+  builderMode?: boolean;
+  onFieldChange?: (field: string, value: string) => void;
+  onFieldHide?: (field: string) => void;
+  onFieldShow?: (field: string) => void;
 }
 
 const Hero = ({ 
@@ -42,9 +52,21 @@ const Hero = ({
   },
   branding,
   businessId,
+  builderMode = false,
+  onFieldChange,
+  onFieldHide,
+  onFieldShow,
 }: HeroProps) => {
   const router = useRouter();
   const { user, isCustomer } = useAuth();
+  const serviceTagRef = useRef<EditableTextHandle>(null);
+  const titleRef = useRef<EditableTextHandle>(null);
+  const subtitleRef = useRef<EditableTextHandle>(null);
+  const descriptionRef = useRef<EditableTextHandle>(null);
+  const button1Ref = useRef<EditableTextHandle>(null);
+  const button2Ref = useRef<EditableTextHandle>(null);
+
+  const hidden = (field: string) => (data.hiddenFields || []).includes(field);
 
   // Get business context from URL/prop only (no localStorage)
   const getBookingUrl = () => {
@@ -90,55 +112,176 @@ const Hero = ({
             {/* Text content - Centered */}
             <div className="text-center animate-slide-up" style={{ animationDelay: '0.1s' }}>
               <div className="mb-6">
-                <span className="px-6 py-3 bg-white/95 border-2 border-primary rounded-full text-primary font-semibold text-sm tracking-wider shadow-lg">
-                  {data.serviceTag || "CHICAGO'S #1 CLEANING SERVICE"}
-                </span>
+                {builderMode && onFieldChange ? (
+                  hidden('serviceTag') ? (
+                    <span className="inline-block px-3 py-1.5 bg-[#e8eaed] text-[#5f6368] text-xs rounded border border-[#dadce0]">
+                      Hidden — <button type="button" className="underline font-medium hover:text-[#1a73e8]" onClick={(e) => { e.stopPropagation(); onFieldShow?.('serviceTag'); }}>Show</button>
+                    </span>
+                  ) : (
+                    <InlineEditBlock editRef={serviceTagRef} onHide={onFieldHide ? () => onFieldHide('serviceTag') : undefined} inline>
+                      <EditableText
+                        ref={serviceTagRef}
+                        tag="span"
+                        value={data.serviceTag || "CHICAGO'S #1 CLEANING SERVICE"}
+                        onSave={(v) => onFieldChange('serviceTag', v)}
+                        className="block px-6 py-3 bg-white/95 border-2 border-primary rounded-full text-primary font-semibold text-sm tracking-wider shadow-lg"
+                        placeholder="Service tag"
+                      />
+                    </InlineEditBlock>
+                  )
+                ) : (
+                  <span className="px-6 py-3 bg-white/95 border-2 border-primary rounded-full text-primary font-semibold text-sm tracking-wider shadow-lg">
+                    {data.serviceTag || "CHICAGO'S #1 CLEANING SERVICE"}
+                  </span>
+                )}
               </div>
               
               <h1 className="text-6xl md:text-7xl lg:text-8xl font-sans font-extrabold mb-6 leading-tight">
-                {data.title?.split('\n').map((line, i) => (
-                  <span key={i} className="block text-primary drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)]">
-                    {line}
-                  </span>
-                )) || (
-                  <>
-                    <span className="block text-primary drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)]">
-                      Thanks For
+                {builderMode && onFieldChange ? (
+                  hidden('title') ? (
+                    <span className="inline-block px-3 py-1.5 bg-[#e8eaed] text-[#5f6368] text-xs rounded border border-[#dadce0]">
+                      Hidden — <button type="button" className="underline font-medium hover:text-[#1a73e8]" onClick={(e) => { e.stopPropagation(); onFieldShow?.('title'); }}>Show</button>
                     </span>
-                    <span className="block text-primary drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)]">
-                      Stopping By
+                  ) : (
+                    <InlineEditBlock editRef={titleRef} onHide={onFieldHide ? () => onFieldHide('title') : undefined}>
+                      <EditableText
+                        ref={titleRef}
+                        tag="span"
+                        value={data.title || 'Thanks For Stopping By'}
+                        onSave={(v) => onFieldChange('title', v)}
+                        className="block text-primary drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)]"
+                        placeholder="Hero title"
+                        multiline
+                      />
+                    </InlineEditBlock>
+                  )
+                ) : (
+                  data.title?.split('\n').map((line, i) => (
+                    <span key={i} className="block text-primary drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)]">
+                      {line}
                     </span>
-                  </>
+                  )) || (
+                    <>
+                      <span className="block text-primary drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)]">Thanks For</span>
+                      <span className="block text-primary drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)]">Stopping By</span>
+                    </>
+                  )
                 )}
               </h1>
               
-              <p className="text-xl md:text-2xl text-navy mb-4 font-bold drop-shadow-[0_2px_8px_rgba(255,255,255,0.8)]">
-                {data.subtitle || 'Let Us Connect You With Top Providers'}
-              </p>
+              {builderMode && onFieldChange ? (
+                <p className="text-xl md:text-2xl text-navy mb-4 font-bold drop-shadow-[0_2px_8px_rgba(255,255,255,0.8)]">
+                  {hidden('subtitle') ? (
+                    <span className="inline-block px-3 py-1.5 bg-[#e8eaed] text-[#5f6368] text-xs rounded border border-[#dadce0]">
+                      Hidden — <button type="button" className="underline font-medium hover:text-[#1a73e8]" onClick={(e) => { e.stopPropagation(); onFieldShow?.('subtitle'); }}>Show</button>
+                    </span>
+                  ) : (
+                    <InlineEditBlock editRef={subtitleRef} onHide={onFieldHide ? () => onFieldHide('subtitle') : undefined} inline>
+                      <EditableText
+                        ref={subtitleRef}
+                        tag="span"
+                        value={data.subtitle || 'Let Us Connect You With Top Providers'}
+                        onSave={(v) => onFieldChange('subtitle', v)}
+                        className="block"
+                        placeholder="Subtitle"
+                      />
+                    </InlineEditBlock>
+                  )}
+                </p>
+              ) : (
+                <p className="text-xl md:text-2xl text-navy mb-4 font-bold drop-shadow-[0_2px_8px_rgba(255,255,255,0.8)]">
+                  {data.subtitle || 'Let Us Connect You With Top Providers'}
+                </p>
+              )}
               
-              <p className="text-base md:text-lg text-white/95 mb-10 font-semibold drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] max-w-3xl mx-auto">
-                {data.description || 'Experience hassle-free booking with instant confirmation, vetted professionals, and premium service quality.'}
-              </p>
+              {builderMode && onFieldChange ? (
+                <p className="text-base md:text-lg text-white/95 mb-10 font-semibold drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] max-w-3xl mx-auto">
+                  {hidden('description') ? (
+                    <span className="inline-block px-3 py-1.5 bg-[#e8eaed] text-[#5f6368] text-xs rounded border border-[#dadce0]">
+                      Hidden — <button type="button" className="underline font-medium hover:text-[#1a73e8]" onClick={(e) => { e.stopPropagation(); onFieldShow?.('description'); }}>Show</button>
+                    </span>
+                  ) : (
+                    <InlineEditBlock editRef={descriptionRef} onHide={onFieldHide ? () => onFieldHide('description') : undefined}>
+                      <EditableText
+                        ref={descriptionRef}
+                        tag="span"
+                        value={data.description || ''}
+                        onSave={(v) => onFieldChange('description', v)}
+                        className="block"
+                        placeholder="Description"
+                        multiline
+                      />
+                    </InlineEditBlock>
+                  )}
+                </p>
+              ) : (
+                <p className="text-base md:text-lg text-white/95 mb-10 font-semibold drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] max-w-3xl mx-auto">
+                  {data.description || 'Experience hassle-free booking with instant confirmation, vetted professionals, and premium service quality.'}
+                </p>
+              )}
               
               <div className="flex flex-col sm:flex-row justify-center gap-5 mb-12">
-                <Button 
-                  size="lg" 
-                  className="text-lg px-10 py-6 gradient-primary hover:scale-105 transition-all shadow-xl hover:shadow-2xl rounded-full group"
-                  onClick={handleBookNowClick}
-                >
-                  {data.button1Text || 'Book Appointment'}
-                  <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
-                </Button>
-                <Button 
-                  asChild
-                  size="lg" 
-                  variant="outline" 
-                  className="text-lg px-10 py-6 border-2 border-primary/30 hover:border-primary hover:bg-primary/10 hover:scale-105 transition-all rounded-full backdrop-blur-sm"
-                >
-                  <a href={data.button2Link || '#contact'}>
-                    {data.button2Text || 'Contact Us'}
-                  </a>
-                </Button>
+                {builderMode && onFieldChange ? (
+                  hidden('button1Text') ? (
+                    <span className="inline-block px-3 py-1.5 bg-[#e8eaed] text-[#5f6368] text-xs rounded border border-[#dadce0]">
+                      Hidden — <button type="button" className="underline font-medium hover:text-[#1a73e8]" onClick={(e) => { e.stopPropagation(); onFieldShow?.('button1Text'); }}>Show</button>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center justify-center text-lg px-10 py-6 gradient-primary rounded-full shadow-xl cursor-default">
+                      <InlineEditBlock editRef={button1Ref} onHide={onFieldHide ? () => onFieldHide('button1Text') : undefined} inline>
+                        <EditableText
+                          ref={button1Ref}
+                          tag="span"
+                          value={data.button1Text || 'Book Appointment'}
+                          onSave={(v) => onFieldChange('button1Text', v)}
+                          className="inline"
+                          placeholder="Button text"
+                        />
+                      </InlineEditBlock>
+                      <ArrowRight className="ml-2 h-5 w-5" />
+                    </span>
+                  )
+                ) : (
+                  <Button 
+                    size="lg" 
+                    className="text-lg px-10 py-6 gradient-primary hover:scale-105 transition-all shadow-xl hover:shadow-2xl rounded-full group"
+                    onClick={handleBookNowClick}
+                  >
+                    {data.button1Text || 'Book Appointment'}
+                    <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                  </Button>
+                )}
+                {builderMode && onFieldChange ? (
+                  hidden('button2Text') ? (
+                    <span className="inline-block px-3 py-1.5 bg-[#e8eaed] text-[#5f6368] text-xs rounded border border-[#dadce0]">
+                      Hidden — <button type="button" className="underline font-medium hover:text-[#1a73e8]" onClick={(e) => { e.stopPropagation(); onFieldShow?.('button2Text'); }}>Show</button>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center justify-center text-lg px-10 py-6 border-2 border-primary/30 rounded-full backdrop-blur-sm cursor-default">
+                      <InlineEditBlock editRef={button2Ref} onHide={onFieldHide ? () => onFieldHide('button2Text') : undefined} inline>
+                        <EditableText
+                          ref={button2Ref}
+                          tag="span"
+                          value={data.button2Text || 'Contact Us'}
+                          onSave={(v) => onFieldChange('button2Text', v)}
+                          className="inline"
+                          placeholder="Button text"
+                        />
+                      </InlineEditBlock>
+                    </span>
+                  )
+                ) : (
+                  <Button 
+                    asChild
+                    size="lg" 
+                    variant="outline" 
+                    className="text-lg px-10 py-6 border-2 border-primary/30 hover:border-primary hover:bg-primary/10 hover:scale-105 transition-all rounded-full backdrop-blur-sm"
+                  >
+                    <a href={data.button2Link || '#contact'}>
+                      {data.button2Text || 'Contact Us'}
+                    </a>
+                  </Button>
+                )}
               </div>
 
               {/* Stats */}

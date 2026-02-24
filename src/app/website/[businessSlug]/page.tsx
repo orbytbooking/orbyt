@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { use, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Navigation from "@/components/Navigation";
 import Hero from "@/components/Hero";
@@ -15,12 +15,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 
 interface BusinessWebsiteProps {
-  params: {
-    businessSlug: string;
-  };
+  params: Promise<{ businessSlug: string }>;
 }
 
 export default function BusinessWebsite({ params }: BusinessWebsiteProps) {
+  const resolvedParams = use(params);
   const { config, isLoading } = useWebsiteConfig();
   const [businessName, setBusinessName] = useState<string>('');
   const [businessId, setBusinessId] = useState<string>('');
@@ -32,7 +31,7 @@ export default function BusinessWebsite({ params }: BusinessWebsiteProps) {
     const fetchBusinessData = async () => {
       // Get business ID from URL params first, then fallback to slug
       const urlBusinessId = searchParams.get('business');
-      const businessId = urlBusinessId || params.businessSlug;
+      const businessId = urlBusinessId || resolvedParams.businessSlug;
       
       if (businessId) {
         setBusinessId(businessId);
@@ -71,7 +70,7 @@ export default function BusinessWebsite({ params }: BusinessWebsiteProps) {
     };
 
     fetchBusinessData();
-  }, [params.businessSlug, searchParams]);
+  }, [resolvedParams.businessSlug, searchParams]);
 
   if (isLoading) {
     return (

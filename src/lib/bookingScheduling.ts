@@ -7,6 +7,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { createAdminNotification } from './adminProviderSync';
 import { EmailService } from './emailService';
+import { performAutoAssign } from './autoAssign';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -41,7 +42,8 @@ export async function processBookingScheduling(
     return;
   }
 
-  const schedulingType = (storeOpts as { scheduling_type?: string } | null)?.scheduling_type ?? 'accepted_automatically';
+  // When no store options saved, default to accept_or_decline so we create an invitation (avoids silent auto-assign failure)
+  const schedulingType = (storeOpts as { scheduling_type?: string } | null)?.scheduling_type ?? 'accept_or_decline';
 
   const isSameDay = (() => {
     if (!opts.scheduledDate) return false;
@@ -59,23 +61,15 @@ export async function processBookingScheduling(
 
   if (shouldAutoAssign) {
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL
-        || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-      const res = await fetch(`${baseUrl}/api/admin/auto-assign`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookingId, businessId }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const providerName = data.assignment?.providerName;
-        if (data.success && providerName) {
-          await createAdminNotification(businessId, 'provider_assigned', {
-            title: 'Booking auto-assigned',
-            message: `Booking assigned to ${providerName}.`,
-            link: '/admin/bookings',
-          });
-        }
+      const result = await performAutoAssign(supabase, bookingId, businessId);
+      if (result.success && result.assignment?.providerName) {
+        await createAdminNotification(businessId, 'provider_assigned', {
+          title: 'Booking auto-assigned',
+          message: `Booking assigned to ${result.assignment.providerName}.`,
+          link: '/admin/bookings',
+        });
+      } else if (!result.success) {
+        console.warn('Auto-assign failed for booking', bookingId, result.error);
       }
     } catch (e) {
       console.warn('Auto-assign failed for booking', bookingId, e);
@@ -84,15 +78,36 @@ export async function processBookingScheduling(
   }
 
   if (shouldInvite) {
-    // Get providers in priority order (higher invitation_priority first, then by created_at)
-    const { data: providers } = await supabase
-      .from('service_providers')
-      .select('id, first_name, last_name')
-      .eq('business_id', businessId)
-      .eq('status', 'active')
-      .order('invitation_priority', { ascending: false })
-      .order('created_at', { ascending: true })
-      .limit(10);
+    // Get providers in priority order (active first; fallback to any provider if none active or query fails)
+    const baseQuery = () =>
+      supabase
+        .from('service_providers')
+        .select('id, first_name, last_name')
+        .eq('business_id', businessId)
+        .order('invitation_priority', { ascending: false })
+        .order('created_at', { ascending: true })
+        .limit(10);
+
+    let providers: { id: string; first_name?: string; last_name?: string }[] | null = null;
+    try {
+      const activeResult = await baseQuery().eq('status', 'active');
+      if (activeResult.error) {
+        const fallback = await baseQuery();
+        providers = fallback.data ?? [];
+      } else {
+        providers = activeResult.data ?? [];
+      }
+    } catch (_e) {
+      const fallback = await baseQuery();
+      providers = fallback.data ?? [];
+    }
+    if (!providers?.length) {
+      const fallback = await baseQuery();
+      providers = fallback.data ?? [];
+      if (providers?.length) {
+        console.warn('[bookingScheduling] No active providers; using first available for invitation.', { businessId, bookingId });
+      }
+    }
 
     if (!providers?.length) {
       await createAdminNotification(businessId, 'no_providers', {
@@ -131,13 +146,23 @@ export async function processBookingScheduling(
     const firstProvider = providers[0];
     const providerName = `${firstProvider.first_name || ''} ${firstProvider.last_name || ''}`.trim() || 'Provider';
 
-    await supabase.from('provider_booking_invitations').insert({
+    const { error: insertErr } = await supabase.from('provider_booking_invitations').insert({
       booking_id: bookingId,
       provider_id: firstProvider.id,
       business_id: businessId,
       status: 'pending',
       sort_order: 0,
     });
+
+    if (insertErr) {
+      console.error('[bookingScheduling] Failed to create invitation', { bookingId, providerId: firstProvider.id, error: insertErr });
+      await createAdminNotification(businessId, 'invitation_sent', {
+        title: 'Booking invitation failed',
+        message: `Could not create invitation for ${providerName}. Please assign manually in Bookings.`,
+        link: '/admin/bookings',
+      });
+      return;
+    }
 
     await createAdminNotification(businessId, 'invitation_sent', {
       title: 'Booking invitation sent',

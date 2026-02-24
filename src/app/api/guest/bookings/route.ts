@@ -211,6 +211,65 @@ export async function POST(request: NextRequest) {
   }
   if (durationMinutes > 0) insert.duration_minutes = durationMinutes;
 
+  const createRecurring = body.create_recurring === true || body.create_recurring === 'true';
+  const scheduledDate = date || null;
+  const timeForRecurring = timeForDb || '09:00:00';
+
+  if (createRecurring && frequency && scheduledDate) {
+    const freqName = String(frequency).trim();
+    let frequencyRepeats: string | null = (body.frequency_repeats && String(body.frequency_repeats).trim()) || null;
+    if (!frequencyRepeats) {
+      const { data: biz } = await supabase.from('businesses').select('industry_id').eq('id', businessId).single();
+      const industryId = (biz as { industry_id?: string } | null)?.industry_id;
+      if (industryId) {
+        const { data: freq } = await supabase
+          .from('industry_frequency')
+          .select('frequency_repeats')
+          .eq('industry_id', industryId)
+          .ilike('name', freqName)
+          .maybeSingle();
+        frequencyRepeats = (freq as { frequency_repeats?: string } | null)?.frequency_repeats ?? null;
+      }
+    }
+    const endDate = (body.recurring_end_date && String(body.recurring_end_date).trim()) || null;
+    const occurrencesAhead = Math.min(Math.max(1, parseInt(String(body.recurring_occurrences_ahead || 8), 10) || 8), 24);
+
+    try {
+      const { createRecurringSeries } = await import('@/lib/recurringBookings');
+      const template = { ...insert, scheduled_time: timeForRecurring, time: timeForRecurring };
+      const { seriesId, bookingIds } = await createRecurringSeries(supabase, businessId, template, {
+        startDate: scheduledDate,
+        endDate: endDate || undefined,
+        frequencyName: freqName,
+        frequencyRepeats,
+        occurrencesAhead,
+        sameProvider: true,
+      });
+      const { data: firstBooking } = await supabase.from('bookings').select('*').eq('id', bookingIds[0]).single();
+      const bkRef = `BK${String(bookingIds[0]).slice(-6).toUpperCase()}`;
+      await createAdminNotification(businessId, 'new_booking', {
+        title: 'Recurring booking (guest)',
+        message: `Recurring booking ${bkRef} created with ${bookingIds.length} occurrences.`,
+        link: '/admin/bookings',
+      });
+      await processBookingScheduling(firstBooking?.id, businessId, {
+        providerId: firstBooking?.provider_id,
+        scheduledDate: firstBooking?.scheduled_date ?? firstBooking?.date,
+        service: firstBooking?.service,
+      }).catch((e) => console.warn('Scheduling processing failed:', e));
+      return NextResponse.json(
+        { success: true, data: firstBooking, message: `Recurring booking created with ${bookingIds.length} visits`, id: bookingIds[0], seriesId, bookingIds },
+        { status: 201 }
+      );
+    } catch (e: unknown) {
+      console.error('Guest recurring series error:', e);
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : 'Failed to create recurring booking' },
+        { status: 500 }
+      );
+    }
+  }
+
   let booking: any = null;
   let error: any = null;
   const result = await supabase.from('bookings').insert(insert).select().single();
@@ -237,7 +296,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  processBookingScheduling(booking.id, businessId, {
+  await processBookingScheduling(booking.id, businessId, {
     providerId: booking.provider_id,
     scheduledDate: booking.scheduled_date ?? booking.date,
     service: booking.service,

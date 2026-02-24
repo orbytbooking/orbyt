@@ -137,8 +137,8 @@ export default function ProviderInvitationsPage() {
               <CardContent className="p-6">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                   <div className="space-y-2">
-                    <h3 className="font-semibold text-lg">{inv.service}</h3>
-                    <p className="text-muted-foreground">{inv.customerName}</p>
+                    <h3 className="font-semibold text-lg">{inv.service || "Booking"}</h3>
+                    <p className="text-muted-foreground">{inv.customerName || "—"}</p>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Calendar className="h-4 w-4" />
                       {formatDate(inv.date)} at {formatTime(inv.time)}

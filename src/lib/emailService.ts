@@ -590,4 +590,120 @@ export class EmailService {
       return false;
     }
   }
+
+  /**
+   * Send email to provider when a booking is assigned to them (new or reassigned).
+   */
+  async sendProviderBookingAssigned(data: {
+    to: string;
+    providerFirstName: string;
+    businessName: string;
+    service: string | null;
+    scheduledDate: string | null;
+    scheduledTime: string | null;
+    address: string | null;
+    customerName: string | null;
+    bookingRef: string;
+  }): Promise<boolean> {
+    try {
+      const {
+        to,
+        providerFirstName,
+        businessName,
+        service,
+        scheduledDate,
+        scheduledTime,
+        address,
+        customerName,
+        bookingRef,
+      } = data;
+
+      const dateStr = scheduledDate
+        ? new Date(scheduledDate + 'T00:00:00').toLocaleDateString('en-US', {
+            weekday: 'long',
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric',
+          })
+        : 'TBD';
+      const timeStr = scheduledTime
+        ? String(scheduledTime).includes(':')
+          ? String(scheduledTime).slice(0, 5)
+          : String(scheduledTime)
+        : '';
+
+      const portalUrl =
+        (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').replace(
+          'http://localhost:3000',
+          'https://yourdomain.com'
+        ) + '/provider/bookings';
+
+      const emailSubject = `New booking assigned to you – ${businessName}`;
+      const emailHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Booking Assigned</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center; }
+            .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
+            .detail { background: white; padding: 16px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #00BCD4; }
+            .button { display: inline-block; background: linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%); color: white !important; padding: 15px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+            .footer { text-align: center; color: #666; margin-top: 30px; font-size: 14px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>📅 New booking assigned</h1>
+              <p>Reference: ${bookingRef}</p>
+            </div>
+            <div class="content">
+              <p>Hi ${providerFirstName},</p>
+              <p>A booking has been assigned to you at ${businessName}.</p>
+              <div class="detail">
+                <p><strong>Service:</strong> ${service || 'Service'}</p>
+                <p><strong>Date:</strong> ${dateStr}</p>
+                ${timeStr ? `<p><strong>Time:</strong> ${timeStr}</p>` : ''}
+                ${address ? `<p><strong>Address:</strong> ${address}</p>` : ''}
+                ${customerName ? `<p><strong>Customer:</strong> ${customerName}</p>` : ''}
+              </div>
+              <div style="text-align: center;">
+                <a href="${portalUrl}" class="button">View in provider portal</a>
+              </div>
+              <p>Best regards,<br>The ${businessName} Team</p>
+            </div>
+            <div class="footer">
+              <p>This is an automated message. Please do not reply to this email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      if (!this.resendClient) {
+        console.log('[Email] Provider booking assigned (Resend not configured):', to, bookingRef);
+        return true;
+      }
+      const { error } = await this.resendClient.emails.send({
+        from: process.env.RESEND_FROM_EMAIL || 'noreply@yourdomain.com',
+        to: [to],
+        subject: emailSubject,
+        html: emailHtml,
+      });
+      if (error) {
+        console.error('Provider booking assigned email error:', error);
+        return false;
+      }
+      console.log('✅ Provider booking assigned email sent:', to, bookingRef);
+      return true;
+    } catch (e) {
+      console.error('sendProviderBookingAssigned error:', e);
+      return false;
+    }
+  }
 }

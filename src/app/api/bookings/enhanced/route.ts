@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
+import { notifyProviderOfBooking } from '@/lib/notifyProviderBooking';
 
 export async function POST(request: Request) {
   try {
@@ -224,6 +225,14 @@ export async function POST(request: Request) {
       message: `Booking ${bkRef} has been confirmed${assignMsg}.`,
       link: '/admin/bookings',
     });
+
+    if (providerId) {
+      try {
+        await notifyProviderOfBooking(supabaseAdmin, { bookingId: booking.id });
+      } catch (e) {
+        console.warn('Provider booking email notification failed:', e);
+      }
+    }
 
     return NextResponse.json({
       success: true,

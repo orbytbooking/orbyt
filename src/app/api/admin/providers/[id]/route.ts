@@ -57,6 +57,7 @@ export async function GET(
         access_blocked,
         profile_image_url,
         admin_settings,
+        performance_score,
         stripe_account_id,
         stripe_is_connected,
         stripe_connect_enabled
@@ -127,7 +128,10 @@ export async function PUT(
 
       // Remove password from body before updating provider record
       const { password, ...providerData } = body;
-      
+      if (providerData.performance_score !== undefined) {
+        const v = Number(providerData.performance_score);
+        (providerData as Record<string, unknown>).performance_score = Number.isNaN(v) ? 0 : Math.max(0, Math.min(100, v));
+      }
       // Update provider record (without password)
       const { data: provider, error } = await supabaseAdmin
         .from('service_providers')
@@ -170,6 +174,10 @@ export async function PUT(
       if (body.access_blocked !== undefined) updateData.access_blocked = body.access_blocked;
       if (body.admin_settings !== undefined) updateData.admin_settings = body.admin_settings;
       if (body.stripe_connect_enabled !== undefined) updateData.stripe_connect_enabled = body.stripe_connect_enabled;
+      if (body.performance_score !== undefined) {
+        const v = Number(body.performance_score);
+        updateData.performance_score = Number.isNaN(v) ? 0 : Math.max(0, Math.min(100, v));
+      }
 
       const { data: provider, error } = await supabaseAdmin
         .from('service_providers')

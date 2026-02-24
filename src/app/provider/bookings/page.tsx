@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   Calendar, 
+  Calendar as CalendarIcon,
   Clock, 
   MapPin, 
   Phone, 
@@ -14,22 +15,33 @@ import {
   AlertCircle,
   Search,
   Filter,
-  Camera
+  Camera,
+  Navigation,
+  LogIn,
+  LogOut,
+  CircleDot,
+  List,
+  ChevronLeft,
+  ChevronRight,
+  RotateCw,
+  User as UserIcon,
+  Plus,
+  Minus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSupabaseProviderClient } from "@/lib/supabaseProviderClient";
+import { cn } from "@/lib/utils";
 
 type Booking = {
   id: string;
@@ -46,6 +58,14 @@ type Booking = {
   location: string;
   notes?: string;
   service_provider_notes?: string[];
+  duration_minutes?: number | null;
+  frequency?: string | null;
+  customization?: Record<string, unknown> | null;
+  apt_no?: string | null;
+  zip_code?: string | null;
+  payment_method?: string | null;
+  provider_wage?: number | null;
+  provider_wage_type?: string | null;
 };
 
 type BookingPhotos = {
@@ -89,6 +109,15 @@ const formatDate = (d: string) => {
   }
 };
 
+const formatDateTime = (iso: string) => {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: true });
+  } catch {
+    return iso;
+  }
+};
+
 const getStatusBadge = (status: string) => {
   const styles = {
     pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400",
@@ -112,6 +141,21 @@ const getStatusBadge = (status: string) => {
   );
 };
 
+const getStatusTone = (status: string) => {
+  switch (status) {
+    case "completed":
+      return { chip: "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)" };
+    case "cancelled":
+      return { chip: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)" };
+    case "confirmed":
+      return { chip: "linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)" };
+    case "pending":
+      return { chip: "linear-gradient(135deg, #fde68a 0%, #f59e42 100%)" };
+    default:
+      return { chip: "linear-gradient(135deg, #9ca3af 0%, #6b7280 100%)" };
+  }
+};
+
 const ProviderBookings = () => {
   const [bookingsData, setBookingsData] = useState<BookingsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -123,12 +167,19 @@ const ProviderBookings = () => {
   const [isPhotoDialogOpen, setIsPhotoDialogOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [clockEnabled, setClockEnabled] = useState(false);
+  const [allowReclockIn, setAllowReclockIn] = useState(false);
   const [timeLog, setTimeLog] = useState<{
     provider_status?: string;
+    on_the_way_at?: string;
+    at_location_at?: string;
     clocked_in_at?: string;
     clocked_out_at?: string;
+    time_reported_minutes?: number;
   } | null>(null);
   const [clockLoading, setClockLoading] = useState(false);
+  const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [refreshKey, setRefreshKey] = useState(0);
   const { toast } = useToast();
   const searchParams = useSearchParams();
 
@@ -181,64 +232,94 @@ const ProviderBookings = () => {
     };
 
     fetchBookingsData();
-  }, [toast, statusFilter, searchQuery]);
+  }, [toast, statusFilter, searchQuery, refreshKey]);
 
   useEffect(() => {
     if (selectedBooking?.id) {
-      fetchClockConfigAndLog(selectedBooking.id);
+      fetchClockConfigAndLog(selectedBooking.id, selectedBooking.date);
     } else {
       setClockEnabled(false);
       setTimeLog(null);
     }
-  }, [selectedBooking?.id]);
+  }, [selectedBooking?.id, selectedBooking?.date]);
 
-  const updateBookingStatus = async (bookingId: string, newStatus: string) => {
+  const updateBookingStatus = async (
+    bookingId: string,
+    newStatus: string,
+    options?: { occurrence_date?: string }
+  ) => {
     try {
-      // Get the current session token
       const { data: { session } } = await getSupabaseProviderClient().auth.getSession();
-      
-      if (!session) {
-        throw new Error('No active session');
-      }
+      if (!session) throw new Error('No active session');
+
+      const body: { bookingId: string; status: string; occurrence_date?: string } = {
+        bookingId,
+        status: newStatus,
+      };
+      if (options?.occurrence_date) body.occurrence_date = options.occurrence_date;
 
       const response = await fetch('/api/provider/bookings', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
+          'Authorization': `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({
-          bookingId,
-          status: newStatus,
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to update booking status');
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to update booking status');
       }
 
       const result = await response.json();
-      
-      if (result.success) {
-        toast({
-          title: "Success",
-          description: `Booking status updated to ${newStatus}`,
-        });
-        
-        // Refresh bookings data
-        const fetchResponse = await fetch(`/api/provider/bookings?status=${statusFilter}&search=${searchQuery}`, {
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`
-          }
-        });
-        const data = await fetchResponse.json();
-        setBookingsData(data);
-      }
+      const occurrenceDate = options?.occurrence_date;
+
+      const message =
+        newStatus === "completed"
+          ? occurrenceDate
+            ? "This occurrence marked as completed."
+            : "Booking marked as completed."
+          : newStatus === "confirmed"
+            ? "Booking accepted and confirmed."
+            : `Booking status updated to ${newStatus}`;
+      toast({ title: "Success", description: message });
+
+      setBookingsData((prev) => {
+        if (!prev) return prev;
+        const matchOccurrence = (b: Booking) =>
+          b.id === bookingId && (occurrenceDate ? b.date === occurrenceDate : true);
+        return {
+          ...prev,
+          bookings: prev.bookings.map((b) =>
+            matchOccurrence(b) ? { ...b, status: newStatus as Booking['status'] } : b
+          ),
+          stats: newStatus === 'completed'
+            ? {
+                ...prev.stats,
+                completed: prev.stats.completed + 1,
+                confirmed: Math.max(0, prev.stats.confirmed - 1),
+              }
+            : newStatus === 'confirmed'
+              ? {
+                  ...prev.stats,
+                  confirmed: prev.stats.confirmed + 1,
+                  pending: Math.max(0, prev.stats.pending - 1),
+                }
+              : prev.stats,
+        };
+      });
+
+      setSelectedBooking((prev) => {
+        if (!prev || prev.id !== bookingId) return prev;
+        if (occurrenceDate && prev.date !== occurrenceDate) return prev;
+        return { ...prev, status: newStatus as Booking['status'] };
+      });
     } catch (error) {
       console.error('Error updating booking:', error);
       toast({
         title: "Error",
-        description: "Failed to update booking status. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to update booking status. Please try again.",
         variant: "destructive",
       });
     }
@@ -285,42 +366,66 @@ const ProviderBookings = () => {
       );
     }
     
+    // Sort by booking date descending (latest first), then by time descending
+    filtered = [...filtered].sort((a, b) => {
+      const dateCompare = (b.date || "").localeCompare(a.date || "");
+      if (dateCompare !== 0) return dateCompare;
+      return (b.time || "").localeCompare(a.time || "");
+    });
+    
     return filtered;
   };
 
-  const handleAcceptBooking = (booking: Booking) => {
-    // Update booking status to confirmed
-    updateBookingStatus(booking.id, "confirmed");
-    
-    toast({
-      title: "Booking Accepted",
-      description: `You have accepted the booking for ${booking.customer.name}`,
+  // Calendar helpers (same pattern as admin bookings)
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const startingDayOfWeek = firstDay.getDay();
+    return { daysInMonth, startingDayOfWeek, year, month };
+  };
+  const getBookingsForDate = (dateStr: string) => filterBookings().filter((b) => b.date === dateStr);
+  const formatDateForCalendar = (year: number, month: number, day: number) =>
+    `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const navigateMonth = (direction: "prev" | "next") => {
+    setCurrentDate((prev) => {
+      const next = new Date(prev);
+      if (direction === "prev") next.setMonth(next.getMonth() - 1);
+      else next.setMonth(next.getMonth() + 1);
+      return next;
     });
+  };
+  const { daysInMonth, startingDayOfWeek, year, month } = getDaysInMonth(currentDate);
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  const handleAcceptBooking = (booking: Booking) => {
+    updateBookingStatus(booking.id, "confirmed");
     setSelectedBooking(null);
   };
 
   const handleCompleteBooking = (booking: Booking) => {
-    // Update booking status to completed
-    updateBookingStatus(booking.id, "completed");
-    
-    toast({
-      title: "Booking Completed",
-      description: `Booking for ${booking.customer.name} marked as completed`,
-    });
+    updateBookingStatus(booking.id, "completed", { occurrence_date: booking.date });
     setSelectedBooking(null);
   };
 
-  const fetchClockConfigAndLog = async (bookingId: string) => {
+  const fetchClockConfigAndLog = async (bookingId: string, occurrenceDate?: string) => {
     try {
       const { data: { session } } = await getSupabaseProviderClient().auth.getSession();
       if (!session) return;
+      const clockUrl = occurrenceDate
+        ? `/api/provider/clock?bookingId=${bookingId}&occurrence_date=${encodeURIComponent(occurrenceDate)}`
+        : `/api/provider/clock?bookingId=${bookingId}`;
       const [configRes, logRes] = await Promise.all([
         fetch("/api/provider/config", { headers: { Authorization: `Bearer ${session.access_token}` } }),
-        fetch(`/api/provider/clock?bookingId=${bookingId}`, { headers: { Authorization: `Bearer ${session.access_token}` } }),
+        fetch(clockUrl, { headers: { Authorization: `Bearer ${session.access_token}` } }),
       ]);
       const configData = await configRes.json();
       const logData = await logRes.json();
       setClockEnabled(configData.clock_in_out_enabled ?? false);
+      setAllowReclockIn(configData.allow_reclock_in ?? false);
       setTimeLog(logData.timeLog ?? null);
     } catch {
       setClockEnabled(false);
@@ -328,45 +433,44 @@ const ProviderBookings = () => {
     }
   };
 
-  const handleClockAction = async (bookingId: string, action: string) => {
+  const handleClockAction = async (bookingId: string, action: string, occurrenceDate?: string) => {
     setClockLoading(true);
     try {
       const { data: { session } } = await getSupabaseProviderClient().auth.getSession();
       if (!session) return;
+      const body: { bookingId: string; action: string; occurrence_date?: string } = { bookingId, action };
+      if (occurrenceDate) body.occurrence_date = occurrenceDate;
       const res = await fetch("/api/provider/clock", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ bookingId, action }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) {
-        toast({ title: "Error", description: data.error || "Failed to update", variant: "destructive" });
+        const msg = [data.error, data.details].filter(Boolean).join(" — ") || "Failed to update";
+        toast({ title: "Error", description: msg, variant: "destructive" });
         return;
       }
       setTimeLog(data.timeLog ?? { provider_status: action });
-      if (action === "clocked_in") {
+      // Update booking status to In progress when provider starts time tracking (on the way, at location, or clock in)
+      if (["on_the_way", "at_location", "clocked_in"].includes(action) && selectedBooking) {
         setSelectedBooking((prev) => (prev ? { ...prev, status: "in_progress" as const } : null));
+        setBookingsData((prev) => {
+          if (!prev) return prev;
+          const match = (b: Booking) => b.id === selectedBooking.id && (selectedBooking.date ? b.date === selectedBooking.date : true);
+          return {
+            ...prev,
+            bookings: prev.bookings.map((b) => (match(b) ? { ...b, status: "in_progress" as const } : b)),
+          };
+        });
       }
-      if (action === "clocked_out") {
+      if (action === "clocked_out" && selectedBooking) {
         toast({ title: "Job completed", description: "Time logged successfully." });
-        setBookingsData((prev) =>
-          prev
-            ? {
-                ...prev,
-                bookings: prev.bookings.map((b) =>
-                  b.id === bookingId ? { ...b, status: "completed" as const } : b
-                ),
-                stats: {
-                  ...prev.stats,
-                  completed: prev.stats.completed + 1,
-                  confirmed: Math.max(0, prev.stats.confirmed - 1),
-                },
-              }
-            : null
-        );
+        await updateBookingStatus(selectedBooking.id, "completed", { occurrence_date: selectedBooking.date });
+        return;
       }
     } catch {
       toast({ title: "Error", description: "Something went wrong", variant: "destructive" });
@@ -439,11 +543,11 @@ const ProviderBookings = () => {
         <p className="text-muted-foreground">Manage your appointments and schedules</p>
       </div>
 
-      {/* Search and Filter */}
+      {/* Search, Filter, and View Toggle */}
       <Card>
         <CardContent className="p-4">
-          <div className="flex gap-3">
-            <div className="relative flex-1">
+          <div className="flex flex-wrap gap-3 items-center">
+            <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search by customer, service, or booking ID..."
@@ -456,158 +560,435 @@ const ProviderBookings = () => {
               <Filter className="h-4 w-4 mr-2" />
               Filter
             </Button>
+            <div className="flex gap-2">
+              <Button
+                variant={viewMode === "calendar" ? "default" : "outline"}
+                size="icon"
+                onClick={() => setViewMode("calendar")}
+                title="Calendar View"
+              >
+                <CalendarIcon className="h-4 w-4" />
+              </Button>
+              <Button
+                variant={viewMode === "list" ? "default" : "outline"}
+                size="icon"
+                onClick={() => setViewMode("list")}
+                title="List View"
+              >
+                <List className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setRefreshKey((k) => k + 1)}
+                title="Refresh"
+              >
+                <RotateCw className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Bookings Tabs */}
-      <Tabs defaultValue="all" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="all">All Bookings</TabsTrigger>
-          <TabsTrigger value="confirmed">Confirmed</TabsTrigger>
-          <TabsTrigger value="completed">Completed</TabsTrigger>
-          <TabsTrigger value="cancelled">Cancelled</TabsTrigger>
-        </TabsList>
+      {/* Calendar View */}
+      {viewMode === "calendar" && (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <CardTitle>{monthNames[month]} {year}</CardTitle>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setCurrentDate(new Date())}>
+                  Today
+                </Button>
+                <Button variant="outline" size="icon" onClick={() => navigateMonth("prev")}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="icon" onClick={() => navigateMonth("next")}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-7 gap-2">
+              {dayNames.map((day) => (
+                <div key={day} className="text-center font-semibold text-sm py-2 text-muted-foreground">
+                  {day}
+                </div>
+              ))}
+              {Array.from({ length: startingDayOfWeek }).map((_, i) => (
+                <div key={`empty-${i}`} className="h-24" />
+              ))}
+              {Array.from({ length: daysInMonth }).map((_, index) => {
+                const day = index + 1;
+                const dateString = formatDateForCalendar(year, month, day);
+                const dayBookings = getBookingsForDate(dateString);
+                const hasBookings = dayBookings.length > 0;
+                const today = new Date();
+                const isToday = today.getDate() === day && today.getMonth() === month && today.getFullYear() === year;
+                return (
+                  <div
+                    key={day}
+                    className={cn(
+                      "h-24 rounded-lg p-2 transition-all cursor-pointer border",
+                      isToday ? "bg-accent/50 border-primary/50" : "bg-background border-border hover:bg-accent/20"
+                    )}
+                  >
+                    <div className="flex flex-col h-full">
+                      <div className="text-sm font-medium mb-1">{day}</div>
+                      {hasBookings && (
+                        <div className="flex-1 space-y-0.5 overflow-y-auto">
+                          {dayBookings.slice(0, 3).map((booking) => {
+                            const tone = getStatusTone(booking.status);
+                            const shortName = (booking.customer?.name || "Booking").trim().split(/\s+/)[0] || "Booking";
+                            return (
+                              <div
+                                key={`${booking.id}-${booking.date}-${booking.time}`}
+                                onClick={() => setSelectedBooking(booking)}
+                                className="text-[10px] px-1 py-0.5 rounded cursor-pointer hover:opacity-80 transition-opacity text-white truncate"
+                                style={{ background: tone.chip }}
+                                title={`${booking.customer?.name || "Booking"} - ${booking.service}`}
+                              >
+                                {shortName}
+                              </div>
+                            );
+                          })}
+                          {dayBookings.length > 3 && (
+                            <div className="text-[10px] text-muted-foreground text-center">+{dayBookings.length - 3}</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-4 flex flex-wrap gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded" style={{ background: "linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)" }} />
+                <span>Confirmed</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded" style={{ background: "linear-gradient(135deg, #fde68a 0%, #f59e42 100%)" }} />
+                <span>Pending</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded" style={{ background: "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)" }} />
+                <span>Completed</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded" style={{ background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)" }} />
+                <span>Cancelled</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-        <TabsContent value="all" className="space-y-4">
+      {/* List View - Bookings Tabs */}
+      {viewMode === "list" && mounted ? (
+        <Tabs defaultValue="all" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="all">All Bookings</TabsTrigger>
+            <TabsTrigger value="confirmed">Confirmed</TabsTrigger>
+            <TabsTrigger value="completed">Completed</TabsTrigger>
+            <TabsTrigger value="cancelled">Cancelled</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="all" className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              {filterBookings().map((booking) => (
+                <BookingCard key={`${booking.id}-${booking.date}-${booking.time}`} booking={booking} />
+              ))}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="confirmed" className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              {filterBookings("confirmed").map((booking) => (
+                <BookingCard key={`${booking.id}-${booking.date}-${booking.time}`} booking={booking} />
+              ))}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="completed" className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              {filterBookings("completed").map((booking) => (
+                <BookingCard key={`${booking.id}-${booking.date}-${booking.time}`} booking={booking} />
+              ))}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="cancelled" className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              {filterBookings("cancelled").map((booking) => (
+                <BookingCard key={`${booking.id}-${booking.date}-${booking.time}`} booking={booking} />
+              ))}
+            </div>
+          </TabsContent>
+        </Tabs>
+      ) : viewMode === "list" ? (
+        <div className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
-            {filterBookings().map(booking => (
-              <BookingCard key={booking.id} booking={booking} />
+            {filterBookings().map((booking) => (
+              <BookingCard key={`${booking.id}-${booking.date}-${booking.time}`} booking={booking} />
             ))}
           </div>
-        </TabsContent>
+        </div>
+      ) : null}
 
-        <TabsContent value="confirmed" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            {filterBookings("confirmed").map(booking => (
-              <BookingCard key={booking.id} booking={booking} />
-            ))}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="completed" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            {filterBookings("completed").map(booking => (
-              <BookingCard key={booking.id} booking={booking} />
-            ))}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="cancelled" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            {filterBookings("cancelled").map(booking => (
-              <BookingCard key={booking.id} booking={booking} />
-            ))}
-          </div>
-        </TabsContent>
-      </Tabs>
-
-      {/* Booking Details Dialog */}
+      {/* Booking details - right side panel (admin-style) */}
       {mounted && (
-      <Dialog open={!!selectedBooking} onOpenChange={(open) => !open && setSelectedBooking(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Booking Details</DialogTitle>
-            <DialogDescription>
-              Complete information about this booking
-            </DialogDescription>
-          </DialogHeader>
-          
+      <Sheet open={!!selectedBooking} onOpenChange={(open) => !open && setSelectedBooking(null)}>
+        <SheetContent side="right" className="w-full sm:max-w-lg p-0 flex flex-col h-screen max-h-screen overflow-hidden">
+          <SheetHeader className="px-6 pt-6 pb-4 shrink-0 border-b border-border">
+            <div className="flex items-center justify-between">
+              <SheetTitle className="text-lg font-bold">Booking summary</SheetTitle>
+              {selectedBooking && getStatusBadge(selectedBooking.status)}
+            </div>
+          </SheetHeader>
+
           {selectedBooking && (
-            <div className="space-y-4">
-              {/* Status Badge */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Booking ID</p>
-                  <p className="font-semibold">{selectedBooking.id}</p>
+            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-6 py-4 flex flex-col gap-4 overscroll-contain">
+              {/* Customer block - same as admin */}
+              <div className="flex gap-4 pt-2">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gray-200 dark:bg-gray-700">
+                  <span className="text-lg font-semibold text-gray-600 dark:text-gray-300">
+                    {selectedBooking.customer.name.charAt(0)}
+                  </span>
                 </div>
-                {getStatusBadge(selectedBooking.status)}
-              </div>
-
-              {/* Customer Info */}
-              <div className="p-4 bg-muted/50 rounded-lg space-y-3">
-                <h4 className="font-semibold">Customer Information</h4>
-                <div className="grid gap-2">
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center text-white font-semibold text-sm">
-                      {selectedBooking.customer.name.charAt(0)}
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <p className="font-semibold text-base">{selectedBooking.customer.name}</p>
+                  {selectedBooking.customer.email && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Mail className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{selectedBooking.customer.email}</span>
                     </div>
-                    <div>
-                      <p className="font-medium">{selectedBooking.customer.name}</p>
+                  )}
+                  {selectedBooking.customer.phone && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Phone className="h-3.5 w-3.5 shrink-0" />
+                      <span>{selectedBooking.customer.phone}</span>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Mail className="h-4 w-4" />
-                    <span>{selectedBooking.customer.email}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Phone className="h-4 w-4" />
-                    <span>{selectedBooking.customer.phone}</span>
-                  </div>
+                  )}
+                  {selectedBooking.location && (
+                    <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                      <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                      <span className="break-words">
+                        {[selectedBooking.apt_no ? `Apt ${selectedBooking.apt_no}, ` : null, selectedBooking.location, selectedBooking.zip_code].filter(Boolean).join(' ')}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Service Details */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Service</p>
-                  <p className="font-medium">{selectedBooking.service}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Amount</p>
-                  <p className="font-medium text-lg">{selectedBooking.amount}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Date</p>
-                  <p className="font-medium">{formatDate(selectedBooking.date)}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Time</p>
-                  <p className="font-medium">{formatTime(selectedBooking.time)}</p>
-                </div>
+              {/* Booking details - gray card with collapsible (admin-style) */}
+              <div className="rounded-lg bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 min-w-0 shrink-0">
+                <Collapsible defaultOpen className="group">
+                  <CollapsibleTrigger className="flex w-full items-center justify-between py-3 px-4 text-left font-semibold text-sm hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition-colors shrink-0 rounded-t-lg">
+                    <span>Booking details</span>
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-white dark:bg-gray-800 group-data-[state=open]:hidden">
+                      <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+                    </span>
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-white dark:bg-gray-800 hidden group-data-[state=open]:flex">
+                      <Minus className="h-3.5 w-3.5 text-muted-foreground" />
+                    </span>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="overflow-visible">
+                    <div className="px-4 pb-4 space-y-0">
+                      {[
+                        { label: 'Booking id', value: selectedBooking.id },
+                        { label: 'Zip/Postal code', value: selectedBooking.zip_code || '—' },
+                        { label: 'Industry', value: '—' },
+                        { label: 'Service', value: selectedBooking.service },
+                        { label: 'Frequency', value: selectedBooking.frequency || '—' },
+                        {
+                          label: 'Bathrooms',
+                          value: selectedBooking.customization && typeof selectedBooking.customization === 'object' && ('bathroom' in selectedBooking.customization || 'bathrooms' in selectedBooking.customization)
+                            ? String((selectedBooking.customization as Record<string, unknown>).bathroom ?? (selectedBooking.customization as Record<string, unknown>).bathrooms ?? '—')
+                            : '—',
+                        },
+                        {
+                          label: 'Extras',
+                          value: selectedBooking.customization && typeof selectedBooking.customization === 'object' && 'extras' in selectedBooking.customization
+                            ? Array.isArray(selectedBooking.customization.extras)
+                              ? (selectedBooking.customization.extras as string[]).join(', ')
+                              : String(selectedBooking.customization.extras)
+                            : '—',
+                        },
+                        {
+                          label: 'Professionals',
+                          value: selectedBooking.customization && typeof selectedBooking.customization === 'object' && ('professionals' in selectedBooking.customization || 'professional' in selectedBooking.customization)
+                            ? String((selectedBooking.customization as Record<string, unknown>).professionals ?? (selectedBooking.customization as Record<string, unknown>).professional ?? '—')
+                            : '—',
+                        },
+                        {
+                          label: 'Length',
+                          value: selectedBooking.duration_minutes != null && selectedBooking.duration_minutes > 0
+                            ? selectedBooking.duration_minutes >= 60
+                              ? `${Math.floor(selectedBooking.duration_minutes / 60)} Hr ${selectedBooking.duration_minutes % 60 || 0} Min`
+                              : `${selectedBooking.duration_minutes} Min`
+                            : '—',
+                        },
+                        { label: 'Service date', value: selectedBooking.date ? formatDate(selectedBooking.date) : '—' },
+                        { label: 'Assigned to', value: bookingsData?.provider?.name ?? 'You' },
+                        {
+                          label: 'Provider payment',
+                          value: selectedBooking.provider_wage != null && selectedBooking.provider_wage_type
+                            ? selectedBooking.provider_wage_type === 'percentage'
+                              ? `${selectedBooking.provider_wage}%`
+                              : selectedBooking.provider_wage_type === 'hourly'
+                                ? `$${Number(selectedBooking.provider_wage).toFixed(2)}/hr`
+                                : `$${Number(selectedBooking.provider_wage).toFixed(2)}`
+                            : '—',
+                        },
+                        { label: 'Location', value: [selectedBooking.location, selectedBooking.apt_no ? `Apt ${selectedBooking.apt_no}` : null, selectedBooking.zip_code].filter(Boolean).join(', ') || '—' },
+                        { label: 'Payment method', value: selectedBooking.payment_method ? String(selectedBooking.payment_method).toLowerCase() : '—' },
+                        { label: 'Price details', value: selectedBooking.amount },
+                      ].map(({ label, value }) => (
+                        <div key={label} className="flex justify-between items-start gap-4 py-1.5 min-w-0 border-b border-border/50 last:border-0">
+                          <span className="text-muted-foreground text-sm shrink-0">{label}</span>
+                          <span className="text-sm font-medium text-right break-words break-all min-w-0 flex-1">{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
               </div>
 
-              {/* Location */}
-              <div>
-                <p className="text-sm text-muted-foreground mb-1">Location</p>
-                <div className="flex items-start gap-2">
-                  <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
-                  <p className="font-medium">{selectedBooking.location}</p>
-                </div>
+              {/* Note(s) - gray card collapsible */}
+              <div className="rounded-lg bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 shrink-0">
+                <Collapsible defaultOpen={!!selectedBooking.notes} className="group">
+                  <CollapsibleTrigger className="flex w-full items-center justify-between py-3 px-4 text-left font-semibold text-sm hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition-colors rounded-t-lg">
+                    <span>Note(s)</span>
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-white dark:bg-gray-800 group-data-[state=open]:hidden">
+                      <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+                    </span>
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-white dark:bg-gray-800 hidden group-data-[state=open]:flex">
+                      <Minus className="h-3.5 w-3.5 text-muted-foreground" />
+                    </span>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="px-4 pb-4">
+                      {selectedBooking.notes ? (
+                        <p className="text-sm text-muted-foreground">{selectedBooking.notes}</p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground italic">No notes</p>
+                      )}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
               </div>
 
-              {/* Notes */}
-              {selectedBooking.notes && (
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Special Notes</p>
-                  <p className="text-sm p-3 bg-muted/50 rounded-lg">{selectedBooking.notes}</p>
-                </div>
-              )}
-
-              {/* Note For Service Provider (from admin) */}
+              {/* Note for you (admin) */}
               {selectedBooking.service_provider_notes && selectedBooking.service_provider_notes.length > 0 && (
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Note For You</p>
-                  <div className="text-sm p-3 bg-muted/50 rounded-lg space-y-1">
+                <div className="rounded-lg bg-slate-50 dark:bg-slate-900/50 p-3 border border-slate-200 dark:border-slate-700">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">Note for you</h4>
+                  <div className="space-y-1 text-sm">
                     {selectedBooking.service_provider_notes.map((note, i) => (
-                      <p key={i}>{note}</p>
+                      <p key={i} className="break-words">{note}</p>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Clock In/Out */}
-              {clockEnabled && (selectedBooking.status === "confirmed" || selectedBooking.status === "in_progress") && (
-                <div className="p-4 border rounded-lg space-y-3">
-                  <p className="font-semibold">Time Tracking</p>
-                  <div className="flex flex-wrap gap-2">
-                    {!timeLog?.provider_status && (
+              {/* Time Tracking - show when active (clock enabled) or when completed and we have time log data */}
+              {(clockEnabled && (
+                (selectedBooking.status === "confirmed" || selectedBooking.status === "in_progress") ||
+                (allowReclockIn && timeLog?.clocked_out_at)
+              )) || (selectedBooking.status === "completed" && timeLog != null) ? (
+                <div className="p-4 border rounded-lg space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="font-semibold">
+                      {selectedBooking.status === "completed" ? "Time tracked" : "Time Tracking"}
+                    </p>
+                    {timeLog?.time_reported_minutes != null && (
+                      <span className="text-sm font-medium text-muted-foreground">
+                        {timeLog.time_reported_minutes >= 60
+                          ? `${Math.floor(timeLog.time_reported_minutes / 60)}h ${timeLog.time_reported_minutes % 60}m`
+                          : `${timeLog.time_reported_minutes} min`}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Timeline: completed steps with timestamps */}
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center gap-2">
+                      {timeLog?.on_the_way_at ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                      ) : (
+                        <CircleDot className="h-4 w-4 text-muted-foreground shrink-0" />
+                      )}
+                      <span className={timeLog?.on_the_way_at ? "text-foreground" : "text-muted-foreground"}>
+                        On the way
+                        {timeLog?.on_the_way_at && (
+                          <span className="ml-1 text-muted-foreground">at {formatDateTime(timeLog.on_the_way_at)}</span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {timeLog?.at_location_at ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                      ) : (
+                        <CircleDot className="h-4 w-4 text-muted-foreground shrink-0" />
+                      )}
+                      <span className={timeLog?.at_location_at ? "text-foreground" : "text-muted-foreground"}>
+                        At location
+                        {timeLog?.at_location_at && (
+                          <span className="ml-1 text-muted-foreground">at {formatDateTime(timeLog.at_location_at)}</span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {timeLog?.clocked_in_at ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                      ) : (
+                        <CircleDot className="h-4 w-4 text-muted-foreground shrink-0" />
+                      )}
+                      <span className={timeLog?.clocked_in_at ? "text-foreground" : "text-muted-foreground"}>
+                        Clocked in
+                        {timeLog?.clocked_in_at && (
+                          <span className="ml-1 text-muted-foreground">at {formatDateTime(timeLog.clocked_in_at)}</span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {timeLog?.clocked_out_at ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                      ) : (
+                        <CircleDot className="h-4 w-4 text-muted-foreground shrink-0" />
+                      )}
+                      <span className={timeLog?.clocked_out_at ? "text-foreground" : "text-muted-foreground"}>
+                        Clocked out
+                        {timeLog?.clocked_out_at && (
+                          <span className="ml-1 text-muted-foreground">at {formatDateTime(timeLog.clocked_out_at)}</span>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Action buttons - hide when viewing completed booking (read-only summary) */}
+                  {selectedBooking.status !== "completed" && (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {allowReclockIn && timeLog?.clocked_out_at && (
                       <Button
                         size="sm"
                         variant="outline"
                         disabled={clockLoading}
-                        onClick={() => selectedBooking && handleClockAction(selectedBooking.id, "on_the_way")}
+                        onClick={() => selectedBooking && handleClockAction(selectedBooking.id, "clocked_in", selectedBooking.date)}
                       >
+                        <LogIn className="h-4 w-4 mr-1.5" />
+                        Clock In Again
+                      </Button>
+                    )}
+                    {!timeLog?.provider_status && !timeLog?.clocked_out_at && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={clockLoading}
+                        onClick={() => selectedBooking && handleClockAction(selectedBooking.id, "on_the_way", selectedBooking.date)}
+                      >
+                        <Navigation className="h-4 w-4 mr-1.5" />
                         On the Way
                       </Button>
                     )}
@@ -617,16 +998,18 @@ const ProviderBookings = () => {
                           size="sm"
                           variant="outline"
                           disabled={clockLoading}
-                          onClick={() => selectedBooking && handleClockAction(selectedBooking.id, "at_location")}
+                          onClick={() => selectedBooking && handleClockAction(selectedBooking.id, "at_location", selectedBooking.date)}
                         >
+                          <MapPin className="h-4 w-4 mr-1.5" />
                           At Location
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
                           disabled={clockLoading}
-                          onClick={() => selectedBooking && handleClockAction(selectedBooking.id, "clocked_in")}
+                          onClick={() => selectedBooking && handleClockAction(selectedBooking.id, "clocked_in", selectedBooking.date)}
                         >
+                          <LogIn className="h-4 w-4 mr-1.5" />
                           Clock In
                         </Button>
                       </>
@@ -636,29 +1019,27 @@ const ProviderBookings = () => {
                         size="sm"
                         variant="outline"
                         disabled={clockLoading}
-                        onClick={() => selectedBooking && handleClockAction(selectedBooking.id, "clocked_in")}
+                        onClick={() => selectedBooking && handleClockAction(selectedBooking.id, "clocked_in", selectedBooking.date)}
                       >
+                        <LogIn className="h-4 w-4 mr-1.5" />
                         Clock In
                       </Button>
                     )}
                     {timeLog?.provider_status === "clocked_in" && (
                       <Button
                         size="sm"
-                        className="bg-green-600 hover:bg-green-700"
+                        className="bg-green-600 hover:bg-green-700 text-white"
                         disabled={clockLoading}
-                        onClick={() => selectedBooking && handleClockAction(selectedBooking.id, "clocked_out")}
+                        onClick={() => selectedBooking && handleClockAction(selectedBooking.id, "clocked_out", selectedBooking.date)}
                       >
+                        <LogOut className="h-4 w-4 mr-1.5" />
                         Clock Out
                       </Button>
                     )}
                   </div>
-                  {timeLog?.provider_status && (
-                    <p className="text-xs text-muted-foreground">
-                      Status: {timeLog.provider_status.replace("_", " ")}
-                    </p>
                   )}
                 </div>
-              )}
+              ) : null}
 
               {/* Before & After Photos */}
               <div className="space-y-3">
@@ -728,29 +1109,29 @@ const ProviderBookings = () => {
             </div>
           )}
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <div className="shrink-0 border-t border-border px-6 py-4 flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => setSelectedBooking(null)}>
               Close
             </Button>
             {selectedBooking?.status === "pending" && (
-              <Button 
-                onClick={() => handleAcceptBooking(selectedBooking)}
+              <Button
+                onClick={() => handleAcceptBooking(selectedBooking!)}
                 style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}
               >
                 Accept Booking
               </Button>
             )}
             {selectedBooking?.status === "confirmed" && (
-              <Button 
-                onClick={() => handleCompleteBooking(selectedBooking)}
+              <Button
+                onClick={() => handleCompleteBooking(selectedBooking!)}
                 className="bg-green-600 hover:bg-green-700"
               >
                 Mark as Completed
               </Button>
             )}
-            {(selectedBooking?.customer?.phone || selectedBooking?.customer?.email) ? (
+            {selectedBooking && (selectedBooking.customer?.phone || selectedBooking.customer?.email) ? (
               <Button variant="outline" asChild>
-                <a href={selectedBooking.customer.phone ? `tel:${selectedBooking.customer.phone}` : `mailto:${selectedBooking.customer.email}`}>
+                <a href={selectedBooking.customer?.phone ? `tel:${selectedBooking.customer.phone}` : `mailto:${selectedBooking.customer.email}`}>
                   <Phone className="h-4 w-4 mr-2" />
                   Contact Customer
                 </a>
@@ -761,9 +1142,9 @@ const ProviderBookings = () => {
                 Contact Customer
               </Button>
             )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+        </SheetContent>
+      </Sheet>
       )}
     </div>
   );

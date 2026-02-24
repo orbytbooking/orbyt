@@ -901,7 +901,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
               </DropdownMenu>
               
                             <a
-                href="/"
+                href={currentBusiness?.id ? `/website/${currentBusiness.id}?business=${currentBusiness.id}` : '/website'}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={`inline-flex items-center justify-center rounded-md text-sm font-medium transition-all border border-cyan-500/30 bg-white/5 h-9 px-3 neon-cyan ${

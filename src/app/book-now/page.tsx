@@ -426,8 +426,11 @@ function BookingPageContent() {
     };
   }, [searchParams]);
 
-  // Fetch scheduling type when businessId is set (for provider step visibility)
+  // Fetch scheduling type and provider visibility when businessId is set
   const [specificProviderForCustomers, setSpecificProviderForCustomers] = useState(true);
+  const [showProviderScoreToCustomers, setShowProviderScoreToCustomers] = useState(true);
+  const [showProviderCompletedJobsToCustomers, setShowProviderCompletedJobsToCustomers] = useState(true);
+  const [showProviderAvailabilityToCustomers, setShowProviderAvailabilityToCustomers] = useState(true);
 
   useEffect(() => {
     if (!businessId) return;
@@ -439,6 +442,9 @@ function BookingPageContent() {
           const opts = data.options;
           if (opts.scheduling_type) setSchedulingType(opts.scheduling_type);
           if (typeof opts.specific_provider_for_customers === "boolean") setSpecificProviderForCustomers(opts.specific_provider_for_customers);
+          if (typeof opts.show_provider_score_to_customers === "boolean") setShowProviderScoreToCustomers(opts.show_provider_score_to_customers);
+          if (typeof opts.show_provider_completed_jobs_to_customers === "boolean") setShowProviderCompletedJobsToCustomers(opts.show_provider_completed_jobs_to_customers);
+          if (typeof opts.show_provider_availability_to_customers === "boolean") setShowProviderAvailabilityToCustomers(opts.show_provider_availability_to_customers);
         }
       } catch {
         // Keep defaults
@@ -1260,6 +1266,11 @@ function BookingPageContent() {
 
         const selectedProviderId = showProviderStep ? (form.getValues("provider") || null) : null;
         const selectedProviderObj = selectedProviderId ? availableProviders.find((p: any) => p.id === selectedProviderId) : null;
+        const selectedFreq = serviceCustomization.frequency || newBooking.frequency || "";
+        const isRecurringFreq =
+          !!selectedFreq &&
+          String(selectedFreq).toLowerCase().replace(/\s+/g, " ") !== "one-time" &&
+          String(selectedFreq).toLowerCase().replace(/\s+/g, "") !== "onetime";
         const payload = {
           business_id: currentBusinessId,
           customer_name: `${bookingData.firstName ?? ""} ${bookingData.lastName ?? ""}`.trim(),
@@ -1267,7 +1278,7 @@ function BookingPageContent() {
           customer_phone: String(bookingData.phone ?? ""),
           address: newBooking.address,
           service: newBooking.service,
-          frequency: serviceCustomization.frequency || newBooking.frequency || null,
+          frequency: selectedFreq || null,
           date: formattedDate,
           time: newBooking.time,
           status: "pending",
@@ -1279,6 +1290,9 @@ function BookingPageContent() {
           provider_id: selectedProviderId || undefined,
           provider_name: selectedProviderObj?.name ?? undefined,
           customization: newBooking.customization ?? undefined,
+          ...(isRecurringFreq
+            ? { create_recurring: true, recurring_occurrences_ahead: 8 }
+            : {}),
         };
 
         const res = await fetch(apiUrl, {
@@ -1570,6 +1584,11 @@ function BookingPageContent() {
         (Number(tot.total) > 0 ? tot.total : null) ?? (Number(tot.subtotal) > 0 ? tot.subtotal : null) ?? Number(selectedService?.price ?? 0);
       const selectedProviderId = showProviderStep ? (form.getValues("provider") || null) : null;
       const selectedProviderObj = selectedProviderId ? availableProviders.find((p: any) => p.id === selectedProviderId) : null;
+      const selectedFreq = serviceCustomization.frequency || newBooking.frequency || "";
+      const isRecurringFreq =
+        !!selectedFreq &&
+        String(selectedFreq).toLowerCase().replace(/\s+/g, " ") !== "one-time" &&
+        String(selectedFreq).toLowerCase().replace(/\s+/g, "") !== "onetime";
       const payload = {
         business_id: currentBusinessId,
         customer_name: `${bookingData.firstName ?? ""} ${bookingData.lastName ?? ""}`.trim(),
@@ -1577,7 +1596,7 @@ function BookingPageContent() {
         customer_phone: String(bookingData.phone ?? ""),
         address: newBooking.address,
         service: newBooking.service,
-        frequency: serviceCustomization.frequency || newBooking.frequency || null,
+        frequency: selectedFreq || null,
         date: formattedDate,
         time: newBooking.time,
         status: "pending",
@@ -1589,6 +1608,7 @@ function BookingPageContent() {
         provider_id: selectedProviderId || undefined,
         provider_name: selectedProviderObj?.name ?? undefined,
         customization: newBooking.customization ?? undefined,
+        ...(isRecurringFreq ? { create_recurring: true, recurring_occurrences_ahead: 8 } : {}),
       };
       const res = await fetch(apiUrl, { method: "POST", headers, body: JSON.stringify(payload) });
       const rawText = await res.text();
@@ -2418,13 +2438,15 @@ function BookingPageContent() {
                                         <p className="text-sm text-gray-600">{provider.specialization || 'Service Provider'}</p>
                                       </div>
                                       <div className="flex items-center">
-                                        <div className="flex items-center mr-2">
-                                          <span className="text-yellow-400">★</span>
-                                          <span className="text-sm text-gray-600 ml-1">
-                                            {provider.rating ? provider.rating.toFixed(1) : 'New'}
-                                          </span>
-                                        </div>
-                                        {provider.isAvailable && (
+                                        {showProviderScoreToCustomers && (
+                                          <div className="flex items-center mr-2">
+                                            <span className="text-yellow-400">★</span>
+                                            <span className="text-sm text-gray-600 ml-1">
+                                              {provider.rating ? provider.rating.toFixed(1) : 'New'}
+                                            </span>
+                                          </div>
+                                        )}
+                                        {showProviderAvailabilityToCustomers && provider.isAvailable && (
                                           <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                                         )}
                                         {selectedProvider === provider.id && (
@@ -2436,11 +2458,12 @@ function BookingPageContent() {
                                     </div>
                                     
                                     <div className="space-y-1 text-sm text-gray-600">
-                                      <div className="flex items-center">
-                                        <span className="font-medium">Jobs:</span>
-                                        <span className="ml-1">{provider.completedJobs || 0} completed</span>
-                                      </div>
-                                      
+                                      {showProviderCompletedJobsToCustomers && (
+                                        <div className="flex items-center">
+                                          <span className="font-medium">Jobs:</span>
+                                          <span className="ml-1">{provider.completedJobs || 0} completed</span>
+                                        </div>
+                                      )}
                                       {provider.services && provider.services.length > 0 && (
                                         <div className="flex flex-wrap gap-1 mt-2">
                                           {provider.services.slice(0, 2).map((service: any, index: number) => (

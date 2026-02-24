@@ -77,6 +77,7 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabaseClient";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { SendScheduleDialog } from "@/components/admin/SendScheduleDialog";
+import { getOccurrenceDatesForSeriesSync } from "@/lib/recurringBookings";
 
 // Bookings are now loaded from Supabase only.
 
@@ -125,6 +126,7 @@ type Provider = {
 const getStatusBadge = (status: string) => {
   const styles = {
     confirmed: "bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400",
+    in_progress: "bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400",
     pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400",
     completed: "bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400",
     cancelled: "bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400",
@@ -134,6 +136,7 @@ const getStatusBadge = (status: string) => {
 
   const icons = {
     confirmed: CheckCircle2,
+    in_progress: Clock,
     pending: Clock,
     completed: CheckCircle2,
     cancelled: XCircle,
@@ -143,16 +146,23 @@ const getStatusBadge = (status: string) => {
 
   const Icon = icons[status as keyof typeof icons] || AlertCircle;
 
+  const label = status === "in_progress" ? "In progress" : status.charAt(0).toUpperCase() + status.slice(1);
   return (
-    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${styles[status as keyof typeof styles]}`}>
+    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${styles[status as keyof typeof styles] || styles.draft}`}>
       <Icon className="h-3 w-3" />
-      {status.charAt(0).toUpperCase() + status.slice(1)}
+      {label}
     </span>
   );
 };
 
 const getStatusTone = (status: string) => {
   switch (status) {
+    case "in_progress":
+      return {
+        light: "bg-amber-50",
+        dark: "dark:bg-amber-950/70",
+        chip: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+      };
     case "completed":
       return {
         light: "bg-green-50",
@@ -216,6 +226,7 @@ export default function BookingsPage() {
   const [providersLoading, setProvidersLoading] = useState(false);
   const [viewMode, setViewMode] = useState<"list" | "calendar">("calendar");
   const [showSendScheduleDialog, setShowSendScheduleDialog] = useState(false);
+  const [sendInvitationLoading, setSendInvitationLoading] = useState(false);
   const [frequencyFilter, setFrequencyFilter] = useState("all");
 
   // Sync activeTab with URL
@@ -323,7 +334,8 @@ export default function BookingsPage() {
       }
       
       setLoading(true);
-      // Extend recurring series (create next occurrences as needed)
+      // Extend recurring series (create next occurrences as needed).
+      // If you delete all bookings in DB but recurring_series rows still exist, this will re-create bookings on load. See docs/BOOKINGS_DELETED_COME_BACK.md.
       try {
         await fetch(`/api/admin/recurring/extend?businessId=${currentBusiness.id}`, {
           headers: { 'x-business-id': currentBusiness.id },
@@ -344,11 +356,35 @@ export default function BookingsPage() {
         setLoading(false);
         return;
       }
+
+      let list: any[] = bookingsData || [];
+      const recurringIds = [...new Set(list.filter((b: any) => b.recurring_series_id).map((b: any) => b.recurring_series_id))];
+      if (recurringIds.length > 0) {
+        const { data: seriesList } = await supabase
+          .from('recurring_series')
+          .select('id, start_date, end_date, frequency, frequency_repeats, occurrences_ahead, scheduled_time')
+          .in('id', recurringIds);
+        const seriesById = (seriesList || []).reduce((acc: Record<string, any>, s: any) => { acc[s.id] = s; return acc; }, {});
+        const expanded: any[] = [];
+        for (const booking of list) {
+          if (booking.recurring_series_id && seriesById[booking.recurring_series_id]) {
+            const series = seriesById[booking.recurring_series_id];
+            const dates = getOccurrenceDatesForSeriesSync(series);
+            const time = series.scheduled_time || booking.scheduled_time || booking.time;
+            for (const d of dates) {
+              expanded.push({ ...booking, date: d, scheduled_date: d, time, scheduled_time: time });
+            }
+          } else {
+            expanded.push(booking);
+          }
+        }
+        list = expanded.sort((a: any, b: any) => (b.date || b.scheduled_date || '').localeCompare(a.date || a.scheduled_date || ''));
+      }
       
       // Fetch providers to get names for bookings with provider_id
-      const providerIds = [...new Set((bookingsData || [])
-        .filter(b => b.provider_id)
-        .map(b => b.provider_id)
+      const providerIds = [...new Set(list
+        .filter((b: any) => b.provider_id)
+        .map((b: any) => b.provider_id)
       )];
       
       let providersMap: Record<string, any> = {};
@@ -369,10 +405,9 @@ export default function BookingsPage() {
       }
       
       // Map bookings to include provider name
-      const bookingsWithProvider = (bookingsData || []).map((booking: any) => {
+      const bookingsWithProvider = list.map((booking: any) => {
         let providerName = booking.assignedProvider || null;
         
-        // If booking has provider_id, get name from providers map
         if (booking.provider_id && providersMap[booking.provider_id]) {
           providerName = providersMap[booking.provider_id].displayName;
         }
@@ -586,7 +621,17 @@ toast({
 
     const bkRef = `BK${String(selectedBooking.id).slice(-6).toUpperCase()}`;
     await createBookingNotification('Booking assigned', `Provider ${providerName} assigned to booking ${bkRef}.`);
-    
+
+    try {
+      await fetch('/api/admin/bookings/notify-provider', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingId: selectedBooking.id }),
+      });
+    } catch {
+      // Non-blocking: email is best-effort
+    }
+
     setBookings((prev) => {
       const updated = prev.map((booking) =>
         booking.id === selectedBooking.id
@@ -734,6 +779,7 @@ toast({
               <SelectItem value="all" className="text-foreground hover:bg-accent">All Status</SelectItem>
               <SelectItem value="pending" className="text-foreground hover:bg-accent">Pending</SelectItem>
               <SelectItem value="confirmed" className="text-foreground hover:bg-accent">Confirmed</SelectItem>
+              <SelectItem value="in_progress" className="text-foreground hover:bg-accent">In progress</SelectItem>
               <SelectItem value="completed" className="text-foreground hover:bg-accent">Completed</SelectItem>
               <SelectItem value="cancelled" className="text-foreground hover:bg-accent">Cancelled</SelectItem>
               <SelectItem value="draft" className="text-foreground hover:bg-accent">Draft</SelectItem>
@@ -938,11 +984,11 @@ toast({
                 </tr>
               </thead>
               <tbody>
-                {filteredBookings.map((booking) => {
+                {filteredBookings.map((booking, idx) => {
                   const tone = getStatusTone(booking.status);
                   return (
                     <tr
-                      key={booking.id}
+                      key={`${booking.id}-${booking.date ?? ''}-${booking.time ?? ''}-${idx}`}
                       className={cn(
                         "border-b border-border transition-colors",
                         tone.dark,
@@ -951,6 +997,8 @@ toast({
                           ? "hover:bg-green-900/80"
                           : booking.status === "cancelled"
                           ? "hover:bg-red-900/80"
+                          : booking.status === "in_progress"
+                          ? "hover:bg-amber-900/80"
                           : booking.status === "confirmed"
                           ? "hover:bg-blue-900/80"
                           : booking.status === "pending"
@@ -1070,7 +1118,7 @@ toast({
                       </div>
                       {hasBookings && (
                         <div className="flex-1 space-y-0.5 overflow-y-auto">
-                          {dayBookings.slice(0, 2).map((booking) => {
+                          {dayBookings.slice(0, 2).map((booking, idx) => {
                             const tone = getStatusTone(booking.status);
                             const nameParts = (booking.customer_name || "Booking").trim().split(/\s+/);
                             const shortName = nameParts.length >= 2
@@ -1078,7 +1126,7 @@ toast({
                               : nameParts[0] || "Booking";
                             return (
                               <div
-                                key={booking.id}
+                                key={`${booking.id}-${booking.date ?? ''}-${booking.time ?? ''}-${idx}`}
                                 onClick={() => handleViewDetails(booking)}
                                 className="text-[10px] px-1 py-0.5 rounded cursor-pointer hover:opacity-80 transition-opacity text-white truncate"
                                 style={{ background: tone.chip }}
@@ -1129,8 +1177,9 @@ toast({
       {/* Booking Summary - right side panel */}
       <Sheet open={showDetails} onOpenChange={setShowDetails}>
         <SheetContent side="right" className="w-full sm:max-w-lg p-0 flex flex-col h-screen max-h-screen overflow-hidden [&>button]:text-red-500 [&>button]:hover:text-red-600">
-          <SheetHeader className="px-6 pt-6 pb-4 shrink-0 border-b border-transparent">
+          <SheetHeader className="px-6 pt-6 pb-4 shrink-0 border-b border-transparent flex flex-row items-center justify-between gap-4">
             <SheetTitle className="text-lg font-bold">Booking summary</SheetTitle>
+            {selectedBooking && getStatusBadge(selectedBooking.status)}
           </SheetHeader>
 
           {selectedBooking && (
@@ -1364,9 +1413,39 @@ toast({
               {/* Action buttons - 9 full-width colored buttons */}
               <div className="space-y-2 mt-auto pt-2">
                 {!selectedBooking.provider_id && !selectedBooking.assignedProvider && (
-                  <Button className="w-full text-white" style={{ backgroundColor: "#00BCD4" }} onClick={() => { setSelectedProvider(null); setShowProviderDialog(true); }}>
-                    <UserPlus className="h-4 w-4 mr-2" />Assign Provider
-                  </Button>
+                  <>
+                    <Button className="w-full text-white" style={{ backgroundColor: "#00BCD4" }} onClick={() => { setSelectedProvider(null); setShowProviderDialog(true); }}>
+                      <UserPlus className="h-4 w-4 mr-2" />Assign Provider
+                    </Button>
+                    <Button
+                      className="w-full bg-violet-600 hover:bg-violet-700 text-white"
+                      disabled={sendInvitationLoading}
+                      onClick={async () => {
+                        if (!selectedBooking?.id) return;
+                        setSendInvitationLoading(true);
+                        try {
+                          const res = await fetch("/api/admin/bookings/send-invitation", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ bookingId: selectedBooking.id }),
+                          });
+                          const data = await res.json();
+                          if (!res.ok) {
+                            toast({ title: "Error", description: data.error || "Failed to send invitation", variant: "destructive" });
+                            return;
+                          }
+                          toast({ title: "Invitation sent", description: data.message || (data.providerName ? `Log into the provider portal as ${data.providerName} and open My Invitations.` : "Open provider portal → My Invitations.") });
+                        } catch (e) {
+                          toast({ title: "Error", description: "Failed to send invitation", variant: "destructive" });
+                        } finally {
+                          setSendInvitationLoading(false);
+                        }
+                      }}
+                    >
+                      <Mail className="h-4 w-4 mr-2" />
+                      {sendInvitationLoading ? "Sending…" : "Send invitation to provider"}
+                    </Button>
+                  </>
                 )}
                 <Button className="w-full text-white bg-blue-600 hover:bg-blue-700" onClick={() => router.push(`/admin/add-booking?bookingId=${selectedBooking.id}`)}>
                   <Pencil className="h-4 w-4 mr-2" />Edit

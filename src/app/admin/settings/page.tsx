@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useBusiness } from "@/contexts/BusinessContext";
@@ -11,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import Image from "next/image";
+import { supabase } from "@/lib/supabaseClient";
 import { 
   Save,
   Building2,
@@ -45,6 +47,14 @@ export default function SettingsPage() {
     smsReminders: false,
     pushNotifications: true
   });
+  const [notificationsLoading, setNotificationsLoading] = useState(true);
+  const [notificationsSaving, setNotificationsSaving] = useState(false);
+
+  const [passwordForm, setPasswordForm] = useState({
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   // Fetch business data on component mount
   useEffect(() => {
@@ -87,15 +97,40 @@ export default function SettingsPage() {
     fetchBusinessData();
   }, [toast]);
 
+  // Fetch notification preferences
+  useEffect(() => {
+    const fetchNotificationPrefs = async () => {
+      try {
+        const res = await fetch('/api/admin/notification-preferences');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.preferences) setNotifications(data.preferences);
+        }
+      } catch {
+        // keep defaults
+      } finally {
+        setNotificationsLoading(false);
+      }
+    };
+    fetchNotificationPrefs();
+  }, []);
+
   const handleSaveCompanyInfo = async () => {
     setIsSaving(true);
     try {
+      const payload = {
+        name: companyInfo.name,
+        address: companyInfo.address,
+        description: companyInfo.description,
+        business_email: companyInfo.email,
+        business_phone: companyInfo.phone,
+      };
       const response = await fetch('/api/admin/business', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(companyInfo),
+        body: JSON.stringify(payload),
       });
       
       if (response.ok) {
@@ -123,11 +158,79 @@ export default function SettingsPage() {
     }
   };
 
-  const handleSaveNotifications = () => {
-    toast({
-      title: "Preferences Saved",
-      description: "Notification preferences have been updated.",
-    });
+  const handleSaveNotifications = async () => {
+    setNotificationsSaving(true);
+    try {
+      const res = await fetch('/api/admin/notification-preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(notifications),
+      });
+      if (res.ok) {
+        toast({
+          title: "Preferences Saved",
+          description: "Notification preferences have been updated.",
+        });
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast({
+          title: "Error",
+          description: err.error || "Failed to save notification preferences",
+          variant: "destructive",
+        });
+      }
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to save notification preferences",
+        variant: "destructive",
+      });
+    } finally {
+      setNotificationsSaving(false);
+    }
+  };
+
+  const handleUpdatePassword = async () => {
+    if (!passwordForm.newPassword || !passwordForm.confirmPassword) {
+      toast({
+        title: "Missing fields",
+        description: "Please enter and confirm your new password.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (passwordForm.newPassword.length < 6) {
+      toast({
+        title: "Password too short",
+        description: "New password must be at least 6 characters.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      toast({
+        title: "Passwords don't match",
+        description: "New password and confirmation must match.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setPasswordSaving(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: passwordForm.newPassword });
+      if (error) throw error;
+      toast({ title: "Password updated", description: "Your password has been changed successfully." });
+      setPasswordForm({ newPassword: "", confirmPassword: "" });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to update password.";
+      toast({
+        title: "Error",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setPasswordSaving(false);
+    }
   };
 
   return (
@@ -158,12 +261,16 @@ export default function SettingsPage() {
                   <h3 className="text-xl font-bold mb-1">{currentBusiness?.name || config?.branding?.companyName || 'Your Business'}</h3>
                   <p className="text-sm text-white/80 mb-4">Professional Services</p>
                   <div className="flex items-center gap-3">
-                    <Button variant="outline" className="bg-white/10 hover:bg-white/20 border-white/20 text-white backdrop-blur-sm">
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      Visit Website
+                    <Button variant="outline" className="bg-white/10 hover:bg-white/20 border-white/20 text-white backdrop-blur-sm" asChild>
+                      <Link href={currentBusiness?.id ? `/book-now?business=${currentBusiness.id}` : "/book-now"} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        Visit Website
+                      </Link>
                     </Button>
-                    <Button variant="outline" className="bg-white/10 hover:bg-white/20 border-white/20 text-white backdrop-blur-sm">
-                      Customize Design
+                    <Button variant="outline" className="bg-white/10 hover:bg-white/20 border-white/20 text-white backdrop-blur-sm" asChild>
+                      <Link href="/admin/settings/design">
+                        Customize Design
+                      </Link>
                     </Button>
                   </div>
                 </div>
@@ -382,9 +489,23 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <Button onClick={handleSaveNotifications} className="mt-4" style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}>
-            <Save className="h-4 w-4 mr-2" />
-            Save Preferences
+          <Button
+            onClick={handleSaveNotifications}
+            className="mt-4"
+            style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}
+            disabled={notificationsSaving || notificationsLoading}
+          >
+            {notificationsSaving ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                Save Preferences
+              </>
+            )}
           </Button>
         </CardContent>
       </Card>
@@ -397,26 +518,20 @@ export default function SettingsPage() {
             <CardTitle>Security</CardTitle>
           </div>
           <CardDescription>
-            Manage your password and security settings
+            Change your account password. You will stay signed in after updating.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="current-password">Current Password</Label>
-              <Input
-                id="current-password"
-                type="password"
-                placeholder="Enter current password"
-              />
-            </div>
-
-            <div className="space-y-2">
               <Label htmlFor="new-password">New Password</Label>
               <Input
                 id="new-password"
                 type="password"
-                placeholder="Enter new password"
+                placeholder="Enter new password (min 6 characters)"
+                value={passwordForm.newPassword}
+                onChange={(e) => setPasswordForm((p) => ({ ...p, newPassword: e.target.value }))}
+                disabled={passwordSaving}
               />
             </div>
 
@@ -426,13 +541,30 @@ export default function SettingsPage() {
                 id="confirm-password"
                 type="password"
                 placeholder="Confirm new password"
+                value={passwordForm.confirmPassword}
+                onChange={(e) => setPasswordForm((p) => ({ ...p, confirmPassword: e.target.value }))}
+                disabled={passwordSaving}
               />
             </div>
           </div>
 
-          <Button className="mt-4" style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}>
-            <Shield className="h-4 w-4 mr-2" />
-            Update Password
+          <Button
+            className="mt-4"
+            style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}
+            onClick={handleUpdatePassword}
+            disabled={passwordSaving || !passwordForm.newPassword || !passwordForm.confirmPassword}
+          >
+            {passwordSaving ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Updating...
+              </>
+            ) : (
+              <>
+                <Shield className="h-4 w-4 mr-2" />
+                Update Password
+              </>
+            )}
           </Button>
         </CardContent>
       </Card>

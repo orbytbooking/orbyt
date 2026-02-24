@@ -95,6 +95,17 @@ interface StoreOptions {
   spot_limits_enabled?: boolean;
   holiday_skip_to_next?: boolean;
   holiday_blocked_who?: HolidayBlockedWho;
+  show_provider_score_to_customers?: boolean;
+  show_provider_completed_jobs_to_customers?: boolean;
+  show_provider_availability_to_customers?: boolean;
+  time_tracking_mode?: "timestamps_only" | "timestamps_and_gps";
+  distance_unit?: "miles" | "kilometers";
+  disable_auto_clock_in?: boolean;
+  auto_clock_out_enabled?: boolean;
+  auto_clock_out_distance_meters?: number;
+  completion_on_clock_out?: boolean;
+  allow_reclock_in?: boolean;
+  time_log_updates_booking?: boolean;
 }
 
 const SCHEDULING_DEFAULT_OPTIONS: StoreOptions = {
@@ -116,6 +127,17 @@ const SCHEDULING_DEFAULT_OPTIONS: StoreOptions = {
   spot_limits_enabled: false,
   holiday_skip_to_next: false,
   holiday_blocked_who: "customer",
+  show_provider_score_to_customers: true,
+  show_provider_completed_jobs_to_customers: true,
+  show_provider_availability_to_customers: true,
+  time_tracking_mode: "timestamps_only",
+  distance_unit: "miles",
+  disable_auto_clock_in: false,
+  auto_clock_out_enabled: false,
+  auto_clock_out_distance_meters: 500,
+  completion_on_clock_out: false,
+  allow_reclock_in: false,
+  time_log_updates_booking: false,
 };
 
 export default function GeneralSettingsPage() {
@@ -256,6 +278,12 @@ export default function GeneralSettingsPage() {
   const [schedulingOptions, setSchedulingOptions] = useState<StoreOptions>(SCHEDULING_DEFAULT_OPTIONS);
   const [schedulingLoading, setSchedulingLoading] = useState(false);
   const [schedulingSaving, setSchedulingSaving] = useState(false);
+  // Provider eligibility (scores / preview)
+  const [eligibilityProviders, setEligibilityProviders] = useState<Array<{ id: string; name: string; invitation_priority: number; score: number; reasons: string[]; eligible: boolean }>>([]);
+  const [eligibilityLoading, setEligibilityLoading] = useState(false);
+  const [recentAssignments, setRecentAssignments] = useState<Array<{ id: string; providerName: string; service: string; score: number; assignedAt: string }>>([]);
+  const [recentAssignmentsLoading, setRecentAssignmentsLoading] = useState(false);
+  const [previewDate, setPreviewDate] = useState(() => new Date().toISOString().split('T')[0]);
 
   // Admin tab (store options): gift card, referral, payment descriptions
   const [giftCardMinAmount, setGiftCardMinAmount] = useState('150.00');
@@ -364,6 +392,40 @@ export default function GeneralSettingsPage() {
   useEffect(() => {
     if (currentBusiness?.id) fetchSchedulingOptions();
   }, [currentBusiness?.id]);
+
+  const fetchRecentAutoAssignments = async () => {
+    if (!currentBusiness?.id) return;
+    setRecentAssignmentsLoading(true);
+    try {
+      const res = await fetch(`/api/admin/auto-assign?businessId=${encodeURIComponent(currentBusiness.id)}`);
+      const data = await res.json();
+      if (data.success && data.stats?.recentAssignments) {
+        setRecentAssignments(data.stats.recentAssignments);
+      } else {
+        setRecentAssignments([]);
+      }
+    } catch {
+      setRecentAssignments([]);
+    } finally {
+      setRecentAssignmentsLoading(false);
+    }
+  };
+
+  const fetchEligibilityPreview = async () => {
+    if (!currentBusiness?.id) return;
+    setEligibilityLoading(true);
+    try {
+      const params = new URLSearchParams({ businessId: currentBusiness.id });
+      if (previewDate) params.set('date', previewDate);
+      const res = await fetch(`/api/admin/auto-assign/preview?${params}`);
+      const data = await res.json();
+      setEligibilityProviders(data.providers ?? []);
+    } catch {
+      setEligibilityProviders([]);
+    } finally {
+      setEligibilityLoading(false);
+    }
+  };
 
   const handleSaveScheduling = async () => {
     if (!currentBusiness?.id) return;
@@ -2851,9 +2913,341 @@ export default function GeneralSettingsPage() {
                 </p>
               </TabsContent>
               <TabsContent value="provider" className="mt-0">
-                <p className="text-sm text-muted-foreground">
-                  Provider settings – Currently under development.
-                </p>
+                {schedulingLoading ? (
+                  <div className="flex justify-center py-12">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <div className="space-y-0 rounded-lg bg-card border shadow-sm">
+                    <p className="text-sm text-muted-foreground px-6 pt-6 pb-2">
+                      Store-wide provider settings. Per-provider options (e.g. show unassigned, can set schedule) are in each provider&apos;s profile under Providers → [provider] → Settings → General.
+                    </p>
+                    <div className="border-t divide-y">
+                      <Collapsible defaultOpen className="group">
+                        <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
+                          <div>
+                            <p className="font-semibold">Bookings</p>
+                            <p className="text-sm text-muted-foreground mt-0.5">Set whether customers or admin can choose a specific provider when creating or booking.</p>
+                          </div>
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
+                            <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                            <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                          </span>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="px-6 pb-4 pt-0 space-y-4">
+                            <div className="flex items-center justify-between rounded-lg border p-4">
+                              <div>
+                                <Label className="font-semibold">Let customers choose a specific provider</Label>
+                                <p className="text-sm text-muted-foreground mt-0.5">When booking online, customers can pick a provider (if off, assignment is automatic or admin-only).</p>
+                              </div>
+                              <Switch
+                                checked={schedulingOptions.specific_provider_for_customers ?? false}
+                                onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, specific_provider_for_customers: v }))}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between rounded-lg border p-4">
+                              <div>
+                                <Label className="font-semibold">Let admin choose a specific provider when creating a booking</Label>
+                                <p className="text-sm text-muted-foreground mt-0.5">When adding a booking from the admin side, you can assign a provider (recommended on).</p>
+                              </div>
+                              <Switch
+                                checked={schedulingOptions.specific_provider_for_admin ?? true}
+                                onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, specific_provider_for_admin: v }))}
+                              />
+                            </div>
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+
+                      <Collapsible defaultOpen className="group">
+                        <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
+                          <div>
+                            <p className="font-semibold">Scheduling</p>
+                            <p className="text-sm text-muted-foreground mt-0.5">Control if providers can see unassigned jobs, edit their schedules, and get notifications.</p>
+                          </div>
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
+                            <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                            <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                          </span>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="px-6 pb-4 pt-0 space-y-4">
+                            <div className="flex items-center justify-between rounded-lg border p-4">
+                              <div>
+                                <Label className="font-semibold">Allow providers to see unassigned jobs</Label>
+                                <p className="text-sm text-muted-foreground mt-0.5">Providers can see and grab jobs from the Unassigned folder in the portal (if also enabled per provider).</p>
+                              </div>
+                              <Switch
+                                checked={schedulingOptions.providers_can_see_unassigned}
+                                onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, providers_can_see_unassigned: v }))}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between rounded-lg border p-4">
+                              <div>
+                                <Label className="font-semibold">Show all unassigned jobs to every provider</Label>
+                                <p className="text-sm text-muted-foreground mt-0.5">When on, all providers see every unassigned job; when off, filter by location/industry.</p>
+                              </div>
+                              <Switch
+                                checked={schedulingOptions.providers_can_see_all_unassigned}
+                                onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, providers_can_see_all_unassigned: v }))}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between rounded-lg border p-4">
+                              <div>
+                                <Label className="font-semibold flex items-center gap-2">
+                                  <Bell className="h-4 w-4" />
+                                  Notify providers when a new job is unassigned
+                                </Label>
+                                <p className="text-sm text-muted-foreground mt-0.5">Send email/notification when a booking enters the unassigned folder.</p>
+                              </div>
+                              <Switch
+                                checked={schedulingOptions.notify_providers_on_unassigned}
+                                onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, notify_providers_on_unassigned: v }))}
+                              />
+                            </div>
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+
+                      <Collapsible className="group">
+                        <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
+                          <div>
+                            <p className="font-semibold">GPS & Time Logs</p>
+                            <p className="text-sm text-muted-foreground mt-0.5">Control clock in/out, tracking, automatic clock out, booking completion, and related options.</p>
+                          </div>
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
+                            <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                            <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                          </span>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="px-6 pb-4 pt-0 space-y-4">
+                            <div className="flex items-center justify-between rounded-lg border p-4">
+                              <div>
+                                <Label className="font-semibold">Activate clock in / clock out</Label>
+                                <p className="text-sm text-muted-foreground mt-0.5">Allow providers to clock in and out on jobs in the portal.</p>
+                              </div>
+                              <Switch
+                                checked={schedulingOptions.clock_in_out_enabled}
+                                onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, clock_in_out_enabled: v }))}
+                              />
+                            </div>
+                            <div className="rounded-lg border p-4 space-y-2">
+                              <Label className="font-semibold">What to track</Label>
+                              <p className="text-sm text-muted-foreground">Only time stamps = no location tracking. Time stamps + path = GPS path (some regions restrict tracking).</p>
+                              <RadioGroup
+                                value={schedulingOptions.time_tracking_mode ?? "timestamps_only"}
+                                onValueChange={(v) => setSchedulingOptions((o) => ({ ...o, time_tracking_mode: v as "timestamps_only" | "timestamps_and_gps" }))}
+                                className="flex gap-4 pt-2"
+                              >
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                  <RadioGroupItem value="timestamps_only" />
+                                  <span>Only track time stamps</span>
+                                </label>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                  <RadioGroupItem value="timestamps_and_gps" />
+                                  <span>Time stamps and path (GPS)</span>
+                                </label>
+                              </RadioGroup>
+                            </div>
+                            <div className="rounded-lg border p-4 space-y-2">
+                              <Label className="font-semibold">Distance unit</Label>
+                              <Select
+                                value={schedulingOptions.distance_unit ?? "miles"}
+                                onValueChange={(v) => setSchedulingOptions((o) => ({ ...o, distance_unit: v as "miles" | "kilometers" }))}
+                              >
+                                <SelectTrigger className="w-[180px]">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="miles">Miles</SelectItem>
+                                  <SelectItem value="kilometers">Kilometers</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="flex items-center justify-between rounded-lg border p-4">
+                              <div>
+                                <Label className="font-semibold">Disable auto clock-in for a booking</Label>
+                                <p className="text-sm text-muted-foreground mt-0.5">When on, providers must clock in manually (no auto clock-in).</p>
+                              </div>
+                              <Switch
+                                checked={schedulingOptions.disable_auto_clock_in ?? false}
+                                onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, disable_auto_clock_in: v }))}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between rounded-lg border p-4">
+                              <div>
+                                <Label className="font-semibold">Enable automatic clock-out</Label>
+                                <p className="text-sm text-muted-foreground mt-0.5">Auto clock out the provider when they leave the booking location (by distance).</p>
+                              </div>
+                              <Switch
+                                checked={schedulingOptions.auto_clock_out_enabled ?? false}
+                                onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, auto_clock_out_enabled: v }))}
+                              />
+                            </div>
+                            {(schedulingOptions.auto_clock_out_enabled ?? false) && (
+                              <div className="rounded-lg border p-4 space-y-2">
+                                <Label className="font-semibold">Auto clock-out distance (meters)</Label>
+                                <Input
+                                  type="number"
+                                  min={100}
+                                  max={10000}
+                                  value={schedulingOptions.auto_clock_out_distance_meters ?? 500}
+                                  onChange={(e) => setSchedulingOptions((o) => ({ ...o, auto_clock_out_distance_meters: Math.max(100, Math.min(10000, parseInt(e.target.value, 10) || 500)) }))}
+                                />
+                                <p className="text-xs text-muted-foreground">Distance from booking location at which the provider is auto clocked out.</p>
+                              </div>
+                            )}
+                            <div className="rounded-lg border p-4 space-y-2">
+                              <Label className="font-semibold">Mark booking complete</Label>
+                              <p className="text-sm text-muted-foreground">When should the booking be marked completed?</p>
+                              <RadioGroup
+                                value={schedulingOptions.completion_on_clock_out ? "clock_out" : "job_length"}
+                                onValueChange={(v) => setSchedulingOptions((o) => ({ ...o, completion_on_clock_out: v === "clock_out" }))}
+                                className="flex gap-4 pt-2"
+                              >
+                                <label className="flex items-start gap-2 cursor-pointer">
+                                  <RadioGroupItem value="job_length" className="mt-0.5" />
+                                  <span>
+                                    <span className="font-medium">On job length complete</span>
+                                    <span className="block text-xs text-muted-foreground mt-0.5">
+                                      Booking stays in progress when the provider clocks out. It is marked completed when the scheduled job length has passed (start time + duration), via the auto-complete cron, or when someone marks it completed manually.
+                                    </span>
+                                  </span>
+                                </label>
+                                <label className="flex items-start gap-2 cursor-pointer">
+                                  <RadioGroupItem value="clock_out" className="mt-0.5" />
+                                  <span>
+                                    <span className="font-medium">On clock out</span>
+                                    <span className="block text-xs text-muted-foreground mt-0.5">
+                                      Booking is marked completed as soon as the provider clocks out.
+                                    </span>
+                                  </span>
+                                </label>
+                              </RadioGroup>
+                            </div>
+                            <div className="flex items-center justify-between rounded-lg border p-4">
+                              <div>
+                                <Label className="font-semibold">Allow providers to re-clock in on a booking</Label>
+                                <p className="text-sm text-muted-foreground mt-0.5">After clocking out, allow them to clock in again on the same booking.</p>
+                              </div>
+                              <Switch
+                                checked={schedulingOptions.allow_reclock_in ?? false}
+                                onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, allow_reclock_in: v }))}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between rounded-lg border p-4">
+                              <div>
+                                <Label className="font-semibold">Time log adjustments update the booking</Label>
+                                <p className="text-sm text-muted-foreground mt-0.5">When time is adjusted in time logs, update the booking as well.</p>
+                              </div>
+                              <Switch
+                                checked={schedulingOptions.time_log_updates_booking ?? false}
+                                onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, time_log_updates_booking: v }))}
+                              />
+                            </div>
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+
+                      <Collapsible className="group">
+                        <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
+                          <div>
+                            <p className="font-semibold">Send Schedule Automatically</p>
+                            <p className="text-sm text-muted-foreground mt-0.5">Make sure you enable the &quot;Send Schedule&quot; email template before sending schedule automatically, otherwise the schedule will not be sent to providers.</p>
+                          </div>
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
+                            <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                            <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                          </span>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="px-6 pb-4 pt-0">
+                            <p className="text-sm text-muted-foreground">Automated schedule emails – coming soon. Configure email templates under Settings → Notifications.</p>
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+
+                      <Collapsible className="group">
+                        <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
+                          <div>
+                            <p className="font-semibold">Sign up</p>
+                            <p className="text-sm text-muted-foreground mt-0.5">Set up the provider signup feature and manage related settings.</p>
+                          </div>
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
+                            <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                            <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                          </span>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="px-6 pb-4 pt-0">
+                            <p className="text-sm text-muted-foreground">Provider self-signup – coming soon. For now, add providers from Admin → Providers → invite or add.</p>
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+
+                      <Collapsible defaultOpen className="group">
+                        <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
+                          <div>
+                            <p className="font-semibold">Provider options (customer visibility)</p>
+                            <p className="text-sm text-muted-foreground mt-0.5">Control what customers see about providers when choosing one on the booking form.</p>
+                          </div>
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
+                            <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                            <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                          </span>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="px-6 pb-4 pt-0 space-y-4">
+                            <div className="flex items-center justify-between rounded-lg border p-4">
+                              <div>
+                                <Label className="font-semibold">Show provider score/rating to customers</Label>
+                                <p className="text-sm text-muted-foreground mt-0.5">Display the provider&apos;s rating (or score) when customers pick a provider.</p>
+                              </div>
+                              <Switch
+                                checked={schedulingOptions.show_provider_score_to_customers ?? true}
+                                onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, show_provider_score_to_customers: v }))}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between rounded-lg border p-4">
+                              <div>
+                                <Label className="font-semibold">Show provider completed jobs to customers</Label>
+                                <p className="text-sm text-muted-foreground mt-0.5">Display how many jobs the provider has completed.</p>
+                              </div>
+                              <Switch
+                                checked={schedulingOptions.show_provider_completed_jobs_to_customers ?? true}
+                                onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, show_provider_completed_jobs_to_customers: v }))}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between rounded-lg border p-4">
+                              <div>
+                                <Label className="font-semibold">Show provider availability status to customers</Label>
+                                <p className="text-sm text-muted-foreground mt-0.5">Show whether the provider is available (e.g. green indicator) when choosing.</p>
+                              </div>
+                              <Switch
+                                checked={schedulingOptions.show_provider_availability_to_customers ?? true}
+                                onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, show_provider_availability_to_customers: v }))}
+                              />
+                            </div>
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    </div>
+                    <div className="flex justify-end p-6 border-t">
+                      <Button onClick={handleSaveScheduling} disabled={schedulingSaving}>
+                        {schedulingSaving ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Saving…
+                          </>
+                        ) : (
+                          'Save provider settings'
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </TabsContent>
               <TabsContent value="admin" className="mt-0 space-y-6">
                 <p className="text-sm text-muted-foreground">
@@ -3367,6 +3761,104 @@ export default function GeneralSettingsPage() {
                             onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, waitlist_enabled: v }))}
                           />
                         </div>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+
+                    <Collapsible className="group" onOpenChange={(open) => open && (fetchRecentAutoAssignments(), fetchEligibilityPreview())}>
+                      <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-4 text-left hover:bg-muted/50 transition-colors">
+                        <div>
+                          <p className="font-semibold">Provider eligibility (auto-assign scores)</p>
+                          <p className="text-sm text-muted-foreground mt-0.5">Preview who would be assigned and see recent auto-assignment scores</p>
+                        </div>
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
+                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                        </span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="px-4 pb-4 pt-0 space-y-6">
+                          <Alert>
+                            <AlertDescription>
+                              <strong>How providers get a higher score or get chosen first</strong>
+                              <ul className="list-disc pl-4 mt-2 space-y-1 text-sm">
+                                <li><strong>Priority</strong> (set per provider): Go to Admin → Providers → open a provider → set &quot;Auto-assign priority&quot; (0–99). Higher number = chosen first. This is the main order (like BookingKoala).</li>
+                                <li><strong>Service match</strong>: +30 points when the booking has a service and the provider offers that service (link services to the provider so they get this).</li>
+                                <li><strong>Workload</strong>: +0 to +20 points for lower current workload (from provider capacity). Less busy = more points.</li>
+                                <li>Providers with &quot;Accept auto-assignments&quot; turned off are excluded. Ensure they are opted in if they should receive auto-assigns.</li>
+                              </ul>
+                            </AlertDescription>
+                          </Alert>
+                          <div>
+                            <p className="text-sm font-medium mb-2">Recent auto-assignments</p>
+                            {recentAssignmentsLoading ? (
+                              <p className="text-sm text-muted-foreground">Loading…</p>
+                            ) : recentAssignments.length === 0 ? (
+                              <p className="text-sm text-muted-foreground">No recent auto-assignments.</p>
+                            ) : (
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Provider</TableHead>
+                                    <TableHead>Service</TableHead>
+                                    <TableHead>Score</TableHead>
+                                    <TableHead>Assigned</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {recentAssignments.map((a) => (
+                                    <TableRow key={a.id}>
+                                      <TableCell>{a.providerName}</TableCell>
+                                      <TableCell>{a.service}</TableCell>
+                                      <TableCell>{a.score}</TableCell>
+                                      <TableCell className="text-muted-foreground text-sm">{a.assignedAt ? new Date(a.assignedAt).toLocaleString() : '—'}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            )}
+                          </div>
+                          <Separator />
+                          <div>
+                            <p className="text-sm font-medium mb-2">Preview eligibility (for a date)</p>
+                            <div className="flex flex-wrap items-center gap-2 mb-3">
+                              <Input
+                                type="date"
+                                value={previewDate}
+                                onChange={(e) => setPreviewDate(e.target.value)}
+                                className="w-40"
+                              />
+                              <Button type="button" variant="secondary" size="sm" onClick={fetchEligibilityPreview} disabled={eligibilityLoading}>
+                                {eligibilityLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Preview'}
+                              </Button>
+                            </div>
+                            {eligibilityProviders.length === 0 && !eligibilityLoading ? (
+                              <p className="text-sm text-muted-foreground">Click Preview to see provider priority, score, and reasons.</p>
+                            ) : (
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Provider</TableHead>
+                                    <TableHead>Priority</TableHead>
+                                    <TableHead>Score</TableHead>
+                                    <TableHead>Eligible</TableHead>
+                                    <TableHead>Reasons</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {eligibilityProviders.map((p) => (
+                                    <TableRow key={p.id}>
+                                      <TableCell>{p.name}</TableCell>
+                                      <TableCell>{p.invitation_priority}</TableCell>
+                                      <TableCell>{p.score}</TableCell>
+                                      <TableCell>{p.eligible ? 'Yes' : 'No'}</TableCell>
+                                      <TableCell className="text-muted-foreground text-sm max-w-[200px] truncate" title={p.reasons.join(', ')}>{p.reasons.join(', ') || '—'}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            )}
+                          </div>
                         </div>
                       </CollapsibleContent>
                     </Collapsible>

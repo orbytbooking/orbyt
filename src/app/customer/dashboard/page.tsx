@@ -283,9 +283,9 @@ const CustomerDashboard = () => {
                             )}
                           </div>
                           <div className="space-y-1 overflow-y-auto">
-                            {events.map((event) => (
+                            {events.map((event, idx) => (
                               <div
-                                key={event.id}
+                                key={`${event.id}-${event.date ?? ''}-${event.time ?? ''}-${idx}`}
                                 className={`rounded-xl px-2 py-1 text-[11px] font-medium ${
                                   event.status === "completed"
                                     ? "bg-emerald-100 text-emerald-700"

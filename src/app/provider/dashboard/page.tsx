@@ -12,12 +12,15 @@ import {
   MapPin,
   Phone,
   Mail,
-  Users
+  Users,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { useToast } from "@/components/ui/use-toast";
 import { getSupabaseProviderClient } from "@/lib/supabaseProviderClient";
+import { cn } from "@/lib/utils";
 
 type Booking = {
   id: string;
@@ -119,9 +122,13 @@ const getStatusBadge = (status: string) => {
   );
 };
 
+type CalendarBooking = { id: string; date: string; time: string; customer: { name: string }; service: string; status: string };
+
 const ProviderDashboard = () => {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [calendarBookings, setCalendarBookings] = useState<CalendarBooking[]>([]);
+  const [calendarDate, setCalendarDate] = useState(() => new Date());
   const { toast } = useToast();
 
   useEffect(() => {
@@ -163,6 +170,24 @@ const ProviderDashboard = () => {
     fetchDashboardData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const fetchBookingsForCalendar = async () => {
+      try {
+        const { data: { session } } = await getSupabaseProviderClient().auth.getSession();
+        if (!session) return;
+        const res = await fetch("/api/provider/bookings", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        setCalendarBookings(data.bookings || []);
+      } catch {
+        setCalendarBookings([]);
+      }
+    };
+    if (dashboardData?.provider?.id) fetchBookingsForCalendar();
+  }, [dashboardData?.provider?.id]);
 
   if (loading) {
     return (
@@ -345,6 +370,96 @@ const ProviderDashboard = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Schedule calendar - same style as admin */}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <CardTitle>Your schedule</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                {calendarDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCalendarDate(new Date())}
+              >
+                Today
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setCalendarDate((d) => { const n = new Date(d); n.setMonth(n.getMonth() - 1); return n; })}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setCalendarDate((d) => { const n = new Date(d); n.setMonth(n.getMonth() + 1); return n; })}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/provider/bookings">View full calendar</Link>
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {(() => {
+            const year = calendarDate.getFullYear();
+            const month = calendarDate.getMonth();
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            const daysInMonth = lastDay.getDate();
+            const startWeekday = firstDay.getDay();
+            const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+            const formatDay = (d: number) => `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+            const getCount = (dateStr: string) => calendarBookings.filter((b) => b.date === dateStr).length;
+            const today = new Date();
+            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+            return (
+              <div className="grid grid-cols-7 gap-1">
+                {dayNames.map((name) => (
+                  <div key={name} className="text-center text-xs font-semibold text-muted-foreground py-1">
+                    {name}
+                  </div>
+                ))}
+                {Array.from({ length: startWeekday }).map((_, i) => (
+                  <div key={`e-${i}`} className="h-10" />
+                ))}
+                {Array.from({ length: daysInMonth }).map((_, i) => {
+                  const day = i + 1;
+                  const dateStr = formatDay(day);
+                  const count = getCount(dateStr);
+                  const isToday = dateStr === todayStr;
+                  return (
+                    <div
+                      key={day}
+                      className={cn(
+                        "h-10 rounded flex flex-col items-center justify-center text-sm border",
+                        isToday && "bg-primary/10 border-primary/50 font-medium",
+                        !isToday && "border-transparent"
+                      )}
+                    >
+                      <span>{day}</span>
+                      {count > 0 && (
+                        <span className="text-[10px] text-primary font-medium" title={`${count} booking(s)`}>
+                          {count}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </CardContent>
+      </Card>
 
     </div>
   );

@@ -8,6 +8,8 @@ export type BookingCompletionMode = 'manual' | 'automatic';
 export type ProviderAssignmentMode = 'manual' | 'automatic';
 export type RecurringUpdateDefault = 'this_booking_only' | 'all_future';
 export type HolidayBlockedWho = 'customer' | 'both';
+export type TimeTrackingMode = 'timestamps_only' | 'timestamps_and_gps';
+export type DistanceUnit = 'miles' | 'kilometers';
 
 export interface BusinessStoreOptions {
   id: string;
@@ -30,6 +32,17 @@ export interface BusinessStoreOptions {
   spot_limits_enabled: boolean;
   holiday_skip_to_next: boolean;
   holiday_blocked_who: HolidayBlockedWho;
+  show_provider_score_to_customers: boolean;
+  show_provider_completed_jobs_to_customers: boolean;
+  show_provider_availability_to_customers: boolean;
+  time_tracking_mode: TimeTrackingMode;
+  distance_unit: DistanceUnit;
+  disable_auto_clock_in: boolean;
+  auto_clock_out_enabled: boolean;
+  auto_clock_out_distance_meters: number;
+  completion_on_clock_out: boolean;
+  allow_reclock_in: boolean;
+  time_log_updates_booking: boolean;
 }
 
 const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
@@ -51,6 +64,17 @@ const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
   spot_limits_enabled: false,
   holiday_skip_to_next: false,
   holiday_blocked_who: 'customer',
+  show_provider_score_to_customers: true,
+  show_provider_completed_jobs_to_customers: true,
+  show_provider_availability_to_customers: true,
+  time_tracking_mode: 'timestamps_only',
+  distance_unit: 'miles',
+  disable_auto_clock_in: false,
+  auto_clock_out_enabled: false,
+  auto_clock_out_distance_meters: 500,
+  completion_on_clock_out: false,
+  allow_reclock_in: false,
+  time_log_updates_booking: false,
 };
 
 async function getSupabase() {
@@ -125,6 +149,19 @@ export async function PUT(request: NextRequest) {
       holiday_blocked_who: ['customer', 'both'].includes(body.holiday_blocked_who)
         ? body.holiday_blocked_who
         : 'customer',
+      show_provider_score_to_customers: body.show_provider_score_to_customers ?? true,
+      show_provider_completed_jobs_to_customers: body.show_provider_completed_jobs_to_customers ?? true,
+      show_provider_availability_to_customers: body.show_provider_availability_to_customers ?? true,
+      time_tracking_mode: ['timestamps_only', 'timestamps_and_gps'].includes(body.time_tracking_mode)
+        ? body.time_tracking_mode
+        : 'timestamps_only',
+      distance_unit: ['miles', 'kilometers'].includes(body.distance_unit) ? body.distance_unit : 'miles',
+      disable_auto_clock_in: body.disable_auto_clock_in ?? false,
+      auto_clock_out_enabled: body.auto_clock_out_enabled ?? false,
+      auto_clock_out_distance_meters: Math.max(100, Math.min(10000, Number(body.auto_clock_out_distance_meters) || 500)),
+      completion_on_clock_out: body.completion_on_clock_out ?? false,
+      allow_reclock_in: body.allow_reclock_in ?? false,
+      time_log_updates_booking: body.time_log_updates_booking ?? false,
       updated_at: new Date().toISOString(),
     };
 

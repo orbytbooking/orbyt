@@ -80,6 +80,29 @@ export async function computeNextOccurrenceDate(
   return dateStr;
 }
 
+/** Compute occurrence dates for a series (sync, no holiday skip). Use when expanding recurring bookings for display. */
+export function getOccurrenceDatesForSeriesSync(series: {
+  start_date: string;
+  end_date?: string | null;
+  frequency?: string | null;
+  frequency_repeats?: string | null;
+  occurrences_ahead?: number;
+}): string[] {
+  const start = series.start_date;
+  const N = series.occurrences_ahead ?? 8;
+  const days = getDaysToAdd(series.frequency ?? '', series.frequency_repeats);
+  const dates: string[] = [start];
+  let current = new Date(start + 'T12:00:00');
+  for (let i = 1; i < N; i++) {
+    const next = addInterval(current, days, series.frequency_repeats);
+    const nextStr = next.toISOString().split('T')[0];
+    if (series.end_date && nextStr > series.end_date) break;
+    dates.push(nextStr);
+    current = next;
+  }
+  return dates;
+}
+
 /** Compute next N occurrence dates from startDate */
 export async function computeOccurrenceDates(
   businessId: string,
@@ -207,96 +230,32 @@ export async function createRecurringSeries(
     skipHolidays
   );
 
-  const bookings = dates.map((d) => bookingFromTemplate({ ...template, ...seriesRow, id: series.id }, d, businessId));
+  // One booking row per recurring series (first occurrence date); other dates are derived from series when displaying
+  const firstDate = dates[0] ?? options.startDate;
+  const singleBooking = bookingFromTemplate({ ...template, ...seriesRow, id: series.id }, firstDate, businessId);
 
-  const { data: inserted, error: insertError } = await supabase.from('bookings').insert(bookings).select('id');
+  const { data: inserted, error: insertError } = await supabase.from('bookings').insert(singleBooking).select('id').single();
 
   if (insertError) {
     await supabase.from('recurring_series').delete().eq('id', series.id);
-    throw new Error(insertError.message ?? 'Failed to create recurring bookings');
+    throw new Error(insertError.message ?? 'Failed to create recurring booking');
   }
 
-  const ids = (inserted ?? []).map((b: { id: string }) => b.id);
-  return { seriesId: series.id, bookingIds: ids };
+  const bookingId = (inserted as { id: string } | null)?.id;
+  if (!bookingId) {
+    await supabase.from('recurring_series').delete().eq('id', series.id);
+    throw new Error('Failed to create recurring booking');
+  }
+  return { seriesId: series.id, bookingIds: [bookingId] };
 }
 
-/** Extend a series: add more bookings if needed */
+/** Recurring series use 1 booking row; we do not add more rows on extend. */
 export async function extendRecurringSeries(
-  supabase: SupabaseClient,
-  businessId: string,
-  seriesId: string
+  _supabase: SupabaseClient,
+  _businessId: string,
+  _seriesId: string
 ): Promise<{ created: number }> {
-  const { data: series, error: seriesErr } = await supabase
-    .from('recurring_series')
-    .select('*')
-    .eq('id', seriesId)
-    .eq('business_id', businessId)
-    .eq('status', 'active')
-    .single();
-
-  if (seriesErr || !series) return { created: 0 };
-
-  const { data: allInSeries } = await supabase
-    .from('bookings')
-    .select('scheduled_date')
-    .eq('recurring_series_id', seriesId)
-    .order('scheduled_date', { ascending: false });
-
-  const lastDate = allInSeries?.[0]?.scheduled_date ?? series.start_date;
-  const today = new Date().toISOString().split('T')[0];
-  const futureCount = (allInSeries ?? []).filter((b) => (b.scheduled_date || '') >= today).length;
-  const N = series.occurrences_ahead ?? 8;
-
-  if (futureCount >= N) return { created: 0 };
-  const toCreate = N - futureCount;
-
-  const dates: string[] = [];
-  let current = lastDate;
-  for (let i = 0; i < toCreate; i++) {
-    const next = await computeNextOccurrenceDate(
-      businessId,
-      current,
-      series.frequency ?? '',
-      series.frequency_repeats,
-      true
-    );
-    if (series.end_date && next > series.end_date) break;
-    dates.push(next);
-    current = next;
-  }
-
-  if (dates.length === 0) return { created: 0 };
-
-  const template = {
-    id: series.id,
-    customer_id: series.customer_id,
-    customer_name: series.customer_name,
-    customer_email: series.customer_email,
-    customer_phone: series.customer_phone,
-    service: series.service,
-    address: series.address,
-    apt_no: series.apt_no,
-    zip_code: series.zip_code,
-    notes: series.notes,
-    total_price: series.total_price,
-    scheduled_time: series.scheduled_time,
-    duration_minutes: series.duration_minutes,
-    customization: series.customization,
-    provider_id: series.same_provider ? series.provider_id : null,
-    provider_name: series.same_provider ? series.provider_name : null,
-    provider_wage: series.provider_wage,
-    provider_wage_type: series.provider_wage_type,
-    payment_method: series.payment_method,
-  };
-
-  const bookings = dates.map((d) => bookingFromTemplate(template, d, businessId));
-  const { data: inserted, error } = await supabase.from('bookings').insert(bookings).select('id');
-
-  if (error) {
-    console.error('Recurring extend error:', error);
-    return { created: 0 };
-  }
-  return { created: inserted?.length ?? 0 };
+  return { created: 0 };
 }
 
 /** Extend all active series for a business that need more occurrences */

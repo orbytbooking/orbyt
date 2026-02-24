@@ -43,6 +43,7 @@ type Provider = {
   name?: string; // Optional computed property for compatibility
   tags?: string[];
   access_blocked?: boolean;
+  performance_score?: number; // 0-100, admin-set provider score
 };
 
 type ScheduleSlot = {
@@ -238,6 +239,7 @@ export default function ProviderProfilePage() {
           name: `${result.provider.first_name} ${result.provider.last_name}`,
           tags: Array.isArray(result.provider.tags) ? result.provider.tags : [],
           access_blocked: !!result.provider.access_blocked,
+          performance_score: result.provider.performance_score ?? 0,
         };
         setProvider(providerWithName);
         setTags(Array.isArray(result.provider.tags) ? result.provider.tags : []);
@@ -1302,10 +1304,23 @@ export default function ProviderProfilePage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label>Name</Label>
-                  <Input 
-                    value={provider.name} 
-                    onChange={(e) => setProvider({...provider, first_name: e.target.value.split(' ')[0] || '', last_name: e.target.value.split(' ').slice(1).join(' ') || ''})}
+                  <Label>First name</Label>
+                  <Input
+                    value={provider.first_name ?? ''}
+                    onChange={(e) => {
+                      const first = e.target.value;
+                      setProvider((p) => p ? { ...p, first_name: first, name: `${first} ${p.last_name ?? ''}`.trim() } : p);
+                    }}
+                  />
+                </div>
+                <div>
+                  <Label>Last name</Label>
+                  <Input
+                    value={provider.last_name ?? ''}
+                    onChange={(e) => {
+                      const last = e.target.value;
+                      setProvider((p) => p ? { ...p, last_name: last, name: `${p.first_name ?? ''} ${last}`.trim() } : p);
+                    }}
                   />
                 </div>
                 <div>
@@ -1336,6 +1351,21 @@ export default function ProviderProfilePage() {
                 <div>
                   <Label>Status</Label>
                   <Input value={provider.status} readOnly />
+                </div>
+                <div>
+                  <Label>Provider score</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={provider.performance_score ?? 0}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      const score = Number.isNaN(v) ? 0 : Math.max(0, Math.min(100, v));
+                      setProvider((p) => p ? { ...p, performance_score: score } : p);
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Min: 0, Max: 100. Internal score for this provider.</p>
                 </div>
               </div>
 
@@ -1450,7 +1480,8 @@ export default function ProviderProfilePage() {
                         status: provider.status,
                         provider_type: provider.provider_type,
                         send_email_notification: provider.send_email_notification,
-                        user_id: provider.user_id
+                        user_id: provider.user_id,
+                        performance_score: provider.performance_score ?? 0,
                       };
 
                       // Add password if it's being updated

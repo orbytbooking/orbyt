@@ -28,9 +28,32 @@ import {
   Upload,
   X,
   Check,
-  RotateCcw
+  RotateCcw,
+  GripVertical
 } from 'lucide-react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Textarea } from '@/components/ui/textarea';
 import Navigation from '@/components/Navigation';
 import Hero from '@/components/Hero';
@@ -210,6 +233,140 @@ const templates = [
   },
 ];
 
+// Sortable block for Wix-style drag and drop
+function SortableSectionBlock({
+  section,
+  isSelected,
+  sectionIndex,
+  totalSections,
+  websiteConfig,
+  onSelect,
+  onMoveUp,
+  onMoveDown,
+  onSectionFieldChange,
+  onSectionFieldHide,
+  onSectionFieldShow,
+}: {
+  section: WebsiteSection;
+  isSelected: boolean;
+  sectionIndex: number;
+  totalSections: number;
+  websiteConfig: WebsiteConfig;
+  onSelect: () => void;
+  onMoveUp: (e: React.MouseEvent) => void;
+  onMoveDown: (e: React.MouseEvent) => void;
+  onSectionFieldChange?: (field: string, value: string) => void;
+  onSectionFieldHide?: (field: string) => void;
+  onSectionFieldShow?: (field: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: section.id });
+  const style = { transform: CSS.Transform.toString(transform), transition };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`relative group/block transition-all rounded-lg my-0.5 ${
+        isDragging ? 'opacity-70 shadow-xl z-50 bg-white ring-2 ring-[#1a73e8]' : ''
+      } ${isSelected ? 'ring-2 ring-[#1a73e8] ring-inset bg-[#e8f0fe]/40' : 'hover:ring-2 hover:ring-[#dadce0] hover:ring-inset'}`}
+      onClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest('[data-drag-handle]')) return;
+        if (target.closest('[contenteditable="true"]')) return;
+        if (target.tagName === 'A' || target.closest('a') || target.tagName === 'BUTTON' || target.closest('button')) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        onSelect();
+      }}
+    >
+      {/* Block toolbar - visual builder style */}
+      <div className="sticky top-0 z-40 flex items-center gap-2 px-3 py-2 bg-[#1a73e8] text-white text-xs font-medium rounded-t-lg shadow-sm">
+        <div
+          data-drag-handle
+          className="p-1.5 rounded-md hover:bg-white/20 cursor-grab active:cursor-grabbing touch-none"
+          {...attributes}
+          {...listeners}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <GripVertical className="h-4 w-4" />
+        </div>
+        <span className="capitalize font-medium">{section.type.replace(/-/g, ' ')}</span>
+        {!section.visible && <span className="opacity-90">(hidden)</span>}
+        <div className="flex-1" />
+        <Button variant="ghost" size="icon" className="h-7 w-7 text-white hover:bg-white/20 rounded-md" onClick={onMoveUp} disabled={sectionIndex === 0}>
+          <MoveUp className="h-3.5 w-3.5" />
+        </Button>
+        <Button variant="ghost" size="icon" className="h-7 w-7 text-white hover:bg-white/20 rounded-md" onClick={onMoveDown} disabled={sectionIndex === totalSections - 1}>
+          <MoveDown className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      {!section.visible && (
+        <div className="py-4 px-4 bg-[#f8f9fa] border-b border-[#dadce0] text-xs text-[#5f6368]">
+          Hidden — {section.type.replace(/-/g, ' ')}
+        </div>
+      )}
+      {!isSelected && section.visible && (
+        <div className="absolute left-2 top-12 z-30 opacity-0 group-hover/block:opacity-100 transition-opacity pointer-events-none">
+          <span className="px-2 py-1 bg-[#202124] text-white text-xs rounded-md shadow">Drag handle to reorder · Click to edit</span>
+        </div>
+      )}
+      {section.visible && (
+        <div className="[&_a]:pointer-events-none [&_button]:pointer-events-none [&_a]:cursor-default [&_button]:cursor-default [&_a]:no-underline" onClickCapture={(e) => {
+          const t = e.target as HTMLElement;
+          if (t.closest('a') || t.closest('button')) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }}>
+          {section.type === 'header' && <div id="header"><Navigation branding={websiteConfig.branding} headerData={section.data} inline={true} /></div>}
+          {section.type === 'hero' && <div id="hero"><Hero data={section.data} branding={websiteConfig.branding} builderMode onFieldChange={onSectionFieldChange} onFieldHide={onSectionFieldHide} onFieldShow={onSectionFieldShow} /></div>}
+          {section.type === 'how-it-works' && <div id="how-it-works"><HowItWorks data={section.data} /></div>}
+          {section.type === 'services' && <div id="services"><ServicesSection data={section.data} /></div>}
+          {section.type === 'reviews' && <div id="reviews"><Reviews data={section.data} /></div>}
+          {section.type === 'faqs' && <div id="faqs"><FAQs data={section.data} /></div>}
+          {section.type === 'contact' && <div id="contact"><Contact data={section.data} /></div>}
+          {section.type === 'footer' && <div id="footer"><Footer data={section.data} branding={websiteConfig.branding} headerData={websiteConfig.sections.find(s => s.type === 'header')?.data} /></div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Add-section zone between blocks (visual page builder style)
+function AddSectionZone({ index, onAdd }: { index: number; onAdd: (index: number, type: WebsiteSection['type']) => void }) {
+  const sectionTypes: { value: WebsiteSection['type']; label: string }[] = [
+    { value: 'header', label: 'Header' },
+    { value: 'hero', label: 'Hero' },
+    { value: 'how-it-works', label: 'How it works' },
+    { value: 'services', label: 'Services' },
+    { value: 'reviews', label: 'Reviews' },
+    { value: 'faqs', label: 'FAQs' },
+    { value: 'contact', label: 'Contact' },
+    { value: 'footer', label: 'Footer' },
+  ];
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <div
+          className="flex items-center justify-center py-3 px-4 border-2 border-dashed border-[#dadce0] rounded-lg mx-2 my-1 bg-[#f8f9fa] hover:border-[#1a73e8] hover:bg-[#e8f0fe] transition-colors cursor-pointer group"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Plus className="h-4 w-4 text-[#5f6368] group-hover:text-[#1a73e8] mr-2" />
+          <span className="text-sm text-[#5f6368] group-hover:text-[#1a73e8]">Add section</span>
+        </div>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="center" className="w-56">
+        {sectionTypes.map(({ value, label }) => (
+          <DropdownMenuItem key={value} onClick={() => onAdd(index, value)}>
+            {label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export default function WebsiteBuilderPage() {
   const router = useRouter();
   const { toast } = useToast();
@@ -306,13 +463,29 @@ export default function WebsiteBuilderPage() {
     const newIndex = direction === 'up' ? index - 1 : index + 1;
     if (newIndex < 0 || newIndex >= websiteConfig.sections.length) return;
 
-    const newSections = [...websiteConfig.sections];
-    [newSections[index], newSections[newIndex]] = [newSections[newIndex], newSections[index]];
-    
+    const newSections = arrayMove(websiteConfig.sections, index, newIndex);
     const newConfig = { ...websiteConfig, sections: newSections };
     setWebsiteConfig(newConfig);
     addToHistory(newConfig);
   };
+
+  // Drag-and-drop reorder (Wix-style)
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = websiteConfig.sections.findIndex(s => s.id === active.id);
+    const newIndex = websiteConfig.sections.findIndex(s => s.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    const newSections = arrayMove(websiteConfig.sections, oldIndex, newIndex);
+    const newConfig = { ...websiteConfig, sections: newSections };
+    setWebsiteConfig(newConfig);
+    addToHistory(newConfig);
+  };
+
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor)
+  );
 
   // Delete section
   const deleteSection = (sectionId: string) => {
@@ -360,16 +533,19 @@ export default function WebsiteBuilderPage() {
 
   // Add new section
   const addSection = (type: WebsiteSection['type']) => {
+    addSectionAtIndex(websiteConfig.sections.length, type);
+  };
+
+  const addSectionAtIndex = (index: number, type: WebsiteSection['type']) => {
     const newSection: WebsiteSection = {
       id: `${type}-${Date.now()}`,
       type,
       visible: true,
       data: getDefaultSectionData(type),
     };
-    const newConfig = {
-      ...websiteConfig,
-      sections: [...websiteConfig.sections, newSection],
-    };
+    const newSections = [...websiteConfig.sections];
+    newSections.splice(index, 0, newSection);
+    const newConfig = { ...websiteConfig, sections: newSections };
     setWebsiteConfig(newConfig);
     addToHistory(newConfig);
     setSelectedSection(newSection.id);
@@ -508,285 +684,174 @@ export default function WebsiteBuilderPage() {
   }
 
   return (
-    <div className="fixed inset-0 bg-gray-50 flex flex-col overflow-hidden">
-      {/* Top Navigation Bar */}
-      <div className="flex-shrink-0 bg-white border-b shadow-sm z-50">
-        <div className="flex items-center justify-between px-4 h-16">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => router.back()}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded bg-primary/10 flex items-center justify-center">
-                <span className="text-primary font-bold text-sm">OB</span>
-              </div>
-              <span className="font-semibold">Website Builder</span>
-            </div>
-            <div className="flex items-center gap-2 ml-4">
-              <Button variant="ghost" size="sm" onClick={undo} disabled={historyIndex === 0}>
-                <Undo className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="sm" onClick={redo} disabled={historyIndex === history.length - 1}>
-                <Redo className="h-4 w-4" />
-              </Button>
-            </div>
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-[#e8eaed]">
+      {/* Visual Page Builder top bar */}
+      <header className="flex-shrink-0 h-14 bg-white border-b border-[#dadce0] flex items-center justify-between px-4 z-50 shadow-sm">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" className="h-9 w-9 rounded-lg hover:bg-[#f1f3f4]" onClick={() => router.back()}>
+            <ArrowLeft className="h-4 w-4 text-[#5f6368]" />
+          </Button>
+          <div className="h-6 w-px bg-[#dadce0]" />
+          <div>
+            <h1 className="text-base font-medium text-[#202124]">Visual Page Builder</h1>
+            <p className="text-xs text-[#5f6368]">{websiteConfig.branding.domain || 'Your page'}</p>
           </div>
-          
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setViewMode(viewMode === 'desktop' ? 'mobile' : 'desktop')}
-            >
-              {viewMode === 'desktop' ? <Smartphone className="h-4 w-4" /> : <Monitor className="h-4 w-4" />}
+          <div className="flex items-center gap-1 ml-2">
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-[#50575e]" onClick={undo} disabled={historyIndex === 0} title="Undo">
+              <Undo className="h-3.5 w-3.5" />
             </Button>
-            <Button variant="ghost" size="sm">
-              <HelpCircle className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                const url = currentBusiness
-                  ? `/my-website?business=${currentBusiness.id}`
-                  : '/my-website';
-                window.open(url, '_blank');
-              }}
-            >
-              <Eye className="h-4 w-4 mr-2" />
-              Preview
-            </Button>
-            <Button variant="ghost" size="sm" onClick={saveConfig}>
-              <Save className="h-4 w-4 mr-2" />
-              Save
-            </Button>
-            <Button size="sm" onClick={publishConfig}>
-              <Save className="h-4 w-4 mr-2" />
-              Save & Publish
-            </Button>
-            <Button variant="outline" size="sm" onClick={resetToDefault}>
-              <RotateCcw className="h-4 w-4 mr-2" />
-              Reset
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-[#50575e]" onClick={redo} disabled={historyIndex === history.length - 1} title="Redo">
+              <Redo className="h-3.5 w-3.5" />
             </Button>
           </div>
         </div>
-      </div>
-
-      {/* Domain Bar */}
-      <div className="flex-shrink-0 bg-gray-100 border-b px-4 py-2 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">https://</span>
-          <span className="text-sm font-medium">{websiteConfig.branding.domain}</span>
-          <Button variant="link" size="sm" className="h-auto p-0 text-xs">
-            Change Your Domain
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="sm" className="h-8 px-2 text-[#50575e] hover:bg-[#f0f0f1]" onClick={() => setViewMode(viewMode === 'desktop' ? 'mobile' : 'desktop')} title={viewMode === 'desktop' ? 'Mobile view' : 'Desktop view'}>
+            {viewMode === 'desktop' ? <Smartphone className="h-4 w-4" /> : <Monitor className="h-4 w-4" />}
+          </Button>
+          <Button variant="ghost" size="sm" className="h-8 px-2 text-[#50575e] hover:bg-[#f0f0f1]" onClick={() => { const url = currentBusiness ? `/my-website?business=${currentBusiness.id}` : '/my-website'; window.open(url, '_blank'); }}>
+            <Eye className="h-4 w-4 mr-1.5" />
+            <span className="text-sm">Preview</span>
+          </Button>
+          <Button variant="outline" size="sm" className="h-8 px-2 border-[#c3c4c7] text-[#50575e] hover:bg-[#f6f7f7]" onClick={resetToDefault}>
+            <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+            <span className="text-sm">Reset</span>
+          </Button>
+          <Button size="sm" className="h-9 px-5 bg-[#1a73e8] hover:bg-[#1765cc] text-white text-sm font-medium rounded-lg shadow-sm" onClick={publishConfig}>
+            Update
           </Button>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="text-xs">
-            Duplicate Page
-          </Button>
-          <Button variant="ghost" size="sm" className="text-xs">
-            Settings
-          </Button>
-        </div>
-      </div>
+      </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Sidebar - Sections */}
-        <div className="w-64 bg-white border-r overflow-y-auto">
+        {/* Left sidebar - Page sections */}
+        <aside className="w-[260px] flex-shrink-0 bg-white border-r border-[#dadce0] overflow-y-auto shadow-sm">
           <div className="p-4">
-            <h3 className="font-semibold mb-4">Sections</h3>
-            <div className="space-y-2">
+            <h2 className="text-sm font-semibold text-[#202124] mb-1">Page sections</h2>
+            <p className="text-xs text-[#5f6368] mb-4">Click to select · Drag to reorder</p>
+            <div className="space-y-1.5">
               {websiteConfig.sections.map((section, index) => (
                 <div
                   key={section.id}
-                  className={`p-3 border rounded-lg cursor-pointer transition-all ${
+                  className={`rounded-lg border cursor-pointer transition-colors ${
                     selectedSection === section.id
-                      ? 'border-primary bg-primary/5'
-                      : 'hover:border-primary/50'
+                      ? 'border-[#1a73e8] bg-[#e8f0fe] shadow-sm'
+                      : 'border-[#dadce0] bg-[#f8f9fa] hover:bg-white hover:border-[#1a73e8]/50'
                   }`}
                   onClick={() => {
-                  setSelectedSection(section.id);
-                  // Jump directly to section without smooth scrolling
-                  const sectionElement = document.getElementById(section.type === 'how-it-works' ? 'how-it-works' : section.type);
-                  if (sectionElement) {
-                    sectionElement.scrollIntoView({ behavior: 'auto', block: 'start' });
-                  }
-                }}
+                    setSelectedSection(section.id);
+                    const sectionElement = document.getElementById(section.type === 'how-it-works' ? 'how-it-works' : section.type);
+                    if (sectionElement) sectionElement.scrollIntoView({ behavior: 'auto', block: 'start' });
+                  }}
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium capitalize">{section.type.replace('-', ' ')}</span>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          moveSection(section.id, 'up');
-                        }}
-                        disabled={index === 0}
-                      >
+                  <div className="flex items-center gap-2 p-2.5">
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-[#1d2327] capitalize block truncate">{section.type.replace(/-/g, ' ')}</span>
+                      <span className="text-xs text-[#787c82]">{section.visible ? 'Visible' : 'Hidden'}</span>
+                    </div>
+                    <div className="flex items-center gap-0.5 flex-shrink-0">
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-[#50575e]" onClick={(e) => { e.stopPropagation(); moveSection(section.id, 'up'); }} disabled={index === 0}>
                         <MoveUp className="h-3 w-3" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          moveSection(section.id, 'down');
-                        }}
-                        disabled={index === websiteConfig.sections.length - 1}
-                      >
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-[#50575e]" onClick={(e) => { e.stopPropagation(); moveSection(section.id, 'down'); }} disabled={index === websiteConfig.sections.length - 1}>
                         <MoveDown className="h-3 w-3" />
                       </Button>
+                      <label className="flex items-center" onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" checked={section.visible} onChange={(e) => { e.stopPropagation(); toggleSectionVisibility(section.id); }} className="h-3.5 w-3.5 rounded border-[#8c8f94]" />
+                      </label>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-[#b32d2e] hover:text-[#b32d2e] hover:bg-[#fcf0f0]" onClick={(e) => { e.stopPropagation(); if (confirm('Delete this section?')) deleteSection(section.id); }}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
                     </div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <label className="flex items-center gap-2 text-xs">
-                      <input
-                        type="checkbox"
-                        checked={section.visible}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          toggleSectionVisibility(section.id);
-                        }}
-                        className="h-3 w-3"
-                      />
-                      Visible
-                    </label>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 text-red-500"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (confirm('Are you sure you want to delete this section?')) {
-                          deleteSection(section.id);
-                        }
-                      }}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
                   </div>
                 </div>
               ))}
             </div>
-            <Select
-              onValueChange={(value) => {
-                addSection(value as WebsiteSection['type']);
-              }}
-            >
-              <SelectTrigger className="w-full mt-4">
-                <SelectValue placeholder="Add Section" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="header">Header</SelectItem>
-                <SelectItem value="hero">Hero Section</SelectItem>
-                <SelectItem value="how-it-works">How It Works</SelectItem>
-                <SelectItem value="services">Services</SelectItem>
-                <SelectItem value="reviews">Reviews</SelectItem>
-                <SelectItem value="faqs">FAQs</SelectItem>
-                <SelectItem value="contact">Contact</SelectItem>
-                <SelectItem value="footer">Footer</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {/* Main Editor Area */}
-        <div className="flex-1 overflow-y-auto bg-gray-100" style={{ height: '100%' }}>
-          <div className={`${viewMode === 'desktop' ? 'w-full' : 'max-w-md mx-auto'}`}>
-            {/* Preview of website - Using actual components */}
-            <div className="bg-white min-h-screen">
-              {/* Render sections using actual components */}
-              {websiteConfig.sections.filter(s => s.visible).map((section) => {
-                const isSelected = selectedSection === section.id;
-                return (
-                  <div
-                    key={section.id}
-                    className={`relative group ${
-                      isSelected ? 'ring-4 ring-primary ring-offset-2' : 'hover:ring-2 hover:ring-primary/50'
-                    } transition-all cursor-pointer`}
-                    onClick={(e) => {
-                      // Prevent navigation when clicking to select
-                      const target = e.target as HTMLElement;
-                      if (target.tagName === 'A' || target.closest('a') || target.tagName === 'BUTTON' || target.closest('button')) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                      }
-                      setSelectedSection(section.id);
-                    }}
-                  >
-                    {section.type === 'header' && (
-                      <div id="header">
-                        <Navigation branding={websiteConfig.branding} headerData={section.data} inline={true} />
-                      </div>
-                    )}
-                    {section.type === 'hero' && (
-                      <div id="hero"><Hero data={section.data} branding={websiteConfig.branding} /></div>
-                    )}
-                    {section.type === 'how-it-works' && (
-                      <div id="how-it-works"><HowItWorks data={section.data} /></div>
-                    )}
-                    {section.type === 'services' && (
-                      <div id="services"><ServicesSection data={section.data} /></div>
-                    )}
-                    {section.type === 'reviews' && (
-                      <div id="reviews"><Reviews data={section.data} /></div>
-                    )}
-                    {section.type === 'faqs' && (
-                      <div id="faqs"><FAQs data={section.data} /></div>
-                    )}
-                    {section.type === 'contact' && (
-                      <div id="contact"><Contact data={section.data} /></div>
-                    )}
-                    {section.type === 'footer' && (
-                      <div id="footer">
-                        <Footer data={section.data} branding={websiteConfig.branding} headerData={websiteConfig.sections.find(s => s.type === 'header')?.data} />
-                      </div>
-                    )}
-                    {isSelected && (
-                      <div className="absolute top-2 left-2 bg-primary text-white px-3 py-1.5 rounded-md text-xs font-semibold z-50 shadow-lg pointer-events-none">
-                        Editing: {section.type.replace('-', ' ')}
-                      </div>
-                    )}
-                    {!isSelected && (
-                      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 bg-black/50 text-white px-2 py-1 rounded text-xs transition-opacity pointer-events-none">
-                        Click to edit
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+            <div className="mt-3 pt-3 border-t border-[#dadce0]">
+              <Select onValueChange={(value) => addSection(value as WebsiteSection['type'])}>
+                <SelectTrigger className="w-full h-9 bg-[#f8f9fa] border-[#dadce0] text-[#5f6368] rounded-lg hover:bg-[#e8eaed]">
+                  <Plus className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Add section at end" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="header">Header</SelectItem>
+                  <SelectItem value="hero">Hero</SelectItem>
+                  <SelectItem value="how-it-works">How it works</SelectItem>
+                  <SelectItem value="services">Services</SelectItem>
+                  <SelectItem value="reviews">Reviews</SelectItem>
+                  <SelectItem value="faqs">FAQs</SelectItem>
+                  <SelectItem value="contact">Contact</SelectItem>
+                  <SelectItem value="footer">Footer</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
-        </div>
+        </aside>
 
-        {/* Right Sidebar - Properties Panel */}
-        <div className="w-80 bg-white border-l overflow-y-auto">
+        {/* Main canvas - Visual page builder (full width) */}
+        <main className="flex-1 overflow-y-auto bg-white flex flex-col" style={{ height: '100%' }}>
+          <div className={`w-full flex-1 min-h-full ${viewMode === 'desktop' ? '' : 'max-w-[390px] mx-auto'}`}>
+            <div className="min-h-full overflow-hidden">
+              <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={websiteConfig.sections.map(s => s.id)} strategy={verticalListSortingStrategy}>
+                  {websiteConfig.sections.flatMap((section, i) => [
+                    <AddSectionZone key={`add-${i}`} index={i} onAdd={addSectionAtIndex} />,
+                    <SortableSectionBlock
+                      key={section.id}
+                      section={section}
+                      isSelected={selectedSection === section.id}
+                      sectionIndex={i}
+                      totalSections={websiteConfig.sections.length}
+                      websiteConfig={websiteConfig}
+                      onSelect={() => setSelectedSection(section.id)}
+                      onMoveUp={(e) => { e.stopPropagation(); moveSection(section.id, 'up'); }}
+                      onMoveDown={(e) => { e.stopPropagation(); moveSection(section.id, 'down'); }}
+                      onSectionFieldChange={(field, value) => updateSection(section.id, { [field]: value })}
+                      onSectionFieldHide={(field) => updateSection(section.id, { hiddenFields: (section.data.hiddenFields || []).includes(field) ? section.data.hiddenFields : [...(section.data.hiddenFields || []), field] })}
+                      onSectionFieldShow={(field) => updateSection(section.id, { hiddenFields: (section.data.hiddenFields || []).filter((f) => f !== field) })}
+                    />,
+                  ])}
+                  <AddSectionZone key="add-end" index={websiteConfig.sections.length} onAdd={addSectionAtIndex} />
+                </SortableContext>
+              </DndContext>
+            </div>
+          </div>
+        </main>
+
+        {/* Right sidebar - Block settings */}
+        <aside className="w-[320px] flex-shrink-0 bg-white border-l border-[#dadce0] overflow-y-auto flex flex-col shadow-sm">
+          <div className="sticky top-0 z-10 bg-white border-b border-[#dadce0] px-4 py-4">
+            <h2 className="text-sm font-semibold text-[#202124]">
+              {selectedSectionData ? selectedSectionData.type.replace(/-/g, ' ') : 'Block'}
+            </h2>
+            <p className="text-xs text-[#5f6368] mt-1">
+              {selectedSectionData ? 'Edit content and settings' : 'Select a section to edit'}
+            </p>
+          </div>
           <div className="p-4">
             <Tabs defaultValue="content" className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="content">
-                  <Type className="h-4 w-4" />
+              <TabsList className="grid w-full grid-cols-3 h-9 bg-[#f0f0f1] border border-[#c3c4c7] p-0.5 rounded">
+                <TabsTrigger value="content" className="text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm rounded">
+                  <Type className="h-3.5 w-3.5 mr-1" />
+                  Block
                 </TabsTrigger>
-                <TabsTrigger value="design">
-                  <Palette className="h-4 w-4" />
+                <TabsTrigger value="design" className="text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm rounded">
+                  <Palette className="h-3.5 w-3.5 mr-1" />
+                  Design
                 </TabsTrigger>
-                <TabsTrigger value="settings">
-                  <Settings className="h-4 w-4" />
+                <TabsTrigger value="settings" className="text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm rounded">
+                  <Settings className="h-3.5 w-3.5 mr-1" />
+                  Settings
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="content" className="space-y-4 mt-4">
+              <TabsContent value="content" className="space-y-4 mt-4 [&_label]:text-[#1d2327] [&_label]:text-sm [&_input]:border-[#8c8f94] [&_input]:rounded [&_.border]:border-[#c3c4c7]">
                 {selectedSectionData && (
                   <>
                     {selectedSectionData.type === 'header' && (
                       <>
-                        <div>
-                          <Label>Company Name</Label>
+                        <div className="space-y-1.5">
+                          <Label className="block">Company Name</Label>
                           <Input
                             value={selectedSectionData.data.companyName || ''}
                             onChange={(e) => updateSection(selectedSection, { companyName: e.target.value })}
@@ -1279,9 +1344,9 @@ export default function WebsiteBuilderPage() {
                     )}
                   </>
                 )}
-                {!selectedSection && (
-                  <div className="text-center text-gray-500 py-8">
-                    <p>Select a section to edit</p>
+                {!selectedSectionData && (
+                  <div className="text-center text-[#787c82] py-8 px-4">
+                    <p className="text-sm">Select a section from the page or the list to edit its content.</p>
                   </div>
                 )}
               </TabsContent>
@@ -1373,7 +1438,7 @@ export default function WebsiteBuilderPage() {
               </TabsContent>
             </Tabs>
           </div>
-        </div>
+        </aside>
       </div>
     </div>
   );

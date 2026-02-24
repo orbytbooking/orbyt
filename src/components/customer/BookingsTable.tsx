@@ -110,8 +110,8 @@ export const BookingsTable = ({ bookings, emptyMessage, onCancelBooking, onViewD
               </TableCell>
             </TableRow>
           )}
-          {bookings.map((booking) => (
-            <TableRow key={booking.id}>
+          {bookings.map((booking, index) => (
+            <TableRow key={`${booking.id}-${booking.date ?? ''}-${booking.time ?? ''}-${index}`}>
               <TableCell>
                 <p className="font-semibold">{formatDate(booking.date)}</p>
                 <p className="text-sm text-muted-foreground">{formatTime(booking.time)}</p>

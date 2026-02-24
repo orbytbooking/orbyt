@@ -1,4 +1,35 @@
-# 🚀 Provider Invitation Fix - Deployment Checklist
+# 🚀 Deployment Checklist
+
+## MVP / First business launch (home cleaning or single business)
+
+Use this for going live with one business (e.g. home cleaning).
+
+### Environment variables
+Set these (e.g. in Vercel or `.env.local`); see `.env.example` for names:
+- **Supabase:** `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- **Stripe:** `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` (use live keys for real payments)
+- **Google Maps:** `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` (for service-area drawing in Settings > Industries > Locations)
+- **App:** `NEXT_PUBLIC_APP_URL` (e.g. `https://yourdomain.com`)
+- **Email:** `RESEND_API_KEY`, `RESEND_FROM_EMAIL` (or your provider) for booking and invoice emails
+
+### Database
+- Run all migrations in `database/migrations/` in order (001 through 043).
+- Ensure one business exists and an admin (owner) user can sign in at `/auth/login`.
+
+### One-time setup after deploy
+1. Admin logs in at `/auth/login`.
+2. **Settings:** General (currency, timezone, scheduling), Reserve-slot (holidays, spot limits), Industries (add Home Cleaning, locations, services, frequencies, pricing).
+3. **Account > Billing:** Complete Stripe Connect so customers can pay online.
+4. **Providers:** Invite at least one provider; set availability and services.
+5. Share booking link: `/book-now?business=YOUR_BUSINESS_ID`.
+
+### Optional
+- Schedule cron for `api/cron/auto-complete-bookings` to auto-complete past bookings.
+- See `docs/DEMO_FLOW_MVP.md` for full demo flow and URLs.
+
+---
+
+## Provider Invitation Fix - Deployment Checklist
 
 ## ✅ Changes Made
 1. **Fixed API routes** - Removed hardcoded Supabase credentials

@@ -24,10 +24,17 @@ import {
   User as UserIcon,
   Mail,
   Phone,
-  MapPin
+  MapPin,
+  Pencil,
+  CreditCard,
+  Receipt,
+  FileText,
+  ListChecks,
+  Image
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
@@ -126,6 +133,7 @@ const getProviderStatusBadge = (status: string) => {
 const getStatusBadge = (status: string) => {
   const styles = {
     confirmed: "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30",
+    in_progress: "bg-amber-500/20 text-amber-300 border border-amber-500/30",
     pending: "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30",
     completed: "bg-green-500/20 text-green-300 border border-green-500/30",
     cancelled: "bg-red-500/20 text-red-300 border border-red-500/30",
@@ -133,17 +141,19 @@ const getStatusBadge = (status: string) => {
 
   const icons = {
     confirmed: CheckCircle2,
+    in_progress: Clock,
     pending: Clock,
     completed: CheckCircle2,
     cancelled: XCircle,
   };
 
   const Icon = icons[status as keyof typeof icons] || AlertCircle;
+  const label = status === "in_progress" ? "In progress" : status.charAt(0).toUpperCase() + status.slice(1);
 
   return (
-    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${styles[status as keyof typeof styles]}`} style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>
+    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${styles[status as keyof typeof styles] || styles.pending}`} style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>
       <Icon className="h-3 w-3" />
-      {status.charAt(0).toUpperCase() + status.slice(1)}
+      {label}
     </span>
   );
 };
@@ -159,6 +169,7 @@ const Dashboard = () => {
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [sendInvitationLoading, setSendInvitationLoading] = useState(false);
   const [industries, setIndustries] = useState<{ id: string; name: string }[]>([]);
   const [extrasMap, setExtrasMap] = useState<Record<string, string>>({});
   const { config } = useWebsiteConfig();
@@ -257,6 +268,16 @@ const Dashboard = () => {
     return () => window.removeEventListener('focus', handleFocus);
   }, []);
 
+  // Keep booking summary modal in sync with latest dashboard data (after refresh, assign, or accept)
+  useEffect(() => {
+    if (!data || !selectedBooking?.id) return;
+    const combined = [...(data.upcomingBookings || []), ...(data.recentBookings || [])];
+    const fresh = combined.find((b: Booking) => b && b.id === selectedBooking.id);
+    if (fresh) {
+      setSelectedBooking(fresh);
+    }
+  }, [data, selectedBooking?.id]);
+
   // Get all bookings for calendar (remove duplicates)
   const allBookings = useMemo(() => {
     if (!data) return [];
@@ -340,17 +361,21 @@ const Dashboard = () => {
     return bookingsByDate[dateStr] && bookingsByDate[dateStr].length > 0;
   };
 
-  const DetailRow = ({ label, value, className }: { label: string; value: string; className?: string }) => (
-    <div className="flex justify-between items-start gap-4 py-1.5">
-      <span className="text-gray-500 text-sm shrink-0">{label}</span>
-      <span className={cn("text-sm font-medium text-right text-gray-900 break-words max-w-[60%]", className)}>{value}</span>
-    </div>
-  );
+  const formatTime = (timeStr: string) => {
+    try {
+      const [h, m] = timeStr.split(":").map(Number);
+      const h12 = h % 12 || 12;
+      const ampm = h < 12 ? "AM" : "PM";
+      return `${String(h12).padStart(2, "0")}:${String(m || 0).padStart(2, "0")} ${ampm}`;
+    } catch {
+      return timeStr;
+    }
+  };
 
-  const DetailSection = ({ title, children }: { title: string; children: ReactNode }) => (
-    <div className="rounded-lg bg-gray-50/80 dark:bg-gray-900/30 p-3 space-y-1">
-      <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">{title}</h4>
-      {children}
+  const DetailRow = ({ label, value, className }: { label: string; value: string; className?: string }) => (
+    <div className="flex justify-between items-start gap-4 py-1.5 min-w-0">
+      <span className="text-muted-foreground text-sm shrink-0">{label}</span>
+      <span className={cn("text-sm font-medium text-right break-words break-all min-w-0 flex-1", className)}>{value}</span>
     </div>
   );
 
@@ -378,11 +403,20 @@ const Dashboard = () => {
     return day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
   };
 
-  const acceptBooking = () => {
+  const acceptBooking = async () => {
     if (!selectedBooking) return;
-    // In a real implementation, this would call an API to update the booking status
+    const { error } = await supabase
+      .from('bookings')
+      .update({ status: 'confirmed', updated_at: new Date().toISOString() })
+      .eq('id', selectedBooking.id);
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      return;
+    }
+    setSelectedBooking((prev) => prev ? { ...prev, status: 'confirmed' } : null);
     const name = selectedBooking.provider?.name || selectedBooking.customer?.name || selectedBooking.customerName || 'Unknown';
     toast({ title: 'Booking accepted', description: `${name} • ${selectedBooking.service} is now confirmed.` });
+    fetchDashboardData(false);
   };
 
   const handleAssignProvider = async () => {
@@ -670,7 +704,7 @@ const Dashboard = () => {
 
                             return (
                               <div 
-                                key={booking.id}
+                                key={`${booking.id}-${(booking as { date?: string }).date ?? ''}-${booking.time ?? ''}-${i}`}
                                 className="text-[9px] px-1 py-1 rounded text-white leading-tight cursor-pointer"
                                 style={{ background: chipColor }}
                                 title={`${booking.time} - ${booking.customerName} - ${booking.service}`}
@@ -721,9 +755,9 @@ const Dashboard = () => {
               <div className="mt-4">
                 <h4 className="text-sm font-semibold mb-2" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>Bookings on {getFormattedSelectedDate}</h4>
                 <div className="space-y-2">
-                  {(bookingsByDate[selectedDate] || []).map((booking) => (
+                  {(bookingsByDate[selectedDate] || []).map((booking, idx) => (
                     <div
-                      key={booking.id}
+                      key={`${booking.id}-${(booking as { date?: string }).date ?? ''}-${booking.time ?? ''}-${idx}`}
                       className="flex items-center justify-between rounded-lg border border-cyan-500/20 bg-white/5 px-3 py-2 text-sm hover:bg-white/10 cursor-pointer transition-all"
                       onClick={() => setSelectedBooking(booking)}
                     >
@@ -808,211 +842,272 @@ const Dashboard = () => {
 
       
     </div>
-    {/* Booking Details Dialog */}
-    <Dialog open={!!selectedBooking} onOpenChange={(o) => { if (!o) setSelectedBooking(null); }}>
-      <DialogContent className="max-w-2xl p-0 overflow-hidden data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 duration-300">
-        <DialogHeader className="px-6 pt-6 pb-0 animate-in fade-in-0 slide-in-from-top-2 duration-300">
-          <DialogTitle style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>Booking summary</DialogTitle>
-          <DialogDescription style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }} className="sr-only">View information about this booking.</DialogDescription>
-        </DialogHeader>
+    {/* Booking Details - side sheet like admin Bookings page */}
+    <Sheet open={!!selectedBooking} onOpenChange={(o) => { if (!o) setSelectedBooking(null); }}>
+      <SheetContent side="right" className="w-full sm:max-w-lg p-0 flex flex-col h-screen max-h-screen overflow-hidden [&>button]:text-red-500 [&>button]:hover:text-red-600">
+        <SheetHeader className="px-6 pt-6 pb-4 shrink-0 border-b border-transparent flex flex-row items-center justify-between gap-4">
+          <SheetTitle className="text-lg font-bold">Booking summary</SheetTitle>
+          {selectedBooking && getStatusBadge(selectedBooking.status)}
+        </SheetHeader>
         {selectedBooking && (
-          <div className="px-6 pb-6 max-h-[70vh] overflow-y-auto">
-            {/* Customer info block with animation */}
-            <div className="flex gap-4 pt-5 animate-in fade-in-0 slide-in-from-left-2 duration-300 delay-75">
-              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-gray-100 to-gray-200 ring-2 ring-gray-100 transition-transform hover:scale-105">
-                <UserIcon className="h-7 w-7 text-gray-600" />
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-6 py-4 flex flex-col gap-4 overscroll-contain">
+            {/* Customer info - same as Bookings page */}
+            <div className="flex gap-4 pt-4">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gray-200 dark:bg-gray-700">
+                <UserIcon className="h-7 w-7 text-gray-500" />
               </div>
-              <div className="min-w-0 flex-1 space-y-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-base">
-                    {selectedBooking.customer?.name || selectedBooking.customerName || 'Customer'}
-                  </span>
-                </div>
-                {selectedBooking.customer?.email && (
-                  <div className="flex items-center gap-2 text-sm text-gray-600 transition-colors hover:text-gray-900">
-                    <Mail className="h-3.5 w-3.5 shrink-0 text-gray-400" />
-                    <span className="truncate">{selectedBooking.customer.email}</span>
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <p className="font-semibold text-base">{selectedBooking.customer?.name || selectedBooking.customerName || "Customer"}</p>
+                {(selectedBooking.customer?.email || (selectedBooking as any).customer_email) && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Mail className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{selectedBooking.customer?.email || (selectedBooking as any).customer_email}</span>
                   </div>
                 )}
-                {selectedBooking.customer?.phone && (
-                  <div className="flex items-center gap-2 text-sm text-gray-600 transition-colors hover:text-gray-900">
-                    <Phone className="h-3.5 w-3.5 shrink-0 text-gray-400" />
-                    <span>{selectedBooking.customer.phone}</span>
+                {(selectedBooking.customer?.phone || (selectedBooking as any).customer_phone) && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Phone className="h-3.5 w-3.5 shrink-0" />
+                    <span>{selectedBooking.customer?.phone || (selectedBooking as any).customer_phone}</span>
                   </div>
                 )}
                 {(selectedBooking.address || selectedBooking.aptNo) && (
-                  <div className="flex items-start gap-2 text-sm text-gray-600 transition-colors hover:text-gray-900">
-                    <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5 text-gray-400" />
-                    <span className="break-words">
-                      {[selectedBooking.aptNo ? `Apt - ${selectedBooking.aptNo}` : null, selectedBooking.address].filter(Boolean).join(', ') || '—'}
-                    </span>
+                  <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                    <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <span className="break-words">{[selectedBooking.aptNo ? `Apt - ${selectedBooking.aptNo}` : null, selectedBooking.address].filter(Boolean).join(", ") || "—"}</span>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Collapsible Booking details - organized into sections */}
-            <div className="border-t border-gray-200 mt-5 pt-5 animate-in fade-in-0 duration-300 delay-100">
+            {/* Booking details - single grey card like Bookings page */}
+            <div className="rounded-lg bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 min-w-0 shrink-0">
               <Collapsible defaultOpen className="group">
-                <CollapsibleTrigger className="flex w-full items-center justify-between py-2.5 px-3 -mx-3 rounded-lg text-left font-semibold text-sm hover:bg-gray-50 transition-colors duration-200">
+                <CollapsibleTrigger className="flex w-full items-center justify-between py-3 px-4 text-left font-semibold text-sm hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition-colors shrink-0">
                   <span>Booking details</span>
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white group-data-[state=open]:hidden transition-all duration-200">
-                    <Plus className="h-3.5 w-3.5 text-gray-500" />
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-white dark:bg-gray-800 group-data-[state=open]:hidden">
+                    <Plus className="h-3.5 w-3.5 text-muted-foreground" />
                   </span>
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white hidden group-data-[state=open]:flex transition-all duration-200">
-                    <Minus className="h-3.5 w-3.5 text-gray-500" />
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-white dark:bg-gray-800 hidden group-data-[state=open]:flex">
+                    <Minus className="h-3.5 w-3.5 text-muted-foreground" />
                   </span>
                 </CollapsibleTrigger>
-                <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-1 duration-200">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3">
-                    {/* Booking info */}
-                    <DetailSection title="Booking info">
-                      <DetailRow label="Booking id" value={String(selectedBooking.id)} />
-                      {selectedBooking.zipCode && <DetailRow label="Zip/Postal code" value={selectedBooking.zipCode} />}
-                      {industries[0]?.name && <DetailRow label="Industry" value={industries[0].name} />}
-                      <DetailRow label="Service" value={selectedBooking.service || "—"} />
-                      {selectedBooking.frequency && <DetailRow label="Frequency" value={selectedBooking.frequency} />}
-                    </DetailSection>
-                    {/* Service details */}
-                    <DetailSection title="Service details">
-                      {selectedBooking.customization && typeof selectedBooking.customization === "object" && (() => {
-                        const c = selectedBooking.customization as Record<string, unknown>;
-                        const cv = (c.categoryValues || {}) as Record<string, string>;
-                        const bath = cv.Bathroom ?? cv.bathroom ?? c.bathroom ?? c.bathrooms;
-                        const sqft = cv["Sq Ft"] ?? cv.sqFt ?? cv.squareMeters ?? c.squareMeters ?? c.sqFt ?? c.sqft;
-                        const bed = cv.Bedroom ?? cv.bedroom ?? c.bedroom ?? c.bedrooms;
-                        const livingRoom = cv["Living Room"] ?? cv.livingRoom ?? c.livingRoom;
-                        const storage = cv.Storage ?? cv.storage ?? c.storage;
-                        const items: { label: string; value: string }[] = [];
-                        if (bath != null && String(bath).trim()) items.push({ label: "Bathrooms", value: String(bath) });
-                        if (sqft != null && String(sqft).trim()) items.push({ label: "Sq Ft", value: String(sqft) });
-                        if (bed != null && String(bed).trim()) items.push({ label: "Bedrooms", value: String(bed) });
-                        if (livingRoom != null && String(livingRoom).trim()) items.push({ label: "Living Room", value: String(livingRoom) });
-                        if (storage != null && String(storage).trim()) items.push({ label: "Storage", value: String(storage) });
-                        if (items.length === 0) return null;
-                        return <>{items.map(({ label, value }) => <DetailRow key={label} label={label} value={value} />)}</>;
-                      })()}
-                      {(() => {
-                        const c = (selectedBooking.customization || {}) as Record<string, unknown>;
-                        const ids = (c.selectedExtras as string[]) || [];
-                        const names = ids.map((id: string) => extrasMap[id] || id).filter(Boolean);
-                        if (names.length === 0) return null;
-                        return <DetailRow label="Extras" value={names.join(", ")} className="text-right" />;
-                      })()}
-                      {selectedBooking.provider?.name && <DetailRow label="Professionals" value="1" />}
-                      {selectedBooking.durationMinutes != null && selectedBooking.durationMinutes > 0 && (
-                        <DetailRow
-                          label="Length"
-                          value={selectedBooking.durationMinutes >= 60
-                            ? `${Math.floor(selectedBooking.durationMinutes / 60)} Hr ${selectedBooking.durationMinutes % 60 ? `${selectedBooking.durationMinutes % 60} Min` : "0 Min"}`
-                            : `${selectedBooking.durationMinutes} Min`}
-                        />
-                      )}
-                    </DetailSection>
-                    {/* Schedule & assignment */}
-                    <DetailSection title="Schedule">
+                <CollapsibleContent className="overflow-visible">
+                  <div className="px-4 pb-4 space-y-2">
+                    <DetailRow label="Booking id" value={String(selectedBooking.id)} />
+                    {(selectedBooking.zipCode || (selectedBooking as any).zip_code) && (
+                      <DetailRow label="Zip/Postal code" value={selectedBooking.zipCode || (selectedBooking as any).zip_code} />
+                    )}
+                    {industries[0]?.name && <DetailRow label="Industry" value={industries[0].name} />}
+                    {selectedBooking.service && <DetailRow label="Service" value={selectedBooking.service} />}
+                    {(selectedBooking.frequency || (selectedBooking as any).frequency) && (
+                      <DetailRow label="Frequency" value={selectedBooking.frequency || (selectedBooking as any).frequency} />
+                    )}
+                    {selectedBooking.customization && typeof selectedBooking.customization === "object" && (() => {
+                      const c = selectedBooking.customization as Record<string, unknown>;
+                      const cv = (c.categoryValues || {}) as Record<string, string>;
+                      const bath = cv.Bathroom ?? cv.bathroom ?? c.bathroom ?? c.bathrooms;
+                      const sqft = cv["Sq Ft"] ?? cv.sqFt ?? cv.squareMeters ?? c.squareMeters ?? c.sqFt ?? c.sqft;
+                      const bed = cv.Bedroom ?? cv.bedroom ?? c.bedroom ?? c.bedrooms;
+                      return (
+                        <>
+                          {bath != null && String(bath).trim() && <DetailRow label="Bathrooms" value={String(bath).trim()} />}
+                          {sqft != null && String(sqft).trim() && <DetailRow label="Sq Ft" value={String(sqft).trim()} />}
+                          {bed != null && String(bed).trim() && <DetailRow label="Bedrooms" value={String(bed).trim()} />}
+                        </>
+                      );
+                    })()}
+                    {(() => {
+                      const c = (selectedBooking.customization || {}) as Record<string, unknown>;
+                      const ids = (c.selectedExtras as string[]) || [];
+                      const names = ids.map((id: string) => extrasMap[id] || id).filter(Boolean);
+                      return names.length > 0 ? <DetailRow label="Extras" value={names.join(", ")} /> : null;
+                    })()}
+                    {(selectedBooking.provider?.name || selectedBooking.provider_id) && <DetailRow label="Professionals" value="1" />}
+                    {(selectedBooking.durationMinutes ?? (selectedBooking as any).duration_minutes) != null && (selectedBooking.durationMinutes ?? (selectedBooking as any).duration_minutes) > 0 && (
+                      <DetailRow
+                        label="Length"
+                        value={((selectedBooking.durationMinutes ?? (selectedBooking as any).duration_minutes) >= 60
+                          ? `${Math.floor((selectedBooking.durationMinutes ?? (selectedBooking as any).duration_minutes) / 60)} Hr ${(selectedBooking.durationMinutes ?? (selectedBooking as any).duration_minutes) % 60 || 0} Min`
+                          : `${selectedBooking.durationMinutes ?? (selectedBooking as any).duration_minutes} Min`)}
+                      />
+                    )}
+                    {(selectedBooking.date || selectedBooking.time) && (
                       <DetailRow
                         label="Service date"
                         value={selectedBooking.date && selectedBooking.time
-                          ? `${new Date(selectedBooking.date + "T00:00:00").toLocaleDateString(undefined, { weekday: "short", month: "2-digit", day: "2-digit", year: "numeric" })} — ${selectedBooking.time}`
-                          : selectedBooking.date || "—"}
+                          ? `${new Date(selectedBooking.date + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "2-digit", day: "2-digit", year: "numeric" })}, ${formatTime(selectedBooking.time)}`
+                          : selectedBooking.date || formatTime(selectedBooking.time) || "—"}
                       />
-                      <DetailRow label="Assigned to" value={selectedBooking.provider?.name || "Unassigned"} className="font-bold text-gray-900" />
-                    </DetailSection>
-                    {/* Payment & location */}
-                    <DetailSection title="Payment & location">
-                      {selectedBooking.providerWage != null && selectedBooking.providerWage > 0 && (
-                        <div className="flex justify-between items-center gap-4 py-1.5">
-                          <span className="text-gray-500 text-sm shrink-0">Provider payment</span>
-                          <span className="text-sm font-medium text-right">
-                            ${Number(selectedBooking.providerWage).toFixed(2)}
-                            <Link href="/admin/settings" className="text-orange-600 hover:underline ml-1.5 text-xs">Learn more</Link>
-                          </span>
-                        </div>
-                      )}
-                      {(selectedBooking.aptNo || selectedBooking.address) && (
-                        <DetailRow
-                          label="Location"
-                          value={[selectedBooking.aptNo ? `Apt - ${selectedBooking.aptNo}` : null, selectedBooking.address].filter(Boolean).join(", ")}
-                          className="text-right"
-                        />
-                      )}
-                      {selectedBooking.paymentMethod && (
-                        <div className="flex justify-between items-center gap-4 py-1.5">
-                          <span className="text-gray-500 text-sm">Payment method</span>
-                          <span className={cn(
-                            "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium",
-                            "bg-green-100 text-green-800"
-                          )}>
-                            {selectedBooking.paymentMethod === "online" || selectedBooking.paymentMethod === "card" ? "CC" : selectedBooking.paymentMethod === "cash" ? "Cash/Check" : selectedBooking.paymentMethod}
-                          </span>
-                        </div>
-                      )}
-                      {selectedBooking.amount && (
-                        <div className="flex justify-between items-center gap-4 py-1.5">
-                          <span className="text-gray-500 text-sm shrink-0">Price details</span>
-                          <span className="text-sm font-medium text-right">
-                            {selectedBooking.amount}
-                            <Link href="/admin/settings" className="text-orange-600 hover:underline ml-1.5 text-xs">Learn more</Link>
-                          </span>
-                        </div>
-                      )}
-                      {(selectedBooking as any).status === "cancelled" && (selectedBooking as any).cancellation_fee_amount != null && Number((selectedBooking as any).cancellation_fee_amount) > 0 && (
-                        <div className="flex justify-between items-center gap-4 py-1.5">
-                          <span className="text-gray-500 text-sm shrink-0">Cancellation fee (applied)</span>
-                          <span className="text-sm font-medium text-right">
-                            {(selectedBooking as any).cancellation_fee_currency ?? "$"}{Number((selectedBooking as any).cancellation_fee_amount).toFixed(2)}
-                          </span>
-                        </div>
-                      )}
+                    )}
+                    <DetailRow label="Assigned to" value={selectedBooking.provider?.name || (selectedBooking as any).provider_name || "Unassigned"} />
+                    {(selectedBooking.providerWage ?? (selectedBooking as any).provider_wage) != null && (selectedBooking.providerWage ?? (selectedBooking as any).provider_wage) > 0 && (
+                      <div className="flex justify-between items-center gap-4 py-1.5 min-w-0">
+                        <span className="text-muted-foreground text-sm shrink-0">Provider payment</span>
+                        <span className="text-sm font-medium text-right break-words min-w-0 flex-1">
+                          ${Number(selectedBooking.providerWage ?? (selectedBooking as any).provider_wage).toFixed(2)}
+                          <Link href="/admin/settings" className="text-orange-600 hover:underline ml-1.5 text-xs">Learn more</Link>
+                        </span>
+                      </div>
+                    )}
+                    {(selectedBooking.aptNo || selectedBooking.address || (selectedBooking as any).apt_no) && (
+                      <DetailRow
+                        label="Location"
+                        value={[(selectedBooking.aptNo ?? (selectedBooking as any).apt_no) ? `Apt - ${selectedBooking.aptNo ?? (selectedBooking as any).apt_no}` : null, selectedBooking.address].filter(Boolean).join(", ")}
+                        className="text-right"
+                      />
+                    )}
+                    {(selectedBooking as any).status === "cancelled" && (selectedBooking as any).cancellation_fee_amount != null && Number((selectedBooking as any).cancellation_fee_amount) > 0 && (
                       <div className="flex justify-between items-center gap-4 py-1.5">
-                        <span className="text-gray-500 text-sm">Status</span>
-                        <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 capitalize">{selectedBooking.status}</span>
+                        <span className="text-muted-foreground text-sm shrink-0">Cancellation fee (applied)</span>
+                        <span className="text-sm font-medium text-right">
+                          {(selectedBooking as any).cancellation_fee_currency ?? "$"}{Number((selectedBooking as any).cancellation_fee_amount).toFixed(2)}
+                        </span>
                       </div>
-                      <div className="pt-1.5 mt-1.5 border-t border-gray-200">
-                        <p className="text-xs text-gray-500">Cancellation policy and fee are set in Settings → General → Cancellation.</p>
-                      </div>
-                    </DetailSection>
-                  </div>
-                  {selectedBooking.notes && (
-                    <div className="mt-4 rounded-lg bg-amber-50/80 dark:bg-amber-950/20 p-3 border border-amber-100">
-                      <h4 className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-600 mb-1.5">Notes</h4>
-                      <p className="text-sm text-gray-700 dark:text-gray-300">{selectedBooking.notes}</p>
+                    )}
+                    <div className="flex justify-between items-center gap-4 py-1.5">
+                      <span className="text-muted-foreground text-sm">Payment method</span>
+                      <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                        {((selectedBooking.paymentMethod ?? (selectedBooking as any).payment_method) === "online" || (selectedBooking.paymentMethod ?? (selectedBooking as any).payment_method) === "card") ? "CC" : (selectedBooking.paymentMethod ?? (selectedBooking as any).payment_method) === "cash" ? "Cash/Check" : (selectedBooking.paymentMethod ?? (selectedBooking as any).payment_method) || "—"}
+                      </span>
                     </div>
-                  )}
+                    <div className="flex justify-between items-center gap-4 py-1.5 min-w-0">
+                      <span className="text-muted-foreground text-sm shrink-0">Price details</span>
+                      <span className="text-sm font-medium text-right break-words min-w-0 flex-1">
+                        {(() => {
+                          const amount = (selectedBooking as any).total_price ?? selectedBooking.amount;
+                          const numAmount = typeof amount === "string" ? parseFloat(amount) : amount;
+                          return isNaN(numAmount) ? "$0.00" : `$${numAmount.toFixed(2)}`;
+                        })()}
+                        <Link href="/admin/settings" className="text-orange-600 hover:underline ml-1.5 text-xs">Learn more</Link>
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center gap-4 py-1.5">
+                      <span className="text-muted-foreground text-sm">Status</span>
+                      <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 capitalize">{selectedBooking.status}</span>
+                    </div>
+                    <div className="pt-1.5 mt-1.5 border-t border-border/50">
+                      <p className="text-xs text-muted-foreground">Cancellation policy and fee are set in Settings → General → Cancellation.</p>
+                    </div>
+                  </div>
                 </CollapsibleContent>
               </Collapsible>
             </div>
 
-            <Button
-              variant="outline"
-              className="w-full mt-5 border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors duration-200 hover:border-gray-400"
-              onClick={() => {
-                router.push(`/admin/bookings?booking=${selectedBooking.id}`);
+            {/* Note(s) - separate collapsible card like Bookings page */}
+            <div className="rounded-lg bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 min-w-0 shrink-0">
+              <Collapsible defaultOpen={!!selectedBooking.notes} className="group">
+                <CollapsibleTrigger className="flex w-full items-center justify-between py-3 px-4 text-left font-semibold text-sm hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition-colors shrink-0">
+                  <span>Note(s)</span>
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-white dark:bg-gray-800 group-data-[state=open]:hidden">
+                    <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+                  </span>
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-white dark:bg-gray-800 hidden group-data-[state=open]:flex">
+                    <Minus className="h-3.5 w-3.5 text-muted-foreground" />
+                  </span>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="overflow-visible">
+                  <div className="px-4 pb-4">
+                    {selectedBooking.notes ? (
+                      <p className="text-sm text-muted-foreground">{selectedBooking.notes}</p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground italic">No notes</p>
+                    )}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            </div>
+
+            {/* Action buttons - same stack as Bookings page */}
+            <div className="space-y-2 mt-auto pt-2">
+              {!selectedBooking.provider && (
+                <>
+                  <Button className="w-full text-white" style={{ backgroundColor: "#00BCD4" }} onClick={() => setShowProviderDialog(true)}>
+                    <UserPlus className="h-4 w-4 mr-2" />Assign Provider
+                  </Button>
+                  <Button
+                    className="w-full bg-violet-600 hover:bg-violet-700 text-white"
+                    disabled={sendInvitationLoading}
+                    onClick={async () => {
+                      if (!selectedBooking?.id) return;
+                      setSendInvitationLoading(true);
+                      try {
+                        const res = await fetch("/api/admin/bookings/send-invitation", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ bookingId: selectedBooking.id }),
+                        });
+                        const data = await res.json();
+                        if (!res.ok) {
+                          toast({ title: "Error", description: data.error || "Failed to send invitation", variant: "destructive" });
+                          return;
+                        }
+                        toast({ title: "Invitation sent", description: data.message || (data.providerName ? `Log into the provider portal as ${data.providerName} and open My Invitations.` : "Open provider portal → My Invitations.") });
+                        fetchDashboardData(false);
+                        setSelectedBooking((prev) => prev ? { ...prev } : null);
+                      } catch (e) {
+                        toast({ title: "Error", description: "Failed to send invitation", variant: "destructive" });
+                      } finally {
+                        setSendInvitationLoading(false);
+                      }
+                    }}
+                  >
+                    <Mail className="h-4 w-4 mr-2" />
+                    {sendInvitationLoading ? "Sending…" : "Send invitation to provider"}
+                  </Button>
+                </>
+              )}
+              <Button className="w-full text-white bg-blue-600 hover:bg-blue-700" onClick={() => { router.push(`/admin/add-booking?bookingId=${selectedBooking.id}`); setSelectedBooking(null); }}>
+                <Pencil className="h-4 w-4 mr-2" />Edit
+              </Button>
+              <Button className="w-full text-white bg-red-600 hover:bg-red-700" onClick={async () => {
+                if (!selectedBooking?.id) return;
+                const { error } = await supabase.from("bookings").update({ status: "cancelled", updated_at: new Date().toISOString() }).eq("id", selectedBooking.id);
+                if (error) { toast({ title: "Error", description: error.message, variant: "destructive" }); return; }
+                toast({ title: "Booking cancelled" });
+                fetchDashboardData(false);
                 setSelectedBooking(null);
-              }}
-            >
-              View in Bookings
-            </Button>
+              }} disabled={selectedBooking.status === "cancelled"}>
+                <XCircle className="h-4 w-4 mr-2" />Cancel
+              </Button>
+              <Button className="w-full text-white bg-emerald-500 hover:bg-emerald-600" onClick={() => { router.push(`/admin/leads?addBooking=${selectedBooking.id}`); setSelectedBooking(null); }}>
+                Add to leads funnel
+              </Button>
+              <Button className="w-full text-white bg-pink-500 hover:bg-pink-600" onClick={() => toast({ title: "Add card link", description: "Send Add card link feature." })}>
+                <CreditCard className="h-4 w-4 mr-2" />Send &quot;Add card&quot; link
+              </Button>
+              <Button className="w-full text-white bg-sky-400 hover:bg-sky-500" onClick={() => toast({ title: "Receipt", description: "Receipt will be resent to the customer." })}>
+                <Receipt className="h-4 w-4 mr-2" />Resend Receipt
+              </Button>
+              <Button className="w-full text-white bg-amber-400 hover:bg-amber-500" onClick={() => { router.push(`/admin/logs?booking=${selectedBooking.id}`); setSelectedBooking(null); }}>
+                <FileText className="h-4 w-4 mr-2" />View Booking Log
+              </Button>
+              <Button className="w-full text-white bg-rose-400 hover:bg-rose-500" onClick={() => { router.push(`/admin/booking-charges?precharge=${selectedBooking.id}`); setSelectedBooking(null); }}>
+                Pre-charge
+              </Button>
+              <Button className="w-full text-white bg-orange-500 hover:bg-orange-600" onClick={() => toast({ title: "Checklist", description: "View checklist for this booking." })}>
+                <ListChecks className="h-4 w-4 mr-2" />View Checklist
+              </Button>
+              <Button className="w-full text-white bg-amber-300 hover:bg-amber-400 text-gray-900" onClick={() => toast({ title: "Job Media", description: "View job media and photos." })}>
+                <Image className="h-4 w-4 mr-2" />Job Media
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-800"
+                onClick={() => { router.push(`/admin/bookings?booking=${selectedBooking.id}`); setSelectedBooking(null); }}
+              >
+                View in Bookings
+              </Button>
+              <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
+                <Button variant="outline" onClick={() => setSelectedBooking(null)}>Close</Button>
+                {selectedBooking?.status === "pending" && selectedBooking?.provider && (
+                  <Button onClick={acceptBooking} variant="default">Accept Booking</Button>
+                )}
+              </div>
+            </div>
           </div>
         )}
-        <DialogFooter className="gap-2 sm:gap-0 px-5 pb-5">
-          <Button variant="outline" onClick={() => setSelectedBooking(null)}>Close</Button>
-          {!selectedBooking?.provider && (
-            <Button
-              onClick={() => setShowProviderDialog(true)}
-              style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}
-            >
-              <UserPlus className="h-4 w-4 mr-2" />
-              Assign Provider
-            </Button>
-          )}
-          {selectedBooking?.status === 'pending' && selectedBooking?.provider && (
-            <Button onClick={acceptBooking} variant="default">Accept Booking</Button>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
 
     {/* Assign Provider Dialog */}
     <Dialog open={showProviderDialog} onOpenChange={(open) => { setShowProviderDialog(open); if (!open) setSelectedProvider(null); }}>

@@ -10,8 +10,10 @@ import { Briefcase, MapPin, Calendar, Clock, DollarSign, Loader2 } from "lucide-
 type UnassignedBooking = {
   id: string;
   service: string;
-  scheduled_date: string;
-  scheduled_time: string;
+  scheduled_date?: string;
+  scheduled_time?: string;
+  date?: string;
+  time?: string;
   address: string;
   apt_no?: string;
   zip_code?: string;
@@ -27,6 +29,7 @@ export default function ProviderUnassignedPage() {
   const [bookings, setBookings] = useState<UnassignedBooking[]>([]);
   const [loading, setLoading] = useState(true);
   const [grabbing, setGrabbing] = useState<string | null>(null);
+  const [unassignedDisabled, setUnassignedDisabled] = useState(false);
   const { toast } = useToast();
 
   const fetchUnassigned = async () => {
@@ -38,8 +41,10 @@ export default function ProviderUnassignedPage() {
       });
       const data = await res.json();
       setBookings(data.bookings ?? []);
+      setUnassignedDisabled(data.canGrab === false || (data.error && data.error.includes("cannot see unassigned")));
     } catch {
       setBookings([]);
+      setUnassignedDisabled(false);
     } finally {
       setLoading(false);
     }
@@ -121,7 +126,17 @@ export default function ProviderUnassignedPage() {
         </p>
       </div>
 
-      {bookings.length === 0 ? (
+      {unassignedDisabled ? (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Briefcase className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+            <p className="font-medium">Unassigned jobs are not available</p>
+            <p className="text-sm text-muted-foreground mt-2">
+              Your admin has disabled this feature in Settings → Scheduling. Only assigned bookings will appear in My Bookings.
+            </p>
+          </CardContent>
+        </Card>
+      ) : bookings.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
             <Briefcase className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -157,7 +172,7 @@ export default function ProviderUnassignedPage() {
               <CardContent className="space-y-2 text-sm">
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Calendar className="h-4 w-4 shrink-0" />
-                  {formatDate(b.scheduled_date)} at {formatTime(b.scheduled_time)}
+                  {formatDate(b.scheduled_date || b.date || "")} at {formatTime(b.scheduled_time || b.time || "")}
                 </div>
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <MapPin className="h-4 w-4 shrink-0" />

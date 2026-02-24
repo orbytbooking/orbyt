@@ -1,18 +1,17 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseProviderClient } from '@/lib/supabaseProviderClient';
 import { createAdminNotification } from '@/lib/adminProviderSync';
+import { notifyProviderOfBooking } from '@/lib/notifyProviderBooking';
 
 /**
  * POST: Provider grabs an unassigned booking
  * Body: { bookingId: string }
+ * Auth: Bearer token from provider session.
  */
 export async function POST(request: NextRequest) {
   try {
-    const supabaseProvider = getSupabaseProviderClient();
-    const { data: { session }, error: authError } = await supabaseProvider.auth.getSession();
-
-    if (authError || !session?.user) {
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -29,10 +28,16 @@ export async function POST(request: NextRequest) {
       { auth: { persistSession: false } }
     );
 
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { data: provider } = await supabaseAdmin
       .from('service_providers')
       .select('id, business_id, first_name, last_name')
-      .eq('user_id', session.user.id)
+      .eq('user_id', user.id)
       .single();
 
     if (!provider) {
@@ -86,15 +91,24 @@ export async function POST(request: NextRequest) {
     // Notify admin
     if (provider.business_id) {
       try {
-        await createAdminNotification({
-          businessId: provider.business_id,
-          title: 'Provider grabbed job',
-          description: `${providerName} grabbed the booking for ${booking.customer_name || 'Customer'} - ${booking.service}`,
-          link: `/admin/bookings?highlight=${bookingId}`,
-        });
+        await createAdminNotification(
+          provider.business_id,
+          'provider_grabbed_job',
+          {
+            title: 'Provider grabbed job',
+            message: `${providerName} grabbed the booking for ${booking.customer_name || 'Customer'} - ${booking.service}`,
+            link: `/admin/bookings?highlight=${bookingId}`,
+          }
+        );
       } catch {
         // Non-blocking
       }
+    }
+
+    try {
+      await notifyProviderOfBooking(supabaseAdmin, { bookingId });
+    } catch {
+      // Non-blocking
     }
 
     return NextResponse.json({
