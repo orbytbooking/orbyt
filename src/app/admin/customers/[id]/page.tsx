@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
@@ -64,9 +64,14 @@ type Customer = {
   authUserId?: string | null;
 };
 
+const VALID_TABS = ["dashboard", "profile", "gift", "referrals", "drive", "invoices", "notifications"];
+
 export default function CustomerProfilePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const activeTab = tabParam && VALID_TABS.includes(tabParam) ? tabParam : "dashboard";
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [ratingForm, setRatingForm] = useState({ provider: "", score: 5, comment: "" });
   const id = params?.id;
@@ -1055,7 +1060,7 @@ export default function CustomerProfilePage() {
 
       
 
-      <Tabs defaultValue="dashboard" className="w-full">
+      <Tabs value={activeTab} onValueChange={(v) => { const u = new URLSearchParams(searchParams.toString()); u.set("tab", v); router.replace(`?${u.toString()}`, { scroll: false }); }} className="w-full">
         <TabsList className="w-full justify-start gap-2 bg-muted/40 p-0 h-auto rounded-none border-b border-slate-200">
           <TabsTrigger value="dashboard" className="rounded-none px-3 py-3 text-white data-[state=active]:font-semibold data-[state=active]:text-white data-[state=active]:border-b-2 data-[state=active]:border-cyan-600">
             Dashboard

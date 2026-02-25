@@ -5,9 +5,10 @@ import { getCancellationFeeForBooking } from '@/lib/cancellationFee';
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -32,12 +33,15 @@ export async function GET(
     if (!businessId) {
       return NextResponse.json({ error: 'Business context required' }, { status: 400 });
     }
+    if (!id || id === 'undefined' || id === 'null' || typeof id !== 'string' || id.trim() === '') {
+      return NextResponse.json({ error: 'Invalid booking ID' }, { status: 400 });
+    }
 
     // Get booking by ID
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
       .select('*')
-      .eq('id', params.id)
+      .eq('id', id)
       .eq('business_id', businessId)
       .single();
 
@@ -61,9 +65,10 @@ export async function GET(
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -88,6 +93,9 @@ export async function PUT(
     if (!businessId) {
       return NextResponse.json({ error: 'Business context required' }, { status: 400 });
     }
+    if (!id || id === 'undefined' || id === 'null' || typeof id !== 'string' || id.trim() === '') {
+      return NextResponse.json({ error: 'Invalid booking ID' }, { status: 400 });
+    }
 
     // Verify user has permission to update bookings
     const { data: businessAccess, error: accessError } = await supabase
@@ -103,7 +111,7 @@ export async function PUT(
 
     // Parse request body
     let updateData = await request.json();
-    const bookingId = params.id;
+    const bookingId = id;
 
     // If this is the add-booking form payload (full booking update), build DB-shaped update object
     if (updateData.customer_name !== undefined && typeof updateData.customer_name === 'string') {
@@ -155,7 +163,7 @@ export async function PUT(
         }
       }
       let providerName: string | null = (bookingData.provider_name || '').toString().trim() || null;
-      const providerId = bookingData.service_provider_id || null;
+      const providerId = bookingData.service_provider_id ?? null;
       if (providerId && !providerName) {
         const { data: prov } = await supabase
           .from('service_providers')
@@ -164,11 +172,28 @@ export async function PUT(
           .maybeSingle();
         if (prov) providerName = `${(prov.first_name || '').trim()} ${(prov.last_name || '').trim()}`.trim() || null;
       }
+      // Normalize date: use non-empty string or null (so service date is always persisted when provided)
+      const rawDate = (bookingData.date ?? bookingData.scheduled_date ?? '')?.toString?.()?.trim() || null;
+      const scheduledDate = rawDate && rawDate.length >= 10 ? rawDate : null;
+      // Normalize time: Postgres time accepts HH:mm or HH:mm:ss; ensure we don't send invalid values
+      const rawTime = (bookingData.time ?? bookingData.scheduled_time ?? '')?.toString?.()?.trim() || null;
+      let scheduledTime: string | null = null;
+      if (rawTime) {
+        const match = rawTime.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+        if (match) {
+          const h = String(parseInt(match[1], 10)).padStart(2, '0');
+          const m = String(parseInt(match[2], 10)).padStart(2, '0');
+          const s = match[3] != null ? String(parseInt(match[3], 10)).padStart(2, '0') : '00';
+          scheduledTime = `${h}:${m}:${s}`;
+        } else {
+          scheduledTime = rawTime;
+        }
+      }
       const built: Record<string, unknown> = {
         provider_id: providerId,
         status: finalStatus,
-        scheduled_date: bookingData.date ?? bookingData.scheduled_date ?? null,
-        scheduled_time: bookingData.time ?? bookingData.scheduled_time ?? null,
+        scheduled_date: scheduledDate,
+        scheduled_time: scheduledTime,
         address: (bookingData.address || 'Default Address').toString(),
         apt_no: bookingData.apt_no ?? null,
         zip_code: bookingData.zip_code ?? null,
@@ -179,10 +204,11 @@ export async function PUT(
         customer_name: bookingData.customer_name ?? null,
         customer_phone: bookingData.customer_phone ?? null,
         service: bookingData.service ?? null,
-        date: bookingData.date ?? bookingData.scheduled_date ?? null,
-        time: bookingData.time ?? bookingData.scheduled_time ?? null,
+        date: scheduledDate,
+        time: scheduledTime,
         customer_id: customerId,
         amount: bookingData.amount ?? bookingData.total_price ?? 0,
+        updated_at: new Date().toISOString(),
       };
       if (providerName) built.provider_name = providerName;
       const hasPartialCleaning = Boolean(bookingData.is_partial_cleaning);
@@ -222,11 +248,18 @@ export async function PUT(
         built.adjust_price = true;
         const priceAmt = parseFloat(String(bookingData.adjustment_amount));
         if (!isNaN(priceAmt)) built.adjustment_amount = priceAmt;
+        built.price_adjustment_note = bookingData.price_adjustment_note != null && typeof bookingData.price_adjustment_note === 'string'
+          ? (bookingData.price_adjustment_note.trim() || null)
+          : null;
       } else {
         built.adjust_price = false;
         built.adjustment_amount = null;
+        built.price_adjustment_note = null;
       }
       built.adjust_time = bookingData.adjust_time === true;
+      built.time_adjustment_note = bookingData.adjust_time === true && bookingData.time_adjustment_note != null && typeof bookingData.time_adjustment_note === 'string'
+        ? (bookingData.time_adjustment_note.trim() || null)
+        : null;
       built.private_booking_notes = Array.isArray(bookingData.private_booking_notes) ? bookingData.private_booking_notes.filter((n: unknown) => typeof n === 'string') : [];
       built.private_customer_notes = Array.isArray(bookingData.private_customer_notes) ? bookingData.private_customer_notes.filter((n: unknown) => typeof n === 'string') : [];
       built.service_provider_notes = Array.isArray(bookingData.service_provider_notes) ? bookingData.service_provider_notes.filter((n: unknown) => typeof n === 'string') : [];
@@ -237,6 +270,33 @@ export async function PUT(
         if (durationMinutes > 0) built.duration_minutes = durationMinutes;
       }
       updateData = built;
+    }
+
+    // When editing a recurring booking's date/time, update the series so all recurring occurrences move (update all recurring)
+    const newDate = (updateData as Record<string, unknown>).scheduled_date ?? (updateData as Record<string, unknown>).date;
+    const newTime = (updateData as Record<string, unknown>).scheduled_time ?? (updateData as Record<string, unknown>).time;
+    if (newDate && typeof newDate === 'string' && newDate.trim().length >= 10) {
+      const { data: existingBooking } = await supabase
+        .from('bookings')
+        .select('recurring_series_id')
+        .eq('id', bookingId)
+        .eq('business_id', businessId)
+        .single();
+      const seriesId = (existingBooking as { recurring_series_id?: string } | null)?.recurring_series_id;
+      if (seriesId) {
+        const seriesUpdate: Record<string, unknown> = {
+          start_date: newDate.trim(),
+          updated_at: new Date().toISOString(),
+        };
+        if (newTime != null && typeof newTime === 'string' && String(newTime).trim()) {
+          seriesUpdate.scheduled_time = String(newTime).trim();
+        }
+        await supabase
+          .from('recurring_series')
+          .update(seriesUpdate)
+          .eq('id', seriesId)
+          .eq('business_id', businessId);
+      }
     }
 
     if (updateData.status === 'cancelled') {
@@ -314,9 +374,10 @@ export async function PUT(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -341,6 +402,9 @@ export async function DELETE(
     if (!businessId) {
       return NextResponse.json({ error: 'Business context required' }, { status: 400 });
     }
+    if (!id || id === 'undefined' || id === 'null' || typeof id !== 'string' || id.trim() === '') {
+      return NextResponse.json({ error: 'Invalid booking ID' }, { status: 400 });
+    }
 
     // Verify user has permission to delete bookings
     const { data: businessAccess, error: accessError } = await supabase
@@ -358,7 +422,7 @@ export async function DELETE(
     const { error: bookingError } = await supabase
       .from('bookings')
       .delete()
-      .eq('id', params.id)
+      .eq('id', id)
       .eq('business_id', businessId);
 
     if (bookingError) {

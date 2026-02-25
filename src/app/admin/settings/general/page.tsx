@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Store, Tag, MailX, Receipt, List, Plug, Plus, Minus, Loader2, Pencil, Trash2, Info, Clock, Users, Bell, Settings, Calendar, CalendarDays } from 'lucide-react';
+import { Store, Tag, MailX, Receipt, List, Plug, Plus, Minus, Loader2, Pencil, Trash2, Info, Clock, Users, Bell, Settings, Calendar, CalendarDays, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, Link as LinkIcon } from 'lucide-react';
 import { useBusiness } from '@/contexts/BusinessContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -156,6 +156,63 @@ const SCHEDULING_DEFAULT_OPTIONS: StoreOptions = {
   time_log_updates_booking: false,
 };
 
+// Simple rich text editor for reschedule/cancellation messages
+function RescheduleMessageEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const editorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (editorRef.current && editorRef.current.innerHTML !== value) {
+      editorRef.current.innerHTML = value || '';
+    }
+  }, [value]);
+  const exec = (command: string, value?: string) => {
+    document.execCommand(command, false, value);
+    editorRef.current?.focus();
+    if (editorRef.current) onChange(editorRef.current.innerHTML);
+  };
+  const update = () => {
+    if (editorRef.current) onChange(editorRef.current.innerHTML);
+  };
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <div className="border-b bg-muted/50 p-2 flex items-center gap-1 flex-wrap">
+        <Button type="button" variant="ghost" size="sm" onClick={() => exec('bold')} className="h-8 w-8 p-0" title="Bold">
+          <Bold className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => exec('italic')} className="h-8 w-8 p-0" title="Italic">
+          <Italic className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => exec('underline')} className="h-8 w-8 p-0" title="Underline">
+          <Underline className="h-4 w-4" />
+        </Button>
+        <span className="w-px h-6 bg-border mx-1" />
+        <Button type="button" variant="ghost" size="sm" onClick={() => exec('justifyLeft')} className="h-8 w-8 p-0" title="Align left">
+          <AlignLeft className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => exec('justifyCenter')} className="h-8 w-8 p-0" title="Align center">
+          <AlignCenter className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => exec('justifyRight')} className="h-8 w-8 p-0" title="Align right">
+          <AlignRight className="h-4 w-4" />
+        </Button>
+        <span className="w-px h-6 bg-border mx-1" />
+        <Button type="button" variant="ghost" size="sm" onClick={() => exec('insertUnorderedList')} className="h-8 w-8 p-0" title="Bullet list">
+          <List className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => { const u = prompt('URL:'); if (u) exec('createLink', u); }} className="h-8 w-8 p-0" title="Insert link">
+          <LinkIcon className="h-4 w-4" />
+        </Button>
+      </div>
+      <div
+        ref={editorRef}
+        contentEditable
+        onInput={update}
+        className="min-h-[120px] p-4 focus:outline-none focus:ring-2 focus:ring-primary/20 prose prose-sm max-w-none dark:prose-invert"
+        style={{ whiteSpace: 'pre-wrap' }}
+      />
+    </div>
+  );
+}
+
 export default function GeneralSettingsPage() {
   const { currentBusiness } = useBusiness();
   const searchParams = useSearchParams();
@@ -262,6 +319,10 @@ export default function GeneralSettingsPage() {
   const [accessSettingsExpanded, setAccessSettingsExpanded] = useState(false);
   const [customerBlockedMessage, setCustomerBlockedMessage] = useState(
     'We apologize for the inconvenience. Please contact our office if you have any questions.'
+  );
+  const [allowCustomerSelfReschedule, setAllowCustomerSelfReschedule] = useState<'yes' | 'no'>('no');
+  const [rescheduleMessage, setRescheduleMessage] = useState(
+    'Please get in touch with the admin to reschedule your booking. You can only change your customer details and credit card.'
   );
   const [providerDeactivatedMessage, setProviderDeactivatedMessage] = useState(
     'We apologize for the inconvenience. Please contact our office if you have any questions.'
@@ -403,6 +464,16 @@ export default function GeneralSettingsPage() {
         const lm = data.options.location_management;
         if (lm === 'zip' || lm === 'name' || lm === 'none') setLocationManagement(lm);
         if (typeof data.options.wildcard_zip_enabled === 'boolean') setWildcardZipEnabled(data.options.wildcard_zip_enabled ? 'yes' : 'no');
+        if (typeof data.options.show_location_name_at_end === 'boolean') setShowLocationNameAtEnd(data.options.show_location_name_at_end ? 'yes' : 'no');
+        if (typeof data.options.price_adjustment_note_enabled === 'boolean') setPriceAdjustmentNote(data.options.price_adjustment_note_enabled ? 'yes' : 'no');
+        if (typeof data.options.time_adjustment_note_enabled === 'boolean') setTimeAdjustmentNote(data.options.time_adjustment_note_enabled ? 'yes' : 'no');
+        // Customer reschedule (Store options > Customer > Reschedule)
+        if (typeof data.options.allow_customer_self_reschedule === 'boolean') {
+          setAllowCustomerSelfReschedule(data.options.allow_customer_self_reschedule ? 'yes' : 'no');
+        }
+        if (data.options.reschedule_message != null) {
+          setRescheduleMessage(data.options.reschedule_message || 'Please get in touch with the admin to reschedule your booking. You can only change your customer details and credit card.');
+        }
       }
     } catch {
       toast.error("Failed to load scheduling settings");
@@ -471,6 +542,9 @@ export default function GeneralSettingsPage() {
   };
 
   const [locationSaving, setLocationSaving] = useState(false);
+  const [addressSaving, setAddressSaving] = useState(false);
+  const [priceTimeSaving, setPriceTimeSaving] = useState(false);
+  const [customerRescheduleSaving, setCustomerRescheduleSaving] = useState(false);
   const allTimeZones = useMemo(() => getAllTimeZones(), []);
   const saveLocationSettings = async () => {
     if (!currentBusiness?.id) return;
@@ -497,6 +571,92 @@ export default function GeneralSettingsPage() {
       toast.error(e instanceof Error ? e.message : "Failed to save location settings");
     } finally {
       setLocationSaving(false);
+    }
+  };
+
+  const saveAddressSettings = async () => {
+    if (!currentBusiness?.id) return;
+    setAddressSaving(true);
+    try {
+      const res = await fetch("/api/admin/store-options", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "x-business-id": currentBusiness.id },
+        body: JSON.stringify({
+          ...schedulingOptions,
+          businessId: currentBusiness.id,
+          show_location_name_at_end: showLocationNameAtEnd === 'yes',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save");
+      if (data.options && typeof data.options.show_location_name_at_end === 'boolean') {
+        setShowLocationNameAtEnd(data.options.show_location_name_at_end ? 'yes' : 'no');
+      }
+      toast.success("Address settings saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save address settings");
+    } finally {
+      setAddressSaving(false);
+    }
+  };
+
+  const savePriceTimeSettings = async () => {
+    if (!currentBusiness?.id) return;
+    setPriceTimeSaving(true);
+    try {
+      const res = await fetch("/api/admin/store-options", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "x-business-id": currentBusiness.id },
+        body: JSON.stringify({
+          ...schedulingOptions,
+          businessId: currentBusiness.id,
+          price_adjustment_note_enabled: priceAdjustmentNote === 'yes',
+          time_adjustment_note_enabled: timeAdjustmentNote === 'yes',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save");
+      if (data.options) {
+        if (typeof data.options.price_adjustment_note_enabled === 'boolean') setPriceAdjustmentNote(data.options.price_adjustment_note_enabled ? 'yes' : 'no');
+        if (typeof data.options.time_adjustment_note_enabled === 'boolean') setTimeAdjustmentNote(data.options.time_adjustment_note_enabled ? 'yes' : 'no');
+      }
+      toast.success("Price & Time Adjustment settings saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save Price & Time Adjustment settings");
+    } finally {
+      setPriceTimeSaving(false);
+    }
+  };
+
+  const saveCustomerRescheduleSettings = async () => {
+    if (!currentBusiness?.id) return;
+    setCustomerRescheduleSaving(true);
+    try {
+      const res = await fetch("/api/admin/store-options", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "x-business-id": currentBusiness.id },
+        body: JSON.stringify({
+          ...schedulingOptions,
+          businessId: currentBusiness.id,
+          allow_customer_self_reschedule: allowCustomerSelfReschedule === "yes",
+          reschedule_message: rescheduleMessage || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save");
+      if (data.options) {
+        if (typeof data.options.allow_customer_self_reschedule === "boolean") {
+          setAllowCustomerSelfReschedule(data.options.allow_customer_self_reschedule ? "yes" : "no");
+        }
+        if (data.options.reschedule_message != null) {
+          setRescheduleMessage(data.options.reschedule_message);
+        }
+      }
+      toast.success("Reschedule settings saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save reschedule settings");
+    } finally {
+      setCustomerRescheduleSaving(false);
     }
   };
 
@@ -1141,7 +1301,7 @@ export default function GeneralSettingsPage() {
                     <div className="space-y-1">
                       <h4 className="text-lg font-semibold">Address Settings</h4>
                       <p className="text-sm text-muted-foreground">
-                        Here you can find settings for your addresses which will be displayed for bookings and if you would like to show your location name in addition to the customer&apos;s address.
+                        Here you can find settings for your addresses which will be displayed in the booking summary. You can choose to show your location name in addition to the customer&apos;s address.
                       </p>
                     </div>
                     <Button
@@ -1171,8 +1331,12 @@ export default function GeneralSettingsPage() {
                                 <Info className="h-4 w-4" />
                               </button>
                             </TooltipTrigger>
-                            <TooltipContent side="right" className="max-w-xs">
-                              When enabled, the location name will appear at the end of the address shown for bookings.
+                            <TooltipContent side="right" className="max-w-sm">
+                              <span className="block font-medium mb-1">If &quot;Yes&quot;</span>
+                              Your location names will appear following the rest of the client&apos;s address so you know which location they belong to. For example, if a client books in a Manhattan location (Manhattan being a location you set up under Location Settings), their address will display as &quot;603 W 140th St, New York, NY 10031, Manhattan&quot;.
+                              <span className="block font-medium mt-2 mb-1">If &quot;No&quot;</span>
+                              Only the address entered into the booking form will display. In this example, the address would show as &quot;603 W 140th St, New York, NY 10031&quot;.
+                              <span className="block font-medium mt-2 text-amber-600 dark:text-amber-400">This setting will work only if you have enabled locations under your form settings.</span>
                             </TooltipContent>
                           </Tooltip>
                         </div>
@@ -1190,6 +1354,10 @@ export default function GeneralSettingsPage() {
                             <span className="text-sm">No</span>
                           </label>
                         </RadioGroup>
+                        <Button onClick={saveAddressSettings} disabled={addressSaving} className="mt-2">
+                          {addressSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                          Save address settings
+                        </Button>
                         </div>
                       </TooltipProvider>
                     </div>
@@ -2184,6 +2352,10 @@ export default function GeneralSettingsPage() {
                           </div>
                         </div>
                       </TooltipProvider>
+                      <Button onClick={savePriceTimeSettings} disabled={priceTimeSaving} className="mt-2">
+                        {priceTimeSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                        Save Price & Time Adjustment settings
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -2965,9 +3137,178 @@ export default function GeneralSettingsPage() {
                 </div>
               </TabsContent>
               <TabsContent value="customer" className="mt-0">
-                <p className="text-sm text-muted-foreground">
-                  Customer settings – Currently under development.
-                </p>
+                <div className="space-y-0 rounded-lg bg-card border shadow-sm">
+                  <div className="border-t divide-y">
+                    <Collapsible defaultOpen className="group">
+                      <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
+                        <div>
+                          <p className="font-semibold">Bookings</p>
+                          <p className="text-sm text-muted-foreground mt-0.5">
+                            In this section you can choose your settings for how your customers will view necessary information with their bookings. From allowing them to see who the provider is, being able to choose providers, allowing same day bookings and more.
+                          </p>
+                        </div>
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
+                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                        </span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="px-6 pb-4 pt-0 space-y-4">
+                          <p className="text-sm text-muted-foreground">Customer booking options will be available here.</p>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                    <Collapsible className="group">
+                      <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
+                        <div>
+                          <p className="font-semibold">Facebook</p>
+                          <p className="text-sm text-muted-foreground mt-0.5">
+                            In this section you can set up a way to allow customers to share your business on Facebook in exchange for a discount.
+                          </p>
+                        </div>
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
+                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                        </span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="px-6 pb-4 pt-0 space-y-4">
+                          <p className="text-sm text-muted-foreground">Facebook sharing and discount settings will be available here.</p>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                    <Collapsible className="group">
+                      <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
+                        <div>
+                          <p className="font-semibold">Referral Sharing Content</p>
+                          <p className="text-sm text-muted-foreground mt-0.5">
+                            In this section you can set up your description when customers share their referral link and what you would like it to say about your business.
+                          </p>
+                        </div>
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
+                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                        </span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="px-6 pb-4 pt-0 space-y-4">
+                          <p className="text-sm text-muted-foreground">Referral link description and sharing content will be available here.</p>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                    <Collapsible className="group">
+                      <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
+                        <div>
+                          <p className="font-semibold">General</p>
+                          <p className="text-sm text-muted-foreground mt-0.5">
+                            In this section you can choose what shows up in the customers dashboard when a booking is not yet confirmed, where to send them if they click on your FAQ/Support link and more.
+                          </p>
+                        </div>
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
+                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                        </span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="px-6 pb-4 pt-0 space-y-4">
+                          <p className="text-sm text-muted-foreground">Customer dashboard and FAQ/Support link settings will be available here.</p>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                    <Collapsible className="group">
+                      <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
+                        <div>
+                          <p className="font-semibold">Reschedule</p>
+                          <p className="text-sm text-muted-foreground mt-0.5">
+                            In this section you can set up all of the reschedule settings for customers. From giving the ability to reschedule or not.
+                          </p>
+                        </div>
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
+                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                        </span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="px-6 pb-6 pt-0 space-y-6">
+                          <TooltipProvider>
+                            <div className="rounded-lg border bg-card p-4 space-y-4">
+                              <div className="flex items-start gap-2">
+                                <Label className="font-semibold text-base leading-tight shrink-0">
+                                  Would you like to allow customers to be able to reschedule services on their own?
+                                </Label>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button type="button" className="inline-flex text-muted-foreground hover:text-foreground border border-destructive/50 rounded-full p-0.5 shrink-0 mt-0.5" aria-label="More info">
+                                      <Info className="h-4 w-4" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-xs">
+                                    When enabled, customers can reschedule their bookings from their dashboard. When disabled, they will see the message below instead.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </div>
+                              <RadioGroup
+                                value={allowCustomerSelfReschedule}
+                                onValueChange={(v) => setAllowCustomerSelfReschedule(v as 'yes' | 'no')}
+                                className="flex gap-4 pt-1"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <RadioGroupItem value="yes" id="customer-self-reschedule-yes" />
+                                  <Label htmlFor="customer-self-reschedule-yes" className="font-normal cursor-pointer">Yes</Label>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <RadioGroupItem value="no" id="customer-self-reschedule-no" />
+                                  <Label htmlFor="customer-self-reschedule-no" className="font-normal cursor-pointer">No</Label>
+                                </div>
+                              </RadioGroup>
+                            </div>
+                            {allowCustomerSelfReschedule === "no" && (
+                            <div className="space-y-2">
+                              <Label className="font-semibold">Message</Label>
+                              <p className="text-sm text-muted-foreground">
+                                This message is shown to customers when they cannot reschedule on their own (e.g. when &quot;No&quot; is selected above).
+                              </p>
+                              <RescheduleMessageEditor value={rescheduleMessage} onChange={setRescheduleMessage} />
+                            </div>
+                            )}
+                            <Button
+                              onClick={saveCustomerRescheduleSettings}
+                              disabled={customerRescheduleSaving}
+                            >
+                              {customerRescheduleSaving ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                  Saving…
+                                </>
+                              ) : (
+                                "Save reschedule settings"
+                              )}
+                            </Button>
+                          </TooltipProvider>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                    <Collapsible className="group">
+                      <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
+                        <div>
+                          <p className="font-semibold">Cancellation</p>
+                          <p className="text-sm text-muted-foreground mt-0.5">
+                            In this section you can set up all of the cancellation settings for customers. From giving the ability to postpone or just cancel, cancelling on their own, needing approval from you the admin before it is confirmed and more.
+                          </p>
+                        </div>
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-primary text-primary-foreground">
+                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
+                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
+                        </span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="px-6 pb-4 pt-0 space-y-4">
+                          <p className="text-sm text-muted-foreground">Customer cancellation and postponement settings will be available here.</p>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </div>
+                </div>
               </TabsContent>
               <TabsContent value="provider" className="mt-0">
                 {schedulingLoading ? (

@@ -68,6 +68,7 @@ const CustomerAppointmentsPage = () => {
   const [cancellationDisclaimer, setCancellationDisclaimer] = useState<string | null>(null);
   const [cancellationPolicyLoading, setCancellationPolicyLoading] = useState(false);
   const [detailsCancellationDisclaimer, setDetailsCancellationDisclaimer] = useState<string | null>(null);
+  const [rescheduleSettingsLoading, setRescheduleSettingsLoading] = useState(false);
 
   const upcomingBookings = useMemo(
     () => bookings.filter((b) => !["completed", "canceled", "cancelled"].includes(b.status?.toLowerCase() ?? "")),
@@ -180,10 +181,34 @@ const CustomerAppointmentsPage = () => {
     }
   };
 
-  const handleEditReschedule = (booking: Booking) => {
-    const params = new URLSearchParams({ bookingId: booking.id });
-    if (businessId) params.set("business", businessId);
-    router.push(`/book-now?${params.toString()}`);
+  const handleEditReschedule = async (booking: Booking) => {
+    if (!businessId) {
+      const params = new URLSearchParams({ bookingId: booking.id });
+      router.push(`/book-now?${params.toString()}`);
+      return;
+    }
+    setRescheduleSettingsLoading(true);
+    try {
+      const res = await fetch(`/api/customer/reschedule-settings?businessId=${encodeURIComponent(businessId)}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        router.push(`/book-now?${new URLSearchParams({ bookingId: booking.id, business: businessId }).toString()}`);
+        return;
+      }
+      const params = new URLSearchParams({ bookingId: booking.id, business: businessId });
+      if (data.allow_customer_self_reschedule) {
+        router.push(`/book-now?${params.toString()}`);
+        return;
+      }
+      // Booking Koala-style: when self-reschedule is off, go to limited edit (customer details + payment only)
+      params.set("editOnly", "details-payment");
+      router.push(`/book-now?${params.toString()}`);
+    } catch {
+      const params = new URLSearchParams({ bookingId: booking.id, business: businessId });
+      router.push(`/book-now?${params.toString()}`);
+    } finally {
+      setRescheduleSettingsLoading(false);
+    }
   };
 
   if (bookingsLoading || accountLoading) {
@@ -448,6 +473,7 @@ const CustomerAppointmentsPage = () => {
                 )}
               </DialogContent>
             </Dialog>
+
           </main>
         </div>
       </div>

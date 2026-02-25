@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
@@ -237,6 +237,23 @@ export default function BookingsPage() {
     }
   }, [searchParams]);
 
+  // Refetch bookings when returning from edit (so service date and other changes are visible)
+  const hasHandledRefresh = useRef(false);
+  useEffect(() => {
+    const isRefresh = searchParams.get("refresh") === "1";
+    if (!isRefresh) {
+      hasHandledRefresh.current = false;
+      return;
+    }
+    if (hasHandledRefresh.current) return;
+    hasHandledRefresh.current = true;
+    setRefreshKey((k) => k + 1);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("refresh");
+    const query = params.toString();
+    router.replace(`/admin/bookings${query ? `?${query}` : ""}`, { scroll: false });
+  }, [searchParams, router]);
+
   // Open booking summary when ?id=xxx in URL (e.g. from booking-charges)
   useEffect(() => {
     const id = searchParams.get("id") || searchParams.get("booking");
@@ -326,7 +343,21 @@ export default function BookingsPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // Refetch when user returns to this tab (so calendar matches dashboard after edits elsewhere)
   useEffect(() => {
+    const onFocus = () => setRefreshKey((k) => k + 1);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
+
+  // Auto-refresh every 30s like dashboard so calendar stays in sync after edits
+  useEffect(() => {
+    const interval = setInterval(() => setRefreshKey((k) => k + 1), 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
     async function fetchBookings() {
       if (!currentBusiness?.id) {
         console.log('Waiting for business context...');
@@ -343,6 +374,7 @@ export default function BookingsPage() {
       } catch (e) {
         console.warn('Recurring extend failed:', e);
       }
+      if (cancelled) return;
       // Fetch bookings
       const { data: bookingsData, error } = await supabase
         .from('bookings')
@@ -350,6 +382,7 @@ export default function BookingsPage() {
         .eq('business_id', currentBusiness?.id)
         .order('date', { ascending: false });
       
+      if (cancelled) return;
       if (error) {
         console.error('Failed to fetch bookings from Supabase', error);
         setBookings([]);
@@ -391,7 +424,7 @@ export default function BookingsPage() {
       if (providerIds.length > 0) {
         const { data: providersData } = await supabase
           .from('service_providers')
-          .select('id, first_name, last_name, name')
+          .select('id, first_name, last_name')
           .in('id', providerIds)
           .eq('business_id', currentBusiness?.id);
         
@@ -403,6 +436,7 @@ export default function BookingsPage() {
           }, {});
         }
       }
+      if (cancelled) return;
       
       // Map bookings to include provider name
       const bookingsWithProvider = list.map((booking: any) => {
@@ -419,10 +453,13 @@ export default function BookingsPage() {
         };
       });
       
-      setBookings(bookingsWithProvider);
-      setLoading(false);
+      if (!cancelled) {
+        setBookings(bookingsWithProvider);
+      }
+      if (!cancelled) setLoading(false);
     }
     fetchBookings();
+    return () => { cancelled = true; };
   }, [currentBusiness?.id, refreshKey]); // Refetch when refreshKey changes
 
   // Fetch providers from database
@@ -1270,12 +1307,18 @@ toast({
                             : `${(selectedBooking as any).duration_minutes} Min`}
                         />
                       )}
-                      {(selectedBooking.date || selectedBooking.time) && (
+                      {((selectedBooking as any).scheduled_date ?? selectedBooking.date ?? (selectedBooking as any).scheduled_time ?? selectedBooking.time) && (
                         <DetailRow
                           label="Service date"
-                          value={selectedBooking.date && selectedBooking.time
-                            ? `${new Date(selectedBooking.date + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "2-digit", day: "2-digit", year: "numeric" })}, ${formatTime(selectedBooking.time)}`
-                            : selectedBooking.date || formatTime(selectedBooking.time) || "—"}
+                          value={(() => {
+                            const d = (selectedBooking as any).scheduled_date ?? selectedBooking.date;
+                            const t = (selectedBooking as any).scheduled_time ?? selectedBooking.time;
+                            const dateStr = d != null ? String(d).trim() : "";
+                            const timeStr = t != null ? String(t).trim() : "";
+                            if (dateStr && timeStr) return `${new Date(dateStr + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "2-digit", day: "2-digit", year: "numeric" })}, ${formatTime(timeStr)}`;
+                            if (dateStr) return `${new Date(dateStr + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "2-digit", day: "2-digit", year: "numeric" })}`;
+                            return timeStr ? formatTime(timeStr) : "—";
+                          })()}
                         />
                       )}
                       <DetailRow label="Assigned to" value={selectedBooking.assignedProvider || (selectedBooking as any).provider_name || "Unassigned"} />
@@ -1450,8 +1493,13 @@ toast({
                 <Button
                   className="w-full text-white bg-blue-600 hover:bg-blue-700"
                   onClick={() => {
+                    const id = selectedBooking?.id != null ? String(selectedBooking.id).trim() : "";
                     setShowDetails(false);
-                    router.push(`/admin/add-booking?bookingId=${selectedBooking?.id ?? ''}`);
+                    if (id && id !== "undefined") {
+                      router.push(`/admin/add-booking?bookingId=${encodeURIComponent(id)}`);
+                    } else {
+                      router.push("/admin/add-booking");
+                    }
                   }}
                 >
                   <Pencil className="h-4 w-4 mr-2" />Edit
@@ -1477,7 +1525,18 @@ toast({
                 <Button className="w-full text-white bg-orange-500 hover:bg-orange-600" onClick={() => { toast({ title: "Checklist", description: "View checklist for this booking." }); }}>
                   <ListChecks className="h-4 w-4 mr-2" />View Checklist
                 </Button>
-                <Button className="w-full text-white bg-amber-300 hover:bg-amber-400 text-gray-900" onClick={() => { toast({ title: "Job Media", description: "View job media and photos." }); }}>
+                <Button
+                  className="w-full text-white bg-amber-300 hover:bg-amber-400 text-gray-900"
+                  onClick={() => {
+                    const customerId = (selectedBooking as { customer_id?: string })?.customer_id;
+                    if (customerId) {
+                      setShowDetails(false);
+                      router.push(`/admin/customers/${customerId}?tab=drive`);
+                    } else {
+                      toast({ title: "Job Media", description: "This booking is not linked to a customer profile. Link a customer to view their drive." });
+                    }
+                  }}
+                >
                   <Image className="h-4 w-4 mr-2" />Job Media
                 </Button>
               </div>

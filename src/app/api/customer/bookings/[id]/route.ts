@@ -182,7 +182,7 @@ export async function PATCH(
   }
 
   if (booking.customer_id !== customer.id) {
-    return NextResponse.json({ error: 'You can only cancel your own bookings' }, { status: 403 });
+    return NextResponse.json({ error: 'You can only update your own bookings' }, { status: 403 });
   }
 
   const body = await request.json().catch(() => ({}));
@@ -190,6 +190,13 @@ export async function PATCH(
 
   const updates: Record<string, unknown> = {};
   if (status) updates.status = status;
+
+  // Allow customer to update only their details (Booking Koala-style: edit details + payment only when self-reschedule is off)
+  if (typeof body.customer_name === 'string' && body.customer_name.trim()) updates.customer_name = body.customer_name.trim();
+  if (typeof body.customer_email === 'string') updates.customer_email = String(body.customer_email).trim();
+  if (typeof body.customer_phone === 'string') updates.customer_phone = String(body.customer_phone).trim();
+  if (typeof body.address === 'string') updates.address = String(body.address).trim();
+  if (typeof body.notes === 'string') updates.notes = String(body.notes).trim();
 
   if (status === 'cancelled' && booking.business_id) {
     const { data: cancelSettings } = await supabase

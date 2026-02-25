@@ -259,8 +259,16 @@ export async function POST(request: Request) {
       bookingWithBusiness.adjust_price = true;
       const priceAmt = parseFloat(bookingData.adjustment_amount);
       if (!isNaN(priceAmt)) bookingWithBusiness.adjustment_amount = priceAmt;
+      if (bookingData.price_adjustment_note != null && typeof bookingData.price_adjustment_note === 'string') {
+        bookingWithBusiness.price_adjustment_note = bookingData.price_adjustment_note.trim() || null;
+      }
     }
-    if (bookingData.adjust_time === true) bookingWithBusiness.adjust_time = true;
+    if (bookingData.adjust_time === true) {
+      bookingWithBusiness.adjust_time = true;
+      if (bookingData.time_adjustment_note != null && typeof bookingData.time_adjustment_note === 'string') {
+        bookingWithBusiness.time_adjustment_note = bookingData.time_adjustment_note.trim() || null;
+      }
+    }
 
     // Private booking notes, private customer notes, notes for service provider (arrays stored as jsonb)
     const privateBookingNotes = Array.isArray(bookingData.private_booking_notes) ? bookingData.private_booking_notes.filter((n: unknown) => typeof n === 'string') : [];

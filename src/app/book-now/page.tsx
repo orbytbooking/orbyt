@@ -300,6 +300,8 @@ function BookingPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const bookingIdParam = searchParams.get("bookingId");
+  const editOnlyParam = searchParams.get("editOnly");
+  const limitedEditMode = Boolean(bookingIdParam && editOnlyParam === "details-payment");
   const [businessName, setBusinessName] = useState<string>('');
   const [businessId, setBusinessId] = useState<string>('');
   const [currentStep, setCurrentStep] = useState<BookingStep>("category");
@@ -361,6 +363,7 @@ function BookingPageContent() {
   const isAccountLocked = !accountLoading && Boolean(customerName || customerEmail);
   const [prefilledBookingId, setPrefilledBookingId] = useState<string | null>(null);
   const [recentBookingId, setRecentBookingId] = useState<string | null>(null);
+  const [rescheduleMessageLimitedEdit, setRescheduleMessageLimitedEdit] = useState<string | null>(null);
 
   const selectedIndustry = useMemo(
     () => industryOptions.find((option) => option.key === selectedCategory) ?? null,
@@ -1184,6 +1187,16 @@ function BookingPageContent() {
     loadBookingData();
   }, [bookingIdParam, prefilledBookingId, form, toast, pricingRows, searchParams]);
 
+  useEffect(() => {
+    if (!limitedEditMode) return;
+    const bid = searchParams.get("business");
+    if (!bid) return;
+    fetch(`/api/customer/reschedule-settings?businessId=${encodeURIComponent(bid)}`)
+      .then((r) => r.json())
+      .then((data) => setRescheduleMessageLimitedEdit(data.reschedule_message ?? null))
+      .catch(() => setRescheduleMessageLimitedEdit(null));
+  }, [limitedEditMode, searchParams]);
+
   // When returning from Stripe Checkout success, show success step
   useEffect(() => {
     const stripeSuccess = searchParams.get("stripe") === "success";
@@ -1392,7 +1405,7 @@ function BookingPageContent() {
 
   // Handle booking form submission - move to payment step (no localStorage)
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    if (locationManagement === "zip") {
+    if (!limitedEditMode && locationManagement === "zip") {
       const zip = String(values.zipCode ?? "").trim().replace(/\s/g, "");
       if (zip.length < 5) {
         form.setError("zipCode", { message: "Please enter a valid zip code" });
@@ -1405,6 +1418,44 @@ function BookingPageContent() {
       ...(values.zipCode ? { zipCode: values.zipCode } : {}),
     });
     setBookingData(values);
+
+    if (limitedEditMode && bookingIdParam) {
+      const currentBusinessId = searchParams.get("business");
+      try {
+        const supabase = getSupabaseCustomerClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          toast({ title: "Please sign in", description: "You need to be signed in to update your booking details.", variant: "destructive" });
+          return;
+        }
+        const fullName = `${values.firstName ?? ""} ${values.lastName ?? ""}`.trim();
+        const addressWithApt = values.aptNo ? `${values.address}, Apt ${values.aptNo}` : values.address;
+        const res = await fetch(`/api/customer/bookings/${encodeURIComponent(bookingIdParam)}?business=${encodeURIComponent(currentBusinessId ?? "")}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            customer_name: fullName || undefined,
+            customer_email: values.email ?? "",
+            customer_phone: String(values.phone ?? ""),
+            address: addressWithApt ?? "",
+            notes: values.notes ?? "",
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          toast({ title: "Update failed", description: err?.error ?? "Could not save your details.", variant: "destructive" });
+          return;
+        }
+        toast({ title: "Details saved", description: "Your contact and address details have been updated." });
+      } catch {
+        toast({ title: "Update failed", description: "Could not save. Please try again.", variant: "destructive" });
+        return;
+      }
+    }
+
     setCurrentStep("payment");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -1814,6 +1865,7 @@ function BookingPageContent() {
   if (currentStep === "payment" && bookingData && selectedService && serviceCustomization) {
     const { subtotal, tax, total } = calculateTotal();
     summaryTotalRef.current = total;
+    const bid = searchParams.get("business");
 
     return (
       <div className="min-h-screen">
@@ -1835,9 +1887,20 @@ function BookingPageContent() {
             <div className={styles.header}>
               <h1 className={styles.title}>Complete Your Payment</h1>
               <p className={styles.subtitle}>
-                Review your booking and complete payment
+                {limitedEditMode ? "Your details have been saved. Update your payment method below or return to your appointments." : "Review your booking and complete payment"}
               </p>
             </div>
+
+            {limitedEditMode && (
+              <div className="mb-6 flex flex-wrap items-center gap-3">
+                <Button variant="outline" asChild>
+                  <Link href={bid ? `/customer/appointments?business=${bid}` : "/customer/appointments"}>
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back to appointments
+                  </Link>
+                </Button>
+              </div>
+            )}
 
             <div className="grid md:grid-cols-3 gap-6">
               {/* Booking Summary Sidebar */}
@@ -2000,18 +2063,27 @@ function BookingPageContent() {
           <div className="container mx-auto px-4 py-16 max-w-6xl">
             <div className={styles.header}>
               <h1 className={styles.title}>
-                {selectedIndustryLabel || "Service"} Booking
+                {limitedEditMode ? "Edit your booking details" : `${selectedIndustryLabel || "Service"} Booking`}
               </h1>
               <p className={styles.subtitle}>
-                {showSummary 
-                  ? `Complete your booking details for ${selectedService.name}`
-                  : "Select a service type and fill out your booking details"
+                {limitedEditMode
+                  ? "You can only change your customer details and payment method. To reschedule date or time, please contact us."
+                  : showSummary
+                    ? `Complete your booking details for ${selectedService.name}`
+                    : "Select a service type and fill out your booking details"
                 }
               </p>
             </div>
 
+            {limitedEditMode && rescheduleMessageLimitedEdit && (
+              <div
+                className="rounded-lg border border-amber-200 bg-amber-50/80 dark:border-amber-800 dark:bg-amber-950/30 p-4 mb-6 text-sm text-amber-900 dark:text-amber-100"
+                dangerouslySetInnerHTML={{ __html: rescheduleMessageLimitedEdit }}
+              />
+            )}
+
             {/* Location input - Zip/Postal code or City/Town (based on store location settings) */}
-            {locationManagement !== "none" && (
+            {!limitedEditMode && locationManagement !== "none" && (
               <div className="mb-6">
                 <Form {...form}>
                   <FormField
@@ -2049,7 +2121,8 @@ function BookingPageContent() {
               </div>
             )}
 
-            {/* Service Type Selection - Always show flip cards */}
+            {/* Service Type Selection - hidden in limited edit (details + payment only) */}
+            {!limitedEditMode && (
             <div className="mb-8">
               <h2 className="text-2xl font-bold mb-4">Select Services</h2>
               {serviceCategoriesLoading ? (
@@ -2087,9 +2160,10 @@ function BookingPageContent() {
                 </div>
               )}
             </div>
+            )}
 
-            {/* Customer Information Form - Always visible below service cards */}
-            {categoryServices.length > 0 && (
+            {/* Customer Information Form - visible below service cards, or only section in limited edit */}
+            {(limitedEditMode || categoryServices.length > 0) && (
               <div id="customer-form" className={styles.formContainer}>
                 <h2 className="text-2xl font-bold mb-6">Customer Information</h2>
                 <Form {...form}>
@@ -2346,7 +2420,8 @@ function BookingPageContent() {
                         </div>
                       </div>
 
-                      {/* Date Picker */}
+                      {/* Date Picker - hidden in limited edit (details + payment only) */}
+                      {!limitedEditMode && (
                       <div className="col-span-full">
                         <FormField
                           control={form.control}
@@ -2391,9 +2466,10 @@ function BookingPageContent() {
                           )}
                         />
                       </div>
+                      )}
 
-                      {/* Time Selection - Only show after date is selected */}
-                      {isDateSelected && (
+                      {/* Time Selection - Only show after date is selected (hidden in limited edit) */}
+                      {!limitedEditMode && isDateSelected && (
                         <div className="col-span-full">
                           <FormField
                             control={form.control}
@@ -2419,8 +2495,8 @@ function BookingPageContent() {
                         </div>
                       )}
 
-                      {/* Available Providers - Only show when scheduling is not Accept or Decline */}
-                      {isDateTimeSelected && showProviderStep && (
+                      {/* Available Providers - hidden in limited edit */}
+                      {!limitedEditMode && isDateTimeSelected && showProviderStep && (
                         <div className="col-span-full">
                           <div className={styles.formGroup}>
                             <FormLabel className={styles.formLabel}>

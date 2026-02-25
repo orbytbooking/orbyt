@@ -145,6 +145,8 @@ const createEmptyBookingForm = () => ({
   adjustTime: false,
   adjustedHours: "00",
   adjustedMinutes: "00",
+  priceAdjustmentNote: "",
+  timeAdjustmentNote: "",
   keyInfoOption: "",
   keepKeyWithProvider: false,
   customerNoteForProvider: "",
@@ -210,8 +212,10 @@ function AddBookingPage() {
   const [hasLocationBasedFrequencies, setHasLocationBasedFrequencies] = useState(false);
   const [cancellationFeeDisplay, setCancellationFeeDisplay] = useState<{ enabled: boolean; amount: number; currency: string } | null>(null);
   const [specificProviderForAdmin, setSpecificProviderForAdmin] = useState(true);
+  const [priceAdjustmentNoteEnabled, setPriceAdjustmentNoteEnabled] = useState(false);
+  const [timeAdjustmentNoteEnabled, setTimeAdjustmentNoteEnabled] = useState(false);
 
-  // Load store options (specific_provider_for_admin)
+  // Load store options (specific_provider_for_admin, price/time adjustment note settings)
   useEffect(() => {
     if (!currentBusiness?.id) return;
     fetch(`/api/admin/store-options?businessId=${currentBusiness.id}`, {
@@ -222,6 +226,12 @@ function AddBookingPage() {
         const opts = data?.options;
         if (opts && typeof opts.specific_provider_for_admin === "boolean") {
           setSpecificProviderForAdmin(opts.specific_provider_for_admin);
+        }
+        if (opts && typeof opts.price_adjustment_note_enabled === "boolean") {
+          setPriceAdjustmentNoteEnabled(opts.price_adjustment_note_enabled);
+        }
+        if (opts && typeof opts.time_adjustment_note_enabled === "boolean") {
+          setTimeAdjustmentNoteEnabled(opts.time_adjustment_note_enabled);
         }
       })
       .catch(() => {});
@@ -698,12 +708,15 @@ function AddBookingPage() {
           adjustedMinutes: b.duration_minutes != null
             ? String(Math.round(Number(b.duration_minutes) % 60)).padStart(2, '0')
             : '00',
+          priceAdjustmentNote: (b.price_adjustment_note ?? '').toString().trim(),
+          timeAdjustmentNote: (b.time_adjustment_note ?? '').toString().trim(),
         }));
         setCustomerSearch((b.customer_name || '').trim());
         setIsPartialCleaning(Boolean(cust.isPartialCleaning));
         setSelectedExcludeParams(excludedAreas);
         setProviderWage(b.provider_wage != null ? String(b.provider_wage) : '');
         setProviderWageType((b.provider_wage_type === 'percentage' || b.provider_wage_type === 'fixed' || b.provider_wage_type === 'hourly') ? b.provider_wage_type : 'hourly');
+        if (b.industry_id) setSelectedIndustryId(String(b.industry_id));
       } catch (e) {
         if (!cancelled) setBookingLoadError(e instanceof Error ? e.message : 'Failed to load booking');
       } finally {
@@ -902,6 +915,8 @@ const handleAddBooking = async (status: string = 'pending') => {
       adjust_price: newBooking.adjustPrice,
       adjustment_amount: newBooking.adjustPrice && newBooking.adjustmentAmount ? newBooking.adjustmentAmount : undefined,
       adjust_time: newBooking.adjustTime,
+      price_adjustment_note: newBooking.adjustPrice && newBooking.priceAdjustmentNote ? newBooking.priceAdjustmentNote : undefined,
+      time_adjustment_note: newBooking.adjustTime && newBooking.timeAdjustmentNote ? newBooking.timeAdjustmentNote : undefined,
       industry_id: selectedIndustryId || undefined,
       frequency_repeats: frequencies.find(f => f.name === newBooking.frequency)?.frequency_repeats ?? undefined,
     };
@@ -990,7 +1005,7 @@ const handleAddBooking = async (status: string = 'pending') => {
     });
 
     setTimeout(() => {
-      router.push('/admin/bookings');
+      router.push(editingBookingId ? '/admin/bookings?refresh=1' : '/admin/bookings');
     }, 100);
   } catch (error) {
     console.error('Unexpected error:', error);
@@ -2821,7 +2836,7 @@ const handleAddBooking = async (status: string = 'pending') => {
                   </div>
                   
                   {newBooking.adjustPrice && (
-                    <div className="ml-[28px]">
+                    <div className="ml-[28px] space-y-2">
                       <div>
                         <Input
                           id="adjustment-amount"
@@ -2840,6 +2855,19 @@ const handleAddBooking = async (status: string = 'pending') => {
                           className="w-32"
                         />
                       </div>
+                      {priceAdjustmentNoteEnabled && (
+                        <div>
+                          <Label htmlFor="price-adjustment-note" className="text-sm text-white/90">Note (optional)</Label>
+                          <Textarea
+                            id="price-adjustment-note"
+                            placeholder="Reason or note for this price adjustment"
+                            value={newBooking.priceAdjustmentNote}
+                            onChange={(e) => setNewBooking({ ...newBooking, priceAdjustmentNote: e.target.value })}
+                            className="mt-1 min-h-[60px]"
+                            rows={2}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
                   <div className="flex items-center space-x-2">
@@ -2852,7 +2880,7 @@ const handleAddBooking = async (status: string = 'pending') => {
                   </div>
                   
                   {newBooking.adjustTime && (
-                    <div className="ml-[28px]">
+                    <div className="ml-[28px] space-y-2">
                       <div className="flex items-center space-x-2">
                         <Select
                           value={newBooking.adjustedHours}
@@ -2888,6 +2916,19 @@ const handleAddBooking = async (status: string = 'pending') => {
                           </SelectContent>
                         </Select>
                       </div>
+                      {timeAdjustmentNoteEnabled && (
+                        <div>
+                          <Label htmlFor="time-adjustment-note" className="text-sm text-white/90">Note (optional)</Label>
+                          <Textarea
+                            id="time-adjustment-note"
+                            placeholder="Reason or note for this time adjustment"
+                            value={newBooking.timeAdjustmentNote}
+                            onChange={(e) => setNewBooking({ ...newBooking, timeAdjustmentNote: e.target.value })}
+                            className="mt-1 min-h-[60px]"
+                            rows={2}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

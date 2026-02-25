@@ -1056,8 +1056,17 @@ const Dashboard = () => {
                   </Button>
                 </>
               )}
-              <Button className="w-full text-white bg-blue-600 hover:bg-blue-700" onClick={() => { router.push(`/admin/add-booking?bookingId=${selectedBooking.id}`); setSelectedBooking(null); }}>
-                <Pencil className="h-4 w-4 mr-2" />Edit
+              <Button asChild className="w-full text-white bg-blue-600 hover:bg-blue-700">
+                <Link
+                  href={
+                    selectedBooking?.id && String(selectedBooking.id).trim() && String(selectedBooking.id) !== 'undefined'
+                      ? `/admin/add-booking?bookingId=${encodeURIComponent(selectedBooking.id)}`
+                      : '/admin/add-booking'
+                  }
+                  onClick={() => setSelectedBooking(null)}
+                >
+                  <Pencil className="h-4 w-4 mr-2" />Edit
+                </Link>
               </Button>
               <Button className="w-full text-white bg-red-600 hover:bg-red-700" onClick={async () => {
                 if (!selectedBooking?.id) return;
@@ -1087,7 +1096,18 @@ const Dashboard = () => {
               <Button className="w-full text-white bg-orange-500 hover:bg-orange-600" onClick={() => toast({ title: "Checklist", description: "View checklist for this booking." })}>
                 <ListChecks className="h-4 w-4 mr-2" />View Checklist
               </Button>
-              <Button className="w-full text-white bg-amber-300 hover:bg-amber-400 text-gray-900" onClick={() => toast({ title: "Job Media", description: "View job media and photos." })}>
+              <Button
+                className="w-full text-white bg-amber-300 hover:bg-amber-400 text-gray-900"
+                onClick={() => {
+                  const customerId = (selectedBooking as { customer_id?: string; customerId?: string })?.customer_id ?? (selectedBooking as { customerId?: string })?.customerId;
+                  if (customerId) {
+                    setSelectedBooking(null);
+                    router.push(`/admin/customers/${customerId}?tab=drive`);
+                  } else {
+                    toast({ title: "Job Media", description: "This booking is not linked to a customer profile. Link a customer to view their drive." });
+                  }
+                }}
+              >
                 <Image className="h-4 w-4 mr-2" />Job Media
               </Button>
               <Button

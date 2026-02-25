@@ -46,6 +46,11 @@ export interface BusinessStoreOptions {
   time_log_updates_booking: boolean;
   location_management: LocationManagement;
   wildcard_zip_enabled: boolean;
+  show_location_name_at_end: boolean;
+  price_adjustment_note_enabled: boolean;
+  time_adjustment_note_enabled: boolean;
+  allow_customer_self_reschedule: boolean;
+  reschedule_message: string | null;
 }
 
 const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
@@ -80,6 +85,11 @@ const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
   time_log_updates_booking: false,
   location_management: 'zip',
   wildcard_zip_enabled: true,
+  show_location_name_at_end: false,
+  price_adjustment_note_enabled: false,
+  time_adjustment_note_enabled: false,
+  allow_customer_self_reschedule: false,
+  reschedule_message: null,
 };
 
 async function getSupabase() {
@@ -171,6 +181,11 @@ export async function PUT(request: NextRequest) {
         ? body.location_management
         : 'zip',
       wildcard_zip_enabled: body.wildcard_zip_enabled ?? true,
+      show_location_name_at_end: body.show_location_name_at_end ?? false,
+      price_adjustment_note_enabled: body.price_adjustment_note_enabled ?? false,
+      time_adjustment_note_enabled: body.time_adjustment_note_enabled ?? false,
+      allow_customer_self_reschedule: body.allow_customer_self_reschedule ?? false,
+      reschedule_message: body.reschedule_message ?? null,
       updated_at: new Date().toISOString(),
     };
 
