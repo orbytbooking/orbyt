@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -26,6 +26,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import {
   Collapsible,
@@ -133,6 +138,9 @@ export default function CustomerProfilePage() {
   const [tags, setTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState("");
   const [tagsLoading, setTagsLoading] = useState(false);
+  const [tagsOpen, setTagsOpen] = useState(false);
+  const [availableTags, setAvailableTags] = useState<{ id: string; name: string; display_order: number }[]>([]);
+  const tagInputRef = useRef<HTMLInputElement>(null);
   type DbInvoice = {
     id: string;
     invoice_number: string;
@@ -383,6 +391,15 @@ export default function CustomerProfilePage() {
     })();
     return () => { cancelled = true; };
   }, [id]);
+
+  // Fetch available tags from Settings > General > Tags
+  useEffect(() => {
+    if (!currentBusiness?.id) return;
+    fetch(`/api/admin/tags?businessId=${encodeURIComponent(currentBusiness.id)}`)
+      .then((r) => r.json())
+      .then((data) => setAvailableTags(Array.isArray(data.tags) ? data.tags : []))
+      .catch(() => setAvailableTags([]));
+  }, [currentBusiness?.id]);
 
   useEffect(() => {
     if (!customer) return;
@@ -692,12 +709,13 @@ export default function CustomerProfilePage() {
     toast({ title: "Contact removed" });
   };
 
-  const addTag = async () => {
-    const trimmed = newTag.trim();
-    if (!trimmed || tags.includes(trimmed) || !id) return;
-    const next = [...tags, trimmed];
+  const addTag = async (optionalName?: string) => {
+    const name = (optionalName ?? newTag).trim();
+    if (!name || tags.includes(name) || !id) return;
+    const next = [...tags, name];
     setTags(next);
     setNewTag("");
+    setTagsOpen(false);
     setTagsLoading(true);
     const { error } = await supabase.from("customers").update({ tags: next }).eq("id", id);
     setTagsLoading(false);
@@ -730,6 +748,17 @@ export default function CustomerProfilePage() {
       addTag();
     }
   };
+
+  const availableTagsFiltered = useMemo(() => {
+    const q = newTag.trim().toLowerCase();
+    return availableTags.filter(
+      (t) => !tags.includes(t.name) && (q === "" || t.name.toLowerCase().includes(q))
+    );
+  }, [availableTags, tags, newTag]);
+  const canAddNew = newTag.trim() && !tags.includes(newTag.trim());
+  const exactMatch = availableTags.some(
+    (t) => t.name.toLowerCase() === newTag.trim().toLowerCase()
+  );
 
   const [actionLoading, setActionLoading] = useState<"deactivate" | "block" | "booking" | "subscribe" | null>(null);
 
@@ -1038,20 +1067,67 @@ export default function CustomerProfilePage() {
                     ))}
                   </div>
                 )}
-                <div className="flex gap-2">
-                  <Input
-                    type="text"
-                    value={newTag}
-                    onChange={(e) => setNewTag(e.target.value)}
-                    onKeyDown={handleTagKeyDown}
-                    placeholder="Add a tag"
-                    className="flex-1"
-                    disabled={tagsLoading}
-                  />
-                  <Button type="button" variant="outline" size="icon" onClick={addTag} disabled={!newTag.trim() || tags.includes(newTag.trim()) || tagsLoading} title="Add tag">
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
+                <Popover open={tagsOpen} onOpenChange={setTagsOpen} modal={false}>
+                  <PopoverTrigger asChild>
+                    <div
+                      className="flex gap-2 flex-1 min-w-0"
+                      onClick={() => {
+                        setTagsOpen(true);
+                        setTimeout(() => tagInputRef.current?.focus(), 0);
+                      }}
+                    >
+                      <Input
+                        ref={tagInputRef}
+                        type="text"
+                        value={newTag}
+                        onChange={(e) => setNewTag(e.target.value)}
+                        onFocus={(e) => { e.stopPropagation(); setTagsOpen(true); }}
+                        onClick={(e) => { e.stopPropagation(); setTagsOpen(true); setTimeout(() => tagInputRef.current?.focus(), 0); }}
+                        onKeyDown={handleTagKeyDown}
+                        placeholder="Add a tag"
+                        className="flex-1"
+                        disabled={tagsLoading}
+                      />
+                      <Button type="button" variant="outline" size="icon" onClick={() => addTag()} disabled={!newTag.trim() || tags.includes(newTag.trim()) || tagsLoading} title="Add tag">
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                    <div className="max-h-[240px] overflow-y-auto py-1">
+                      {availableTagsFiltered.length > 0 && (
+                        <div className="px-2 py-1 text-xs font-medium text-muted-foreground">Available tags</div>
+                      )}
+                      {availableTagsFiltered.map((tag) => (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground rounded-sm"
+                          onClick={() => addTag(tag.name)}
+                        >
+                          {tag.name}
+                        </button>
+                      ))}
+                      {canAddNew && !exactMatch && (
+                        <button
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground rounded-sm border-t border-border mt-1 flex items-center gap-2"
+                          onClick={() => addTag()}
+                        >
+                          <Plus className="h-4 w-4 shrink-0" />
+                          Add &quot;{newTag.trim()}&quot; as new tag
+                        </button>
+                      )}
+                      {tagsOpen && availableTagsFiltered.length === 0 && !canAddNew && (
+                        <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                          {availableTags.length === 0
+                            ? "No tags configured. Add tags in Settings → General → Tags."
+                            : "No matching tags. Type to add a new tag and press Enter."}
+                        </div>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
           </div>
@@ -1490,28 +1566,6 @@ export default function CustomerProfilePage() {
               <div className="flex items-center gap-2">
                 <Switch checked={stripeConnected} onCheckedChange={setStripeConnected} />
                 <span className="text-sm">{stripeConnected ? 'Enabled' : 'Disabled'}</span>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Tags */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Tags</CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">To attach a tag to this customer, type a tag name and press enter or select from available tags.</p>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-2 mb-3">
-                {tags.map((t) => (
-                  <Badge key={t} variant="secondary" className="gap-1">
-                    {t}
-                    <button type="button" onClick={()=>removeTag(t)} className="ml-1 hover:text-destructive" aria-label={`Remove ${t}`}>×</button>
-                  </Badge>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <Input placeholder="Add a tag" value={newTag} onChange={(e)=>setNewTag(e.target.value)} onKeyDown={(e)=>e.key==='Enter'&&addTag()} />
-                <Button variant="outline" size="sm" onClick={addTag} disabled={!newTag.trim()||tags.includes(newTag.trim())||tagsLoading}>+</Button>
               </div>
             </CardContent>
           </Card>
