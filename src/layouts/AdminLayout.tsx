@@ -366,7 +366,17 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                 },
                 { 
                   label: 'Settings', 
-                  path: `/admin/settings/industries/settings?industry=${encodeURIComponent(industry.name)}`
+                  path: `/admin/settings/industries/settings?industry=${encodeURIComponent(industry.name)}`,
+                  children: [
+                    {
+                      label: 'Form Settings',
+                      path: `/admin/settings/industries/settings/form-settings?industry=${encodeURIComponent(industry.name)}`
+                    },
+                    {
+                      label: 'Add/Combine Form',
+                      path: `/admin/settings/industries/settings/add-combine-form?industry=${encodeURIComponent(industry.name)}`
+                    }
+                  ]
                 }
               ],
             })),

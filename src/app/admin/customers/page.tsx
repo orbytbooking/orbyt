@@ -537,7 +537,7 @@ const Customers = () => {
         </div>
         <Button
           onClick={() => setShowAddCustomer(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white shrink-0"
+          className="bg-cyan-600 hover:bg-cyan-700 text-white shrink-0"
         >
           <UserPlus className="h-4 w-4 mr-2" />
           Add New
