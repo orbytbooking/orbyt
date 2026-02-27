@@ -276,6 +276,25 @@ export default function GeneralSettingsPage() {
   const [cardHoldDayOfTime, setCardHoldDayOfTime] = useState('08:00 AM');
   const [cardHoldDaysBefore, setCardHoldDaysBefore] = useState('1');
   const [cardHoldOnFail, setCardHoldOnFail] = useState<'cancel' | 'leave'>('leave');
+  const [customerBookingsExpanded, setCustomerBookingsExpanded] = useState(false);
+  const [customerFacebookExpanded, setCustomerFacebookExpanded] = useState(false);
+  const [customerReferralExpanded, setCustomerReferralExpanded] = useState(false);
+  const [customerGeneralExpanded, setCustomerGeneralExpanded] = useState(false);
+  const [customerRescheduleExpanded, setCustomerRescheduleExpanded] = useState(false);
+  const [customerCancellationExpanded, setCustomerCancellationExpanded] = useState(false);
+  const [providerBookingsExpanded, setProviderBookingsExpanded] = useState(false);
+  const [providerSchedulingExpanded, setProviderSchedulingExpanded] = useState(false);
+  const [providerGpsExpanded, setProviderGpsExpanded] = useState(false);
+  const [providerSendScheduleExpanded, setProviderSendScheduleExpanded] = useState(false);
+  const [providerSignupExpanded, setProviderSignupExpanded] = useState(false);
+  const [providerOptionsExpanded, setProviderOptionsExpanded] = useState(false);
+  const [schedulingAvailabilityExpanded, setSchedulingAvailabilityExpanded] = useState(false);
+  const [schedulingProviderAssignmentExpanded, setSchedulingProviderAssignmentExpanded] = useState(false);
+  const [schedulingUnassignedExpanded, setSchedulingUnassignedExpanded] = useState(false);
+  const [schedulingEligibilityExpanded, setSchedulingEligibilityExpanded] = useState(false);
+  const [schedulingRecurringExpanded, setSchedulingRecurringExpanded] = useState(false);
+  const [schedulingSpotsExpanded, setSchedulingSpotsExpanded] = useState(false);
+  const [schedulingBookingOptionsExpanded, setSchedulingBookingOptionsExpanded] = useState(false);
   const [cancellationExpanded, setCancellationExpanded] = useState(false);
   const [cancellationChargeFee, setCancellationChargeFee] = useState<'yes' | 'no'>('yes');
   const [cancellationFeeType, setCancellationFeeType] = useState<'single' | 'multiple'>('single');
@@ -3136,133 +3155,162 @@ export default function GeneralSettingsPage() {
                   )}
                 </div>
               </TabsContent>
-              <TabsContent value="customer" className="mt-0">
-                <div className="space-y-0 rounded-lg bg-card border shadow-sm">
-                  <div className="border-t divide-y">
-                    <Collapsible defaultOpen className="group">
-                      <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
-                        <div>
-                          <p className="font-semibold">Bookings</p>
-                          <p className="text-sm text-muted-foreground mt-0.5">
-                            In this section you can choose your settings for how your customers will view necessary information with their bookings. From allowing them to see who the provider is, being able to choose providers, allowing same day bookings and more.
-                          </p>
-                        </div>
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
-                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                        </span>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <div className="px-6 pb-4 pt-0 space-y-4">
-                          <p className="text-sm text-muted-foreground">Customer booking options will be available here.</p>
-                        </div>
-                      </CollapsibleContent>
-                    </Collapsible>
-                    <Collapsible className="group">
-                      <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
-                        <div>
-                          <p className="font-semibold">Facebook</p>
-                          <p className="text-sm text-muted-foreground mt-0.5">
-                            In this section you can set up a way to allow customers to share your business on Facebook in exchange for a discount.
-                          </p>
-                        </div>
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
-                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                        </span>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <div className="px-6 pb-4 pt-0 space-y-4">
-                          <p className="text-sm text-muted-foreground">Facebook sharing and discount settings will be available here.</p>
-                        </div>
-                      </CollapsibleContent>
-                    </Collapsible>
-                    <Collapsible className="group">
-                      <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
-                        <div>
-                          <p className="font-semibold">Referral Sharing Content</p>
-                          <p className="text-sm text-muted-foreground mt-0.5">
-                            In this section you can set up your description when customers share their referral link and what you would like it to say about your business.
-                          </p>
-                        </div>
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
-                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                        </span>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <div className="px-6 pb-4 pt-0 space-y-4">
-                          <p className="text-sm text-muted-foreground">Referral link description and sharing content will be available here.</p>
-                        </div>
-                      </CollapsibleContent>
-                    </Collapsible>
-                    <Collapsible className="group">
-                      <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
-                        <div>
-                          <p className="font-semibold">General</p>
-                          <p className="text-sm text-muted-foreground mt-0.5">
-                            In this section you can choose what shows up in the customers dashboard when a booking is not yet confirmed, where to send them if they click on your FAQ/Support link and more.
-                          </p>
-                        </div>
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
-                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                        </span>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <div className="px-6 pb-4 pt-0 space-y-4">
-                          <p className="text-sm text-muted-foreground">Customer dashboard and FAQ/Support link settings will be available here.</p>
-                        </div>
-                      </CollapsibleContent>
-                    </Collapsible>
-                    <Collapsible className="group">
-                      <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
-                        <div>
-                          <p className="font-semibold">Reschedule</p>
-                          <p className="text-sm text-muted-foreground mt-0.5">
-                            In this section you can set up all of the reschedule settings for customers. From giving the ability to reschedule or not.
-                          </p>
-                        </div>
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
-                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                        </span>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <div className="px-6 pb-6 pt-0 space-y-6">
-                          <TooltipProvider>
-                            <div className="rounded-lg border bg-card p-4 space-y-4">
-                              <div className="flex items-start gap-2">
-                                <Label className="font-semibold text-base leading-tight shrink-0">
-                                  Would you like to allow customers to be able to reschedule services on their own?
-                                </Label>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button type="button" className="inline-flex text-muted-foreground hover:text-foreground border border-destructive/50 rounded-full p-0.5 shrink-0 mt-0.5" aria-label="More info">
-                                      <Info className="h-4 w-4" />
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top" className="max-w-xs">
-                                    When enabled, customers can reschedule their bookings from their dashboard. When disabled, they will see the message below instead.
-                                  </TooltipContent>
-                                </Tooltip>
-                              </div>
-                              <RadioGroup
-                                value={allowCustomerSelfReschedule}
-                                onValueChange={(v) => setAllowCustomerSelfReschedule(v as 'yes' | 'no')}
-                                className="flex gap-4 pt-1"
-                              >
-                                <div className="flex items-center gap-2">
-                                  <RadioGroupItem value="yes" id="customer-self-reschedule-yes" />
-                                  <Label htmlFor="customer-self-reschedule-yes" className="font-normal cursor-pointer">Yes</Label>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <RadioGroupItem value="no" id="customer-self-reschedule-no" />
-                                  <Label htmlFor="customer-self-reschedule-no" className="font-normal cursor-pointer">No</Label>
-                                </div>
-                              </RadioGroup>
+              <TabsContent value="customer" className="mt-0 space-y-6">
+                <div className="rounded-lg border bg-card overflow-hidden">
+                  <div className="flex items-start justify-between gap-4 p-6">
+                    <div className="space-y-1">
+                      <h4 className="text-lg font-semibold">Bookings</h4>
+                      <p className="text-sm text-muted-foreground">
+                        In this section you can choose your settings for how your customers will view necessary information with their bookings. From allowing them to see who the provider is, being able to choose providers, allowing same day bookings and more.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10 shrink-0 rounded-full"
+                      onClick={() => setCustomerBookingsExpanded((v) => !v)}
+                      aria-expanded={customerBookingsExpanded}
+                    >
+                      {customerBookingsExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                    </Button>
+                  </div>
+                  {customerBookingsExpanded && (
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                      <p className="text-sm text-muted-foreground">Customer booking options will be available here.</p>
+                    </div>
+                  )}
+                </div>
+                <div className="rounded-lg border bg-card overflow-hidden">
+                  <div className="flex items-start justify-between gap-4 p-6">
+                    <div className="space-y-1">
+                      <h4 className="text-lg font-semibold">Facebook</h4>
+                      <p className="text-sm text-muted-foreground">
+                        In this section you can set up a way to allow customers to share your business on Facebook in exchange for a discount.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10 shrink-0 rounded-full"
+                      onClick={() => setCustomerFacebookExpanded((v) => !v)}
+                      aria-expanded={customerFacebookExpanded}
+                    >
+                      {customerFacebookExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                    </Button>
+                  </div>
+                  {customerFacebookExpanded && (
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                      <p className="text-sm text-muted-foreground">Facebook sharing and discount settings will be available here.</p>
+                    </div>
+                  )}
+                </div>
+                <div className="rounded-lg border bg-card overflow-hidden">
+                  <div className="flex items-start justify-between gap-4 p-6">
+                    <div className="space-y-1">
+                      <h4 className="text-lg font-semibold">Referral Sharing Content</h4>
+                      <p className="text-sm text-muted-foreground">
+                        In this section you can set up your description when customers share their referral link and what you would like it to say about your business.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10 shrink-0 rounded-full"
+                      onClick={() => setCustomerReferralExpanded((v) => !v)}
+                      aria-expanded={customerReferralExpanded}
+                    >
+                      {customerReferralExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                    </Button>
+                  </div>
+                  {customerReferralExpanded && (
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                      <p className="text-sm text-muted-foreground">Referral link description and sharing content will be available here.</p>
+                    </div>
+                  )}
+                </div>
+                <div className="rounded-lg border bg-card overflow-hidden">
+                  <div className="flex items-start justify-between gap-4 p-6">
+                    <div className="space-y-1">
+                      <h4 className="text-lg font-semibold">General</h4>
+                      <p className="text-sm text-muted-foreground">
+                        In this section you can choose what shows up in the customers dashboard when a booking is not yet confirmed, where to send them if they click on your FAQ/Support link and more.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10 shrink-0 rounded-full"
+                      onClick={() => setCustomerGeneralExpanded((v) => !v)}
+                      aria-expanded={customerGeneralExpanded}
+                    >
+                      {customerGeneralExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                    </Button>
+                  </div>
+                  {customerGeneralExpanded && (
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                      <p className="text-sm text-muted-foreground">Customer dashboard and FAQ/Support link settings will be available here.</p>
+                    </div>
+                  )}
+                </div>
+                <div className="rounded-lg border bg-card overflow-hidden">
+                  <div className="flex items-start justify-between gap-4 p-6">
+                    <div className="space-y-1">
+                      <h4 className="text-lg font-semibold">Reschedule</h4>
+                      <p className="text-sm text-muted-foreground">
+                        In this section you can set up all of the reschedule settings for customers. From giving the ability to reschedule or not.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10 shrink-0 rounded-full"
+                      onClick={() => setCustomerRescheduleExpanded((v) => !v)}
+                      aria-expanded={customerRescheduleExpanded}
+                    >
+                      {customerRescheduleExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                    </Button>
+                  </div>
+                  {customerRescheduleExpanded && (
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                      <TooltipProvider>
+                        <div className="space-y-6">
+                          <div className="rounded-lg border bg-card p-4 space-y-4">
+                            <div className="flex items-start gap-2">
+                              <Label className="font-semibold text-base leading-tight shrink-0">
+                                Would you like to allow customers to be able to reschedule services on their own?
+                              </Label>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button type="button" className="inline-flex text-muted-foreground hover:text-foreground border border-destructive/50 rounded-full p-0.5 shrink-0 mt-0.5" aria-label="More info">
+                                    <Info className="h-4 w-4" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs">
+                                  When enabled, customers can reschedule their bookings from their dashboard. When disabled, they will see the message below instead.
+                                </TooltipContent>
+                              </Tooltip>
                             </div>
-                            {allowCustomerSelfReschedule === "no" && (
+                            <RadioGroup
+                              value={allowCustomerSelfReschedule}
+                              onValueChange={(v) => setAllowCustomerSelfReschedule(v as 'yes' | 'no')}
+                              className="flex gap-4 pt-1"
+                            >
+                              <div className="flex items-center gap-2">
+                                <RadioGroupItem value="yes" id="customer-self-reschedule-yes" />
+                                <Label htmlFor="customer-self-reschedule-yes" className="font-normal cursor-pointer">Yes</Label>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <RadioGroupItem value="no" id="customer-self-reschedule-no" />
+                                <Label htmlFor="customer-self-reschedule-no" className="font-normal cursor-pointer">No</Label>
+                              </div>
+                            </RadioGroup>
+                          </div>
+                          {allowCustomerSelfReschedule === "no" && (
                             <div className="space-y-2">
                               <Label className="font-semibold">Message</Label>
                               <p className="text-sm text-muted-foreground">
@@ -3270,44 +3318,49 @@ export default function GeneralSettingsPage() {
                               </p>
                               <RescheduleMessageEditor value={rescheduleMessage} onChange={setRescheduleMessage} />
                             </div>
+                          )}
+                          <Button
+                            onClick={saveCustomerRescheduleSettings}
+                            disabled={customerRescheduleSaving}
+                          >
+                            {customerRescheduleSaving ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                Saving…
+                              </>
+                            ) : (
+                              "Save reschedule settings"
                             )}
-                            <Button
-                              onClick={saveCustomerRescheduleSettings}
-                              disabled={customerRescheduleSaving}
-                            >
-                              {customerRescheduleSaving ? (
-                                <>
-                                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                                  Saving…
-                                </>
-                              ) : (
-                                "Save reschedule settings"
-                              )}
-                            </Button>
-                          </TooltipProvider>
+                          </Button>
                         </div>
-                      </CollapsibleContent>
-                    </Collapsible>
-                    <Collapsible className="group">
-                      <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
-                        <div>
-                          <p className="font-semibold">Cancellation</p>
-                          <p className="text-sm text-muted-foreground mt-0.5">
-                            In this section you can set up all of the cancellation settings for customers. From giving the ability to postpone or just cancel, cancelling on their own, needing approval from you the admin before it is confirmed and more.
-                          </p>
-                        </div>
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-primary text-primary-foreground">
-                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                        </span>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <div className="px-6 pb-4 pt-0 space-y-4">
-                          <p className="text-sm text-muted-foreground">Customer cancellation and postponement settings will be available here.</p>
-                        </div>
-                      </CollapsibleContent>
-                    </Collapsible>
+                      </TooltipProvider>
+                    </div>
+                  )}
+                </div>
+                <div className="rounded-lg border bg-card overflow-hidden">
+                  <div className="flex items-start justify-between gap-4 p-6">
+                    <div className="space-y-1">
+                      <h4 className="text-lg font-semibold">Cancellation</h4>
+                      <p className="text-sm text-muted-foreground">
+                        In this section you can set up all of the cancellation settings for customers. From giving the ability to postpone or just cancel, cancelling on their own, needing approval from you the admin before it is confirmed and more.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10 shrink-0 rounded-full"
+                      onClick={() => setCustomerCancellationExpanded((v) => !v)}
+                      aria-expanded={customerCancellationExpanded}
+                    >
+                      {customerCancellationExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                    </Button>
                   </div>
+                  {customerCancellationExpanded && (
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                      <p className="text-sm text-muted-foreground">Customer cancellation and postponement settings will be available here.</p>
+                    </div>
+                  )}
                 </div>
               </TabsContent>
               <TabsContent value="provider" className="mt-0">
@@ -3316,61 +3369,75 @@ export default function GeneralSettingsPage() {
                     <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                   </div>
                 ) : (
-                  <div className="space-y-0 rounded-lg bg-card border shadow-sm">
-                    <p className="text-sm text-muted-foreground px-6 pt-6 pb-2">
+                  <div className="space-y-6">
+                    <p className="text-sm text-muted-foreground">
                       Store-wide provider settings. Per-provider options (e.g. show unassigned, can set schedule) are in each provider&apos;s profile under Providers → [provider] → Settings → General.
                     </p>
-                    <div className="border-t divide-y">
-                      <Collapsible defaultOpen className="group">
-                        <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
-                          <div>
-                            <p className="font-semibold">Bookings</p>
-                            <p className="text-sm text-muted-foreground mt-0.5">Set whether customers or admin can choose a specific provider when creating or booking.</p>
-                          </div>
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
-                            <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                            <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                          </span>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <div className="px-6 pb-4 pt-0 space-y-4">
-                            <div className="flex items-center justify-between rounded-lg border p-4">
-                              <div>
-                                <Label className="font-semibold">Let customers choose a specific provider</Label>
-                                <p className="text-sm text-muted-foreground mt-0.5">When booking online, customers can pick a provider (if off, assignment is automatic or admin-only).</p>
-                              </div>
-                              <Switch
-                                checked={schedulingOptions.specific_provider_for_customers ?? false}
-                                onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, specific_provider_for_customers: v }))}
-                              />
+                    <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
+                      <div className="flex items-start justify-between gap-4 p-6">
+                        <div className="space-y-1">
+                          <h4 className="text-lg font-semibold">Bookings</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Set whether customers or admin can choose a specific provider when creating or booking.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-10 w-10 shrink-0 rounded-full"
+                          onClick={() => setProviderBookingsExpanded((v) => !v)}
+                          aria-expanded={providerBookingsExpanded}
+                        >
+                          {providerBookingsExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                        </Button>
+                      </div>
+                      {providerBookingsExpanded && (
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                          <div className="flex items-center justify-between rounded-lg border p-4">
+                            <div>
+                              <Label className="font-semibold">Let customers choose a specific provider</Label>
+                              <p className="text-sm text-muted-foreground mt-0.5">When booking online, customers can pick a provider (if off, assignment is automatic or admin-only).</p>
                             </div>
-                            <div className="flex items-center justify-between rounded-lg border p-4">
-                              <div>
-                                <Label className="font-semibold">Let admin choose a specific provider when creating a booking</Label>
-                                <p className="text-sm text-muted-foreground mt-0.5">When adding a booking from the admin side, you can assign a provider (recommended on).</p>
-                              </div>
-                              <Switch
-                                checked={schedulingOptions.specific_provider_for_admin ?? true}
-                                onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, specific_provider_for_admin: v }))}
-                              />
+                            <Switch
+                              checked={schedulingOptions.specific_provider_for_customers ?? false}
+                              onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, specific_provider_for_customers: v }))}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between rounded-lg border p-4">
+                            <div>
+                              <Label className="font-semibold">Let admin choose a specific provider when creating a booking</Label>
+                              <p className="text-sm text-muted-foreground mt-0.5">When adding a booking from the admin side, you can assign a provider (recommended on).</p>
                             </div>
+                            <Switch
+                              checked={schedulingOptions.specific_provider_for_admin ?? true}
+                              onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, specific_provider_for_admin: v }))}
+                            />
                           </div>
-                        </CollapsibleContent>
-                      </Collapsible>
-
-                      <Collapsible defaultOpen className="group">
-                        <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
-                          <div>
-                            <p className="font-semibold">Scheduling</p>
-                            <p className="text-sm text-muted-foreground mt-0.5">Control if providers can see unassigned jobs, edit their schedules, and get notifications.</p>
-                          </div>
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
-                            <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                            <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                          </span>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <div className="px-6 pb-4 pt-0 space-y-4">
+                        </div>
+                      )}
+                    </div>
+                    <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
+                      <div className="flex items-start justify-between gap-4 p-6">
+                        <div className="space-y-1">
+                          <h4 className="text-lg font-semibold">Scheduling</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Control if providers can see unassigned jobs, edit their schedules, and get notifications.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-10 w-10 shrink-0 rounded-full"
+                          onClick={() => setProviderSchedulingExpanded((v) => !v)}
+                          aria-expanded={providerSchedulingExpanded}
+                        >
+                          {providerSchedulingExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                        </Button>
+                      </div>
+                      {providerSchedulingExpanded && (
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
                             <div className="flex items-center justify-between rounded-lg border p-4">
                               <div>
                                 <Label className="font-semibold">Allow providers to see unassigned jobs</Label>
@@ -3404,23 +3471,30 @@ export default function GeneralSettingsPage() {
                                 onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, notify_providers_on_unassigned: v }))}
                               />
                             </div>
-                          </div>
-                        </CollapsibleContent>
-                      </Collapsible>
-
-                      <Collapsible className="group">
-                        <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
-                          <div>
-                            <p className="font-semibold">GPS & Time Logs</p>
-                            <p className="text-sm text-muted-foreground mt-0.5">Control clock in/out, tracking, automatic clock out, booking completion, and related options.</p>
-                          </div>
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
-                            <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                            <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                          </span>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <div className="px-6 pb-4 pt-0 space-y-4">
+                        </div>
+                      )}
+                    </div>
+                    <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
+                      <div className="flex items-start justify-between gap-4 p-6">
+                        <div className="space-y-1">
+                          <h4 className="text-lg font-semibold">GPS & Time Logs</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Control clock in/out, tracking, automatic clock out, booking completion, and related options.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-10 w-10 shrink-0 rounded-full"
+                          onClick={() => setProviderGpsExpanded((v) => !v)}
+                          aria-expanded={providerGpsExpanded}
+                        >
+                          {providerGpsExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                        </Button>
+                      </div>
+                      {providerGpsExpanded && (
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
                             <div className="flex items-center justify-between rounded-lg border p-4">
                               <div>
                                 <Label className="font-semibold">Activate clock in / clock out</Label>
@@ -3545,59 +3619,80 @@ export default function GeneralSettingsPage() {
                                 onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, time_log_updates_booking: v }))}
                               />
                             </div>
-                          </div>
-                        </CollapsibleContent>
-                      </Collapsible>
-
-                      <Collapsible className="group">
-                        <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
-                          <div>
-                            <p className="font-semibold">Send Schedule Automatically</p>
-                            <p className="text-sm text-muted-foreground mt-0.5">Make sure you enable the &quot;Send Schedule&quot; email template before sending schedule automatically, otherwise the schedule will not be sent to providers.</p>
-                          </div>
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
-                            <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                            <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                          </span>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <div className="px-6 pb-4 pt-0">
-                            <p className="text-sm text-muted-foreground">Automated schedule emails – coming soon. Configure email templates under Settings → Notifications.</p>
-                          </div>
-                        </CollapsibleContent>
-                      </Collapsible>
-
-                      <Collapsible className="group">
-                        <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
-                          <div>
-                            <p className="font-semibold">Sign up</p>
-                            <p className="text-sm text-muted-foreground mt-0.5">Set up the provider signup feature and manage related settings.</p>
-                          </div>
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
-                            <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                            <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                          </span>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <div className="px-6 pb-4 pt-0">
-                            <p className="text-sm text-muted-foreground">Provider self-signup – coming soon. For now, add providers from Admin → Providers → invite or add.</p>
-                          </div>
-                        </CollapsibleContent>
-                      </Collapsible>
-
-                      <Collapsible defaultOpen className="group">
-                        <CollapsibleTrigger className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-muted/50 transition-colors">
-                          <div>
-                            <p className="font-semibold">Provider options (customer visibility)</p>
-                            <p className="text-sm text-muted-foreground mt-0.5">Control what customers see about providers when choosing one on the booking form.</p>
-                          </div>
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
-                            <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                            <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                          </span>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <div className="px-6 pb-4 pt-0 space-y-4">
+                        </div>
+                      )}
+                    </div>
+                    <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
+                      <div className="flex items-start justify-between gap-4 p-6">
+                        <div className="space-y-1">
+                          <h4 className="text-lg font-semibold">Send Schedule Automatically</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Make sure you enable the &quot;Send Schedule&quot; email template before sending schedule automatically, otherwise the schedule will not be sent to providers.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-10 w-10 shrink-0 rounded-full"
+                          onClick={() => setProviderSendScheduleExpanded((v) => !v)}
+                          aria-expanded={providerSendScheduleExpanded}
+                        >
+                          {providerSendScheduleExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                        </Button>
+                      </div>
+                      {providerSendScheduleExpanded && (
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                          <p className="text-sm text-muted-foreground">Automated schedule emails – coming soon. Configure email templates under Settings → Notifications.</p>
+                        </div>
+                      )}
+                    </div>
+                    <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
+                      <div className="flex items-start justify-between gap-4 p-6">
+                        <div className="space-y-1">
+                          <h4 className="text-lg font-semibold">Sign up</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Set up the provider signup feature and manage related settings.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-10 w-10 shrink-0 rounded-full"
+                          onClick={() => setProviderSignupExpanded((v) => !v)}
+                          aria-expanded={providerSignupExpanded}
+                        >
+                          {providerSignupExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                        </Button>
+                      </div>
+                      {providerSignupExpanded && (
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                          <p className="text-sm text-muted-foreground">Provider self-signup – coming soon. For now, add providers from Admin → Providers → invite or add.</p>
+                        </div>
+                      )}
+                    </div>
+                    <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
+                      <div className="flex items-start justify-between gap-4 p-6">
+                        <div className="space-y-1">
+                          <h4 className="text-lg font-semibold">Provider options (customer visibility)</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Control what customers see about providers when choosing one on the booking form.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-10 w-10 shrink-0 rounded-full"
+                          onClick={() => setProviderOptionsExpanded((v) => !v)}
+                          aria-expanded={providerOptionsExpanded}
+                        >
+                          {providerOptionsExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                        </Button>
+                      </div>
+                      {providerOptionsExpanded && (
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
                             <div className="flex items-center justify-between rounded-lg border p-4">
                               <div>
                                 <Label className="font-semibold">Show provider score/rating to customers</Label>
@@ -3628,11 +3723,10 @@ export default function GeneralSettingsPage() {
                                 onCheckedChange={(v) => setSchedulingOptions((o) => ({ ...o, show_provider_availability_to_customers: v }))}
                               />
                             </div>
-                          </div>
-                        </CollapsibleContent>
-                      </Collapsible>
+                        </div>
+                      )}
                     </div>
-                    <div className="flex justify-end p-6 border-t">
+                    <div className="flex justify-end">
                       <Button onClick={handleSaveScheduling} disabled={schedulingSaving}>
                         {schedulingSaving ? (
                           <>
@@ -3941,26 +4035,34 @@ export default function GeneralSettingsPage() {
                     <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                   </div>
                 ) : (
-                  <div className="space-y-0 rounded-lg bg-card p-6 border shadow-sm">
-                    <h2 className="text-xl font-semibold mb-1">Scheduling</h2>
-                    <p className="text-sm text-muted-foreground mb-6">
-                      In this section you can decide whether you want the spots based on provider availability or not. You can also set up if you want to choose providers manually or the system should pick a provider automatically from available providers and should assign it automatically or it should be based on accept/decline.
-                    </p>
-
-                    <div className="border rounded-lg divide-y bg-background/80">
-                    <Collapsible defaultOpen className="group">
-                      <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-4 text-left hover:bg-muted/50 transition-colors">
-                        <div>
-                          <p className="font-semibold">Availability & Assignment</p>
-                          <p className="text-sm text-muted-foreground mt-0.5">Control whether slots depend on provider availability and how providers are chosen</p>
+                  <div className="space-y-6">
+                    <div>
+                      <h2 className="text-xl font-semibold mb-1">Scheduling</h2>
+                      <p className="text-sm text-muted-foreground">
+                        In this section you can decide whether you want the spots based on provider availability or not. You can also set up if you want to choose providers manually or the system should pick a provider automatically from available providers and should assign it automatically or it should be based on accept/decline.
+                      </p>
+                    </div>
+                    <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
+                      <div className="flex items-start justify-between gap-4 p-6">
+                        <div className="space-y-1">
+                          <h4 className="text-lg font-semibold">Availability & Assignment</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Control whether slots depend on provider availability and how providers are chosen
+                          </p>
                         </div>
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
-                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                        </span>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <div className="px-4 pb-4 pt-0 space-y-6">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-10 w-10 shrink-0 rounded-full"
+                          onClick={() => setSchedulingAvailabilityExpanded((v) => !v)}
+                          aria-expanded={schedulingAvailabilityExpanded}
+                        >
+                          {schedulingAvailabilityExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                        </Button>
+                      </div>
+                      {schedulingAvailabilityExpanded && (
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
                         <div className="flex items-center justify-between">
                           <div>
                             <Label>Spots based on provider availability</Label>
@@ -4006,23 +4108,30 @@ export default function GeneralSettingsPage() {
                             </label>
                           </div>
                         </div>
-                      </div>
-                    </CollapsibleContent>
-                    </Collapsible>
-
-                    <Collapsible className="group">
-                      <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-4 text-left hover:bg-muted/50 transition-colors">
-                        <div>
-                          <p className="font-semibold">Provider Assignment (when automatic)</p>
-                          <p className="text-sm text-muted-foreground mt-0.5">Choose how automatic assignment works when customers book online</p>
                         </div>
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
-                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                        </span>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <div className="px-4 pb-4 pt-0 space-y-6">
+                      )}
+                    </div>
+                    <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
+                      <div className="flex items-start justify-between gap-4 p-6">
+                        <div className="space-y-1">
+                          <h4 className="text-lg font-semibold">Provider Assignment (when automatic)</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Choose how automatic assignment works when customers book online
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-10 w-10 shrink-0 rounded-full"
+                          onClick={() => setSchedulingProviderAssignmentExpanded((v) => !v)}
+                          aria-expanded={schedulingProviderAssignmentExpanded}
+                        >
+                          {schedulingProviderAssignmentExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                        </Button>
+                      </div>
+                      {schedulingProviderAssignmentExpanded && (
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
                         {(schedulingOptions.provider_assignment_mode ?? "automatic") === "automatic" && (
                         <>
                         <div className="space-y-3">
@@ -4100,22 +4209,29 @@ export default function GeneralSettingsPage() {
                         </>
                         )}
                         </div>
-                      </CollapsibleContent>
-                    </Collapsible>
-
-                    <Collapsible className="group">
-                      <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-4 text-left hover:bg-muted/50 transition-colors">
-                        <div>
-                          <p className="font-semibold">Unassigned Folder</p>
-                          <p className="text-sm text-muted-foreground mt-0.5">Settings for bookings without a provider</p>
+                      )}
+                    </div>
+                    <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
+                      <div className="flex items-start justify-between gap-4 p-6">
+                        <div className="space-y-1">
+                          <h4 className="text-lg font-semibold">Unassigned Folder</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Settings for bookings without a provider
+                          </p>
                         </div>
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
-                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                        </span>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <div className="px-4 pb-4 pt-0 space-y-6">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-10 w-10 shrink-0 rounded-full"
+                          onClick={() => setSchedulingUnassignedExpanded((v) => !v)}
+                          aria-expanded={schedulingUnassignedExpanded}
+                        >
+                          {schedulingUnassignedExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                        </Button>
+                      </div>
+                      {schedulingUnassignedExpanded && (
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
                         <div className="flex items-center justify-between">
                           <div>
                             <Label>Allow providers to see unassigned jobs</Label>
@@ -4160,22 +4276,38 @@ export default function GeneralSettingsPage() {
                           />
                         </div>
                         </div>
-                      </CollapsibleContent>
-                    </Collapsible>
-
-                    <Collapsible className="group" onOpenChange={(open) => open && (fetchRecentAutoAssignments(), fetchEligibilityPreview())}>
-                      <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-4 text-left hover:bg-muted/50 transition-colors">
-                        <div>
-                          <p className="font-semibold">Provider eligibility (auto-assign scores)</p>
-                          <p className="text-sm text-muted-foreground mt-0.5">Preview who would be assigned and see recent auto-assignment scores</p>
+                      )}
+                    </div>
+                    <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
+                      <div className="flex items-start justify-between gap-4 p-6">
+                        <div className="space-y-1">
+                          <h4 className="text-lg font-semibold">Provider eligibility (auto-assign scores)</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Preview who would be assigned and see recent auto-assignment scores
+                          </p>
                         </div>
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
-                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                        </span>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <div className="px-4 pb-4 pt-0 space-y-6">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-10 w-10 shrink-0 rounded-full"
+                          onClick={() => {
+                            setSchedulingEligibilityExpanded((v) => {
+                              const next = !v;
+                              if (next) {
+                                fetchRecentAutoAssignments();
+                                fetchEligibilityPreview();
+                              }
+                              return next;
+                            });
+                          }}
+                          aria-expanded={schedulingEligibilityExpanded}
+                        >
+                          {schedulingEligibilityExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                        </Button>
+                      </div>
+                      {schedulingEligibilityExpanded && (
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
                           <Alert>
                             <AlertDescription>
                               <strong>How providers get a higher score or get chosen first</strong>
@@ -4258,22 +4390,29 @@ export default function GeneralSettingsPage() {
                             )}
                           </div>
                         </div>
-                      </CollapsibleContent>
-                    </Collapsible>
-
-                    <Collapsible className="group">
-                      <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-4 text-left hover:bg-muted/50 transition-colors">
-                        <div>
-                          <p className="font-semibold">Recurring Bookings</p>
-                          <p className="text-sm text-muted-foreground mt-0.5">Options to select how many recurring booking(s) you want to block into the future</p>
+                      )}
+                    </div>
+                    <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
+                      <div className="flex items-start justify-between gap-4 p-6">
+                        <div className="space-y-1">
+                          <h4 className="text-lg font-semibold">Recurring Bookings</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Options to select how many recurring booking(s) you want to block into the future
+                          </p>
                         </div>
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
-                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                        </span>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <div className="px-4 pb-4 pt-0 space-y-6">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-10 w-10 shrink-0 rounded-full"
+                          onClick={() => setSchedulingRecurringExpanded((v) => !v)}
+                          aria-expanded={schedulingRecurringExpanded}
+                        >
+                          {schedulingRecurringExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                        </Button>
+                      </div>
+                      {schedulingRecurringExpanded && (
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
                         <div className="space-y-3">
                           <Label>Default recurring update behavior</Label>
                           <p className="text-sm text-muted-foreground">When editing a recurring booking, which option to pre-select</p>
@@ -4321,22 +4460,29 @@ export default function GeneralSettingsPage() {
                           />
                         </div>
                         </div>
-                      </CollapsibleContent>
-                    </Collapsible>
-
-                    <Collapsible className="group">
-                      <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-4 text-left hover:bg-muted/50 transition-colors">
-                        <div>
-                          <p className="font-semibold">Spots Availability</p>
-                          <p className="text-sm text-muted-foreground mt-0.5">Control over how system should check spots availability (holidays, limits)</p>
+                      )}
+                    </div>
+                    <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
+                      <div className="flex items-start justify-between gap-4 p-6">
+                        <div className="space-y-1">
+                          <h4 className="text-lg font-semibold">Spots Availability</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Control over how system should check spots availability (holidays, limits)
+                          </p>
                         </div>
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
-                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                        </span>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <div className="px-4 pb-4 pt-0 space-y-6">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-10 w-10 shrink-0 rounded-full"
+                          onClick={() => setSchedulingSpotsExpanded((v) => !v)}
+                          aria-expanded={schedulingSpotsExpanded}
+                        >
+                          {schedulingSpotsExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                        </Button>
+                      </div>
+                      {schedulingSpotsExpanded && (
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
                         <div className="flex items-center justify-between">
                           <div>
                             <Label>Skip holidays in recurring</Label>
@@ -4373,22 +4519,29 @@ export default function GeneralSettingsPage() {
                           </div>
                         </div>
                         </div>
-                      </CollapsibleContent>
-                    </Collapsible>
-
-                    <Collapsible className="group">
-                      <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-4 text-left hover:bg-muted/50 transition-colors">
-                        <div>
-                          <p className="font-semibold">Booking Options</p>
-                          <p className="text-sm text-muted-foreground mt-0.5">Manage the options to show on booking forms for customer and admin</p>
+                      )}
+                    </div>
+                    <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
+                      <div className="flex items-start justify-between gap-4 p-6">
+                        <div className="space-y-1">
+                          <h4 className="text-lg font-semibold">Booking Options</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Manage the options to show on booking forms for customer and admin
+                          </p>
                         </div>
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted">
-                          <Plus className="h-4 w-4 group-data-[state=open]:hidden" />
-                          <Minus className="h-4 w-4 hidden group-data-[state=open]:block" />
-                        </span>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <div className="px-4 pb-4 pt-0 space-y-6">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-10 w-10 shrink-0 rounded-full"
+                          onClick={() => setSchedulingBookingOptionsExpanded((v) => !v)}
+                          aria-expanded={schedulingBookingOptionsExpanded}
+                        >
+                          {schedulingBookingOptionsExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                        </Button>
+                      </div>
+                      {schedulingBookingOptionsExpanded && (
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
                         <div className="flex items-center justify-between">
                           <div>
                             <Label>Specific provider for customers</Label>
@@ -4480,15 +4633,14 @@ export default function GeneralSettingsPage() {
                         </div>
                         </div>
                         </div>
-                      </CollapsibleContent>
-                    </Collapsible>
+                      )}
                     </div>
-
-
-                    <Button onClick={handleSaveScheduling} disabled={schedulingSaving} className="mt-6">
-                      {schedulingSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                      Save Scheduling Settings
-                    </Button>
+                    <div className="flex justify-end">
+                      <Button onClick={handleSaveScheduling} disabled={schedulingSaving}>
+                        {schedulingSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                        Save Scheduling Settings
+                      </Button>
+                    </div>
                   </div>
                 )}
               </TabsContent>
