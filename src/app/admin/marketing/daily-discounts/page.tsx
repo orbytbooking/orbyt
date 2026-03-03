@@ -54,7 +54,7 @@ export default function DailyDiscountsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold">Daily Discounts</h2>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Daily Discounts</h2>
         <p className="text-muted-foreground text-sm">Configure and schedule daily discounts.</p>
       </div>
 

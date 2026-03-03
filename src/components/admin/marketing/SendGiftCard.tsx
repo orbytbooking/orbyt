@@ -110,7 +110,7 @@ export function SendGiftCard() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold">Send Gift Card</h2>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Send Gift Card</h2>
         <p className="text-muted-foreground">Create and send a personalized gift card to your customers.</p>
       </div>
 

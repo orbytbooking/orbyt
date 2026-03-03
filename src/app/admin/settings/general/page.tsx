@@ -972,16 +972,16 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Store Info</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Store Info</h4>
                       <p className="text-sm text-muted-foreground">
-                        Here are your businesses general settings. This is where you can upload your logo, change your currency, set your time zone, set your methods of payment that you accept and more!
+                        Here are your businesses general settings. This is where you can change your currency, set your time zone, set your methods of payment that you accept and more!
                       </p>
                     </div>
                     <Button
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setStoreInfoExpanded((v) => !v)}
                       aria-expanded={storeInfoExpanded}
                     >
@@ -993,13 +993,13 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {storeInfoExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <TooltipProvider>
                         <div className="grid gap-4 sm:grid-cols-1 max-w-xl">
                           <div className="space-y-2">
-                            <Label className="font-semibold">Store currency</Label>
+                            <Label className="font-semibold dark:text-white">Store currency</Label>
                             <Select value={storeCurrency} onValueChange={setStoreCurrency}>
-                              <SelectTrigger>
+                              <SelectTrigger className="dark:text-white">
                                 <SelectValue placeholder="Select currency" />
                               </SelectTrigger>
                               <SelectContent>
@@ -1011,18 +1011,19 @@ export default function GeneralSettingsPage() {
                             </Select>
                           </div>
                           <div className="space-y-2">
-                            <Label className="font-semibold">Email</Label>
+                            <Label className="font-semibold dark:text-white">Email</Label>
                             <Input
                               type="email"
                               placeholder="office@example.com"
                               value={storeEmail}
                               onChange={(e) => setStoreEmail(e.target.value)}
+                              className="dark:text-white dark:placeholder:text-white"
                             />
                           </div>
                           <div className="space-y-2">
-                            <Label className="font-semibold">Time zone</Label>
+                            <Label className="font-semibold dark:text-white">Time zone</Label>
                             <Select value={storeTimeZone} onValueChange={setStoreTimeZone}>
-                              <SelectTrigger>
+                              <SelectTrigger className="dark:text-white">
                                 <SelectValue placeholder="Select time zone" />
                               </SelectTrigger>
                               <SelectContent className="max-h-[300px]">
@@ -1035,9 +1036,9 @@ export default function GeneralSettingsPage() {
                             </Select>
                           </div>
                           <div className="space-y-2">
-                            <Label className="font-semibold">Time format</Label>
+                            <Label className="font-semibold dark:text-white">Time format</Label>
                             <Select value={storeTimeFormat} onValueChange={setStoreTimeFormat}>
-                              <SelectTrigger>
+                              <SelectTrigger className="dark:text-white">
                                 <SelectValue placeholder="Select format" />
                               </SelectTrigger>
                               <SelectContent>
@@ -1047,9 +1048,9 @@ export default function GeneralSettingsPage() {
                             </Select>
                           </div>
                           <div className="space-y-2">
-                            <Label className="font-semibold">Date format</Label>
+                            <Label className="font-semibold dark:text-white">Date format</Label>
                             <Select value={storeDateFormat} onValueChange={setStoreDateFormat}>
-                              <SelectTrigger>
+                              <SelectTrigger className="dark:text-white">
                                 <SelectValue placeholder="Select format" />
                               </SelectTrigger>
                               <SelectContent>
@@ -1061,10 +1062,10 @@ export default function GeneralSettingsPage() {
                           </div>
                           <div className="space-y-2">
                             <div className="flex items-center gap-1.5">
-                              <Label className="font-semibold">Would you like to give the option to add the country code for phone numbers?</Label>
+                              <Label className="font-semibold dark:text-white">Would you like to give the option to add the country code for phone numbers?</Label>
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <button type="button" className="inline-flex text-muted-foreground hover:text-foreground">
+                                  <button type="button" className="inline-flex text-muted-foreground hover:text-foreground dark:text-white">
                                     <Info className="h-4 w-4" />
                                   </button>
                                 </TooltipTrigger>
@@ -1076,27 +1077,28 @@ export default function GeneralSettingsPage() {
                             <RadioGroup value={countryCodePhone} onValueChange={(v) => setCountryCodePhone(v as 'yes' | 'no')} className="flex gap-4 pt-1">
                               <label className="flex items-center gap-2 cursor-pointer">
                                 <RadioGroupItem value="yes" id="country-yes" />
-                                <span className="text-sm">Yes</span>
+                                <span className="text-sm dark:text-white">Yes</span>
                               </label>
                               <label className="flex items-center gap-2 cursor-pointer">
                                 <RadioGroupItem value="no" id="country-no" />
-                                <span className="text-sm">No</span>
+                                <span className="text-sm dark:text-white">No</span>
                               </label>
                             </RadioGroup>
                           </div>
                           <div className="space-y-2">
-                            <Label className="font-semibold">Phone number</Label>
+                            <Label className="font-semibold dark:text-white">Phone number</Label>
                             <Input
                               type="tel"
-                              placeholder="Phone No."
+                              placeholder="Enter phone number"
                               value={storePhone}
                               onChange={(e) => setStorePhone(e.target.value)}
+                              className="dark:text-white dark:placeholder:text-white"
                             />
                           </div>
                           <div className="space-y-2">
-                            <Label className="font-semibold">Phone number format</Label>
+                            <Label className="font-semibold dark:text-white">Phone number format</Label>
                             <Select value={storePhoneFormat} onValueChange={setStorePhoneFormat}>
-                              <SelectTrigger>
+                              <SelectTrigger className="dark:text-white">
                                 <SelectValue placeholder="Select format" />
                               </SelectTrigger>
                               <SelectContent>
@@ -1108,10 +1110,10 @@ export default function GeneralSettingsPage() {
                           </div>
                           <div className="space-y-2">
                             <div className="flex items-center gap-1.5">
-                              <Label className="font-semibold">Accepted forms of payment</Label>
+                              <Label className="font-semibold dark:text-white">Accepted forms of payment</Label>
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <button type="button" className="inline-flex text-muted-foreground hover:text-foreground">
+                                  <button type="button" className="inline-flex text-muted-foreground hover:text-foreground dark:text-white">
                                     <Info className="h-4 w-4" />
                                   </button>
                                 </TooltipTrigger>
@@ -1123,20 +1125,20 @@ export default function GeneralSettingsPage() {
                             <div className="flex flex-row flex-wrap gap-4 pt-1">
                               <label className="flex items-center gap-2 cursor-pointer">
                                 <Checkbox checked={paymentCreditCard} onCheckedChange={(c) => setPaymentCreditCard(!!c)} />
-                                <span className="text-sm">Credit/Debit card</span>
+                                <span className="text-sm dark:text-white">Credit/Debit card</span>
                               </label>
                               <label className="flex items-center gap-2 cursor-pointer">
                                 <Checkbox checked={paymentCashCheck} onCheckedChange={(c) => setPaymentCashCheck(!!c)} />
-                                <span className="text-sm">Cash/Check</span>
+                                <span className="text-sm dark:text-white">Cash/Check</span>
                               </label>
                             </div>
                           </div>
                           <div className="space-y-2">
                             <div className="flex items-center gap-1.5">
-                              <Label className="font-semibold">What type(s) of form(s) do you want to offer?</Label>
+                              <Label className="font-semibold dark:text-white">What type(s) of form(s) do you want to offer?</Label>
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <button type="button" className="inline-flex text-muted-foreground hover:text-foreground">
+                                  <button type="button" className="inline-flex text-muted-foreground hover:text-foreground dark:text-white">
                                     <Info className="h-4 w-4" />
                                   </button>
                                 </TooltipTrigger>
@@ -1148,16 +1150,16 @@ export default function GeneralSettingsPage() {
                             <div className="pt-1">
                               <label className="flex items-center gap-2 cursor-pointer">
                                 <Checkbox checked={formBooking} onCheckedChange={(c) => setFormBooking(!!c)} />
-                                <span className="text-sm">Booking forms</span>
+                                <span className="text-sm dark:text-white">Booking forms</span>
                               </label>
                             </div>
                           </div>
                           <div className="space-y-2">
                             <div className="flex items-center gap-1.5">
-                              <Label className="font-semibold">How do you want to manage the colors in your admin booking calendar?</Label>
+                              <Label className="font-semibold dark:text-white">How do you want to manage the colors in your admin booking calendar?</Label>
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <button type="button" className="inline-flex text-muted-foreground hover:text-foreground">
+                                  <button type="button" className="inline-flex text-muted-foreground hover:text-foreground dark:text-white">
                                     <Info className="h-4 w-4" />
                                   </button>
                                 </TooltipTrigger>
@@ -1169,20 +1171,20 @@ export default function GeneralSettingsPage() {
                             <RadioGroup value={calendarColorManagement} onValueChange={(v) => setCalendarColorManagement(v as 'booking' | 'provider')} className="flex gap-4 pt-1">
                               <label className="flex items-center gap-2 cursor-pointer">
                                 <RadioGroupItem value="booking" id="cal-booking" />
-                                <span className="text-sm">Booking type based</span>
+                                <span className="text-sm dark:text-white">Booking type based</span>
                               </label>
                               <label className="flex items-center gap-2 cursor-pointer">
                                 <RadioGroupItem value="provider" id="cal-provider" />
-                                <span className="text-sm">Provider based</span>
+                                <span className="text-sm dark:text-white">Provider based</span>
                               </label>
                             </RadioGroup>
                           </div>
                           <div className="space-y-2">
                             <div className="flex items-center gap-1.5">
-                              <Label className="font-semibold">Would you like to remember the last selected option in filter(s)?</Label>
+                              <Label className="font-semibold dark:text-white">Would you like to remember the last selected option in filter(s)?</Label>
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <button type="button" className="inline-flex text-muted-foreground hover:text-foreground">
+                                  <button type="button" className="inline-flex text-muted-foreground hover:text-foreground dark:text-white">
                                     <Info className="h-4 w-4" />
                                   </button>
                                 </TooltipTrigger>
@@ -1194,20 +1196,20 @@ export default function GeneralSettingsPage() {
                             <RadioGroup value={rememberFilter} onValueChange={(v) => setRememberFilter(v as 'yes' | 'no')} className="flex gap-4 pt-1">
                               <label className="flex items-center gap-2 cursor-pointer">
                                 <RadioGroupItem value="yes" id="filter-yes" />
-                                <span className="text-sm">Yes</span>
+                                <span className="text-sm dark:text-white">Yes</span>
                               </label>
                               <label className="flex items-center gap-2 cursor-pointer">
                                 <RadioGroupItem value="no" id="filter-no" />
-                                <span className="text-sm">No</span>
+                                <span className="text-sm dark:text-white">No</span>
                               </label>
                             </RadioGroup>
                           </div>
                           <div className="space-y-2">
                             <div className="flex items-center gap-1.5">
-                              <Label className="font-semibold">Would you like to change the name &apos;Service Fee&apos; to something else inside your store?</Label>
+                              <Label className="font-semibold dark:text-white">Would you like to change the name &apos;Service Fee&apos; to something else inside your store?</Label>
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <button type="button" className="inline-flex text-muted-foreground hover:text-foreground">
+                                  <button type="button" className="inline-flex text-muted-foreground hover:text-foreground dark:text-white">
                                     <Info className="h-4 w-4" />
                                   </button>
                                 </TooltipTrigger>
@@ -1219,11 +1221,11 @@ export default function GeneralSettingsPage() {
                             <RadioGroup value={changeServiceFeeName} onValueChange={(v) => setChangeServiceFeeName(v as 'yes' | 'no')} className="flex gap-4 pt-1">
                               <label className="flex items-center gap-2 cursor-pointer">
                                 <RadioGroupItem value="yes" id="fee-yes" />
-                                <span className="text-sm">Yes</span>
+                                <span className="text-sm dark:text-white">Yes</span>
                               </label>
                               <label className="flex items-center gap-2 cursor-pointer">
                                 <RadioGroupItem value="no" id="fee-no" />
-                                <span className="text-sm">No</span>
+                                <span className="text-sm dark:text-white">No</span>
                               </label>
                             </RadioGroup>
                             {changeServiceFeeName === 'yes' && (
@@ -1232,7 +1234,7 @@ export default function GeneralSettingsPage() {
                                   placeholder="Service Fee"
                                   value={serviceFeeCustomName}
                                   onChange={(e) => setServiceFeeCustomName(e.target.value)}
-                                  className="max-w-xs"
+                                  className="max-w-xs dark:text-white dark:placeholder:text-white"
                                 />
                               </div>
                             )}
@@ -1245,7 +1247,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Location Settings</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Location Settings</h4>
                       <p className="text-sm text-muted-foreground">
                         Here you can find the settings on how you would like to manage your locations. You can set your form up to collect zip/postal codes, city or town names or you can choose to not have locations mandatory on your form in order for your customers to book.
                       </p>
@@ -1254,7 +1256,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={(e) => {
                         e.stopPropagation();
                         setLocationSettingsExpanded((v) => !v);
@@ -1269,7 +1271,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {locationSettingsExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <div className="space-y-3">
                         <p className="font-semibold text-sm">How do you want to manage the locations?</p>
                         <RadioGroup
@@ -1318,7 +1320,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Address Settings</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Address Settings</h4>
                       <p className="text-sm text-muted-foreground">
                         Here you can find settings for your addresses which will be displayed in the booking summary. You can choose to show your location name in addition to the customer&apos;s address.
                       </p>
@@ -1327,7 +1329,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setAddressSettingsExpanded((v) => !v)}
                       aria-expanded={addressSettingsExpanded}
                     >
@@ -1339,7 +1341,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {addressSettingsExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-4">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-4 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <TooltipProvider>
                         <div className="space-y-2">
                           <div className="flex items-center gap-1.5">
@@ -1385,7 +1387,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Calendar Settings</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Calendar Settings</h4>
                       <p className="text-sm text-muted-foreground">
                         Here you can customize how you would like your bookings to appear in your admin dashboard either by calendar view or list view. You can customize your calendar view settings in depth with these options as well.
                       </p>
@@ -1394,7 +1396,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setCalendarSettingsExpanded((v) => !v)}
                       aria-expanded={calendarSettingsExpanded}
                     >
@@ -1402,7 +1404,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {calendarSettingsExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <TooltipProvider>
                         <div className="space-y-6">
                           <div className="space-y-2">
@@ -1583,7 +1585,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Rescheduling Fees</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Rescheduling Fees</h4>
                       <p className="text-sm text-muted-foreground">
                         Here you can find your settings for customer reschedule. You can set up your fees, when to charge the fee and more.
                       </p>
@@ -1592,7 +1594,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setReschedulingFeesExpanded((v) => !v)}
                       aria-expanded={reschedulingFeesExpanded}
                     >
@@ -1600,7 +1602,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {reschedulingFeesExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <TooltipProvider>
                         <div className="space-y-6">
                           <div className="space-y-2">
@@ -1791,7 +1793,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Cancellation</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Cancellation</h4>
                       <p className="text-sm text-muted-foreground">
                         Here you can find your settings for customer cancellations. You can set up your fees, when to charge the fee, reasons for cancellation and more.
                       </p>
@@ -1800,7 +1802,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setCancellationExpanded((v) => !v)}
                       aria-expanded={cancellationExpanded}
                     >
@@ -1808,7 +1810,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {cancellationExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <TooltipProvider>
                         <div className="space-y-6">
                           <div className="space-y-2">
@@ -2230,7 +2232,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Quote</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Quote</h4>
                       <p className="text-sm text-muted-foreground">
                         Here you can find your settings for quote.
                       </p>
@@ -2239,7 +2241,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setQuoteExpanded((v) => !v)}
                       aria-expanded={quoteExpanded}
                     >
@@ -2247,7 +2249,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {quoteExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-4">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-4 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <TooltipProvider>
                         <div className="space-y-2">
                           <div className="flex items-center gap-1.5">
@@ -2287,7 +2289,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Price & Time Adjustment</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Price & Time Adjustment</h4>
                       <p className="text-sm text-muted-foreground">
                         Here you can find your settings for price and time adjustments. These settings allow you to create more options for your adjustments on bookings.
                       </p>
@@ -2296,7 +2298,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setPriceTimeExpanded((v) => !v)}
                       aria-expanded={priceTimeExpanded}
                     >
@@ -2304,7 +2306,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {priceTimeExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <TooltipProvider>
                         <div className="space-y-6">
                           <div className="space-y-2">
@@ -2381,7 +2383,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Payment</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Payment</h4>
                       <p className="text-sm text-muted-foreground">
                         Here you can find your settings for your payment options. You can choose if you want to charge your customers automatically or not, when to charge them and more.
                       </p>
@@ -2390,7 +2392,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setPaymentExpanded((v) => !v)}
                       aria-expanded={paymentExpanded}
                     >
@@ -2398,7 +2400,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {paymentExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <TooltipProvider>
                         <div className="space-y-6">
                           <div className="space-y-2">
@@ -2632,7 +2634,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Put Credit Card on Hold</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Put Credit Card on Hold</h4>
                       <p className="text-sm text-muted-foreground">
                         Here you can find your settings for placing holds on payments for credit cards. If you allow your customers to book with credit cards and you are worried about payments failing then you can enable the card hold settings and make sure the payment is secured before the booking takes place.
                       </p>
@@ -2641,7 +2643,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setCardHoldExpanded((v) => !v)}
                       aria-expanded={cardHoldExpanded}
                     >
@@ -2649,7 +2651,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {cardHoldExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <TooltipProvider>
                         <div className="space-y-6">
                           <div className="space-y-2">
@@ -2850,7 +2852,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Invoices Settings</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Invoices Settings</h4>
                       <p className="text-sm text-muted-foreground">
                         Here you can find your settings for your invoice options.
                       </p>
@@ -2859,7 +2861,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setInvoiceSettingsExpanded((v) => !v)}
                       aria-expanded={invoiceSettingsExpanded}
                     >
@@ -2867,7 +2869,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {invoiceSettingsExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-4">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-4 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <TooltipProvider>
                         <div className="space-y-2">
                           <div className="flex items-center gap-1.5">
@@ -2907,7 +2909,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Time Zone Settings</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Time Zone Settings</h4>
                       <p className="text-sm text-muted-foreground">
                         Here you can choose whether or not you want to enable multiple time zones.
                       </p>
@@ -2916,7 +2918,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setTimeZoneSettingsExpanded((v) => !v)}
                       aria-expanded={timeZoneSettingsExpanded}
                     >
@@ -2924,7 +2926,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {timeZoneSettingsExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-4">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-4 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <TooltipProvider>
                         <div className="space-y-2">
                           <div className="flex items-center gap-1.5">
@@ -2964,7 +2966,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Chat Settings</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Chat Settings</h4>
                       <p className="text-sm text-muted-foreground">
                         Here you can enable if you would like to have the chat feature between your providers.
                       </p>
@@ -2973,7 +2975,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setChatSettingsExpanded((v) => !v)}
                       aria-expanded={chatSettingsExpanded}
                     >
@@ -2981,7 +2983,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {chatSettingsExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-4">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-4 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <TooltipProvider>
                         <div className="space-y-2">
                           <div className="flex items-center gap-1.5">
@@ -3021,7 +3023,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Multispot Settings</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Multispot Settings</h4>
                       <p className="text-sm text-muted-foreground">
                         Manage multiple spots or locations. Set availability, capacity, and rules per spot for your bookings.
                       </p>
@@ -3030,7 +3032,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setMultispotSettingsExpanded((v) => !v)}
                       aria-expanded={multispotSettingsExpanded}
                     >
@@ -3042,7 +3044,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {multispotSettingsExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-4">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-4 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <TooltipProvider>
                         <div className="space-y-2">
                           <div className="flex items-center gap-1.5">
@@ -3082,7 +3084,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Access Settings</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Access Settings</h4>
                       <p className="text-sm text-muted-foreground">
                         Control who can access your booking system: staff roles, customer portal access, and visibility of services or locations.
                       </p>
@@ -3091,7 +3093,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => {
                         setAccessSettingsExpanded((v) => !v);
                         if (!accessSettingsExpanded) fetchAccessSettings();
@@ -3106,7 +3108,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {accessSettingsExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       {accessSettingsLoading ? (
                         <div className="flex items-center justify-center py-8">
                           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -3122,7 +3124,7 @@ export default function GeneralSettingsPage() {
                               value={customerBlockedMessage}
                               onChange={(e) => setCustomerBlockedMessage(e.target.value)}
                               rows={4}
-                              className="resize-y min-h-[80px]"
+                              className="resize-y min-h-[80px] text-gray-600 dark:text-gray-400 placeholder:text-gray-500 dark:placeholder:text-gray-500"
                             />
                           </div>
                           <div className="space-y-2">
@@ -3134,7 +3136,7 @@ export default function GeneralSettingsPage() {
                               value={providerDeactivatedMessage}
                               onChange={(e) => setProviderDeactivatedMessage(e.target.value)}
                               rows={4}
-                              className="resize-y min-h-[80px]"
+                              className="resize-y min-h-[80px] text-gray-600 dark:text-gray-400 placeholder:text-gray-500 dark:placeholder:text-gray-500"
                             />
                           </div>
                           <div className="flex justify-end">
@@ -3159,7 +3161,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Bookings</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Bookings</h4>
                       <p className="text-sm text-muted-foreground">
                         In this section you can choose your settings for how your customers will view necessary information with their bookings. From allowing them to see who the provider is, being able to choose providers, allowing same day bookings and more.
                       </p>
@@ -3168,7 +3170,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setCustomerBookingsExpanded((v) => !v)}
                       aria-expanded={customerBookingsExpanded}
                     >
@@ -3176,7 +3178,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {customerBookingsExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <p className="text-sm text-muted-foreground">Customer booking options will be available here.</p>
                     </div>
                   )}
@@ -3184,7 +3186,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Facebook</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Facebook</h4>
                       <p className="text-sm text-muted-foreground">
                         In this section you can set up a way to allow customers to share your business on Facebook in exchange for a discount.
                       </p>
@@ -3193,7 +3195,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setCustomerFacebookExpanded((v) => !v)}
                       aria-expanded={customerFacebookExpanded}
                     >
@@ -3201,7 +3203,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {customerFacebookExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <p className="text-sm text-muted-foreground">Facebook sharing and discount settings will be available here.</p>
                     </div>
                   )}
@@ -3209,7 +3211,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Referral Sharing Content</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Referral Sharing Content</h4>
                       <p className="text-sm text-muted-foreground">
                         In this section you can set up your description when customers share their referral link and what you would like it to say about your business.
                       </p>
@@ -3218,7 +3220,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setCustomerReferralExpanded((v) => !v)}
                       aria-expanded={customerReferralExpanded}
                     >
@@ -3226,7 +3228,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {customerReferralExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <p className="text-sm text-muted-foreground">Referral link description and sharing content will be available here.</p>
                     </div>
                   )}
@@ -3234,7 +3236,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">General</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">General</h4>
                       <p className="text-sm text-muted-foreground">
                         In this section you can choose what shows up in the customers dashboard when a booking is not yet confirmed, where to send them if they click on your FAQ/Support link and more.
                       </p>
@@ -3243,7 +3245,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setCustomerGeneralExpanded((v) => !v)}
                       aria-expanded={customerGeneralExpanded}
                     >
@@ -3251,7 +3253,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {customerGeneralExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <p className="text-sm text-muted-foreground">Customer dashboard and FAQ/Support link settings will be available here.</p>
                     </div>
                   )}
@@ -3259,7 +3261,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Reschedule</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Reschedule</h4>
                       <p className="text-sm text-muted-foreground">
                         In this section you can set up all of the reschedule settings for customers. From giving the ability to reschedule or not.
                       </p>
@@ -3268,7 +3270,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setCustomerRescheduleExpanded((v) => !v)}
                       aria-expanded={customerRescheduleExpanded}
                     >
@@ -3276,7 +3278,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {customerRescheduleExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <TooltipProvider>
                         <div className="space-y-6">
                           <div className="rounded-lg border bg-card p-4 space-y-4">
@@ -3340,7 +3342,7 @@ export default function GeneralSettingsPage() {
                 <div className="rounded-lg border bg-card overflow-hidden">
                   <div className="flex items-start justify-between gap-4 p-6">
                     <div className="space-y-1">
-                      <h4 className="text-lg font-semibold">Cancellation</h4>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Cancellation</h4>
                       <p className="text-sm text-muted-foreground">
                         In this section you can set up all of the cancellation settings for customers. From giving the ability to postpone or just cancel, cancelling on their own, needing approval from you the admin before it is confirmed and more.
                       </p>
@@ -3349,7 +3351,7 @@ export default function GeneralSettingsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 shrink-0 rounded-full"
+                      className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                       onClick={() => setCustomerCancellationExpanded((v) => !v)}
                       aria-expanded={customerCancellationExpanded}
                     >
@@ -3357,7 +3359,7 @@ export default function GeneralSettingsPage() {
                     </Button>
                   </div>
                   {customerCancellationExpanded && (
-                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                    <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <p className="text-sm text-muted-foreground">Customer cancellation and postponement settings will be available here.</p>
                     </div>
                   )}
@@ -3376,7 +3378,7 @@ export default function GeneralSettingsPage() {
                     <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
                       <div className="flex items-start justify-between gap-4 p-6">
                         <div className="space-y-1">
-                          <h4 className="text-lg font-semibold">Bookings</h4>
+                          <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Bookings</h4>
                           <p className="text-sm text-muted-foreground">
                             Set whether customers or admin can choose a specific provider when creating or booking.
                           </p>
@@ -3385,7 +3387,7 @@ export default function GeneralSettingsPage() {
                           type="button"
                           variant="outline"
                           size="icon"
-                          className="h-10 w-10 shrink-0 rounded-full"
+                          className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                           onClick={() => setProviderBookingsExpanded((v) => !v)}
                           aria-expanded={providerBookingsExpanded}
                         >
@@ -3393,7 +3395,7 @@ export default function GeneralSettingsPage() {
                         </Button>
                       </div>
                       {providerBookingsExpanded && (
-                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                           <div className="flex items-center justify-between rounded-lg border p-4">
                             <div>
                               <Label className="font-semibold">Let customers choose a specific provider</Label>
@@ -3420,7 +3422,7 @@ export default function GeneralSettingsPage() {
                     <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
                       <div className="flex items-start justify-between gap-4 p-6">
                         <div className="space-y-1">
-                          <h4 className="text-lg font-semibold">Scheduling</h4>
+                          <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Scheduling</h4>
                           <p className="text-sm text-muted-foreground">
                             Control if providers can see unassigned jobs, edit their schedules, and get notifications.
                           </p>
@@ -3429,7 +3431,7 @@ export default function GeneralSettingsPage() {
                           type="button"
                           variant="outline"
                           size="icon"
-                          className="h-10 w-10 shrink-0 rounded-full"
+                          className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                           onClick={() => setProviderSchedulingExpanded((v) => !v)}
                           aria-expanded={providerSchedulingExpanded}
                         >
@@ -3437,7 +3439,7 @@ export default function GeneralSettingsPage() {
                         </Button>
                       </div>
                       {providerSchedulingExpanded && (
-                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                             <div className="flex items-center justify-between rounded-lg border p-4">
                               <div>
                                 <Label className="font-semibold">Allow providers to see unassigned jobs</Label>
@@ -3477,7 +3479,7 @@ export default function GeneralSettingsPage() {
                     <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
                       <div className="flex items-start justify-between gap-4 p-6">
                         <div className="space-y-1">
-                          <h4 className="text-lg font-semibold">GPS & Time Logs</h4>
+                          <h4 className="text-lg font-semibold text-gray-900 dark:text-white">GPS & Time Logs</h4>
                           <p className="text-sm text-muted-foreground">
                             Control clock in/out, tracking, automatic clock out, booking completion, and related options.
                           </p>
@@ -3486,7 +3488,7 @@ export default function GeneralSettingsPage() {
                           type="button"
                           variant="outline"
                           size="icon"
-                          className="h-10 w-10 shrink-0 rounded-full"
+                          className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                           onClick={() => setProviderGpsExpanded((v) => !v)}
                           aria-expanded={providerGpsExpanded}
                         >
@@ -3494,7 +3496,7 @@ export default function GeneralSettingsPage() {
                         </Button>
                       </div>
                       {providerGpsExpanded && (
-                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                             <div className="flex items-center justify-between rounded-lg border p-4">
                               <div>
                                 <Label className="font-semibold">Activate clock in / clock out</Label>
@@ -3625,7 +3627,7 @@ export default function GeneralSettingsPage() {
                     <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
                       <div className="flex items-start justify-between gap-4 p-6">
                         <div className="space-y-1">
-                          <h4 className="text-lg font-semibold">Send Schedule Automatically</h4>
+                          <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Send Schedule Automatically</h4>
                           <p className="text-sm text-muted-foreground">
                             Make sure you enable the &quot;Send Schedule&quot; email template before sending schedule automatically, otherwise the schedule will not be sent to providers.
                           </p>
@@ -3634,7 +3636,7 @@ export default function GeneralSettingsPage() {
                           type="button"
                           variant="outline"
                           size="icon"
-                          className="h-10 w-10 shrink-0 rounded-full"
+                          className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                           onClick={() => setProviderSendScheduleExpanded((v) => !v)}
                           aria-expanded={providerSendScheduleExpanded}
                         >
@@ -3642,7 +3644,7 @@ export default function GeneralSettingsPage() {
                         </Button>
                       </div>
                       {providerSendScheduleExpanded && (
-                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                           <p className="text-sm text-muted-foreground">Automated schedule emails – coming soon. Configure email templates under Settings → Notifications.</p>
                         </div>
                       )}
@@ -3650,7 +3652,7 @@ export default function GeneralSettingsPage() {
                     <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
                       <div className="flex items-start justify-between gap-4 p-6">
                         <div className="space-y-1">
-                          <h4 className="text-lg font-semibold">Sign up</h4>
+                          <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Sign up</h4>
                           <p className="text-sm text-muted-foreground">
                             Set up the provider signup feature and manage related settings.
                           </p>
@@ -3659,7 +3661,7 @@ export default function GeneralSettingsPage() {
                           type="button"
                           variant="outline"
                           size="icon"
-                          className="h-10 w-10 shrink-0 rounded-full"
+                          className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                           onClick={() => setProviderSignupExpanded((v) => !v)}
                           aria-expanded={providerSignupExpanded}
                         >
@@ -3667,7 +3669,7 @@ export default function GeneralSettingsPage() {
                         </Button>
                       </div>
                       {providerSignupExpanded && (
-                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                           <p className="text-sm text-muted-foreground">Provider self-signup – coming soon. For now, add providers from Admin → Providers → invite or add.</p>
                         </div>
                       )}
@@ -3675,7 +3677,7 @@ export default function GeneralSettingsPage() {
                     <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
                       <div className="flex items-start justify-between gap-4 p-6">
                         <div className="space-y-1">
-                          <h4 className="text-lg font-semibold">Provider options (customer visibility)</h4>
+                          <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Provider options (customer visibility)</h4>
                           <p className="text-sm text-muted-foreground">
                             Control what customers see about providers when choosing one on the booking form.
                           </p>
@@ -3684,7 +3686,7 @@ export default function GeneralSettingsPage() {
                           type="button"
                           variant="outline"
                           size="icon"
-                          className="h-10 w-10 shrink-0 rounded-full"
+                          className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                           onClick={() => setProviderOptionsExpanded((v) => !v)}
                           aria-expanded={providerOptionsExpanded}
                         >
@@ -3692,7 +3694,7 @@ export default function GeneralSettingsPage() {
                         </Button>
                       </div>
                       {providerOptionsExpanded && (
-                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                             <div className="flex items-center justify-between rounded-lg border p-4">
                               <div>
                                 <Label className="font-semibold">Show provider score/rating to customers</Label>
@@ -3742,21 +3744,21 @@ export default function GeneralSettingsPage() {
                 )}
               </TabsContent>
               <TabsContent value="admin" className="mt-0 space-y-6">
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground dark:text-white">
                   In this section you can set up the minimum amount a gift card can be purchased for as well as the default referral amount a customer will get if they successfully refer a new customer to your business.
                 </p>
 
                 {/* Gift card */}
                 <div className="rounded-lg border bg-card p-6 space-y-6">
-                  <h4 className="text-lg font-semibold">Gift card</h4>
+                  <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Gift card</h4>
                   <TooltipProvider>
                     <div className="space-y-6 max-w-xl">
                       <div className="space-y-2">
                         <div className="flex items-center gap-1.5">
-                          <Label className="font-semibold">Minimum gift card amount</Label>
+                          <Label className="font-semibold dark:text-white">Minimum gift card amount</Label>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0">
+                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground dark:text-white shrink-0">
                                 <Info className="h-4 w-4" />
                               </button>
                             </TooltipTrigger>
@@ -3766,7 +3768,7 @@ export default function GeneralSettingsPage() {
                           </Tooltip>
                         </div>
                         <div className="flex items-center rounded-md border bg-background">
-                          <span className="pl-3 text-muted-foreground">$</span>
+                          <span className="pl-3 text-muted-foreground dark:text-white">$</span>
                           <Input
                             type="number"
                             min={0}
@@ -3774,16 +3776,16 @@ export default function GeneralSettingsPage() {
                             placeholder="0.00"
                             value={giftCardMinAmount}
                             onChange={(e) => setGiftCardMinAmount(e.target.value)}
-                            className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-l-none"
+                            className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-l-none dark:text-white dark:placeholder:text-white"
                           />
                         </div>
                       </div>
                       <div className="space-y-2">
                         <div className="flex items-center gap-1.5">
-                          <Label className="font-semibold">Are you able to edit a gift card to have a total less than its minimum requirement?</Label>
+                          <Label className="font-semibold dark:text-white">Are you able to edit a gift card to have a total less than its minimum requirement?</Label>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0">
+                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground dark:text-white shrink-0">
                                 <Info className="h-4 w-4" />
                               </button>
                             </TooltipTrigger>
@@ -3795,20 +3797,20 @@ export default function GeneralSettingsPage() {
                         <RadioGroup value={giftCardEditBelowMin} onValueChange={(v) => setGiftCardEditBelowMin(v as 'yes' | 'no')} className="flex gap-4 pt-1">
                           <label className="flex items-center gap-2 cursor-pointer">
                             <RadioGroupItem value="yes" id="gift-edit-below-yes" />
-                            <span className="text-sm">Yes</span>
+                            <span className="text-sm dark:text-white">Yes</span>
                           </label>
                           <label className="flex items-center gap-2 cursor-pointer">
                             <RadioGroupItem value="no" id="gift-edit-below-no" />
-                            <span className="text-sm">No</span>
+                            <span className="text-sm dark:text-white">No</span>
                           </label>
                         </RadioGroup>
                       </div>
                       <div className="space-y-2">
                         <div className="flex items-center gap-1.5">
-                          <Label className="font-semibold">Enable the maximum gift card amount limit?</Label>
+                          <Label className="font-semibold dark:text-white">Enable the maximum gift card amount limit?</Label>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0">
+                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground dark:text-white shrink-0">
                                 <Info className="h-4 w-4" />
                               </button>
                             </TooltipTrigger>
@@ -3820,19 +3822,19 @@ export default function GeneralSettingsPage() {
                         <RadioGroup value={giftCardMaxLimitEnabled} onValueChange={(v) => setGiftCardMaxLimitEnabled(v as 'yes' | 'no')} className="flex gap-4 pt-1">
                           <label className="flex items-center gap-2 cursor-pointer">
                             <RadioGroupItem value="yes" id="gift-max-enable-yes" />
-                            <span className="text-sm">Yes</span>
+                            <span className="text-sm dark:text-white">Yes</span>
                           </label>
                           <label className="flex items-center gap-2 cursor-pointer">
                             <RadioGroupItem value="no" id="gift-max-enable-no" />
-                            <span className="text-sm">No</span>
+                            <span className="text-sm dark:text-white">No</span>
                           </label>
                         </RadioGroup>
                       </div>
                       {giftCardMaxLimitEnabled === 'yes' && (
                         <div className="space-y-2">
-                          <Label className="font-semibold">Maximum gift card amount</Label>
+                          <Label className="font-semibold dark:text-white">Maximum gift card amount</Label>
                           <div className="flex items-center rounded-md border bg-background">
-                            <span className="pl-3 text-muted-foreground">$</span>
+                            <span className="pl-3 text-muted-foreground dark:text-white">$</span>
                             <Input
                               type="number"
                               min={0}
@@ -3840,7 +3842,7 @@ export default function GeneralSettingsPage() {
                               placeholder="Amount"
                               value={giftCardMaxAmount}
                               onChange={(e) => setGiftCardMaxAmount(e.target.value)}
-                              className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-l-none"
+                              className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-l-none dark:text-white dark:placeholder:text-white"
                             />
                           </div>
                         </div>
@@ -3851,15 +3853,15 @@ export default function GeneralSettingsPage() {
 
                 {/* Referral */}
                 <div className="rounded-lg border bg-card p-6 space-y-6">
-                  <h4 className="text-lg font-semibold">Referral</h4>
+                  <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Referral</h4>
                   <TooltipProvider>
                     <div className="space-y-6 max-w-xl">
                       <div className="space-y-2">
                         <div className="flex items-center gap-1.5">
-                          <Label className="font-semibold">Amount of credits given to the person being referred</Label>
+                          <Label className="font-semibold dark:text-white">Amount of credits given to the person being referred</Label>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0">
+                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground dark:text-white shrink-0">
                                 <Info className="h-4 w-4" />
                               </button>
                             </TooltipTrigger>
@@ -3869,7 +3871,7 @@ export default function GeneralSettingsPage() {
                           </Tooltip>
                         </div>
                         <div className="flex items-center rounded-md border bg-background">
-                          <span className="pl-3 text-muted-foreground">$</span>
+                          <span className="pl-3 text-muted-foreground dark:text-white">$</span>
                           <Input
                             type="number"
                             min={0}
@@ -3877,16 +3879,16 @@ export default function GeneralSettingsPage() {
                             placeholder="0.00"
                             value={referralCreditsReferred}
                             onChange={(e) => setReferralCreditsReferred(e.target.value)}
-                            className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-l-none"
+                            className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-l-none dark:text-white dark:placeholder:text-white"
                           />
                         </div>
                       </div>
                       <div className="space-y-2">
                         <div className="flex items-center gap-1.5">
-                          <Label className="font-semibold">Amount of credits given to the person referring someone</Label>
+                          <Label className="font-semibold dark:text-white">Amount of credits given to the person referring someone</Label>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0">
+                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground dark:text-white shrink-0">
                                 <Info className="h-4 w-4" />
                               </button>
                             </TooltipTrigger>
@@ -3896,7 +3898,7 @@ export default function GeneralSettingsPage() {
                           </Tooltip>
                         </div>
                         <div className="flex items-center rounded-md border bg-background">
-                          <span className="pl-3 text-muted-foreground">$</span>
+                          <span className="pl-3 text-muted-foreground dark:text-white">$</span>
                           <Input
                             type="number"
                             min={0}
@@ -3904,7 +3906,7 @@ export default function GeneralSettingsPage() {
                             placeholder="0.00"
                             value={referralCreditsReferrer}
                             onChange={(e) => setReferralCreditsReferrer(e.target.value)}
-                            className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-l-none"
+                            className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-l-none dark:text-white dark:placeholder:text-white"
                           />
                         </div>
                       </div>
@@ -3914,7 +3916,7 @@ export default function GeneralSettingsPage() {
 
                 {/* Payment descriptions */}
                 <div className="rounded-lg border bg-card p-6 space-y-6">
-                  <h4 className="text-lg font-semibold">Payment descriptions</h4>
+                  <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Payment descriptions</h4>
                   <Alert className="rounded-md border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-800 text-red-800 dark:text-red-200">
                     <AlertDescription>
                       Please Note: Payment gateways do not allow description updates. As a result, a card-hold description will become permanent upon successfully charging the customer. If a card is not &quot;on hold&quot; prior to charging, the charge booking description will be used instead of the card hold description.
@@ -3924,10 +3926,10 @@ export default function GeneralSettingsPage() {
                     <div className="space-y-6 max-w-2xl">
                       <div className="space-y-2">
                         <div className="flex items-center gap-1.5">
-                          <Label className="font-semibold">Card hold description</Label>
+                          <Label className="font-semibold dark:text-white">Card hold description</Label>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0">
+                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground dark:text-white shrink-0">
                                 <Info className="h-4 w-4" />
                               </button>
                             </TooltipTrigger>
@@ -3940,15 +3942,15 @@ export default function GeneralSettingsPage() {
                           placeholder="Card hold for premierprocleaner by OrbytBooking -"
                           value={cardHoldDescription}
                           onChange={(e) => setCardHoldDescription(e.target.value)}
-                          className="min-h-[80px] resize-y"
+                          className="min-h-[80px] resize-y dark:text-white dark:placeholder:text-white"
                         />
                       </div>
                       <div className="space-y-2">
                         <div className="flex items-center gap-1.5">
-                          <Label className="font-semibold">Charge booking description</Label>
+                          <Label className="font-semibold dark:text-white">Charge booking description</Label>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0">
+                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground dark:text-white shrink-0">
                                 <Info className="h-4 w-4" />
                               </button>
                             </TooltipTrigger>
@@ -3961,15 +3963,15 @@ export default function GeneralSettingsPage() {
                           placeholder="Amount charged by OrbytBooking."
                           value={chargeBookingDescription}
                           onChange={(e) => setChargeBookingDescription(e.target.value)}
-                          className="min-h-[80px] resize-y"
+                          className="min-h-[80px] resize-y dark:text-white dark:placeholder:text-white"
                         />
                       </div>
                       <div className="space-y-2">
                         <div className="flex items-center gap-1.5">
-                          <Label className="font-semibold">Separate charge description</Label>
+                          <Label className="font-semibold dark:text-white">Separate charge description</Label>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0">
+                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground dark:text-white shrink-0">
                                 <Info className="h-4 w-4" />
                               </button>
                             </TooltipTrigger>
@@ -3982,15 +3984,15 @@ export default function GeneralSettingsPage() {
                           placeholder="Separate charges by Premier Pro Cleaners."
                           value={separateChargeDescription}
                           onChange={(e) => setSeparateChargeDescription(e.target.value)}
-                          className="min-h-[80px] resize-y"
+                          className="min-h-[80px] resize-y dark:text-white dark:placeholder:text-white"
                         />
                       </div>
                       <div className="space-y-2">
                         <div className="flex items-center gap-1.5">
-                          <Label className="font-semibold">Charge invoice description</Label>
+                          <Label className="font-semibold dark:text-white">Charge invoice description</Label>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0">
+                              <button type="button" className="inline-flex text-muted-foreground hover:text-foreground dark:text-white shrink-0">
                                 <Info className="h-4 w-4" />
                               </button>
                             </TooltipTrigger>
@@ -4003,7 +4005,7 @@ export default function GeneralSettingsPage() {
                           placeholder="Invoice Amount charged by Premier Pro Cleaners."
                           value={chargeInvoiceDescription}
                           onChange={(e) => setChargeInvoiceDescription(e.target.value)}
-                          className="min-h-[80px] resize-y"
+                          className="min-h-[80px] resize-y dark:text-white dark:placeholder:text-white"
                         />
                       </div>
                     </div>
@@ -4037,7 +4039,7 @@ export default function GeneralSettingsPage() {
                 ) : (
                   <div className="space-y-6">
                     <div>
-                      <h2 className="text-xl font-semibold mb-1">Scheduling</h2>
+                      <h2 className="text-xl font-semibold mb-1 text-gray-900 dark:text-white">Scheduling</h2>
                       <p className="text-sm text-muted-foreground">
                         In this section you can decide whether you want the spots based on provider availability or not. You can also set up if you want to choose providers manually or the system should pick a provider automatically from available providers and should assign it automatically or it should be based on accept/decline.
                       </p>
@@ -4045,7 +4047,7 @@ export default function GeneralSettingsPage() {
                     <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
                       <div className="flex items-start justify-between gap-4 p-6">
                         <div className="space-y-1">
-                          <h4 className="text-lg font-semibold">Availability & Assignment</h4>
+                          <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Availability & Assignment</h4>
                           <p className="text-sm text-muted-foreground">
                             Control whether slots depend on provider availability and how providers are chosen
                           </p>
@@ -4054,7 +4056,7 @@ export default function GeneralSettingsPage() {
                           type="button"
                           variant="outline"
                           size="icon"
-                          className="h-10 w-10 shrink-0 rounded-full"
+                          className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                           onClick={() => setSchedulingAvailabilityExpanded((v) => !v)}
                           aria-expanded={schedulingAvailabilityExpanded}
                         >
@@ -4062,11 +4064,11 @@ export default function GeneralSettingsPage() {
                         </Button>
                       </div>
                       {schedulingAvailabilityExpanded && (
-                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                         <div className="flex items-center justify-between">
                           <div>
-                            <Label>Spots based on provider availability</Label>
-                            <p className="text-sm text-muted-foreground">Only show times where at least one provider is free</p>
+                            <Label className="dark:text-white">Spots based on provider availability</Label>
+                            <p className="text-sm text-muted-foreground dark:text-white">Only show times where at least one provider is free</p>
                           </div>
                           <Switch
                             checked={schedulingOptions.spots_based_on_provider_availability ?? true}
@@ -4074,7 +4076,7 @@ export default function GeneralSettingsPage() {
                           />
                         </div>
                         <div className="space-y-3">
-                          <Label>Provider assignment</Label>
+                          <Label className="dark:text-white">Provider assignment</Label>
                           <div className="grid gap-3">
                             <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/50">
                               <input
@@ -4085,8 +4087,8 @@ export default function GeneralSettingsPage() {
                                 className="mt-1"
                               />
                               <div>
-                                <p className="font-medium">Automatic</p>
-                                <p className="text-sm text-muted-foreground">
+                                <p className="font-medium dark:text-white">Automatic</p>
+                                <p className="text-sm text-muted-foreground dark:text-white">
                                   System picks or invites providers when date/time is selected. Customer gets confirmation per scheduling type below.
                                 </p>
                               </div>
@@ -4100,8 +4102,8 @@ export default function GeneralSettingsPage() {
                                 className="mt-1"
                               />
                               <div>
-                                <p className="font-medium">Manual</p>
-                                <p className="text-sm text-muted-foreground">
+                                <p className="font-medium dark:text-white">Manual</p>
+                                <p className="text-sm text-muted-foreground dark:text-white">
                                   All bookings go to unassigned. Admin or providers assign manually or grab jobs.
                                 </p>
                               </div>
@@ -4114,7 +4116,7 @@ export default function GeneralSettingsPage() {
                     <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
                       <div className="flex items-start justify-between gap-4 p-6">
                         <div className="space-y-1">
-                          <h4 className="text-lg font-semibold">Provider Assignment (when automatic)</h4>
+                          <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Provider Assignment (when automatic)</h4>
                           <p className="text-sm text-muted-foreground">
                             Choose how automatic assignment works when customers book online
                           </p>
@@ -4123,7 +4125,7 @@ export default function GeneralSettingsPage() {
                           type="button"
                           variant="outline"
                           size="icon"
-                          className="h-10 w-10 shrink-0 rounded-full"
+                          className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                           onClick={() => setSchedulingProviderAssignmentExpanded((v) => !v)}
                           aria-expanded={schedulingProviderAssignmentExpanded}
                         >
@@ -4131,11 +4133,11 @@ export default function GeneralSettingsPage() {
                         </Button>
                       </div>
                       {schedulingProviderAssignmentExpanded && (
-                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                         {(schedulingOptions.provider_assignment_mode ?? "automatic") === "automatic" && (
                         <>
                         <div className="space-y-3">
-                          <Label>Scheduling type</Label>
+                          <Label className="dark:text-white">Scheduling type</Label>
                           <div className="grid gap-3">
                             <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/50">
                               <input
@@ -4146,8 +4148,8 @@ export default function GeneralSettingsPage() {
                                 className="mt-1"
                               />
                               <div>
-                                <p className="font-medium">Accepted Automatically</p>
-                                <p className="text-sm text-muted-foreground">
+                                <p className="font-medium dark:text-white">Accepted Automatically</p>
+                                <p className="text-sm text-muted-foreground dark:text-white">
                                   Bookings are auto-assigned by availability and priority. Customer gets confirmation immediately.
                                 </p>
                               </div>
@@ -4161,8 +4163,8 @@ export default function GeneralSettingsPage() {
                                 className="mt-1"
                               />
                               <div>
-                                <p className="font-medium">Accept or Decline</p>
-                                <p className="text-sm text-muted-foreground">
+                                <p className="font-medium dark:text-white">Accept or Decline</p>
+                                <p className="text-sm text-muted-foreground dark:text-white">
                                   Invitations go to providers in priority order. Customer only gets confirmation after a provider accepts.
                                 </p>
                               </div>
@@ -4176,8 +4178,8 @@ export default function GeneralSettingsPage() {
                                 className="mt-1"
                               />
                               <div>
-                                <p className="font-medium">Accepts Same Day Only</p>
-                                <p className="text-sm text-muted-foreground">
+                                <p className="font-medium dark:text-white">Accepts Same Day Only</p>
+                                <p className="text-sm text-muted-foreground dark:text-white">
                                   Future bookings auto-assign; same-day bookings require provider acceptance.
                                 </p>
                               </div>
@@ -4188,11 +4190,12 @@ export default function GeneralSettingsPage() {
                         {(schedulingOptions.scheduling_type === "accept_or_decline" ||
                           schedulingOptions.scheduling_type === "accepts_same_day_only") && (
                           <div className="space-y-2">
-                            <Label>Provider response timeout (minutes)</Label>
+                            <Label className="dark:text-white">Provider response timeout (minutes)</Label>
                             <Input
                               type="number"
                               min={5}
                               max={1440}
+                              className="dark:text-white dark:placeholder:text-white"
                               value={schedulingOptions.accept_decline_timeout_minutes}
                               onChange={(e) =>
                                 setSchedulingOptions((o) => ({
@@ -4201,7 +4204,7 @@ export default function GeneralSettingsPage() {
                                 }))
                               }
                             />
-                            <p className="text-sm text-muted-foreground">
+                            <p className="text-sm text-muted-foreground dark:text-white">
                               How long each provider has to accept before the next one is invited
                             </p>
                           </div>
@@ -4214,7 +4217,7 @@ export default function GeneralSettingsPage() {
                     <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
                       <div className="flex items-start justify-between gap-4 p-6">
                         <div className="space-y-1">
-                          <h4 className="text-lg font-semibold">Unassigned Folder</h4>
+                          <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Unassigned Folder</h4>
                           <p className="text-sm text-muted-foreground">
                             Settings for bookings without a provider
                           </p>
@@ -4223,7 +4226,7 @@ export default function GeneralSettingsPage() {
                           type="button"
                           variant="outline"
                           size="icon"
-                          className="h-10 w-10 shrink-0 rounded-full"
+                          className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                           onClick={() => setSchedulingUnassignedExpanded((v) => !v)}
                           aria-expanded={schedulingUnassignedExpanded}
                         >
@@ -4231,11 +4234,11 @@ export default function GeneralSettingsPage() {
                         </Button>
                       </div>
                       {schedulingUnassignedExpanded && (
-                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                         <div className="flex items-center justify-between">
                           <div>
-                            <Label>Allow providers to see unassigned jobs</Label>
-                            <p className="text-sm text-muted-foreground">Providers can grab jobs from the unassigned folder</p>
+                            <Label className="dark:text-white">Allow providers to see unassigned jobs</Label>
+                            <p className="text-sm text-muted-foreground dark:text-white">Providers can grab jobs from the unassigned folder</p>
                           </div>
                           <Switch
                             checked={schedulingOptions.providers_can_see_unassigned}
@@ -4244,8 +4247,8 @@ export default function GeneralSettingsPage() {
                         </div>
                         <div className="flex items-center justify-between">
                           <div>
-                            <Label>Show all unassigned jobs to providers</Label>
-                            <p className="text-sm text-muted-foreground">Override provider filters (locations, industries) for unassigned</p>
+                            <Label className="dark:text-white">Show all unassigned jobs to providers</Label>
+                            <p className="text-sm text-muted-foreground dark:text-white">Override provider filters (locations, industries) for unassigned</p>
                           </div>
                           <Switch
                             checked={schedulingOptions.providers_can_see_all_unassigned}
@@ -4254,11 +4257,11 @@ export default function GeneralSettingsPage() {
                         </div>
                         <div className="flex items-center justify-between">
                           <div>
-                            <Label className="flex items-center gap-2">
+                            <Label className="flex items-center gap-2 dark:text-white">
                               <Bell className="h-4 w-4" />
                               Notify providers when new unassigned job
                             </Label>
-                            <p className="text-sm text-muted-foreground">Send notification when a booking enters the unassigned folder</p>
+                            <p className="text-sm text-muted-foreground dark:text-white">Send notification when a booking enters the unassigned folder</p>
                           </div>
                           <Switch
                             checked={schedulingOptions.notify_providers_on_unassigned}
@@ -4267,8 +4270,8 @@ export default function GeneralSettingsPage() {
                         </div>
                         <div className="flex items-center justify-between">
                           <div>
-                            <Label>Waitlist for customers</Label>
-                            <p className="text-sm text-muted-foreground">Let customers request times when no slots are available</p>
+                            <Label className="dark:text-white">Waitlist for customers</Label>
+                            <p className="text-sm text-muted-foreground dark:text-white">Let customers request times when no slots are available</p>
                           </div>
                           <Switch
                             checked={schedulingOptions.waitlist_enabled}
@@ -4281,7 +4284,7 @@ export default function GeneralSettingsPage() {
                     <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
                       <div className="flex items-start justify-between gap-4 p-6">
                         <div className="space-y-1">
-                          <h4 className="text-lg font-semibold">Provider eligibility (auto-assign scores)</h4>
+                          <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Provider eligibility (auto-assign scores)</h4>
                           <p className="text-sm text-muted-foreground">
                             Preview who would be assigned and see recent auto-assignment scores
                           </p>
@@ -4290,7 +4293,7 @@ export default function GeneralSettingsPage() {
                           type="button"
                           variant="outline"
                           size="icon"
-                          className="h-10 w-10 shrink-0 rounded-full"
+                          className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                           onClick={() => {
                             setSchedulingEligibilityExpanded((v) => {
                               const next = !v;
@@ -4307,11 +4310,11 @@ export default function GeneralSettingsPage() {
                         </Button>
                       </div>
                       {schedulingEligibilityExpanded && (
-                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                           <Alert>
-                            <AlertDescription>
-                              <strong>How providers get a higher score or get chosen first</strong>
-                              <ul className="list-disc pl-4 mt-2 space-y-1 text-sm">
+                            <AlertDescription className="dark:text-white">
+                              <strong className="dark:text-white">How providers get a higher score or get chosen first</strong>
+                              <ul className="list-disc pl-4 mt-2 space-y-1 text-sm dark:text-white">
                                 <li><strong>Priority</strong> (set per provider): Go to Admin → Providers → open a provider → set &quot;Auto-assign priority&quot; (0–99). Higher number = chosen first. This is the main order (like BookingKoala).</li>
                                 <li><strong>Service match</strong>: +30 points when the booking has a service and the provider offers that service (link services to the provider so they get this).</li>
                                 <li><strong>Workload</strong>: +0 to +20 points for lower current workload (from provider capacity). Less busy = more points.</li>
@@ -4320,28 +4323,28 @@ export default function GeneralSettingsPage() {
                             </AlertDescription>
                           </Alert>
                           <div>
-                            <p className="text-sm font-medium mb-2">Recent auto-assignments</p>
+                            <p className="text-sm font-medium mb-2 dark:text-white">Recent auto-assignments</p>
                             {recentAssignmentsLoading ? (
-                              <p className="text-sm text-muted-foreground">Loading…</p>
+                              <p className="text-sm text-muted-foreground dark:text-white">Loading…</p>
                             ) : recentAssignments.length === 0 ? (
-                              <p className="text-sm text-muted-foreground">No recent auto-assignments.</p>
+                              <p className="text-sm text-muted-foreground dark:text-white">No recent auto-assignments.</p>
                             ) : (
                               <Table>
                                 <TableHeader>
                                   <TableRow>
-                                    <TableHead>Provider</TableHead>
-                                    <TableHead>Service</TableHead>
-                                    <TableHead>Score</TableHead>
-                                    <TableHead>Assigned</TableHead>
+                                    <TableHead className="dark:text-white">Provider</TableHead>
+                                    <TableHead className="dark:text-white">Service</TableHead>
+                                    <TableHead className="dark:text-white">Score</TableHead>
+                                    <TableHead className="dark:text-white">Assigned</TableHead>
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                   {recentAssignments.map((a) => (
                                     <TableRow key={a.id}>
-                                      <TableCell>{a.providerName}</TableCell>
-                                      <TableCell>{a.service}</TableCell>
-                                      <TableCell>{a.score}</TableCell>
-                                      <TableCell className="text-muted-foreground text-sm">{a.assignedAt ? new Date(a.assignedAt).toLocaleString() : '—'}</TableCell>
+                                      <TableCell className="dark:text-white">{a.providerName}</TableCell>
+                                      <TableCell className="dark:text-white">{a.service}</TableCell>
+                                      <TableCell className="dark:text-white">{a.score}</TableCell>
+                                      <TableCell className="text-muted-foreground text-sm dark:text-white">{a.assignedAt ? new Date(a.assignedAt).toLocaleString() : '—'}</TableCell>
                                     </TableRow>
                                   ))}
                                 </TableBody>
@@ -4350,39 +4353,39 @@ export default function GeneralSettingsPage() {
                           </div>
                           <Separator />
                           <div>
-                            <p className="text-sm font-medium mb-2">Preview eligibility (for a date)</p>
+                            <p className="text-sm font-medium mb-2 dark:text-white">Preview eligibility (for a date)</p>
                             <div className="flex flex-wrap items-center gap-2 mb-3">
                               <Input
                                 type="date"
                                 value={previewDate}
                                 onChange={(e) => setPreviewDate(e.target.value)}
-                                className="w-40"
+                                className="w-40 dark:text-white dark:placeholder:text-white"
                               />
                               <Button type="button" variant="secondary" size="sm" onClick={fetchEligibilityPreview} disabled={eligibilityLoading}>
                                 {eligibilityLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Preview'}
                               </Button>
                             </div>
                             {eligibilityProviders.length === 0 && !eligibilityLoading ? (
-                              <p className="text-sm text-muted-foreground">Click Preview to see provider priority, score, and reasons.</p>
+                              <p className="text-sm text-muted-foreground dark:text-white">Click Preview to see provider priority, score, and reasons.</p>
                             ) : (
                               <Table>
                                 <TableHeader>
                                   <TableRow>
-                                    <TableHead>Provider</TableHead>
-                                    <TableHead>Priority</TableHead>
-                                    <TableHead>Score</TableHead>
-                                    <TableHead>Eligible</TableHead>
-                                    <TableHead>Reasons</TableHead>
+                                    <TableHead className="dark:text-white">Provider</TableHead>
+                                    <TableHead className="dark:text-white">Priority</TableHead>
+                                    <TableHead className="dark:text-white">Score</TableHead>
+                                    <TableHead className="dark:text-white">Eligible</TableHead>
+                                    <TableHead className="dark:text-white">Reasons</TableHead>
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                   {eligibilityProviders.map((p) => (
                                     <TableRow key={p.id}>
-                                      <TableCell>{p.name}</TableCell>
-                                      <TableCell>{p.invitation_priority}</TableCell>
-                                      <TableCell>{p.score}</TableCell>
-                                      <TableCell>{p.eligible ? 'Yes' : 'No'}</TableCell>
-                                      <TableCell className="text-muted-foreground text-sm max-w-[200px] truncate" title={p.reasons.join(', ')}>{p.reasons.join(', ') || '—'}</TableCell>
+                                      <TableCell className="dark:text-white">{p.name}</TableCell>
+                                      <TableCell className="dark:text-white">{p.invitation_priority}</TableCell>
+                                      <TableCell className="dark:text-white">{p.score}</TableCell>
+                                      <TableCell className="dark:text-white">{p.eligible ? 'Yes' : 'No'}</TableCell>
+                                      <TableCell className="text-muted-foreground text-sm max-w-[200px] truncate dark:text-white" title={p.reasons.join(', ')}>{p.reasons.join(', ') || '—'}</TableCell>
                                     </TableRow>
                                   ))}
                                 </TableBody>
@@ -4395,7 +4398,7 @@ export default function GeneralSettingsPage() {
                     <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
                       <div className="flex items-start justify-between gap-4 p-6">
                         <div className="space-y-1">
-                          <h4 className="text-lg font-semibold">Recurring Bookings</h4>
+                          <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Recurring Bookings</h4>
                           <p className="text-sm text-muted-foreground">
                             Options to select how many recurring booking(s) you want to block into the future
                           </p>
@@ -4404,7 +4407,7 @@ export default function GeneralSettingsPage() {
                           type="button"
                           variant="outline"
                           size="icon"
-                          className="h-10 w-10 shrink-0 rounded-full"
+                          className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                           onClick={() => setSchedulingRecurringExpanded((v) => !v)}
                           aria-expanded={schedulingRecurringExpanded}
                         >
@@ -4412,10 +4415,10 @@ export default function GeneralSettingsPage() {
                         </Button>
                       </div>
                       {schedulingRecurringExpanded && (
-                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                         <div className="space-y-3">
-                          <Label>Default recurring update behavior</Label>
-                          <p className="text-sm text-muted-foreground">When editing a recurring booking, which option to pre-select</p>
+                          <Label className="dark:text-white">Default recurring update behavior</Label>
+                          <p className="text-sm text-muted-foreground dark:text-white">When editing a recurring booking, which option to pre-select</p>
                           <div className="grid gap-2">
                             <label className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50">
                               <input
@@ -4425,7 +4428,7 @@ export default function GeneralSettingsPage() {
                                 onChange={() => setSchedulingOptions((o) => ({ ...o, recurring_update_default: "all_future" }))}
                                 className="mt-1"
                               />
-                              <span className="text-sm">For all future appointments</span>
+                              <span className="text-sm dark:text-white">For all future appointments</span>
                             </label>
                             <label className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50">
                               <input
@@ -4435,14 +4438,14 @@ export default function GeneralSettingsPage() {
                                 onChange={() => setSchedulingOptions((o) => ({ ...o, recurring_update_default: "this_booking_only" }))}
                                 className="mt-1"
                               />
-                              <span className="text-sm">This booking only</span>
+                              <span className="text-sm dark:text-white">This booking only</span>
                             </label>
                           </div>
                         </div>
                         <div className="flex items-center justify-between">
                           <div>
-                            <Label>Same provider for recurring (cron)</Label>
-                            <p className="text-sm text-muted-foreground">When cron creates the next recurring booking, reuse the same provider</p>
+                            <Label className="dark:text-white">Same provider for recurring (cron)</Label>
+                            <p className="text-sm text-muted-foreground dark:text-white">When cron creates the next recurring booking, reuse the same provider</p>
                           </div>
                           <Switch
                             checked={schedulingOptions.same_provider_for_recurring_cron ?? true}
@@ -4451,8 +4454,8 @@ export default function GeneralSettingsPage() {
                         </div>
                         <div className="flex items-center justify-between">
                           <div>
-                            <Label>Enforce spot limits</Label>
-                            <p className="text-sm text-muted-foreground">Respect max bookings per day/week from Booking Spots settings</p>
+                            <Label className="dark:text-white">Enforce spot limits</Label>
+                            <p className="text-sm text-muted-foreground dark:text-white">Respect max bookings per day/week from Booking Spots settings</p>
                           </div>
                           <Switch
                             checked={schedulingOptions.spot_limits_enabled ?? false}
@@ -4465,7 +4468,7 @@ export default function GeneralSettingsPage() {
                     <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
                       <div className="flex items-start justify-between gap-4 p-6">
                         <div className="space-y-1">
-                          <h4 className="text-lg font-semibold">Spots Availability</h4>
+                          <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Spots Availability</h4>
                           <p className="text-sm text-muted-foreground">
                             Control over how system should check spots availability (holidays, limits)
                           </p>
@@ -4474,7 +4477,7 @@ export default function GeneralSettingsPage() {
                           type="button"
                           variant="outline"
                           size="icon"
-                          className="h-10 w-10 shrink-0 rounded-full"
+                          className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                           onClick={() => setSchedulingSpotsExpanded((v) => !v)}
                           aria-expanded={schedulingSpotsExpanded}
                         >
@@ -4482,11 +4485,11 @@ export default function GeneralSettingsPage() {
                         </Button>
                       </div>
                       {schedulingSpotsExpanded && (
-                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                         <div className="flex items-center justify-between">
                           <div>
-                            <Label>Skip holidays in recurring</Label>
-                            <p className="text-sm text-muted-foreground">For recurring bookings, skip holiday dates and use next available</p>
+                            <Label className="dark:text-white">Skip holidays in recurring</Label>
+                            <p className="text-sm text-muted-foreground dark:text-white">For recurring bookings, skip holiday dates and use next available</p>
                           </div>
                           <Switch
                             checked={schedulingOptions.holiday_skip_to_next ?? false}
@@ -4494,7 +4497,7 @@ export default function GeneralSettingsPage() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label>Who is blocked from booking on holidays</Label>
+                          <Label className="dark:text-white">Who is blocked from booking on holidays</Label>
                           <div className="grid gap-2">
                             <label className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50">
                               <input
@@ -4504,7 +4507,7 @@ export default function GeneralSettingsPage() {
                                 onChange={() => setSchedulingOptions((o) => ({ ...o, holiday_blocked_who: "customer" }))}
                                 className="mt-1"
                               />
-                              <span className="text-sm">Customer only (admin can still book holidays)</span>
+                              <span className="text-sm dark:text-white">Customer only (admin can still book holidays)</span>
                             </label>
                             <label className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50">
                               <input
@@ -4514,7 +4517,7 @@ export default function GeneralSettingsPage() {
                                 onChange={() => setSchedulingOptions((o) => ({ ...o, holiday_blocked_who: "both" }))}
                                 className="mt-1"
                               />
-                              <span className="text-sm">Both admin and customer</span>
+                              <span className="text-sm dark:text-white">Both admin and customer</span>
                             </label>
                           </div>
                         </div>
@@ -4524,7 +4527,7 @@ export default function GeneralSettingsPage() {
                     <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
                       <div className="flex items-start justify-between gap-4 p-6">
                         <div className="space-y-1">
-                          <h4 className="text-lg font-semibold">Booking Options</h4>
+                          <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Booking Options</h4>
                           <p className="text-sm text-muted-foreground">
                             Manage the options to show on booking forms for customer and admin
                           </p>
@@ -4533,7 +4536,7 @@ export default function GeneralSettingsPage() {
                           type="button"
                           variant="outline"
                           size="icon"
-                          className="h-10 w-10 shrink-0 rounded-full"
+                          className="h-10 w-10 shrink-0 rounded-full dark:text-white"
                           onClick={() => setSchedulingBookingOptionsExpanded((v) => !v)}
                           aria-expanded={schedulingBookingOptionsExpanded}
                         >
@@ -4541,11 +4544,11 @@ export default function GeneralSettingsPage() {
                         </Button>
                       </div>
                       {schedulingBookingOptionsExpanded && (
-                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6">
+                        <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                         <div className="flex items-center justify-between">
                           <div>
-                            <Label>Specific provider for customers</Label>
-                            <p className="text-sm text-muted-foreground">Let customers pick a provider on the booking form</p>
+                            <Label className="dark:text-white">Specific provider for customers</Label>
+                            <p className="text-sm text-muted-foreground dark:text-white">Let customers pick a provider on the booking form</p>
                           </div>
                           <Switch
                             checked={schedulingOptions.specific_provider_for_customers ?? false}
@@ -4554,8 +4557,8 @@ export default function GeneralSettingsPage() {
                         </div>
                         <div className="flex items-center justify-between">
                           <div>
-                            <Label>Specific provider for admin/staff</Label>
-                            <p className="text-sm text-muted-foreground">Let admin choose a provider when adding bookings</p>
+                            <Label className="dark:text-white">Specific provider for admin/staff</Label>
+                            <p className="text-sm text-muted-foreground dark:text-white">Let admin choose a provider when adding bookings</p>
                           </div>
                           <Switch
                             checked={schedulingOptions.specific_provider_for_admin ?? true}
@@ -4566,7 +4569,7 @@ export default function GeneralSettingsPage() {
                         <Separator />
 
                         <div className="space-y-3">
-                          <Label>Completion mode</Label>
+                          <Label className="dark:text-white">Completion mode</Label>
                           <div className="grid gap-3">
                             <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/50">
                               <input
@@ -4577,8 +4580,8 @@ export default function GeneralSettingsPage() {
                                 className="mt-1"
                               />
                               <div>
-                                <p className="font-medium">Manual</p>
-                                <p className="text-sm text-muted-foreground">
+                                <p className="font-medium dark:text-white">Manual</p>
+                                <p className="text-sm text-muted-foreground dark:text-white">
                                   Provider or admin must mark the booking as completed (clock out or &quot;Mark as Completed&quot; button).
                                 </p>
                               </div>
@@ -4592,8 +4595,8 @@ export default function GeneralSettingsPage() {
                                 className="mt-1"
                               />
                               <div>
-                                <p className="font-medium">Automatic</p>
-                                <p className="text-sm text-muted-foreground">
+                                <p className="font-medium dark:text-white">Automatic</p>
+                                <p className="text-sm text-muted-foreground dark:text-white">
                                   Bookings auto-complete when job length has passed (e.g. 3-hour job at 8am completes at 11:01am). Requires a cron job calling /api/cron/auto-complete-bookings every 5–15 minutes.
                                 </p>
                               </div>
@@ -4606,8 +4609,8 @@ export default function GeneralSettingsPage() {
                         <div className="space-y-6">
                         <div className="flex items-center justify-between">
                           <div>
-                            <Label>Enable clock in/out</Label>
-                            <p className="text-sm text-muted-foreground">Providers can track job time via the provider dashboard</p>
+                            <Label className="dark:text-white">Enable clock in/out</Label>
+                            <p className="text-sm text-muted-foreground dark:text-white">Providers can track job time via the provider dashboard</p>
                           </div>
                           <Switch
                             checked={schedulingOptions.clock_in_out_enabled}
@@ -4615,12 +4618,13 @@ export default function GeneralSettingsPage() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label>Max time per provider per booking (minutes)</Label>
+                          <Label className="dark:text-white">Max time per provider per booking (minutes)</Label>
                           <Input
                             type="number"
                             min={0}
                             max={1440}
                             placeholder="0 = no limit"
+                            className="dark:text-white dark:placeholder:text-white"
                             value={schedulingOptions.max_minutes_per_provider_per_booking ?? 0}
                             onChange={(e) =>
                               setSchedulingOptions((o) => ({
@@ -4629,7 +4633,7 @@ export default function GeneralSettingsPage() {
                               }))
                             }
                           />
-                          <p className="text-sm text-muted-foreground">0 means this limit is not used when checking provider availability</p>
+                          <p className="text-sm text-muted-foreground dark:text-white">0 means this limit is not used when checking provider availability</p>
                         </div>
                         </div>
                         </div>

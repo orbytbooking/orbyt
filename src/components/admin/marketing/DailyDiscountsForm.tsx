@@ -486,7 +486,7 @@ export function DailyDiscountsForm() {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Daily Discounts</h2>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Daily Discounts</h2>
         <div className="flex items-center space-x-4">
           <div className="relative w-64">
             <Input

@@ -76,8 +76,8 @@ export default function ProviderPaymentsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Provider Payments</h1>
-        <p className="text-muted-foreground mt-1">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Provider Payments</h1>
+        <p className="text-muted-foreground mt-1 dark:text-white">
           Send payouts to providers. Mark pending earnings as paid after you process payment.
         </p>
       </div>

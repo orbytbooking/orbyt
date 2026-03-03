@@ -398,7 +398,7 @@ export function GiftCardInstances() {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Gift Card Instances</h2>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Gift Card Instances</h2>
         <div className="flex items-center space-x-4">
           <div className="relative w-64">
             <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
@@ -407,20 +407,20 @@ export function GiftCardInstances() {
               placeholder="Search gift cards..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
+              className="pl-10 dark:text-white dark:placeholder:text-white"
             />
           </div>
           
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-40">
+            <SelectTrigger className="w-40 dark:text-white">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="expired">Expired</SelectItem>
-              <SelectItem value="fully_redeemed">Fully Redeemed</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
+            <SelectContent className="dark:text-white">
+              <SelectItem value="all" className="dark:text-white">All Status</SelectItem>
+              <SelectItem value="active" className="dark:text-white">Active</SelectItem>
+              <SelectItem value="expired" className="dark:text-white">Expired</SelectItem>
+              <SelectItem value="fully_redeemed" className="dark:text-white">Fully Redeemed</SelectItem>
+              <SelectItem value="cancelled" className="dark:text-white">Cancelled</SelectItem>
             </SelectContent>
           </Select>
 
@@ -429,7 +429,7 @@ export function GiftCardInstances() {
             Purchase
           </Button>
           
-          <Button variant="outline" onClick={() => setShowValidationForm(true)}>
+          <Button variant="outline" onClick={() => setShowValidationForm(true)} className="dark:text-white">
             <Eye className="h-4 w-4 mr-2" />
             Validate
           </Button>
