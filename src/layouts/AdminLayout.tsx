@@ -935,7 +935,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
 
       {/* AI receptionist chat – always visible in admin CRM */}
       <Suspense fallback={null}>
-        <ReceptionistChat businessId={currentBusiness?.id} />
+        <ReceptionistChat businessId={currentBusiness?.id} theme={theme} />
       </Suspense>
     </div>
   );

@@ -36,6 +36,7 @@ import { Info, Loader2, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRi
 import { serviceCategoriesService, ServiceCategory } from "@/lib/serviceCategories";
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/lib/supabaseClient";
+import { useBusiness } from "@/contexts/BusinessContext";
 
 // Simple Rich Text Editor for popup content
 function RichTextEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
@@ -90,6 +91,7 @@ export default function ServiceCategoryNewPage() {
   const params = useSearchParams();
   const router = useRouter();
   const { toast } = useToast();
+  const { currentBusiness } = useBusiness();
   const industry = params.get("industry") || "Industry";
   const industryIdFromUrl = params.get("industryId");
   const editId = params.get("editId") || null;
@@ -563,8 +565,7 @@ export default function ServiceCategoryNewPage() {
   useEffect(() => {
     const fetchIndustryId = async () => {
       try {
-        // Get current business ID from localStorage
-        const currentBusinessId = localStorage.getItem('currentBusinessId');
+        const currentBusinessId = currentBusiness?.id;
         
         let response;
         if (currentBusinessId) {
@@ -587,7 +588,7 @@ export default function ServiceCategoryNewPage() {
     if (!industryIdFromUrl && industry) {
       fetchIndustryId();
     }
-  }, [industry, industryIdFromUrl]);
+  }, [industry, industryIdFromUrl, currentBusiness?.id]);
 
   // Load extras from database
   useEffect(() => {

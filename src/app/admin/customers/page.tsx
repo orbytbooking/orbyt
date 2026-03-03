@@ -53,8 +53,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const CUSTOMERS_STORAGE_KEY = "adminCustomers";
-
 // Mock data fallback
 const defaultCustomers = [
   {
@@ -147,7 +145,6 @@ const Customers = () => {
     notes: "",
     status: "active" as Customer["status"],
   });
-  const CUSTOMER_EXTRAS_KEY = "adminCustomerExtras";
   const [newCustomer, setNewCustomer] = useState({
     company: "",
     firstName: "",
@@ -231,10 +228,7 @@ const Customers = () => {
     setPage(1);
   }, [searchTerm]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem(CUSTOMERS_STORAGE_KEY, JSON.stringify(customers));
-  }, [customers]);
+  // Customer list is from DB; no localStorage sync needed
 
   const handleDeactivate = async (customer: Customer) => {
     const newStatus = customer.status === "active" ? "inactive" : "active";
@@ -308,7 +302,7 @@ const Customers = () => {
     setShowDetails(true);
   };
 
-  const handleOpenEdit = (customer: Customer) => {
+  const handleOpenEdit = async (customer: Customer) => {
     const parts = (customer.name || "").trim().split(" ");
     const firstName = parts[0] || "";
     const lastName = parts.slice(1).join(" ") || "";
@@ -319,16 +313,14 @@ const Customers = () => {
       : [addr, ""];
     let company = "", gender = "unspecified", notes = "", smsReminders = true;
     try {
-      const extrasRaw = typeof window !== "undefined" ? localStorage.getItem(CUSTOMER_EXTRAS_KEY) : null;
-      if (extrasRaw) {
-        const map = JSON.parse(extrasRaw) as Record<string, any>;
-        const ex = map[String(customer.id)];
-        if (ex) {
-          company = ex.company || "";
-          gender = ex.gender || "unspecified";
-          notes = ex.notes || "";
-          smsReminders = ex.smsReminders !== false;
-        }
+      const res = await fetch(`/api/admin/customers/${customer.id}`);
+      const data = await res.json();
+      if (res.ok && data?.customer) {
+        const c = data.customer;
+        company = c.company ?? "";
+        gender = c.gender ?? "unspecified";
+        notes = c.notes ?? "";
+        smsReminders = c.smsReminders !== false;
       }
     } catch {}
     setEditCustomer({
@@ -371,17 +363,17 @@ const Customers = () => {
               : c
           )
         );
-        try {
-          const extrasRaw = typeof window !== "undefined" ? localStorage.getItem(CUSTOMER_EXTRAS_KEY) : null;
-          const map = extrasRaw ? (JSON.parse(extrasRaw) as Record<string, unknown>) : {};
-          (map as Record<string, unknown>)[String(editCustomer.id)] = {
+        // Persist extras to database (do not send contacts/addresses to avoid overwriting)
+        await fetch(`/api/admin/customers/${editCustomer.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
             company: editCustomer.company,
             gender: editCustomer.gender,
             notes: editCustomer.notes,
             smsReminders: editCustomer.smsReminders,
-          };
-          localStorage.setItem(CUSTOMER_EXTRAS_KEY, JSON.stringify(map));
-        } catch {}
+          }),
+        }).catch(() => {});
         toast({ title: "Customer Updated", description: `${name} has been updated successfully.` });
         setShowEditCustomer(false);
       } else {
@@ -461,17 +453,18 @@ const Customers = () => {
     }
 
     if (data?.id && (newCustomer.notes || newCustomer.company || newCustomer.gender)) {
-      try {
-        const extrasRaw = typeof window !== "undefined" ? localStorage.getItem(CUSTOMER_EXTRAS_KEY) : null;
-        const map = extrasRaw ? (JSON.parse(extrasRaw) as Record<string, unknown>) : {};
-        map[String(data.id)] = {
+      await fetch(`/api/admin/customers/${data.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           company: newCustomer.company,
           gender: newCustomer.gender,
           notes: newCustomer.notes,
           smsReminders: newCustomer.smsReminders,
-        };
-        localStorage.setItem(CUSTOMER_EXTRAS_KEY, JSON.stringify(map));
-      } catch {}
+          contacts: [],
+          addresses: [],
+        }),
+      }).catch(() => {});
     }
 
     if (currentBusiness?.id) {

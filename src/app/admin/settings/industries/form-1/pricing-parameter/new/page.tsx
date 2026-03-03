@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Info, Loader2 } from "lucide-react";
 
 type PricingRow = {
   id: number;
@@ -81,9 +96,16 @@ export default function PricingParameterNewPage() {
     serviceCategory: [] as string[],
     serviceCategory2: [] as string[],
     frequency: [] as string[],
+    // UI-only (match design; not in API yet)
+    differentOnCustomerEnd: false,
+    showExplanationIcon: false,
+    enablePopupOnSelection: false,
   });
 
   const [existingParameters, setExistingParameters] = useState<any[]>([]);
+  const [showAddVariableDialog, setShowAddVariableDialog] = useState(false);
+  const [newVariableCategoryName, setNewVariableCategoryName] = useState("");
+  const [addingVariable, setAddingVariable] = useState(false);
 
   const [validationErrors, setValidationErrors] = useState({
     variableCategory: "",
@@ -93,8 +115,6 @@ export default function PricingParameterNewPage() {
     minutes: "",
   });
 
-  const allDataKey = useMemo(() => `pricingParamsAll_${industry}`, [industry]);
-  const variablesKey = useMemo(() => `pricingVariables_${industry}`, [industry]);
   const extrasKey = useMemo(() => `extras_${industry}`, [industry]);
   const servicesKey = useMemo(() => `service_categories_${industry}`, [industry]);
 
@@ -207,25 +227,38 @@ export default function PricingParameterNewPage() {
     fetchProviders();
   }, [currentBusiness?.id]);
 
-  useEffect(() => {
-    // Load variables
+  const fetchVariables = useCallback(async () => {
+    if (!industryId) return;
     try {
-      const storedVars = JSON.parse(localStorage.getItem(variablesKey) || "[]");
-      if (Array.isArray(storedVars)) setVariables(storedVars);
+      const res = await fetch(`/api/pricing-variables?industryId=${encodeURIComponent(industryId)}`);
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.variables)) {
+        setVariables(data.variables.map((v: any) => ({
+          id: v.id,
+          name: v.name,
+          category: v.category,
+          description: v.description ?? "",
+          isActive: v.is_active ?? true,
+        })));
+      }
     } catch (e) {
       console.error("Error loading variables:", e);
     }
+  }, [industryId]);
 
-    // Load all pricing data
-    try {
-      const storedData = JSON.parse(localStorage.getItem(allDataKey) || "{}");
-      if (storedData && typeof storedData === "object") {
-        setAllRows(storedData);
-      }
-    } catch (e) {
-      console.error("Error loading pricing data:", e);
-    }
-  }, [allDataKey, variablesKey, industry]);
+  // Load variables from API (no localStorage)
+  useEffect(() => {
+    fetchVariables();
+  }, [fetchVariables]);
+
+  // Refetch variables when user returns from "Add Variable Category" (e.g. new tab)
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible" && industryId) fetchVariables();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [industryId, fetchVariables]);
 
   // Load exclude parameters from backend
   useEffect(() => {
@@ -276,26 +309,6 @@ export default function PricingParameterNewPage() {
     fetchExcludeParameters();
   }, [industryId]);
 
-  useEffect(() => {
-    // Load variables
-    try {
-      const storedVars = JSON.parse(localStorage.getItem(variablesKey) || "[]");
-      if (Array.isArray(storedVars)) setVariables(storedVars);
-    } catch (e) {
-      console.error("Error loading variables:", e);
-    }
-
-    // Load all pricing data
-    try {
-      const storedData = JSON.parse(localStorage.getItem(allDataKey) || "{}");
-      if (storedData && typeof storedData === "object") {
-        setAllRows(storedData);
-      }
-    } catch (e) {
-      console.error("Error loading pricing data:", e);
-    }
-  }, [allDataKey, variablesKey, industry]);
-
   // Fetch existing pricing parameters for validation and editing
   useEffect(() => {
     if (!industryId) return;
@@ -335,6 +348,9 @@ export default function PricingParameterNewPage() {
                 serviceCategory: existing.service_category ? existing.service_category.split(", ") : [],
                 serviceCategory2: existing.service_category2 ? existing.service_category2.split(", ") : [],
                 frequency: existing.frequency ? existing.frequency.split(", ") : [],
+                differentOnCustomerEnd: false,
+                showExplanationIcon: false,
+                enablePopupOnSelection: false,
               });
             }
           }
@@ -358,6 +374,64 @@ export default function PricingParameterNewPage() {
       return "Variable category is required";
     }
     return "";
+  };
+
+  const addVariableCategoryInline = async () => {
+    const name = newVariableCategoryName.trim();
+    if (!name) {
+      toast({ title: "Error", description: "Enter a category name", variant: "destructive" });
+      return;
+    }
+    if (!industryId || !currentBusiness?.id) {
+      toast({ title: "Error", description: "Industry or business not loaded.", variant: "destructive" });
+      return;
+    }
+    if (variables.some((v) => (v.category || v.name).toLowerCase() === name.toLowerCase())) {
+      toast({ title: "Already exists", description: "This variable category already exists.", variant: "destructive" });
+      return;
+    }
+    setAddingVariable(true);
+    try {
+      const updatedList = [
+        ...variables.map((v) => ({
+          id: v.id.startsWith("temp-") ? undefined : v.id,
+          name: v.name,
+          category: v.category,
+          description: v.description || "",
+          is_active: v.isActive,
+        })),
+        { name, category: name, description: "", is_active: true },
+      ];
+      const res = await fetch("/api/pricing-variables", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          industryId,
+          businessId: currentBusiness.id,
+          variables: updatedList,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to add variable");
+      const list = (data.variables ?? []).map((v: any) => ({
+        id: v.id,
+        name: v.name ?? v.category ?? "",
+        category: v.category ?? v.name ?? "",
+        description: v.description ?? "",
+        isActive: v.is_active ?? true,
+      }));
+      setVariables(list);
+      setForm((p) => ({ ...p, variableCategory: name }));
+      setValidationErrors((prev) => ({ ...prev, variableCategory: "" }));
+      setNewVariableCategoryName("");
+      setShowAddVariableDialog(false);
+      toast({ title: "Variable category added", description: `"${name}" is now available in the list.` });
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Error", description: "Failed to add variable category", variant: "destructive" });
+    } finally {
+      setAddingVariable(false);
+    }
   };
 
   // Real-time validation for name
@@ -582,61 +656,60 @@ export default function PricingParameterNewPage() {
             </TabsList>
 
             {/* DETAILS TAB */}
-            <TabsContent value="details" className="mt-4 space-y-5">
-              <div className="space-y-2">
-                <Label htmlFor="variable-category">Variable Category</Label>
-                <Input
-                  id="variable-category"
-                  value={form.variableCategory}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setForm(p => ({ ...p, variableCategory: value }));
-                    const error = validateVariableCategory(value);
-                    setValidationErrors(prev => ({ ...prev, variableCategory: error }));
-                  }}
-                  onBlur={(e) => {
-                    const error = validateVariableCategory(e.target.value);
-                    setValidationErrors(prev => ({ ...prev, variableCategory: error }));
-                  }}
-                  placeholder="e.g., Sq Ft, Bedroom, Bathroom, Kitchen, Living Room"
-                  disabled={!!editId}
-                  className={validationErrors.variableCategory ? "border-red-500" : ""}
-                />
-                {validationErrors.variableCategory && (
-                  <p className="text-xs text-red-500">{validationErrors.variableCategory}</p>
-                )}
-                {!validationErrors.variableCategory && (
-                  <p className="text-xs text-muted-foreground">
-                    Enter the variable category this parameter belongs to. You can type any category name.
-                  </p>
-                )}
-              </div>
+            <TabsContent value="details" className="mt-4 space-y-6">
+              <p className="text-sm text-muted-foreground">
+                Every service has a variable attached to them and based on that variable a pricing structure begins.
+                For example a cleaning service may use the variable called bedrooms and the first variable might be 1 Bedroom that starts at $90 and you can add on extras to this variable later.
+                If you have 2 variables then Variable B might be bathrooms and for 1 bathroom the price might be $20 which now means that 1 bedroom and 1 bathroom would be $110.
+              </p>
 
               <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="name">Name</Label>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>Name of this pricing tier (e.g. 1 Bedroom, 2 Bedrooms)</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
                 <Input
                   id="name"
                   value={form.name}
                   onChange={(e) => {
                     const value = e.target.value;
                     setForm(p => ({ ...p, name: value }));
-                    const error = validateName(value);
-                    setValidationErrors(prev => ({ ...prev, name: error }));
+                    setValidationErrors(prev => ({ ...prev, name: validateName(value) }));
                   }}
-                  onBlur={(e) => {
-                    const error = validateName(e.target.value);
-                    setValidationErrors(prev => ({ ...prev, name: error }));
-                  }}
-                  placeholder="e.g., 1 - 1249 Sq Ft"
+                  onBlur={(e) => setValidationErrors(prev => ({ ...prev, name: validateName(e.target.value) }))}
+                  placeholder="Enter Name"
                   className={validationErrors.name ? "border-red-500" : ""}
                 />
-                {validationErrors.name && (
-                  <p className="text-xs text-red-500">{validationErrors.name}</p>
-                )}
+                {validationErrors.name && <p className="text-xs text-red-500">{validationErrors.name}</p>}
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="different-on-customer-end"
+                    checked={form.differentOnCustomerEnd}
+                    onCheckedChange={(v) => setForm(p => ({ ...p, differentOnCustomerEnd: !!v }))}
+                  />
+                  <Label htmlFor="different-on-customer-end" className="text-sm font-normal">Different on customer end</Label>
+                </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="description">Description</Label>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>Optional description for this pricing parameter</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
                 <Textarea
                   id="description"
                   rows={3}
@@ -644,108 +717,213 @@ export default function PricingParameterNewPage() {
                   onChange={(e) => setForm(p => ({ ...p, description: e.target.value }))}
                   placeholder="Add Description"
                 />
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="show-explanation-icon"
+                      checked={form.showExplanationIcon}
+                      onCheckedChange={(v) => setForm(p => ({ ...p, showExplanationIcon: !!v }))}
+                    />
+                    <Label htmlFor="show-explanation-icon" className="text-sm font-normal">Show explanation icon on form</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="enable-popup-on-selection"
+                      checked={form.enablePopupOnSelection}
+                      onCheckedChange={(v) => setForm(p => ({ ...p, enablePopupOnSelection: !!v }))}
+                    />
+                    <Label htmlFor="enable-popup-on-selection" className="text-sm font-normal">Enable popup on selection</Label>
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-2">
                 <Label>Display</Label>
+                <p className="text-xs text-muted-foreground">
+                  Where do you want this variable to show up? Do you want customers to be able to see it? Do you want them to see it when they are booking when logged out or only when they have an account and are logged in or do you want only admin/staff to see this variable when booking, meaning customers can&apos;t book for this variable and only you can.
+                </p>
                 <RadioGroup
                   value={form.display}
                   onValueChange={(v: typeof form.display) => setForm(p => ({ ...p, display: v }))}
-                  className="grid gap-2"
+                  className="grid gap-2 mt-2"
                 >
-                  <label className="flex items-center gap-2 text-sm">
-                    <RadioGroupItem value="Customer Frontend, Backend & Admin" /> Customer Frontend, Backend & Admin
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <RadioGroupItem value="Customer Frontend, Backend & Admin" /> Customer frontend, backend & admin
                   </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <RadioGroupItem value="Customer Backend & Admin" /> Customer Backend & Admin
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <RadioGroupItem value="Customer Backend & Admin" /> Customer backend & admin
                   </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <RadioGroupItem value="Admin Only" /> Admin Only
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <RadioGroupItem value="Admin Only" /> Admin only
                   </label>
                 </RadioGroup>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="price">Price ($)</Label>
-                <Input
-                  id="price"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={form.price}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setForm(p => ({ ...p, price: value }));
-                    const error = validatePrice(value);
-                    setValidationErrors(prev => ({ ...prev, price: error }));
-                  }}
-                  onBlur={(e) => {
-                    const error = validatePrice(e.target.value);
-                    setValidationErrors(prev => ({ ...prev, price: error }));
-                  }}
-                  placeholder="0.00"
-                  className={validationErrors.price ? "border-red-500" : ""}
-                />
-                {validationErrors.price && (
-                  <p className="text-xs text-red-500">{validationErrors.price}</p>
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="variable-category">Variable category</Label>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>Select the variable category from the ones you added in Manage Variables</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={form.variableCategory || undefined}
+                    onValueChange={(value) => {
+                      setForm(p => ({ ...p, variableCategory: value }));
+                      setValidationErrors(prev => ({ ...prev, variableCategory: validateVariableCategory(value) }));
+                    }}
+                    disabled={!!editId}
+                  >
+                    <SelectTrigger id="variable-category" className={validationErrors.variableCategory ? "border-red-500" : ""}>
+                      <SelectValue placeholder="Select variable category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(() => {
+                        const hasCurrent = form.variableCategory && !variables.some((v) => v.category === form.variableCategory);
+                        const options = hasCurrent
+                          ? [...variables, { id: "_current", name: form.variableCategory, category: form.variableCategory, isActive: true }]
+                          : variables;
+                        if (options.length === 0) {
+                          return (
+                            <div className="py-4 px-2 text-sm text-muted-foreground text-center">
+                              No variables yet. Add one below.
+                            </div>
+                          );
+                        }
+                        return options.map((v) => (
+                          <SelectItem key={v.id} value={v.category}>
+                            {v.name}
+                          </SelectItem>
+                        ));
+                      })()}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="text-sm text-primary hover:underline whitespace-nowrap h-auto p-0"
+                    onClick={() => setShowAddVariableDialog(true)}
+                    disabled={!industryId}
+                  >
+                    Add Variable Category
+                  </Button>
+                </div>
+                <Dialog open={showAddVariableDialog} onOpenChange={setShowAddVariableDialog}>
+                  <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Add Variable Category</DialogTitle>
+                    </DialogHeader>
+                    <p className="text-sm text-muted-foreground">
+                      Add a new category here; it will be saved and selected for this pricing parameter.
+                    </p>
+                    <div className="space-y-2">
+                      <Label htmlFor="new-variable-category">Category name</Label>
+                      <Input
+                        id="new-variable-category"
+                        placeholder="e.g. Bedrooms, Bathroom, Sq Ft"
+                        value={newVariableCategoryName}
+                        onChange={(e) => setNewVariableCategoryName(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && addVariableCategoryInline()}
+                      />
+                    </div>
+                    <DialogFooter className="gap-2 sm:gap-0">
+                      <DialogClose asChild>
+                        <Button variant="outline">Cancel</Button>
+                      </DialogClose>
+                      <Button onClick={addVariableCategoryInline} disabled={addingVariable}>
+                        {addingVariable ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                        Add
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+                {validationErrors.variableCategory && (
+                  <p className="text-xs text-red-500">{validationErrors.variableCategory}</p>
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label>Time</Label>
-                <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Label className="text-base font-medium">Price & Time</Label>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>Pricing and estimated time for this parameter</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+                <div className="grid gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="hours" className="text-xs text-muted-foreground">Hours</Label>
-                    <Input
-                      id="hours"
-                      type="number"
-                      min={0}
-                      value={form.hours}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setForm(p => ({ ...p, hours: value }));
-                        const hoursError = validateHours(value, form.minutes);
-                        const minutesError = validateMinutes(form.minutes, value);
-                        setValidationErrors(prev => ({ ...prev, hours: hoursError, minutes: minutesError }));
-                      }}
-                      onBlur={(e) => {
-                        const hoursError = validateHours(e.target.value, form.minutes);
-                        const minutesError = validateMinutes(form.minutes, e.target.value);
-                        setValidationErrors(prev => ({ ...prev, hours: hoursError, minutes: minutesError }));
-                      }}
-                      placeholder="0"
-                      className={validationErrors.hours ? "border-red-500" : ""}
-                    />
-                    {validationErrors.hours && (
-                      <p className="text-xs text-red-500">{validationErrors.hours}</p>
-                    )}
+                    <Label htmlFor="price" className="text-sm text-muted-foreground">Pricing</Label>
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm text-muted-foreground">$</span>
+                      <Input
+                        id="price"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.price}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setForm(p => ({ ...p, price: value }));
+                          setValidationErrors(prev => ({ ...prev, price: validatePrice(value) }));
+                        }}
+                        onBlur={(e) => setValidationErrors(prev => ({ ...prev, price: validatePrice(e.target.value) }))}
+                        placeholder="0"
+                        className={validationErrors.price ? "border-red-500 max-w-[140px]" : "max-w-[140px]"}
+                      />
+                    </div>
+                    {validationErrors.price && <p className="text-xs text-red-500">{validationErrors.price}</p>}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="minutes" className="text-xs text-muted-foreground">Minutes</Label>
-                    <Input
-                      id="minutes"
-                      type="number"
-                      min={0}
-                      max={59}
-                      value={form.minutes}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setForm(p => ({ ...p, minutes: value }));
-                        const minutesError = validateMinutes(value, form.hours);
-                        const hoursError = validateHours(form.hours, value);
-                        setValidationErrors(prev => ({ ...prev, minutes: minutesError, hours: hoursError }));
-                      }}
-                      onBlur={(e) => {
-                        const minutesError = validateMinutes(e.target.value, form.hours);
-                        const hoursError = validateHours(form.hours, e.target.value);
-                        setValidationErrors(prev => ({ ...prev, minutes: minutesError, hours: hoursError }));
-                      }}
-                      placeholder="0"
-                      className={validationErrors.minutes ? "border-red-500" : ""}
-                    />
-                    {validationErrors.minutes && (
-                      <p className="text-xs text-red-500">{validationErrors.minutes}</p>
-                    )}
+                    <Label className="text-sm text-muted-foreground">Time</Label>
+                    <div className="grid grid-cols-2 gap-4 max-w-xs">
+                      <div className="space-y-1">
+                        <Label htmlFor="hours" className="text-xs text-muted-foreground">Hours</Label>
+                        <Input
+                          id="hours"
+                          type="number"
+                          min={0}
+                          value={form.hours}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setForm(p => ({ ...p, hours: value }));
+                            setValidationErrors(prev => ({ ...prev, hours: validateHours(value, form.minutes), minutes: validateMinutes(form.minutes, value) }));
+                          }}
+                          onBlur={(e) => setValidationErrors(prev => ({ ...prev, hours: validateHours(e.target.value, form.minutes), minutes: validateMinutes(form.minutes, e.target.value) }))}
+                          placeholder="0"
+                          className={validationErrors.hours ? "border-red-500" : ""}
+                        />
+                        {validationErrors.hours && <p className="text-xs text-red-500">{validationErrors.hours}</p>}
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="minutes" className="text-xs text-muted-foreground">Minutes</Label>
+                        <Input
+                          id="minutes"
+                          type="number"
+                          min={0}
+                          max={59}
+                          value={form.minutes}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setForm(p => ({ ...p, minutes: value }));
+                            setValidationErrors(prev => ({ ...prev, minutes: validateMinutes(value, form.hours), hours: validateHours(form.hours, value) }));
+                          }}
+                          onBlur={(e) => setValidationErrors(prev => ({ ...prev, minutes: validateMinutes(e.target.value, form.hours), hours: validateHours(form.hours, e.target.value) }))}
+                          placeholder="0"
+                          className={validationErrors.minutes ? "border-red-500" : ""}
+                        />
+                        {validationErrors.minutes && <p className="text-xs text-red-500">{validationErrors.minutes}</p>}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -756,7 +934,7 @@ export default function PricingParameterNewPage() {
                   checked={form.isDefault}
                   onCheckedChange={(v) => setForm(p => ({ ...p, isDefault: !!v }))}
                 />
-                <Label htmlFor="default-tier" className="text-sm">Set as Default</Label>
+                <Label htmlFor="default-tier" className="text-sm font-normal">Set as Default</Label>
               </div>
             </TabsContent>
 

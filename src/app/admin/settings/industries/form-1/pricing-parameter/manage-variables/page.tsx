@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,8 +14,9 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, ArrowLeft, Pencil } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, Pencil, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useBusiness } from "@/contexts/BusinessContext";
 
 type PricingVariable = {
   id: string;
@@ -29,53 +30,136 @@ export default function ManageVariablesPage() {
   const params = useSearchParams();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
+  const { currentBusiness } = useBusiness();
   const { toast } = useToast();
 
   const [variables, setVariables] = useState<PricingVariable[]>([]);
+  const [industryId, setIndustryId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [newVariableCategory, setNewVariableCategory] = useState("");
   const [editingVariable, setEditingVariable] = useState<PricingVariable | null>(null);
   const [editVariableCategory, setEditVariableCategory] = useState("");
+  const [addingDefaults, setAddingDefaults] = useState(false);
 
   const defaultVariables: PricingVariable[] = [
-    { id: "sq-ft", name: "Sq Ft", category: "Sq Ft", description: "Square footage tiers", isActive: true },
-    { id: "bedroom", name: "Bedroom", category: "Bedroom", description: "Number of bedrooms", isActive: false },
-    { id: "bathroom", name: "Bathroom", category: "Bathroom", description: "Number of bathrooms", isActive: false },
-    { id: "hours", name: "Hours", category: "Hours", description: "Service duration in hours", isActive: false },
-    { id: "rooms", name: "Rooms", category: "Rooms", description: "Number of rooms", isActive: false },
+    { id: "temp-sqft", name: "Sq Ft", category: "Sq Ft", description: "Square footage tiers", isActive: true },
+    { id: "temp-bedroom", name: "Bedroom", category: "Bedroom", description: "Number of bedrooms", isActive: false },
+    { id: "temp-bathroom", name: "Bathroom", category: "Bathroom", description: "Number of bathrooms", isActive: false },
+    { id: "temp-hours", name: "Hours", category: "Hours", description: "Service duration in hours", isActive: false },
+    { id: "temp-rooms", name: "Rooms", category: "Rooms", description: "Number of rooms", isActive: false },
   ];
 
-  useEffect(() => {
-    // Load variables
-    try {
-      const variablesKey = `pricingVariables_${industry}`;
-      const storedVars = JSON.parse(localStorage.getItem(variablesKey) || "null");
-      if (Array.isArray(storedVars) && storedVars.length > 0) {
-        setVariables(storedVars);
-      } else {
-        setVariables(defaultVariables);
-        localStorage.setItem(variablesKey, JSON.stringify(defaultVariables));
-      }
-    } catch {
-      setVariables(defaultVariables);
-    }
-  }, [industry]);
+  const mapApiVariables = (raw: any[]) =>
+    (raw || []).map((v: { id: string; name: string; category: string; description?: string; is_active?: boolean }) => ({
+      id: v.id,
+      name: v.name ?? v.category ?? "",
+      category: v.category ?? v.name ?? "",
+      description: v.description ?? "",
+      isActive: v.is_active ?? true,
+    }));
 
-  const saveVariables = () => {
+  const loadVariables = useCallback(async () => {
+    if (!currentBusiness?.id || !industry) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     try {
-      const variablesKey = `pricingVariables_${industry}`;
-      localStorage.setItem(variablesKey, JSON.stringify(variables));
-      toast({
-        title: "Variables saved",
-        description: "Pricing variables have been updated successfully.",
+      const indRes = await fetch(`/api/industries?business_id=${currentBusiness.id}`);
+      const indData = await indRes.json();
+      const industriesList = indData.industries ?? [];
+      const industryNorm = industry.trim().toLowerCase();
+      const currentIndustry = industriesList.find(
+        (ind: { name: string }) => (ind.name || "").trim().toLowerCase() === industryNorm
+      ) ?? industriesList.find((ind: { name: string }) => (ind.name || "").toLowerCase().includes(industryNorm));
+      if (!currentIndustry?.id) {
+        setVariables([]);
+        setIndustryId(null);
+        setLoading(false);
+        return;
+      }
+      setIndustryId(currentIndustry.id);
+      const res = await fetch(`/api/pricing-variables?industryId=${encodeURIComponent(currentIndustry.id)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load variables");
+      setVariables(mapApiVariables(data.variables ?? []));
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Error", description: "Failed to load variables", variant: "destructive" });
+      setVariables([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [currentBusiness?.id, industry, toast]);
+
+  useEffect(() => {
+    loadVariables();
+  }, [loadVariables]);
+
+  const saveVariables = async () => {
+    if (!industryId || !currentBusiness?.id) {
+      toast({ title: "Error", description: "Industry or business not loaded.", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/pricing-variables", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          industryId,
+          businessId: currentBusiness.id,
+          variables: variables.map((v) => ({
+            id: v.id.startsWith("temp-") ? undefined : v.id,
+            name: v.name,
+            category: v.category,
+            description: v.description || "",
+            is_active: v.isActive,
+          })),
+        }),
       });
-    } catch {
-      toast({
-        title: "Error",
-        description: "Failed to save variables.",
-        variant: "destructive",
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save variables");
+      setVariables(mapApiVariables(data.variables ?? []));
+      toast({ title: "Variables saved", description: "Pricing variables have been updated successfully." });
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Error", description: "Failed to save variables.", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addDefaultVariables = async () => {
+    if (!industryId || !currentBusiness?.id) return;
+    setAddingDefaults(true);
+    try {
+      const res = await fetch("/api/pricing-variables", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          industryId,
+          businessId: currentBusiness.id,
+          variables: defaultVariables.map((v) => ({
+            name: v.name,
+            category: v.category,
+            description: v.description || "",
+            is_active: v.isActive,
+          })),
+        }),
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to add default variables");
+      setVariables(mapApiVariables(data.variables ?? []));
+      toast({ title: "Default variables added", description: "Sq Ft, Bedroom, Bathroom, Hours, and Rooms have been added." });
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Error", description: "Failed to add default variables", variant: "destructive" });
+    } finally {
+      setAddingDefaults(false);
     }
   };
 
@@ -90,9 +174,9 @@ export default function ManageVariablesPage() {
     }
 
     const newVar: PricingVariable = {
-      id: newVariableCategory.toLowerCase().replace(/\s+/g, "-"),
-      name: newVariableCategory,
-      category: newVariableCategory,
+      id: `temp-${Date.now()}`,
+      name: newVariableCategory.trim(),
+      category: newVariableCategory.trim(),
       description: "",
       isActive: false,
     };
@@ -102,7 +186,7 @@ export default function ManageVariablesPage() {
     setShowAddDialog(false);
     toast({
       title: "Variable added",
-      description: `${newVariableCategory} has been added to the list.`,
+      description: `${newVariableCategory} has been added. Click Save Changes to persist.`,
     });
   };
 
@@ -152,6 +236,14 @@ export default function ManageVariablesPage() {
     });
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[200px]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -166,11 +258,12 @@ export default function ManageVariablesPage() {
           </Button>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setShowAddDialog(true)}>
+          <Button variant="outline" onClick={() => setShowAddDialog(true)} disabled={!industryId}>
             <Plus className="h-4 w-4 mr-2" />
             Add Variable
           </Button>
-          <Button onClick={saveVariables}>
+          <Button onClick={saveVariables} disabled={saving || !industryId}>
+            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
             Save Changes
           </Button>
         </div>
@@ -195,14 +288,25 @@ export default function ManageVariablesPage() {
               <TableBody>
                 {variables.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={2} className="text-center text-sm text-muted-foreground">
-                      No variables defined.
+                    <TableCell colSpan={2} className="text-center py-8">
+                      <p className="text-sm text-muted-foreground mb-4">No variables defined.</p>
+                      <p className="text-xs text-muted-foreground mb-4">Click &quot;Add Variable&quot; above to create one, or add common defaults below.</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={addDefaultVariables}
+                        disabled={!industryId || addingDefaults}
+                      >
+                        {addingDefaults ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                        Add default variables (Sq Ft, Bedroom, Bathroom, Hours, Rooms)
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ) : (
                   variables.map((variable) => (
                     <TableRow key={variable.id}>
-                      <TableCell className="font-medium">{variable.name}</TableCell>
+                      <TableCell className="font-medium">{variable.name || variable.category || "—"}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2">
                           <Button

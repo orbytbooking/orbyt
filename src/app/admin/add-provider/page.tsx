@@ -10,6 +10,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/components/ui/use-toast";
 import { ArrowLeft, Users, User } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { useBusiness } from "@/contexts/BusinessContext";
 
 type ProviderType = "individual" | "team";
 type ProviderStatus = "active" | "inactive" | "suspended";
@@ -37,6 +38,7 @@ const createEmptyProviderForm = (): ProviderForm => ({
 export default function AddProviderPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const { currentBusiness } = useBusiness();
   const [step, setStep] = useState<"selection" | "form">("selection");
   const [provider, setProvider] = useState<ProviderForm>(createEmptyProviderForm());
   const [loading, setLoading] = useState(false);
@@ -72,8 +74,7 @@ export default function AddProviderPage() {
     setLoading(true);
     
     try {
-      // Get current business ID from localStorage
-      const currentBusinessId = localStorage.getItem('currentBusinessId');
+      const currentBusinessId = currentBusiness?.id;
       if (!currentBusinessId) {
         toast({
           title: "Configuration Error",

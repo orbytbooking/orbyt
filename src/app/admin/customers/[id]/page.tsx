@@ -80,8 +80,7 @@ export default function CustomerProfilePage() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [ratingForm, setRatingForm] = useState({ provider: "", score: 5, comment: "" });
   const id = params?.id;
-  const BOOKINGS_STORAGE_KEY = "adminBookings";
-  const CUSTOMER_EXTRAS_KEY = "adminCustomerExtras"; // map of id -> extras
+  const CUSTOMER_EXTRAS_KEY = "adminCustomerExtras"; // fallback when API fails
   const { toast } = useToast();
   type Booking = {
     id: string;
@@ -256,6 +255,20 @@ export default function CustomerProfilePage() {
             isBookingBlocked: !!c.booking_blocked,
             isSubscribed: c.email_notifications !== false,
           });
+          // Extras from database (no localStorage)
+          setProfile((p) => ({
+            ...p,
+            company: c.company ?? "",
+            firstName: c.firstName ?? c.first_name ?? "",
+            lastName: c.lastName ?? c.last_name ?? "",
+            gender: c.gender ?? "unspecified",
+            notes: c.notes ?? "",
+            smsReminders: c.smsReminders !== false,
+          }));
+          if (Array.isArray(c.contacts)) setContacts(c.contacts as { name: string; email: string; phone: string }[]);
+          else setContacts([]);
+          if (Array.isArray(c.addresses) && c.addresses.length > 0) setAddresses(c.addresses as { id: string; aptNo: string; location: string; zip: string; isDefault: boolean }[]);
+          else setAddresses([]);
         } else {
           const stored = localStorage.getItem(CUSTOMERS_STORAGE_KEY);
           if (stored) {
@@ -263,12 +276,20 @@ export default function CustomerProfilePage() {
             const found = list.find((c) => String(c.id) === String(id));
             if (found) setCustomer(found);
           }
-          setButtonStates({
-            isActive: true,
-            isBlocked: false,
-            isBookingBlocked: false,
-            isSubscribed: true,
-          });
+          setButtonStates({ isActive: true, isBlocked: false, isBookingBlocked: false, isSubscribed: true });
+          // Fallback: extras from localStorage when API failed (backwards compat)
+          const extrasRaw = localStorage.getItem(CUSTOMER_EXTRAS_KEY);
+          if (extrasRaw && typeof id === "string") {
+            try {
+              const map = JSON.parse(extrasRaw) as Record<string, any>;
+              const ex = map[id];
+              if (ex) {
+                setProfile((p) => ({ ...p, company: ex.company || "", gender: ex.gender || "unspecified", notes: ex.notes || "", smsReminders: !!ex.smsReminders }));
+                if (Array.isArray(ex.contacts)) setContacts(ex.contacts as { name: string; email: string; phone: string }[]);
+                if (Array.isArray(ex.addresses) && ex.addresses.length > 0) setAddresses(ex.addresses as { id: string; aptNo: string; location: string; zip: string; isDefault: boolean }[]);
+              }
+            } catch {}
+          }
         }
       } catch {
         if (cancelled) return;
@@ -283,33 +304,11 @@ export default function CustomerProfilePage() {
       }
     })();
     try {
-      const storedBookings = localStorage.getItem(BOOKINGS_STORAGE_KEY);
-      if (storedBookings) {
-        setAllBookings(JSON.parse(storedBookings) as Booking[]);
+      // Drive files: still localStorage until customer drive API exists
+      if (typeof window !== "undefined" && id) {
+        const driveFilesRaw = localStorage.getItem(`customerDriveFiles_${id}`);
+        if (driveFilesRaw) setFiles(JSON.parse(driveFilesRaw));
       }
-      const extrasRaw = localStorage.getItem(CUSTOMER_EXTRAS_KEY);
-      if (extrasRaw && typeof id === "string") {
-        const map = JSON.parse(extrasRaw) as Record<string, any>;
-        const ex = map[id];
-        if (ex) {
-          setProfile((p) => ({
-            ...p,
-            company: ex.company || "",
-            gender: ex.gender || "unspecified",
-            notes: ex.notes || "",
-            smsReminders: !!ex.smsReminders,
-          }));
-          if (Array.isArray(ex.contacts)) {
-            setContacts(ex.contacts as { name: string; email: string; phone: string }[]);
-          }
-          if (Array.isArray(ex.addresses) && ex.addresses.length > 0) {
-            setAddresses(ex.addresses as { id: string; aptNo: string; location: string; zip: string; isDefault: boolean }[]);
-          }
-        }
-      }
-      // load customer drive files
-      const driveFilesRaw = localStorage.getItem(`customerDriveFiles_${id}`);
-      if (driveFilesRaw) setFiles(JSON.parse(driveFilesRaw));
     } catch {}
     return () => { cancelled = true; };
   }, [id]);
@@ -362,8 +361,12 @@ export default function CustomerProfilePage() {
           };
         });
         setCustomerBookings(list);
+        setAllBookings(list); // Single source: API (no adminBookings localStorage)
       } catch {
-        if (!cancelled) setCustomerBookings([]);
+        if (!cancelled) {
+          setCustomerBookings([]);
+          setAllBookings([]);
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -406,7 +409,6 @@ export default function CustomerProfilePage() {
     const parts = customer.name?.split(" ") ?? [];
     setProfile((p) => ({
       ...p,
-      company: "",
       firstName: parts[0] || "",
       lastName: parts.slice(1).join(" ") || "",
       email: customer.email || "",
@@ -644,35 +646,25 @@ export default function CustomerProfilePage() {
           email: profileToSave.email,
           phone: profileToSave.phone,
           address: addressToSave,
+          company: profileToSave.company,
+          firstName: profileToSave.firstName,
+          lastName: profileToSave.lastName,
+          gender: profileToSave.gender,
+          notes: profileToSave.notes,
+          smsReminders: profileToSave.smsReminders,
+          contacts,
+          addresses,
         }),
       });
       if (res.ok) {
         setCustomer((c) =>
           c ? { ...c, name: profileToSave.firstName + " " + profileToSave.lastName, email: profileToSave.email, phone: profileToSave.phone, address: addressToSave } : null
         );
+        toast({ title: "Profile Saved", description: "Customer details have been updated." });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast({ title: "Failed to save profile", description: data.error || "Please try again", variant: "destructive" });
       }
-      const stored = typeof window !== "undefined" ? localStorage.getItem(CUSTOMERS_STORAGE_KEY) : null;
-      if (stored) {
-        const list: Customer[] = JSON.parse(stored);
-        const updated = list.map((c) =>
-          String(c.id) === String(customer.id)
-            ? { ...c, name: `${profileToSave.firstName} ${profileToSave.lastName}`.trim(), email: profileToSave.email, phone: profileToSave.phone, address: addressToSave }
-            : c
-        );
-        localStorage.setItem(CUSTOMERS_STORAGE_KEY, JSON.stringify(updated));
-      }
-      const extrasRaw = localStorage.getItem(CUSTOMER_EXTRAS_KEY);
-      const map = extrasRaw ? (JSON.parse(extrasRaw) as Record<string, unknown>) : {};
-      (map as Record<string, unknown>)[String(customer.id)] = {
-        company: profileToSave.company,
-        gender: profileToSave.gender,
-        notes: profileToSave.notes,
-        smsReminders: profileToSave.smsReminders,
-        contacts,
-        addresses,
-      };
-      localStorage.setItem(CUSTOMER_EXTRAS_KEY, JSON.stringify(map));
-      toast({ title: "Profile Saved", description: "Customer details have been updated." });
     } catch {
       toast({ title: "Failed to save profile", variant: "destructive" });
     } finally {
@@ -680,13 +672,20 @@ export default function CustomerProfilePage() {
     }
   };
 
-  const persistExtras = (next: Partial<{ contacts: any }>) => {
-    if (!customer) return;
-    const extrasRaw = localStorage.getItem(CUSTOMER_EXTRAS_KEY);
-    const map = extrasRaw ? (JSON.parse(extrasRaw) as Record<string, any>) : {};
-    const current = map[String(customer.id)] || {};
-    map[String(customer.id)] = { ...current, ...next };
-    localStorage.setItem(CUSTOMER_EXTRAS_KEY, JSON.stringify(map));
+  const persistExtras = async (next: Partial<{ contacts: unknown; addresses: unknown }>) => {
+    if (!customer || !id) return;
+    const nextContacts = "contacts" in next ? (next.contacts as { name: string; email: string; phone: string }[]) : contacts;
+    const nextAddresses = "addresses" in next ? (next.addresses as { id: string; aptNo: string; location: string; zip: string; isDefault: boolean }[]) : addresses;
+    try {
+      const res = await fetch(`/api/admin/customers/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contacts: nextContacts, addresses: nextAddresses }),
+      });
+      if (!res.ok) toast({ title: "Failed to save", variant: "destructive" });
+    } catch {
+      toast({ title: "Failed to save", variant: "destructive" });
+    }
   };
 
   const addContact = () => {

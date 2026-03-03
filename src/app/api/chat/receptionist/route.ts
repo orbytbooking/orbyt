@@ -162,10 +162,10 @@ export async function POST(request: NextRequest) {
         { status: 503 }
       );
     }
-    if (status === 429 || message.includes("rate limit")) {
+    if (status === 429 || message.includes("rate limit") || message.includes("quota")) {
       return NextResponse.json(
-        { error: "Too many requests. Please try again in a moment." },
-        { status: 429 }
+        { error: "Our AI assistant is temporarily unavailable. Please try again later or contact support." },
+        { status: 503 }
       );
     }
 
