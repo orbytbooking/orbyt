@@ -427,7 +427,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   const { logo } = useLogo();
 
   return (
-    <div className={`min-h-screen ${theme === 'dark' ? 'void-bg admin-theme' : 'bg-white light-theme'}`}>
+    <div className={`min-h-screen ${theme === 'dark' ? 'void-bg admin-theme dark' : 'bg-white light-theme'}`}>
       {/* Sidebar */}
       <aside
         className={`fixed top-0 left-0 z-40 h-screen transition-all duration-300 ${
@@ -868,8 +868,8 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                     )}
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-80">
-                  <DropdownMenuLabel className="flex items-center justify-between gap-2">
+                <DropdownMenuContent align="end" className="w-80 p-0">
+                  <DropdownMenuLabel className="flex items-center justify-between gap-2 px-3 py-2">
                     <span>Notifications</span>
                     <div className="ml-auto flex items-center gap-3">
                       <button type="button" onClick={(e) => { e.preventDefault(); markAllAsRead(); }} className="text-xs text-cyan-400 hover:underline">Mark all as read</button>
@@ -878,36 +878,38 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  {notificationsLoading && notifications.length === 0 && (
-                    <div className="p-3 text-sm text-gray-400">Loading…</div>
-                  )}
-                  {!notificationsLoading && notifications.length === 0 && (
-                    <div className="p-3 text-sm text-gray-400">No notifications</div>
-                  )}
-                  {notifications.map((n) => (
-                    <DropdownMenuItem
-                      key={n.id}
-                      className="flex items-start gap-2 py-3 cursor-pointer"
-                      onSelect={() => {
-                        if (!n.read) markNotificationAsRead(n.id);
-                        if (n.link) router.push(n.link);
-                      }}
-                    >
-                      <div className={`mt-1 h-2 w-2 rounded-full flex-shrink-0 ${n.read ? 'bg-gray-500/30' : 'bg-cyan-400 neon-cyan'}`} />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium">{n.title}</div>
-                        <div className="text-xs text-muted-foreground">{n.description}</div>
-                      </div>
-                      <button
-                        type="button"
-                        className="ml-2 text-xs text-gray-400 hover:text-pink-400 flex-shrink-0"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteNotification(n.id); }}
-                        aria-label="Delete notification"
+                  <div className="max-h-[min(24rem,70vh)] overflow-y-auto">
+                    {notificationsLoading && notifications.length === 0 && (
+                      <div className="p-3 text-sm text-gray-400">Loading…</div>
+                    )}
+                    {!notificationsLoading && notifications.length === 0 && (
+                      <div className="p-3 text-sm text-gray-400">No notifications</div>
+                    )}
+                    {notifications.map((n) => (
+                      <DropdownMenuItem
+                        key={n.id}
+                        className="flex items-start gap-2 py-3 cursor-pointer"
+                        onSelect={() => {
+                          if (!n.read) markNotificationAsRead(n.id);
+                          if (n.link) router.push(n.link);
+                        }}
                       >
-                        Delete
-                      </button>
-                    </DropdownMenuItem>
-                  ))}
+                        <div className={`mt-1 h-2 w-2 rounded-full flex-shrink-0 ${n.read ? 'bg-gray-500/30' : 'bg-cyan-400 neon-cyan'}`} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium">{n.title}</div>
+                          <div className="text-xs text-muted-foreground">{n.description}</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="ml-2 text-xs text-gray-400 hover:text-pink-400 flex-shrink-0"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteNotification(n.id); }}
+                          aria-label="Delete notification"
+                        >
+                          Delete
+                        </button>
+                      </DropdownMenuItem>
+                    ))}
+                  </div>
                 </DropdownMenuContent>
               </DropdownMenu>
               

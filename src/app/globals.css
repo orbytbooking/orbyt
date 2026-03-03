@@ -235,6 +235,31 @@
     border: 1px solid rgba(255, 255, 255, 0.3) !important;
     box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
   }
+
+  /* Website preview card: true glass (transparent + blur), no solid white */
+  .admin-theme div.website-preview-glass-card,
+  .light-theme div.website-preview-glass-card {
+    background: rgba(255, 255, 255, 0.06) !important;
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: none !important;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
+  }
+
+  .admin-theme .website-preview-glass-inner,
+  .light-theme .website-preview-glass-inner {
+    background: rgba(255, 255, 255, 0.06) !important;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  .light-theme .website-preview-glass-inner {
+    border: 1px solid rgba(0, 0, 0, 0.1);
+  }
+
+  .admin-theme .website-preview-business-name {
+    color: white !important;
+  }
   
   /* Make customer name and email text black in light mode */
   .light-theme tbody a,

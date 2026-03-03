@@ -160,7 +160,7 @@ const WebsiteBuilderTab = () => {
 
       <div className="lg:col-span-3">
 
-        <Card className="h-full">
+        <Card className="website-preview-glass-card h-full">
 
           <CardHeader>
 
@@ -196,17 +196,17 @@ const WebsiteBuilderTab = () => {
 
           <CardContent>
 
-            <div className={`relative aspect-video border rounded-lg overflow-hidden ${currentTheme.colors.bg} p-6`}>
+            <div className="website-preview-glass-inner relative aspect-video rounded-lg overflow-hidden p-6">
 
               <div className="h-full flex flex-col">
 
                 <div className={`flex-1 flex flex-col items-center justify-center text-center ${currentTheme.colors.text}`}>
 
-                  <h2 className="text-2xl sm:text-3xl font-bold">{currentBusiness?.name || config?.branding?.companyName || 'Your Business'}</h2>
+                  <h2 className="website-preview-business-name text-2xl sm:text-3xl font-bold">{currentBusiness?.name || config?.branding?.companyName || 'Your Business'}</h2>
 
                 </div>
 
-                <div className={`${currentTheme.colors.nav} p-3 rounded-lg flex justify-center`}>
+                <div className="p-3 rounded-lg flex justify-center bg-white/10 backdrop-blur-sm">
 
                   <Button
 
@@ -226,7 +226,7 @@ const WebsiteBuilderTab = () => {
 
                     }}
 
-                    className={`${currentTheme.colors.button} hover:opacity-90 transition-opacity`}
+                    className="bg-blue-500 text-white border-0 hover:bg-blue-600 shadow-sm transition-colors"
 
                   >
 

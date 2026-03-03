@@ -546,7 +546,7 @@ const Customers = () => {
 
       {/* All customers + Import/Export */}
       <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
-        <h2 className="text-lg font-semibold">All customers</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">All customers</h2>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" className="text-blue-600 border-blue-600 hover:bg-blue-50" onClick={() => toast({ title: "Import", description: "Import feature coming soon." })}>
             <Download className="h-4 w-4 mr-1" />
