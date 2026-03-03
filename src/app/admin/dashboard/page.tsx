@@ -183,8 +183,16 @@ const Dashboard = () => {
       setIsRefreshing(true);
       setError(null);
       
-      const response = await fetch('/api/admin/dashboard');
+      const url = currentBusiness?.id
+        ? `/api/admin/dashboard?business_id=${encodeURIComponent(currentBusiness.id)}`
+        : '/api/admin/dashboard';
+      const response = await fetch(url, { credentials: 'include' });
       if (!response.ok) {
+        const contentType = response.headers.get('content-type');
+        if (contentType?.includes('application/json')) {
+          const json = await response.json();
+          throw new Error(json.error || 'Failed to fetch dashboard data');
+        }
         throw new Error('Failed to fetch dashboard data');
       }
       

@@ -1,13 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
 import { EmailService } from '@/lib/emailService';
+import { createCheckout } from '@/lib/payments/createCheckout';
 
 /**
  * POST: Process charge for a completed booking
- * Body: { method: 'cash' | 'online' }
+ * Body: { method: 'cash' | 'online' | 'void' }
  * - cash: Mark payment_status = paid
- * - online: Create Stripe Checkout session URL for customer to pay
+ * - online: Create checkout session URL (Stripe or Worldpay per business) for customer to pay
+ * - void: Mark payment voided
  */
 export async function POST(
   request: NextRequest,
@@ -92,72 +93,39 @@ export async function POST(
       });
     }
 
-    // online: create Stripe Checkout session
-    if (!process.env.STRIPE_SECRET_KEY) {
-      return NextResponse.json({ error: 'Stripe is not configured' }, { status: 500 });
-    }
-
+    // online: create checkout session (Stripe or Worldpay per business payment_provider)
     const amount = Number(booking.total_price) || 0;
     const amountInCents = Math.round(amount * 100);
     if (amountInCents < 50) {
       return NextResponse.json({ error: 'Minimum charge is $0.50' }, { status: 400 });
     }
 
-    let stripeConnectAccountId: string | null = null;
-    const { data: business } = await supabase
-      .from('businesses')
-      .select('stripe_connect_account_id')
-      .eq('id', businessId)
-      .single();
-    stripeConnectAccountId = (business as { stripe_connect_account_id?: string } | null)?.stripe_connect_account_id ?? null;
-
     const origin = process.env.NEXT_PUBLIC_APP_URL || '';
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-
-    const sessionParams: Stripe.Checkout.SessionCreateParams = {
-      mode: 'payment',
-      payment_method_types: ['card'],
-      line_items: [{
-        price_data: {
-          currency: 'usd',
-          unit_amount: amountInCents,
-          product_data: {
-            name: `${booking.service ?? 'Service'} - ${booking.scheduled_date ?? ''}`,
-            description: `Payment for completed booking`,
-          },
-        },
-        quantity: 1,
-      }],
-      success_url: `${origin}/admin/bookings?charge=success`,
-      cancel_url: `${origin}/admin/booking-charges?charge=cancel`,
-      customer_email: booking.customer_email ?? undefined,
-      metadata: {
-        booking_id: bookingId,
-        business_id: businessId,
-        charge_type: 'post_service',
-      },
-    };
-
-    let session;
+    let checkoutUrl: string;
     try {
-      session = stripeConnectAccountId
-        ? await stripe.checkout.sessions.create(sessionParams, { stripeAccount: stripeConnectAccountId })
-        : await stripe.checkout.sessions.create(sessionParams);
-    } catch (stripeErr: unknown) {
-      const err = stripeErr as { type?: string; code?: string; message?: string };
-      console.error('Stripe Checkout error:', err);
-      const msg = err?.message ?? 'Stripe payment setup failed';
-      if (err?.code === 'account_invalid' || msg.includes('account')) {
-        return NextResponse.json({
-          error: 'Stripe Connect account is not ready for payments. Please complete onboarding in Settings, or remove the connected account to use platform payments.',
-        }, { status: 400 });
-      }
-      return NextResponse.json({ error: msg }, { status: 400 });
+      const result = await createCheckout(
+        {
+          bookingId,
+          amountInCents,
+          customerEmail: booking.customer_email ?? undefined,
+          businessId,
+          successUrl: `${origin}/admin/bookings?charge=success`,
+          cancelUrl: `${origin}/admin/booking-charges?charge=cancel`,
+          lineItemDescription: `${booking.service ?? 'Service'} - ${booking.scheduled_date ?? ''}`,
+          origin,
+        },
+        supabase
+      );
+      checkoutUrl = result.url;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Checkout setup failed';
+      const status = msg.includes('not configured') ? 500 : 400;
+      return NextResponse.json({ error: msg }, { status });
     }
 
     return NextResponse.json({
       success: true,
-      checkoutUrl: session.url,
+      checkoutUrl,
       message: 'Send the payment link to the customer',
     });
   } catch (e) {

@@ -190,6 +190,7 @@ export async function performAutoAssign(
     .insert({
       booking_id: bookingId,
       provider_id: bestMatch.provider.id,
+      business_id: businessId,
       assignment_type: 'auto',
       status: 'assigned',
       auto_assignment_score: bestMatch.score,

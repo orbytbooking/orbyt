@@ -331,6 +331,8 @@ function BookingPageContent() {
   const { customerName, customerEmail, customerPhone, customerAddress, accountLoading } = useCustomerAccount(false);
   const { config } = useWebsiteConfig();
   const [pricingRows, setPricingRows] = useState<PricingTier[]>([]);
+  /** Payment provider for current business (stripe | worldpay) - used for payment step labels */
+  const [paymentProvider, setPaymentProvider] = useState<"stripe" | "worldpay">("stripe");
   /** All pricing parameters (all variable categories) for summing Bedroom + Bathroom + Living Room + Sq Ft + Storage + etc. */
   const [allPricingParams, setAllPricingParams] = useState<{ variable_category: string; name: string; price: number; service_category: string | null; frequency: string }[]>([]);
   const [availableExtras, setAvailableExtras] = useState<any[]>([]);
@@ -343,6 +345,7 @@ function BookingPageContent() {
 
   // Ref to store the total shown in the booking summary so we send that exact amount when saving (avoids stale closure giving 0)
   const summaryTotalRef = useRef<number>(0);
+  const worldpayConfirmSentRef = useRef(false);
   const [cancellationPolicyDisclaimer, setCancellationPolicyDisclaimer] = useState<string | null>(null);
 
   // Handle phone number input to ensure it's a valid number
@@ -527,6 +530,16 @@ function BookingPageContent() {
       .then((r) => r.json())
       .then((data) => setCancellationPolicyDisclaimer(data.disclaimerText ?? null))
       .catch(() => setCancellationPolicyDisclaimer(null));
+  }, [currentStep, searchParams]);
+
+  // Fetch payment provider (Stripe vs Worldpay) when on payment step so we show the correct label
+  useEffect(() => {
+    const bid = searchParams.get("business");
+    if (!bid || currentStep !== "payment") return;
+    fetch(`/api/public/payment-provider?business=${encodeURIComponent(bid)}`)
+      .then((r) => r.json())
+      .then((data) => setPaymentProvider(data.provider === "worldpay" ? "worldpay" : "stripe"))
+      .catch(() => setPaymentProvider("stripe"));
   }, [currentStep, searchParams]);
 
   // Only clear selection when the selected industry was actually removed (not when options are loading/empty)
@@ -1197,11 +1210,25 @@ function BookingPageContent() {
       .catch(() => setRescheduleMessageLimitedEdit(null));
   }, [limitedEditMode, searchParams]);
 
-  // When returning from Stripe Checkout success, show success step
+  // When returning from Worldpay success: mark booking paid and send receipt (like Stripe webhook)
   useEffect(() => {
-    const stripeSuccess = searchParams.get("stripe") === "success";
-    const sessionId = searchParams.get("session_id");
-    if (stripeSuccess && sessionId) {
+    const worldpaySuccess = searchParams.get("worldpay") === "success";
+    const bookingId = searchParams.get("booking_id");
+    const businessId = searchParams.get("business");
+    if (!worldpaySuccess || !bookingId || worldpayConfirmSentRef.current) return;
+    worldpayConfirmSentRef.current = true;
+    fetch("/api/worldpay/confirm-return", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ booking_id: bookingId, business_id: businessId || undefined }),
+    }).catch(() => {});
+  }, [searchParams]);
+
+  // When returning from payment (Stripe or Worldpay) success, show success step
+  useEffect(() => {
+    const stripeSuccess = searchParams.get("stripe") === "success" && searchParams.get("session_id");
+    const worldpaySuccess = searchParams.get("worldpay") === "success" && searchParams.get("booking_id");
+    if (stripeSuccess || worldpaySuccess) {
       setCurrentStep("success");
     }
   }, [searchParams]);
@@ -1719,22 +1746,23 @@ function BookingPageContent() {
         return;
       }
       const businessId = searchParams.get("business") ?? "";
-      const res = await fetch("/api/stripe/create-checkout-session", {
+      const res = await fetch("/api/payments/create-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           bookingId,
           amountInCents,
-          customerEmail: undefined, // Leave empty so customer can edit email on Stripe Checkout
+          customerEmail: undefined,
           businessId: businessId || undefined,
           lineItemDescription: `${selectedService?.name ?? "Booking"} – ${bookingData?.date ? format(bookingData.date instanceof Date ? bookingData.date : new Date(bookingData.date), "PPP") : ""}`,
         }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
+        const desc = [json.error, json.details].filter(Boolean).join(" — ") || "Payment request failed. Please try again or pay on arrival.";
         toast({
           title: "Payment setup failed",
-          description: json.error || json.details || "Stripe is not configured or the request failed. Please try again or pay on arrival.",
+          description: desc,
           variant: "destructive",
         });
         return;
@@ -2000,16 +2028,20 @@ function BookingPageContent() {
                 </div>
               </div>
 
-              {/* Payment via Stripe Checkout */}
+              {/* Payment via Stripe or Worldpay (per business setting) */}
               <div className="md:col-span-2">
                 <div className={styles.paymentCard}>
-                  <h3 className={styles.paymentTitle}>Pay securely with Stripe</h3>
+                  <h3 className={styles.paymentTitle}>
+                    Pay securely with {paymentProvider === "worldpay" ? "Worldpay" : "Stripe"}
+                  </h3>
                   <div className={styles.securityBadge}>
                     <Lock className="h-4 w-4" />
-                    <span>Secure payment – you&apos;ll complete payment on Stripe&apos;s checkout page</span>
+                    <span>
+                      Secure payment – you&apos;ll complete payment on {paymentProvider === "worldpay" ? "Worldpay" : "Stripe"}&apos;s checkout page
+                    </span>
                   </div>
                   <p className="text-sm text-muted-foreground mt-2">
-                    After you click below, we&apos;ll create your booking and send you to Stripe to enter your card details. Your booking is confirmed once payment succeeds.
+                    After you click below, we&apos;ll create your booking and send you to {paymentProvider === "worldpay" ? "Worldpay" : "Stripe"} to enter your card details. Your booking is confirmed once payment succeeds.
                   </p>
                   <Button
                     type="button"
@@ -2025,7 +2057,7 @@ function BookingPageContent() {
                     ) : (
                       <>
                         <CreditCard className="mr-2 h-5 w-5" />
-                        Pay ${total.toFixed(2)} with Stripe
+                        Pay ${total.toFixed(2)} with {paymentProvider === "worldpay" ? "Worldpay" : "Stripe"}
                       </>
                     )}
                   </Button>

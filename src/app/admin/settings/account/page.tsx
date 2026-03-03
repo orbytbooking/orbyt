@@ -35,7 +35,7 @@ import {
 import { supabase } from "@/lib/supabaseClient";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { toast } from "sonner";
-import { BillingStripeConnect } from "@/components/admin/BillingStripeConnect";
+import { BillingPaymentProvider } from "@/components/admin/BillingPaymentProvider";
 
 export default function AccountSettingsPage() {
   const searchParams = useSearchParams();
@@ -745,7 +745,7 @@ export default function AccountSettingsPage() {
         </TabsContent>
 
         <TabsContent value="billing" className="pt-6">
-          <BillingStripeConnect />
+          <BillingPaymentProvider />
         </TabsContent>
 
         <TabsContent value="subscription-plans" className="pt-6">

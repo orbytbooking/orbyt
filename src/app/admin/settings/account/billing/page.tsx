@@ -1,11 +1,11 @@
 "use client";
 
-import { BillingStripeConnect } from "@/components/admin/BillingStripeConnect";
+import { BillingPaymentProvider } from "@/components/admin/BillingPaymentProvider";
 
 export default function BillingPage() {
   return (
     <div className="space-y-6">
-      <BillingStripeConnect />
+      <BillingPaymentProvider />
     </div>
   );
 }

@@ -1,16 +1,37 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
 
-export async function GET() {
+async function getBusinessId(supabase: ReturnType<typeof createClient>, userId: string) {
+  const { data: business, error } = await supabase
+    .from('businesses')
+    .select('id')
+    .eq('owner_id', userId)
+    .limit(1)
+    .maybeSingle();
+  if (error || !business) return null;
+  return business.id;
+}
+
+async function validateBusinessAccess(supabase: ReturnType<typeof createClient>, userId: string, businessId: string) {
+  const { data: business, error } = await supabase
+    .from('businesses')
+    .select('id')
+    .eq('id', businessId)
+    .eq('owner_id', userId)
+    .maybeSingle();
+  return !error && !!business;
+}
+
+export const dynamic = 'force-dynamic';
+
+export async function GET(request: NextRequest) {
   try {
-    // Authenticate user
     const user = await getAuthenticatedUser();
     if (!user) {
       return createUnauthorizedResponse();
     }
 
-    // Check user role - only allow owners and admins
     const userRole = user.user_metadata?.role || 'owner';
     if (userRole === 'customer') {
       return createForbiddenResponse('Customers cannot access admin endpoints');
@@ -21,18 +42,22 @@ export async function GET() {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // Get the user's business
-    const { data: business, error: businessError } = await supabase
-      .from('businesses')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-    
-    if (businessError || !business) {
+    const businessIdParam = request.nextUrl?.searchParams?.get('business_id') || request.headers.get('x-business-id');
+    let businessId: string | null;
+
+    if (businessIdParam) {
+      const hasAccess = await validateBusinessAccess(supabase, user.id, businessIdParam);
+      if (!hasAccess) {
+        return NextResponse.json({ error: 'Business not found or access denied' }, { status: 404 });
+      }
+      businessId = businessIdParam;
+    } else {
+      businessId = await getBusinessId(supabase, user.id);
+    }
+
+    if (!businessId) {
       return NextResponse.json({ error: 'Business not found' }, { status: 404 });
     }
-    
-    const businessId = business.id;
 
     // Get current date and previous month for comparisons (using UTC for consistency)
     const now = new Date();

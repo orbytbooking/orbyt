@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -48,6 +48,7 @@ import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
 import { supabase } from "@/lib/supabaseClient";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { addIndustryChangeListener, removeIndustryChangeListener } from "@/lib/industryEvents";
+import { ReceptionistChat } from "@/components/ReceptionistChat";
 
 interface Industry {
   id: string;
@@ -931,6 +932,11 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
           {children}
         </main>
       </div>
+
+      {/* AI receptionist chat – always visible in admin CRM */}
+      <Suspense fallback={null}>
+        <ReceptionistChat businessId={currentBusiness?.id} />
+      </Suspense>
     </div>
   );
 };
