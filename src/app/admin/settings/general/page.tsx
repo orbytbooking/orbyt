@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Store, Tag, MailX, Receipt, List, Plug, Plus, Minus, Loader2, Pencil, Trash2, Info, Clock, Users, Bell, Settings, Calendar, CalendarDays, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, Link as LinkIcon } from 'lucide-react';
+import { Store, Tag, MailX, Receipt, List, Plug, Plus, Minus, Loader2, Pencil, Trash2, Info, Clock, Users, Bell, Settings, Calendar, CalendarDays, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, Link as LinkIcon, ChevronDown } from 'lucide-react';
 import { useBusiness } from '@/contexts/BusinessContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

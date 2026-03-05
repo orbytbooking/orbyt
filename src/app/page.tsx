@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ChevronDown, HelpCircle, MessageSquare, LifeBuoy, BookOpen, User, Zap } from 'lucide-react';
+import { ChevronDown, HelpCircle, MessageSquare, LifeBuoy, BookOpen, User, Zap, Users, Target, Star } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
 type Testimonial = {
@@ -19,42 +19,42 @@ export default function Home() {
   
   const testimonials: Testimonial[] = [
     {
-      quote: "Orbit Booking has completely transformed how we manage appointments. Our no-show rate dropped by 80% after implementing their reminder system.",
-      author: "Sarah Johnson",
-      role: "Owner, Sparkling Clean",
+      quote: "Orbyt Booking helped reduce the time I spend scheduling clients. The system keeps track of appointments and reminders, which saves me a lot of time every week.",
+      author: "Sofia Ramirez",
+      role: "Owner, Prime Care Services",
       rating: 5,
       avatar: "👩‍💼"
     },
     {
       quote: "The best investment we've made for our cleaning business. The automated scheduling saves us hours every week.",
-      author: "Michael Chen",
+      author: "Luis Navarro.",
       role: "Operations Manager, Fresh Start",
       rating: 5,
       avatar: "👨‍💼"
     },
     {
-      quote: "Our clients love the professional booking experience. It's made our business look much more established.",
+      quote: "I’ve tried a few booking tools before, but Orbyt Booking is by far the easiest one for my team. Our customers can book anytime, and we can manage everything from one dashboard.",
       author: "Emily Rodriguez",
-      role: "Founder, Clean Sweep Co.",
+      role: "Founder, Edge & Fade",
       rating: 5,
       avatar: "👩‍💻"
     },
     {
       quote: "The customer support is outstanding. They helped us set up our booking page exactly how we wanted it.",
-      author: "David Kim",
+      author: "Anthony Cruz",
       role: "Director, Elite Cleaners",
       rating: 5,
       avatar: "🧑‍💼"
     },
     {
-      quote: "We've seen a 40% increase in bookings since switching to Orbit. The mobile experience is fantastic!",
-      author: "Lisa Wong",
+      quote: "Orbyt Booking has made managing my appointments so much easier. Before, I had to keep track of everything through messages and a notebook. Now my customers can book online and everything is organized in one place.",
+      author: "Daniel Reyes",
       role: "CEO, Crystal Clear Services",
       rating: 5,
       avatar: "👩‍🎓"
     },
     {
-      quote: "Integrating Orbit with our existing tools was seamless. It just works!",
+      quote: "What I like most about Orbyt Booking is how simple it is to use. I was able to set up my services and start accepting bookings the same day. It really helped my cleaning business stay organized",
       author: "Robert Taylor",
       role: "CTO, Pristine Pro",
       rating: 5,
@@ -83,88 +83,93 @@ export default function Home() {
   }, [goToNext]);
 
   return (
-    <main className="min-h-screen flex flex-col bg-background">
-      <header className="fixed top-0 left-0 right-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
+    <main className="min-h-screen flex flex-col relative">
+      {/* Fixed hero background — stays in place while content scrolls (like ArtChain) */}
+      <div
+        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat"
+        style={{
+          backgroundImage: 'url(/images/hero-bg-space.png)',
+          backgroundAttachment: 'fixed',
+        }}
+        aria-hidden
+      />
+      <div className="relative z-10 flex flex-col min-h-screen">
+      <header className="fixed top-0 left-0 right-0 z-50 border-b border-white/10 bg-slate-900/30 backdrop-blur-md">
         <div className="container mx-auto flex h-16 items-center justify-between px-4">
-          <div className="flex items-center gap-3">
+          <a href="/" className="flex items-center gap-3">
             <img
               src="/images/orbit.png"
-              alt="Orbit Booking logo"
-              className="h-9 w-9"
+              alt="Orbyt Booking logo"
+              className="h-8 w-8"
             />
-            <div className="flex flex-col">
-              <span className="text-base font-bold text-slate-900 tracking-wide">
-                Orbit Booking
-              </span>
-            </div>
-          </div>
-          <div className="hidden gap-6 text-sm font-medium text-black sm:flex">
-            <a href="#features" className="hover:text-primary transition-colors">
+            <span className="text-base font-bold text-white uppercase tracking-wide">
+              Orbyt Booking
+            </span>
+          </a>
+          <nav className="hidden gap-8 text-sm font-medium text-white sm:flex">
+            <a href="#about-us" className="relative pb-0.5 text-white transition-colors hover:text-primary after:absolute after:left-0 after:bottom-0 after:h-0.5 after:w-0 after:bg-primary after:transition-[width] after:content-[''] hover:after:w-full">
+              About Us
+            </a>
+            <a href="#features" className="relative pb-0.5 text-white transition-colors hover:text-primary after:absolute after:left-0 after:bottom-0 after:h-0.5 after:w-0 after:bg-primary after:transition-[width] after:content-[''] hover:after:w-full">
               Features
             </a>
-            <a href="#pricing" className="hover:text-primary transition-colors">
+            <a href="#pricing" className="relative pb-0.5 text-white transition-colors hover:text-primary after:absolute after:left-0 after:bottom-0 after:h-0.5 after:w-0 after:bg-primary after:transition-[width] after:content-[''] hover:after:w-full">
               Pricing
             </a>
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
-                <button className="flex items-center text-sm font-medium text-black hover:text-primary transition-colors">
+                <button className="flex items-center gap-1 text-sm font-medium text-white transition-colors hover:text-primary [&[data-state=open]]:text-primary">
                   Support
-                  <ChevronDown className="ml-1 h-4 w-4" />
+                  <ChevronDown className="h-4 w-4" />
                 </button>
               </DropdownMenu.Trigger>
               <DropdownMenu.Portal>
-                <DropdownMenu.Content className="min-w-[220px] bg-white rounded-md p-2 shadow-lg border border-gray-200 z-50" sideOffset={10} align="end">
+                <DropdownMenu.Content className="min-w-[220px] bg-slate-900/95 backdrop-blur border border-white/10 rounded-md p-2 shadow-xl z-50" sideOffset={10} align="end">
                   <Link href="/help-center">
-                    <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer hover:bg-gray-50 hover:text-primary">
+                    <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer text-white hover:bg-white/10 hover:text-primary">
                       <HelpCircle className="mr-2 h-4 w-4" />
                       <span>Help Center</span>
                     </DropdownMenu.Item>
                   </Link>
                   <Link href="/help-center/faqs">
-                    <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer hover:bg-gray-50 hover:text-primary">
+                    <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer text-white hover:bg-white/10 hover:text-primary">
                       <MessageSquare className="mr-2 h-4 w-4" />
                       <span>FAQs</span>
                     </DropdownMenu.Item>
                   </Link>
                   <Link href="/contact-support">
-                    <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer hover:bg-gray-50 hover:text-primary">
+                    <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer text-white hover:bg-white/10 hover:text-primary">
                       <LifeBuoy className="mr-2 h-4 w-4" />
                       <span>Contact Support</span>
                     </DropdownMenu.Item>
                   </Link>
                   <Link href="/help-center/tutorials">
-                    <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer hover:bg-gray-50 hover:text-primary">
+                    <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer text-white hover:bg-white/10 hover:text-primary">
                       <BookOpen className="mr-2 h-4 w-4" />
                       <span>Tutorials</span>
                     </DropdownMenu.Item>
                   </Link>
                   <Link href="/help-center/account">
-                    <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer hover:bg-gray-50 hover:text-primary">
+                    <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer text-white hover:bg-white/10 hover:text-primary">
                       <User className="mr-2 h-4 w-4" />
                       <span>Account Support</span>
                     </DropdownMenu.Item>
                   </Link>
                   <Link href="/help-center/feature-requests">
-                    <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer hover:bg-gray-50 hover:text-primary">
+                    <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer text-white hover:bg-white/10 hover:text-primary">
                       <Zap className="mr-2 h-4 w-4" />
                       <span>Request a Feature</span>
                     </DropdownMenu.Item>
                   </Link>
-                  <DropdownMenu.Arrow className="fill-white" />
+                  <DropdownMenu.Arrow className="fill-slate-900" />
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
-          </div>
+          </nav>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="hidden rounded-md px-4 py-2 text-sm font-semibold text-slate-700 hover:text-primary transition-colors sm:inline-flex"
-            >
-              Demo
-            </button>
             <a
               href="/auth/login"
-              className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90 transition-colors"
+              className="inline-flex items-center justify-center rounded-md border border-white/60 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/10 hover:border-primary hover:text-primary"
             >
               Log In
             </a>
@@ -172,17 +177,18 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="pt-28 pb-16 px-4 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white">
-        <div className="container mx-auto grid gap-12 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] items-center">
+      <section className="relative pt-28 pb-16 px-4 text-white overflow-hidden">
+        <div className="absolute inset-0 bg-slate-950/70" aria-hidden />
+        <div className="container relative z-10 mx-auto grid gap-12 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] items-center">
           <div className="space-y-6">
             <p className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-200">
-              Orbit Booking • For Service Businesses
+              Orbyt Booking • For Service Businesses
             </p>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight font-space-grotesk">
               The <span className="text-primary">perfect platform</span> to make your service business <span className="text-primary">work smarter for you</span>.
             </h1>
             <p className="text-base sm:text-lg text-slate-200 max-w-xl font-sans">
-              Orbit Booking gives cleaners and local service businesses a modern booking experience with built-in online scheduling, automated reminders, and payments.
+              Orbyt Booking gives cleaners and local service businesses a modern booking experience with built-in online scheduling, automated reminders, and payments.
             </p>
             <div className="flex flex-col sm:flex-row gap-4">
               <a
@@ -205,27 +211,22 @@ export default function Home() {
           </div>
 
           <div className="relative group">
-            <div className="absolute -inset-4 rounded-3xl bg-gradient-to-br from-primary/20 via-purple-500/20 to-blue-500/20 blur-3xl opacity-70 group-hover:opacity-100 transition-all duration-700" aria-hidden="true" />
-            <div className="relative rounded-3xl border border-white/10 bg-gradient-to-br from-slate-900/95 to-slate-800/95 p-8 shadow-2xl backdrop-blur-sm overflow-hidden">
-              <div className="absolute -right-10 -top-10 w-32 h-32 bg-primary/10 rounded-full filter blur-3xl" />
-              <div className="absolute -left-10 -bottom-10 w-40 h-40 bg-blue-500/10 rounded-full filter blur-3xl" />
-              
+            <div
+              className="relative rounded-3xl border border-slate-400/20 bg-slate-900/50 backdrop-blur-xl p-8 overflow-hidden"
+              style={{ boxShadow: '0 0 0 1px rgba(148,163,184,0.1), 0 0 40px -5px rgba(30,58,138,0.2), 0 0 60px -15px rgba(15,23,42,0.25)' }}
+            >
               <div className="relative z-10">
                 <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center">
-                    <div className="p-2 bg-primary/10 rounded-lg">
-                      <svg className="h-6 w-6 text-primary" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M14.017 21v-7.391c0-5.704 3.731-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h4v10h-9.983zm-14.017 0v-7.391c0-5.704 3.748-9.57 9-10.609l.996 2.151c-2.433.917-3.996 3.638-3.996 5.849h3.983v10h-9.983z" />
-                      </svg>
-                    </div>
-                    <h3 className="ml-3 text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-blue-400">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl font-serif text-white leading-none select-none" aria-hidden>"</span>
+                    <h3 className="text-xl font-bold text-white">
                       Trusted by Industry Leaders
                     </h3>
                   </div>
-                  <div className="flex space-x-2">
+                  <div className="flex gap-2">
                     <button 
                       onClick={goToPrev}
-                      className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors"
+                      className="p-2.5 rounded-full bg-gray-800/90 hover:bg-gray-700/90 border border-white/20 backdrop-blur-sm transition-colors"
                       aria-label="Previous testimonial"
                     >
                       <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -234,7 +235,7 @@ export default function Home() {
                     </button>
                     <button 
                       onClick={goToNext}
-                      className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors"
+                      className="p-2.5 rounded-full bg-gray-800/90 hover:bg-gray-700/90 border border-white/20 backdrop-blur-sm transition-colors"
                       aria-label="Next testimonial"
                     >
                       <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -248,7 +249,7 @@ export default function Home() {
                   {testimonials.map((testimonial: Testimonial, index: number) => (
                     <div 
                       key={index} 
-                      className={`absolute inset-0 p-1 transition-all duration-700 transform ${
+                      className={`absolute inset-0 transition-all duration-700 transform ${
                         index === currentSlide 
                           ? 'opacity-100 translate-x-0 z-10' 
                           : index < currentSlide 
@@ -256,26 +257,24 @@ export default function Home() {
                             : 'opacity-0 translate-x-4'
                       }`}
                     >
-                      <div className="h-full flex flex-col bg-gradient-to-br from-slate-800/50 to-slate-900/70 p-6 rounded-xl border border-white/5 backdrop-blur-sm">
-                        <div className="flex-1 flex items-center">
-                          <p className="text-slate-200 text-base leading-relaxed relative">
-                            <span className="absolute -left-6 -top-2 text-4xl opacity-10">"</span>
+                      <div className="h-full flex flex-col rounded-xl bg-slate-800/40 backdrop-blur-md p-6 border border-white/10">
+                        <div className="flex-1 flex items-start pt-1">
+                          <p className="text-white text-[15px] leading-relaxed relative pl-5">
+                            <span className="absolute left-0 -top-1 text-5xl font-serif text-white leading-none">"</span>
                             {testimonial.quote}
                           </p>
                         </div>
-                        <div className="mt-8 pt-5 border-t border-white/5">
-                          <div className="flex items-center">
-                            <div className="text-3xl mr-4">{testimonial.avatar}</div>
-                            <div>
-                              <p className="font-semibold text-white">{testimonial.author}</p>
-                              <p className="text-slate-400 text-sm">{testimonial.role}</p>
-                              <div className="flex mt-1">
-                                {Array.from({ length: testimonial.rating }).map((_, i) => (
-                                  <svg key={i} className="w-4 h-4 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
-                                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                                  </svg>
-                                ))}
-                              </div>
+                        <div className="mt-6 pt-5 border-t border-gray-400/40 flex items-center gap-4">
+                          <div className="text-3xl shrink-0">{testimonial.avatar}</div>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-white">{testimonial.author}</p>
+                            <p className="text-sm text-white/80 font-normal">{testimonial.role}</p>
+                            <div className="flex gap-0.5 mt-1.5">
+                              {Array.from({ length: testimonial.rating }).map((_, i) => (
+                                <svg key={i} className="w-4 h-4 text-amber-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                  <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                                </svg>
+                              ))}
                             </div>
                           </div>
                         </div>
@@ -283,15 +282,15 @@ export default function Home() {
                     </div>
                   ))}
                   
-                  <div className="absolute bottom-4 left-0 right-0 flex justify-center space-x-2">
+                  <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-2">
                     {testimonials.map((_: Testimonial, index: number) => (
                       <button
                         key={index}
                         onClick={() => goToSlide(index)}
-                        className={`h-2 rounded-full transition-all duration-300 ${
+                        className={`rounded-full transition-all duration-300 ${
                           index === currentSlide 
-                            ? 'bg-gradient-to-r from-primary to-blue-400 w-8' 
-                            : 'bg-white/20 w-2.5 hover:bg-white/40'
+                            ? 'bg-primary h-2 w-8' 
+                            : 'bg-white/30 h-2 w-2 hover:bg-white/50'
                         }`}
                         aria-label={`Go to testimonial ${index + 1}`}
                       />
@@ -299,6 +298,56 @@ export default function Home() {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* About Us — same page, white background, three separate white cards */}
+      <section id="about-us" className="py-16 px-4 bg-white">
+        <div className="container mx-auto max-w-6xl">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl sm:text-4xl font-bold text-slate-800 tracking-tight mb-4">About Us</h2>
+            <p className="text-lg text-slate-600 max-w-2xl mx-auto">
+              We’re on a mission to make scheduling simple for cleaners and local service businesses.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-200/50 p-6 sm:p-8">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 shrink-0 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
+                  <Users className="w-6 h-6 text-white" />
+                </div>
+                <h3 className="text-xl font-bold text-slate-800">Who We Are</h3>
+              </div>
+              <p className="text-slate-600 leading-relaxed">
+                Orbyt Booking is built for cleaning companies, home service providers, and local businesses that want a professional booking experience without the complexity. We combine online scheduling, automated reminders, and payments in one place so you can focus on your work instead of back-and-forth with clients.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-200/50 p-6 sm:p-8">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 shrink-0 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
+                  <Target className="w-6 h-6 text-white" />
+                </div>
+                <h3 className="text-xl font-bold text-slate-800">Our Mission</h3>
+              </div>
+              <p className="text-slate-600 leading-relaxed">
+                We believe every service business deserves tools that are easy to use and reliable. Our goal is to help you reduce no-shows, save time on admin, and give your customers a smooth way to book—so you can grow your business with confidence.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-200/50 p-6 sm:p-8">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 shrink-0 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
+                  <Star className="w-6 h-6 text-white" />
+                </div>
+                <h3 className="text-xl font-bold text-slate-800">Why Choose Orbyt</h3>
+              </div>
+              <ul className="space-y-2 text-slate-600">
+                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Simple setup—get your booking page live in minutes</li>
+                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Automated reminders to cut no-shows</li>
+                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Built for cleaners and home services</li>
+                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Support when you need it</li>
+              </ul>
             </div>
           </div>
         </div>
@@ -507,138 +556,195 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Our Process — same overlay as hero; steps in cards */}
+      <section className="relative py-16 px-4 overflow-hidden text-white">
+        <div className="absolute inset-0 bg-slate-950/70" aria-hidden />
+        <div className="container relative z-10 mx-auto max-w-6xl">
+          <div className="text-center mb-14">
+            <h2 className="text-3xl sm:text-4xl font-bold text-white tracking-tight inline-block">
+              Our Process
+            </h2>
+            <div className="mt-2 h-1 w-16 sm:w-20 bg-purple-500 rounded-full mx-auto" aria-hidden />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8 items-stretch">
+            {/* Step 1 — card */}
+            <div className="rounded-2xl border border-slate-200/80 bg-white/95 shadow-lg p-6 sm:p-8 flex flex-col items-center text-center md:items-start md:text-left">
+              <div className="hidden md:flex items-center justify-center w-full mb-2">
+                <span className="flex-1 h-px bg-slate-500 mr-2 min-w-0" aria-hidden />
+                <span className="inline-flex items-center justify-center w-24 h-24 text-5xl font-bold text-transparent shrink-0" style={{ WebkitTextStroke: '2px rgb(51 65 85)' }}>
+                  01
+                </span>
+                <span className="flex-1 h-px bg-slate-500 ml-2 min-w-0" aria-hidden />
+              </div>
+              <span className="md:hidden inline-flex items-center justify-center w-20 h-20 text-4xl font-bold text-transparent mb-0" style={{ WebkitTextStroke: '2px rgb(51 65 85)' }}>
+                01
+              </span>
+              <h3 className="text-purple-500 font-bold text-lg mt-4 md:mt-2 mb-2">Step 1</h3>
+              <p className="text-slate-700 text-sm leading-relaxed max-w-sm mx-auto md:mx-0">
+                Create your free account in minutes. Add your business details and connect your calendar so you’re ready to accept bookings.
+              </p>
+            </div>
+            {/* Step 2 — card */}
+            <div className="rounded-2xl border border-slate-200/80 bg-white/95 shadow-lg p-6 sm:p-8 flex flex-col items-center text-center md:items-start md:text-left">
+              <div className="hidden md:flex items-center justify-center w-full mb-2">
+                <span className="flex-1 h-px bg-slate-500 mr-2 min-w-0" aria-hidden />
+                <span className="inline-flex items-center justify-center w-24 h-24 text-5xl font-bold text-transparent shrink-0" style={{ WebkitTextStroke: '2px rgb(51 65 85)' }}>
+                  02
+                </span>
+                <span className="flex-1 h-px bg-slate-500 ml-2 min-w-0" aria-hidden />
+              </div>
+              <span className="md:hidden inline-flex items-center justify-center w-20 h-20 text-4xl font-bold text-transparent mb-0" style={{ WebkitTextStroke: '2px rgb(51 65 85)' }}>
+                02
+              </span>
+              <h3 className="text-purple-500 font-bold text-lg mt-4 md:mt-2 mb-2">Step 2</h3>
+              <p className="text-slate-700 text-sm leading-relaxed max-w-sm mx-auto md:mx-0">
+                Set up your services, pricing, and availability. Customize your booking page to match your brand and decide when you want to be booked.
+              </p>
+            </div>
+            {/* Step 3 — card */}
+            <div className="rounded-2xl border border-slate-200/80 bg-white/95 shadow-lg p-6 sm:p-8 flex flex-col items-center text-center md:items-start md:text-left">
+              <div className="hidden md:flex items-center justify-center w-full mb-2">
+                <span className="flex-1 h-px bg-slate-500 mr-2 min-w-0" aria-hidden />
+                <span className="inline-flex items-center justify-center w-24 h-24 text-5xl font-bold text-transparent shrink-0" style={{ WebkitTextStroke: '2px rgb(51 65 85)' }}>
+                  03
+                </span>
+                <span className="flex-1 h-px bg-slate-500 ml-2 min-w-0" aria-hidden />
+              </div>
+              <span className="md:hidden inline-flex items-center justify-center w-20 h-20 text-4xl font-bold text-transparent mb-0" style={{ WebkitTextStroke: '2px rgb(51 65 85)' }}>
+                03
+              </span>
+              <h3 className="text-purple-500 font-bold text-lg mt-4 md:mt-2 mb-2">Step 3</h3>
+              <p className="text-slate-700 text-sm leading-relaxed max-w-sm mx-auto md:mx-0">
+                Share your booking link with clients. They pick a time, get reminders, and you get a clear schedule—no more back-and-forth or no-shows.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section id="pricing" className="py-16 px-4 bg-white">
         <div className="container mx-auto max-w-6xl">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4">Simple and transparent pricing</h2>
-            <p className="text-muted-foreground max-w-2xl mx-auto">
-              Choose the perfect plan for your service business.
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6 mb-12">
+            <div className="space-y-3">
+              <span className="inline-block rounded-lg bg-violet-200/80 px-4 py-1.5 text-xs font-medium uppercase tracking-wider text-violet-800">
+                Extra Package
+              </span>
+              <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-slate-800">
+                Choose Your Perfect Plan
+              </h2>
+            </div>
+            <p className="text-slate-600 max-w-xl text-base lg:text-right">
+              Explore our range of plans designed to meet your unique business needs—from solo operators to established teams.
             </p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8">
+          <div className="grid md:grid-cols-3 gap-6 lg:gap-8">
             {/* Starter Plan */}
-            <div className="border-2 border-transparent rounded-xl p-6 hover:shadow-lg transition-shadow flex flex-col h-full">
-              <h3 className="text-lg font-semibold mb-2">Starter</h3>
-              <p className="text-muted-foreground text-sm mb-6">Perfect for solo operators and small teams getting started</p>
-              <div className="mb-6">
-                <span className="text-3xl font-bold">$19</span>
-                <span className="text-muted-foreground">/month</span>
+            <div className="rounded-3xl bg-white/95 p-6 sm:p-8 shadow-lg shadow-slate-200/60 flex flex-col h-full border border-white/80">
+              <h3 className="text-xl font-bold text-slate-800 mb-2">Starter Plan</h3>
+              <p className="text-slate-600 text-sm mb-6">Perfect for solo operators and small teams getting started</p>
+              <div className="mb-6 flex items-baseline">
+                <span className="text-4xl font-bold text-sky-500">$19</span>
+                <span className="text-slate-600 text-sm ml-1">monthly</span>
               </div>
-              <ul className="space-y-3 mb-8 text-sm min-h-[200px]">
-                <li className="flex items-center">
-                  <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+              <ul className="space-y-3 mb-8 text-sm text-slate-700 min-h-[200px]">
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
                   Core scheduling & calendar
                 </li>
-                <li className="flex items-center">
-                  <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
                   Unlimited bookings
                 </li>
-                <li className="flex items-center">
-                  <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
                   Email support
                 </li>
               </ul>
               <div className="mt-auto">
-                <button className="w-full py-3 px-6 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors font-medium">
-                  Start Starter for Free
-                </button>
+                <a
+                  href="/auth/login"
+                  className="block w-full py-3 px-6 text-center rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white font-medium shadow-sm hover:opacity-90 transition-opacity"
+                >
+                  Buy Plan
+                </a>
               </div>
             </div>
 
-            {/* Growth Plan (Featured) */}
-            <div className="border-2 border-primary rounded-xl p-6 shadow-lg relative -mx-[1px] flex flex-col h-full">
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-white text-xs font-medium px-3 py-1 rounded-full">
-                Most Popular
+            {/* Growth Plan */}
+            <div className="rounded-3xl bg-white/95 p-6 sm:p-8 shadow-lg shadow-slate-200/60 flex flex-col h-full border border-white/80">
+              <h3 className="text-xl font-bold text-slate-800 mb-2">Growth Plan</h3>
+              <p className="text-slate-600 text-sm mb-6">For growing teams that need more automation and control</p>
+              <div className="mb-6 flex items-baseline">
+                <span className="text-4xl font-bold text-sky-500">$49</span>
+                <span className="text-slate-600 text-sm ml-1">monthly</span>
               </div>
-              <h3 className="text-lg font-semibold mb-2">Growth</h3>
-              <p className="text-muted-foreground text-sm mb-6">For growing teams that need more automation and control</p>
-              <div className="mb-6">
-                <span className="text-3xl font-bold">$49</span>
-                <span className="text-muted-foreground">/month</span>
-              </div>
-              <ul className="space-y-3 mb-8 text-sm min-h-[200px]">
-                <li className="flex items-center">
-                  <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+              <ul className="space-y-3 mb-8 text-sm text-slate-700 min-h-[200px]">
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
                   Advanced scheduling & routing
                 </li>
-                <li className="flex items-center">
-                  <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
                   Unlimited bookings
                 </li>
-                <li className="flex items-center">
-                  <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
                   Email & chat support
                 </li>
-                <li className="flex items-center">
-                  <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
                   Custom branding
                 </li>
               </ul>
               <div className="mt-auto">
-                <button className="w-full py-3 px-6 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors font-medium">
-                  Start Growth for Free
-                </button>
+                <a
+                  href="/auth/login"
+                  className="block w-full py-3 px-6 text-center rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white font-medium shadow-sm hover:opacity-90 transition-opacity"
+                >
+                  Buy Plan
+                </a>
               </div>
             </div>
 
             {/* Pro Plan */}
-            <div className="border-2 border-transparent rounded-xl p-6 hover:shadow-lg transition-shadow flex flex-col h-full">
-              <h3 className="text-lg font-semibold mb-2">Pro</h3>
-              <p className="text-muted-foreground text-sm mb-6">For established businesses that want everything unlocked</p>
-              <div className="mb-6">
-                <span className="text-3xl font-bold">$110</span>
-                <span className="text-muted-foreground">/month</span>
+            <div className="rounded-3xl bg-white/95 p-6 sm:p-8 shadow-lg shadow-slate-200/60 flex flex-col h-full border border-white/80">
+              <h3 className="text-xl font-bold text-slate-800 mb-2">Premium Plan</h3>
+              <p className="text-slate-600 text-sm mb-6">For established businesses that want everything unlocked</p>
+              <div className="mb-6 flex items-baseline">
+                <span className="text-4xl font-bold text-sky-500">$110</span>
+                <span className="text-slate-600 text-sm ml-1">monthly</span>
               </div>
-              <ul className="space-y-3 mb-8 text-sm min-h-[200px]">
-                <li className="flex items-center">
-                  <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+              <ul className="space-y-3 mb-8 text-sm text-slate-700 min-h-[200px]">
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
                   Everything in Growth
                 </li>
-                <li className="flex items-center">
-                  <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
                   Unlimited bookings
                 </li>
-                <li className="flex items-center">
-                  <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
                   Priority support
                 </li>
-                <li className="flex items-center">
-                  <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
                   API access
                 </li>
               </ul>
               <div className="mt-auto">
-                <button className="w-full py-3 px-6 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors font-medium">
-                  Start Pro for Free
-                </button>
+                <a
+                  href="/auth/login"
+                  className="block w-full py-3 px-6 text-center rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white font-medium shadow-sm hover:opacity-90 transition-opacity"
+                >
+                  Buy Plan
+                </a>
               </div>
             </div>
           </div>
 
-          {/* Plan details accordion */}
+          {/* Plan details accordion - FAQ style */}
           <div className="mt-12 max-w-3xl mx-auto">
             <h3 className="text-2xl font-semibold text-center mb-4">
               What&apos;s included in each plan
@@ -646,12 +752,12 @@ export default function Home() {
             <p className="text-sm text-muted-foreground text-center mb-6">
               Scroll through the plans below to see a detailed breakdown of features and how they help your business.
             </p>
-            <Accordion type="single" collapsible className="w-full">
-              <AccordionItem value="starter">
-                <AccordionTrigger className="text-left">
+            <Accordion type="single" collapsible className="w-full space-y-3">
+              <AccordionItem value="starter" className="rounded-xl border border-slate-200/80 bg-slate-100/90 dark:bg-slate-800/40 dark:border-slate-700/80 shadow-sm overflow-hidden border-b-0">
+                <AccordionTrigger className="px-4 py-3.5 text-left hover:no-underline hover:bg-slate-200/40 dark:hover:bg-slate-700/40 transition-colors [&[data-state=open]]:rounded-none">
                   Starter – solo operators and small teams just getting started.
                 </AccordionTrigger>
-                <AccordionContent>
+                <AccordionContent className="px-4 pb-4 pt-0">
                   <ul className="space-y-2 text-sm text-muted-foreground">
                     <li><span className="font-medium text-foreground">Core scheduling &amp; calendar:</span> Accept bookings online 24/7 and see everything in a simple calendar view.</li>
                     <li><span className="font-medium text-foreground">Unlimited bookings:</span> Take as many appointments as you want with no extra per‑booking fees.</li>
@@ -661,29 +767,29 @@ export default function Home() {
                 </AccordionContent>
               </AccordionItem>
 
-              <AccordionItem value="growth">
-                <AccordionTrigger className="text-left">
+              <AccordionItem value="growth" className="rounded-xl border border-slate-200/80 bg-slate-100/90 dark:bg-slate-800/40 dark:border-slate-700/80 shadow-sm overflow-hidden border-b-0">
+                <AccordionTrigger className="px-4 py-3.5 text-left hover:no-underline hover:bg-slate-200/40 dark:hover:bg-slate-700/40 transition-colors [&[data-state=open]]:rounded-none">
                   Growth – growing teams that need advanced automation and greater control.
                 </AccordionTrigger>
-                <AccordionContent>
+                <AccordionContent className="px-4 pb-4 pt-0">
                   <ul className="space-y-2 text-sm text-muted-foreground">
                     <li><span className="font-medium text-foreground">Advanced scheduling &amp; routing:</span> Assign jobs to the right team members and optimize routes.</li>
                     <li><span className="font-medium text-foreground">Team management:</span> Add multiple staff, manage availability, and see who is booked where.</li>
                     <li><span className="font-medium text-foreground">Email &amp; chat support:</span> Get faster help from our support team as you scale.</li>
-                    <li><span className="font-medium text-foreground">Custom branding:</span> Match Orbit Booking to your brand with your logo and colors.</li>
+                    <li><span className="font-medium text-foreground">Custom branding:</span> Match Orbyt Booking to your brand with your logo and colors.</li>
                   </ul>
                 </AccordionContent>
               </AccordionItem>
 
-              <AccordionItem value="pro">
-                <AccordionTrigger className="text-left">
+              <AccordionItem value="pro" className="rounded-xl border border-slate-200/80 bg-slate-100/90 dark:bg-slate-800/40 dark:border-slate-700/80 shadow-sm overflow-hidden border-b-0">
+                <AccordionTrigger className="px-4 py-3.5 text-left hover:no-underline hover:bg-slate-200/40 dark:hover:bg-slate-700/40 transition-colors [&[data-state=open]]:rounded-none">
                   Pro – established businesses that want full access to all features.
                 </AccordionTrigger>
-                <AccordionContent>
+                <AccordionContent className="px-4 pb-4 pt-0">
                   <ul className="space-y-2 text-sm text-muted-foreground">
                     <li><span className="font-medium text-foreground">Everything in Growth:</span> Includes all features from the Starter and Growth plans.</li>
                     <li><span className="font-medium text-foreground">Priority support:</span> Skip the line with priority response times from our team.</li>
-                    <li><span className="font-medium text-foreground">API access:</span> Connect Orbit Booking to your other tools and internal systems.</li>
+                    <li><span className="font-medium text-foreground">API access:</span> Connect Orbyt Booking to your other tools and internal systems.</li>
                     <li><span className="font-medium text-foreground">Advanced reporting:</span> Deeper insights into revenue, team performance, and customer behavior.</li>
                   </ul>
                 </AccordionContent>
@@ -691,57 +797,6 @@ export default function Home() {
             </Accordion>
           </div>
           
-          {/* Plan comparison table */}
-          <div className="mt-12">
-            <h3 className="text-2xl font-semibold text-center mb-4">
-              Compare plans side by side
-            </h3>
-            <p className="text-sm text-muted-foreground text-center mb-6">
-              See which tools are included in each plan. All plans include unlimited bookings and access to our support team.
-            </p>
-            <div className="overflow-x-auto rounded-xl border">
-              <table className="min-w-full text-sm">
-                <thead className="bg-muted/60">
-                  <tr>
-                    <th className="py-3 px-4 text-left font-semibold text-muted-foreground">Features</th>
-                    <th className="py-3 px-4 text-center font-semibold">Starter</th>
-                    <th className="py-3 px-4 text-center font-semibold">Growth</th>
-                    <th className="py-3 px-4 text-center font-semibold">Pro</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    { label: 'Online booking & calendar', starter: true, growth: true, pro: true },
-                    { label: 'Customer portal', starter: true, growth: true, pro: true },
-                    { label: 'Provider mobile access', starter: false, growth: true, pro: true },
-                    { label: 'Smart scheduling & routing', starter: false, growth: true, pro: true },
-                    { label: 'Coupons & daily discounts', starter: false, growth: true, pro: true },
-                    { label: 'Gift cards & scripts workspace', starter: false, growth: true, pro: true },
-                    { label: 'Hiring pipeline & quizzes', starter: false, growth: true, pro: true },
-                    { label: 'Advanced reports & exports', starter: false, growth: true, pro: true },
-                    { label: 'API access', starter: false, growth: false, pro: true },
-                    { label: 'Priority support', starter: false, growth: false, pro: true },
-                  ].map((row) => (
-                    <tr key={row.label} className="border-t">
-                      <td className="py-3 px-4 text-sm text-muted-foreground">{row.label}</td>
-                      {(['starter', 'growth', 'pro'] as const).map((plan) => (
-                        <td key={plan} className="py-3 px-4 text-center">
-                          {row[plan] ? (
-                            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 text-xs">
-                              ✓
-                            </span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground/60">—</span>
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
           {/* Pricing FAQ */}
           <div className="mt-12 max-w-4xl mx-auto grid gap-6 md:grid-cols-3">
             <div>
@@ -766,17 +821,18 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Try it for free section */}
-      <section className="bg-gradient-to-r from-primary/5 to-accent/5 py-16 px-4">
-        <div className="container mx-auto max-w-4xl text-center">
-          <h2 className="text-3xl md:text-4xl font-bold mb-4">Ready to get started?</h2>
-          <p className="text-lg text-muted-foreground mb-8">Join thousands of businesses that trust Orbit Booking. Try it for free today!</p>
+      {/* Try it for free section — hero image with same overlay as hero */}
+      <section className="relative py-16 px-4 overflow-hidden">
+        <div className="absolute inset-0 bg-slate-950/70" aria-hidden />
+        <div className="container relative z-10 mx-auto max-w-4xl text-center">
+          <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">Ready to get started?</h2>
+          <p className="text-lg text-slate-200 mb-8">Join thousands of businesses that trust Orbyt Booking. Try it for free today!</p>
           
           <div className="flex flex-col sm:flex-row gap-3 max-w-lg mx-auto">
             <input
               type="email"
               placeholder="Enter your email"
-              className="flex-1 px-4 py-3 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+              className="flex-1 px-4 py-3 rounded-md border border-slate-400 bg-white/95 text-slate-900 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
               required
             />
             <button 
@@ -786,7 +842,7 @@ export default function Home() {
               Start Free Trial
             </button>
           </div>
-          <p className="text-sm text-muted-foreground mt-3">No credit card required. 14-day free trial.</p>
+          <p className="text-sm text-slate-300 mt-3">No credit card required. 14-day free trial.</p>
         </div>
       </section>
 
@@ -840,8 +896,8 @@ export default function Home() {
           <div className="grid md:grid-cols-2 gap-8 mb-8">
             <div>
               <div className="flex items-center gap-3 mb-4">
-                <img src="/images/orbit.png" alt="Orbit Booking" className="h-12 w-12" />
-                <h3 className="text-2xl font-bold">Orbit Booking</h3>
+                <img src="/images/orbit.png" alt="Orbyt Booking" className="h-12 w-12" />
+                <h3 className="text-2xl font-bold">Orbyt Booking</h3>
               </div>
               <p className="text-navy-foreground/80 mb-4 text-sm">
               Modern booking for cleaners and local service businesses.
@@ -859,7 +915,7 @@ export default function Home() {
               <div>
                 <h4 className="font-semibold mb-4">Company</h4>
                 <ul className="space-y-2 text-sm">
-                  <li><a href="#" className="hover:underline">About Us</a></li>
+                  <li><a href="#about-us" className="hover:underline">About Us</a></li>
                   <li><a href="#" className="hover:underline">Contact</a></li>
                   <li><a href="#" className="hover:underline">Careers</a></li>
                 </ul>
@@ -868,11 +924,12 @@ export default function Home() {
           </div>
           <div className="pt-8 border-t border-white/10">
             <p className="text-center text-sm text-navy-foreground/60">
-              &copy; {new Date().getFullYear()} Orbit Booking. All rights reserved.
+              &copy; {new Date().getFullYear()} Orbyt Booking. All rights reserved.
             </p>
           </div>
         </div>
       </footer>
+      </div>
     </main>
   );
 }

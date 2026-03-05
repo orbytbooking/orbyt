@@ -355,10 +355,12 @@ export default function FeaturesPage() {
               </ul>
             </div>
             <div className="md:w-1/2 bg-gray-50 p-8 rounded-xl">
-              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-                <div className="h-64 bg-gray-100 rounded-md flex items-center justify-center text-gray-400">
-                  Website Builder Preview
-                </div>
+              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 overflow-hidden">
+                <img
+                  src="/images/website-builder-preview.png"
+                  alt="Visual Page Builder — Edit page sections, hero, and content at orbit.orbyt.com"
+                  className="w-full h-auto rounded-md object-cover object-top"
+                />
               </div>
             </div>
           </div>
@@ -464,10 +466,12 @@ export default function FeaturesPage() {
             </div>
             <div className="md:w-1/2">
               <div className="bg-gray-50 p-8 rounded-xl">
-                <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-                  <div className="h-64 bg-gray-100 rounded-md flex items-center justify-center text-gray-400">
-                    Advanced Reports Preview
-                  </div>
+                <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 overflow-hidden">
+                  <img
+                    src="/images/advanced-reports-preview.png"
+                    alt="Advanced Reports — Revenue over time, status breakdown, and key metrics; responsive on desktop and mobile"
+                    className="w-full h-auto rounded-md object-cover object-top"
+                  />
                 </div>
               </div>
             </div>

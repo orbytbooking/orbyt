@@ -50,7 +50,7 @@ function LineChartSVG({ points, labels, width = 600, height = 220 }: { points: n
   const d = points.map((y, i) => `${i === 0 ? 'M' : 'L'} ${padding + i * stepX} ${scaleY(y)}`).join(' ');
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-[220px]">
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-[180px] sm:h-[220px]" preserveAspectRatio="xMidYMid meet">
       <rect x="0" y="0" width={width} height={height} fill="transparent" />
       {/* Axes */}
       <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#e5e7eb" />
@@ -79,7 +79,7 @@ function BarChartSVG({ values, labels, width = 600, height = 220 }: { values: nu
   const scaleY = (val: number) => (val / max) * (height - padding * 2);
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-[220px]">
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-[180px] sm:h-[220px]" preserveAspectRatio="xMidYMid meet">
       <rect x="0" y="0" width={width} height={height} fill="transparent" />
       <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#e5e7eb" />
       {values.map((v, i) => {
@@ -222,9 +222,9 @@ export default function ReportsPage() {
 
   if (loading && initialLoad) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 px-3 sm:px-0 min-w-0">
         <div className="text-center py-8">
-          <div className="text-muted-foreground">Loading reports...</div>
+          <div className="text-sm sm:text-base text-muted-foreground">Loading reports...</div>
         </div>
       </div>
     )
@@ -232,10 +232,10 @@ export default function ReportsPage() {
 
   if (error) {
     return (
-      <div className="space-y-6">
-        <div className="text-center py-8">
-          <div className="text-red-600">Error: {error}</div>
-          <Button onClick={fetchReports} className="mt-4">Retry</Button>
+      <div className="space-y-6 px-3 sm:px-0 min-w-0">
+        <div className="text-center py-8 px-2">
+          <div className="text-sm sm:text-base text-red-600 break-words">Error: {error}</div>
+          <Button onClick={fetchReports} className="mt-4 text-sm">Retry</Button>
         </div>
       </div>
     )
@@ -243,72 +243,75 @@ export default function ReportsPage() {
 
   if (!data) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 px-3 sm:px-0 min-w-0">
         <div className="text-center py-8">
-          <div className="text-muted-foreground">No data available</div>
+          <div className="text-sm sm:text-base text-muted-foreground">No data available</div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-end">
-        <div className="flex-1 flex gap-3 items-end">
-          <div className="flex-1 max-w-sm">
-            <Input placeholder="Search reports..." value={query} onChange={(e) => setQuery(e.target.value)} />
-          </div>
-          <Select value={status} onValueChange={(v) => setStatus(v as any)}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="confirmed">Confirmed</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
-            </SelectContent>
-          </Select>
-          <div className="flex items-end gap-3">
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Start date</label>
-              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+    <div className="space-y-4 sm:space-y-6 px-3 sm:px-0 min-w-0 max-w-full">
+      {/* Filters: stack on mobile, row on larger screens */}
+      <div className="flex flex-col gap-4 min-w-0">
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:justify-between sm:items-end">
+          <div className="flex flex-col sm:flex-row flex-1 gap-3 sm:items-end w-full sm:max-w-none min-w-0">
+            <div className="w-full min-w-0 sm:flex-1 sm:max-w-sm">
+              <Input placeholder="Search reports..." value={query} onChange={(e) => setQuery(e.target.value)} className="w-full min-w-0 text-sm sm:text-base" />
             </div>
-            <span className="pb-2 text-sm text-muted-foreground">to</span>
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">End date</label>
-              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            <Select value={status} onValueChange={(v) => setStatus(v as any)}>
+              <SelectTrigger className="w-full sm:w-40 text-sm sm:text-base min-w-0">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-sm sm:text-base">All Status</SelectItem>
+                <SelectItem value="pending" className="text-sm sm:text-base">Pending</SelectItem>
+                <SelectItem value="confirmed" className="text-sm sm:text-base">Confirmed</SelectItem>
+                <SelectItem value="completed" className="text-sm sm:text-base">Completed</SelectItem>
+                <SelectItem value="cancelled" className="text-sm sm:text-base">Cancelled</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="grid grid-cols-[1fr_auto_1fr] gap-2 sm:flex sm:items-end sm:gap-3 min-w-0">
+              <div className="space-y-1 col-span-1 min-w-0">
+                <label className="text-xs sm:text-sm text-muted-foreground block">Start date</label>
+                <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full min-w-0 text-sm sm:text-base" />
+              </div>
+              <span className="pb-2 text-xs sm:text-sm text-muted-foreground self-end sm:flex-shrink-0">to</span>
+              <div className="space-y-1 col-span-1 min-w-0">
+                <label className="text-xs sm:text-sm text-muted-foreground block">End date</label>
+                <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full min-w-0 text-sm sm:text-base" />
+              </div>
             </div>
           </div>
+          <Button
+            className="w-full sm:w-auto text-white shrink-0 text-sm sm:text-base"
+            style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)' }}
+            onClick={exportCSV}
+          >
+            Export CSV
+          </Button>
         </div>
-        <Button
-          className="text-white"
-          style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)' }}
-          onClick={exportCSV}
-        >
-          Export CSV
-        </Button>
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Revenue Over Time</CardTitle>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-w-0">
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="pb-2 sm:pb-6">
+            <CardTitle className="text-base sm:text-lg font-semibold">Revenue Over Time</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="min-w-0">
             <LineChartSVG
               points={revenueByDate.map(([, v]) => v)}
               labels={revenueByDate.map(([d]) => d)}
             />
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Status Breakdown</CardTitle>
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="pb-2 sm:pb-6">
+            <CardTitle className="text-base sm:text-lg font-semibold">Status Breakdown</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="min-w-0">
             <BarChartSVG
               values={statusCounts.map((s) => s.value)}
               labels={statusCounts.map((s) => s.label)}
@@ -317,67 +320,89 @@ export default function ReportsPage() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm text-muted-foreground">Total Bookings</CardTitle>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 min-w-0">
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="py-3 sm:py-6 px-3 sm:px-6">
+            <CardTitle className="text-xs sm:text-sm text-muted-foreground truncate">Total Bookings</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{totals.totalBookings}</div>
+          <CardContent className="pb-3 sm:pb-6 px-3 sm:px-6">
+            <div className="text-lg sm:text-2xl lg:text-3xl font-bold truncate" title={String(totals.totalBookings)}>{totals.totalBookings}</div>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm text-muted-foreground">Revenue</CardTitle>
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="py-3 sm:py-6 px-3 sm:px-6">
+            <CardTitle className="text-xs sm:text-sm text-muted-foreground truncate">Revenue</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">${totals.revenue.toLocaleString()}</div>
+          <CardContent className="pb-3 sm:pb-6 px-3 sm:px-6">
+            <div className="text-lg sm:text-2xl lg:text-3xl font-bold truncate" title={`$${totals.revenue.toLocaleString()}`}>${totals.revenue.toLocaleString()}</div>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm text-muted-foreground">Completed</CardTitle>
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="py-3 sm:py-6 px-3 sm:px-6">
+            <CardTitle className="text-xs sm:text-sm text-muted-foreground truncate">Completed</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{totals.completed}</div>
+          <CardContent className="pb-3 sm:pb-6 px-3 sm:px-6">
+            <div className="text-lg sm:text-2xl lg:text-3xl font-bold truncate" title={String(totals.completed)}>{totals.completed}</div>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm text-muted-foreground">Cancelled</CardTitle>
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="py-3 sm:py-6 px-3 sm:px-6">
+            <CardTitle className="text-xs sm:text-sm text-muted-foreground truncate">Cancelled</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{totals.cancelled}</div>
+          <CardContent className="pb-3 sm:pb-6 px-3 sm:px-6">
+            <div className="text-lg sm:text-2xl lg:text-3xl font-bold truncate" title={String(totals.cancelled)}>{totals.cancelled}</div>
           </CardContent>
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Report Details ({filtered.length})</CardTitle>
+      <Card className="min-w-0 overflow-hidden">
+        <CardHeader className="px-3 py-3 sm:px-6 sm:py-6">
+          <CardTitle className="text-base sm:text-lg font-semibold truncate">Report Details ({filtered.length})</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
+        <CardContent className="p-0 md:p-6 min-w-0">
+          {/* Mobile: card list */}
+          <div className="md:hidden divide-y divide-border">
+            {filtered.map((r) => (
+              <div key={r.id} className="p-3 sm:p-4 space-y-2 min-w-0">
+                <div className="flex justify-between items-start gap-2 min-w-0">
+                  <span className="text-sm sm:text-base font-medium truncate min-w-0" title={r.customer_name || 'N/A'}>{r.customer_name || 'N/A'}</span>
+                  <span className="text-sm sm:text-base font-medium shrink-0">${r.amount.toFixed(2)}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs sm:text-sm text-muted-foreground min-w-0">
+                  <span className="shrink-0">Scheduled</span>
+                  <span className="truncate min-w-0" title={r.scheduled_date || 'N/A'}>{r.scheduled_date || 'N/A'}</span>
+                  <span className="shrink-0">Created</span>
+                  <span className="truncate min-w-0" title={r.created_at?.split('T')[0] || 'N/A'}>{r.created_at?.split('T')[0] || 'N/A'}</span>
+                  <span className="shrink-0">Service</span>
+                  <span className="truncate min-w-0" title={r.service}>{r.service}</span>
+                  <span className="shrink-0">Status</span>
+                  <span className="capitalize truncate min-w-0">{r.status}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Desktop: table */}
+          <div className="hidden md:block overflow-x-auto min-w-0">
+            <table className="w-full min-w-0">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Customer Name</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Scheduled Date</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Created Date</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Service</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
-                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Amount</th>
+                  <th className="text-left py-3 px-3 lg:px-4 text-xs sm:text-sm font-medium text-muted-foreground">Customer Name</th>
+                  <th className="text-left py-3 px-3 lg:px-4 text-xs sm:text-sm font-medium text-muted-foreground">Scheduled Date</th>
+                  <th className="text-left py-3 px-3 lg:px-4 text-xs sm:text-sm font-medium text-muted-foreground">Created Date</th>
+                  <th className="text-left py-3 px-3 lg:px-4 text-xs sm:text-sm font-medium text-muted-foreground">Service</th>
+                  <th className="text-left py-3 px-3 lg:px-4 text-xs sm:text-sm font-medium text-muted-foreground">Status</th>
+                  <th className="text-right py-3 px-3 lg:px-4 text-xs sm:text-sm font-medium text-muted-foreground">Amount</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((r) => (
                   <tr key={r.id} className="border-b border-border">
-                    <td className="py-3 px-4 text-sm font-medium">{r.customer_name || 'N/A'}</td>
-                    <td className="py-3 px-4 text-sm">{r.scheduled_date || 'N/A'}</td>
-                    <td className="py-3 px-4 text-sm">{r.created_at?.split('T')[0] || 'N/A'}</td>
-                    <td className="py-3 px-4 text-sm">{r.service}</td>
-                    <td className="py-3 px-4">{r.status}</td>
-                    <td className="py-3 px-4 text-sm font-medium text-right">${r.amount.toFixed(2)}</td>
+                    <td className="py-3 px-3 lg:px-4 text-xs sm:text-sm font-medium max-w-[120px] lg:max-w-none truncate" title={r.customer_name || 'N/A'}>{r.customer_name || 'N/A'}</td>
+                    <td className="py-3 px-3 lg:px-4 text-xs sm:text-sm whitespace-nowrap">{r.scheduled_date || 'N/A'}</td>
+                    <td className="py-3 px-3 lg:px-4 text-xs sm:text-sm whitespace-nowrap">{r.created_at?.split('T')[0] || 'N/A'}</td>
+                    <td className="py-3 px-3 lg:px-4 text-xs sm:text-sm max-w-[100px] lg:max-w-none truncate" title={r.service}>{r.service}</td>
+                    <td className="py-3 px-3 lg:px-4 text-xs sm:text-sm capitalize">{r.status}</td>
+                    <td className="py-3 px-3 lg:px-4 text-xs sm:text-sm font-medium text-right whitespace-nowrap">${r.amount.toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
