@@ -12,6 +12,7 @@ type Testimonial = {
   role: string;
   rating: number;
   avatar: string;
+  avatarImage?: string;
 };
 
 export default function Home() {
@@ -23,42 +24,48 @@ export default function Home() {
       author: "Sofia Ramirez",
       role: "Owner, Prime Care Services",
       rating: 5,
-      avatar: "👩‍💼"
+      avatar: "👩‍💼",
+      avatarImage: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=96&h=96&fit=crop&crop=face"
     },
     {
       quote: "The best investment we've made for our cleaning business. The automated scheduling saves us hours every week.",
-      author: "Luis Navarro.",
+      author: "Luis Navarro",
       role: "Operations Manager, Fresh Start",
       rating: 5,
-      avatar: "👨‍💼"
+      avatar: "👨‍💼",
+      avatarImage: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=96&h=96&fit=crop&crop=face"
     },
     {
       quote: "I’ve tried a few booking tools before, but Orbyt Booking is by far the easiest one for my team. Our customers can book anytime, and we can manage everything from one dashboard.",
-      author: "Emily Rodriguez",
+      author: "Emma Rivera",
       role: "Founder, Edge & Fade",
       rating: 5,
-      avatar: "👩‍💻"
+      avatar: "👩‍💻",
+      avatarImage: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=96&h=96&fit=crop&crop=face"
     },
     {
       quote: "The customer support is outstanding. They helped us set up our booking page exactly how we wanted it.",
       author: "Anthony Cruz",
       role: "Director, Elite Cleaners",
       rating: 5,
-      avatar: "🧑‍💼"
+      avatar: "🧑‍💼",
+      avatarImage: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=96&h=96&fit=crop&crop=face"
     },
     {
       quote: "Orbyt Booking has made managing my appointments so much easier. Before, I had to keep track of everything through messages and a notebook. Now my customers can book online and everything is organized in one place.",
       author: "Daniel Reyes",
       role: "CEO, Crystal Clear Services",
       rating: 5,
-      avatar: "👩‍🎓"
+      avatar: "👩‍🎓",
+      avatarImage: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=96&h=96&fit=crop&crop=face"
     },
     {
       quote: "What I like most about Orbyt Booking is how simple it is to use. I was able to set up my services and start accepting bookings the same day. It really helped my cleaning business stay organized",
       author: "Robert Taylor",
       role: "CTO, Pristine Pro",
       rating: 5,
-      avatar: "👨‍🔧"
+      avatar: "👨‍🔧",
+      avatarImage: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=96&h=96&fit=crop&crop=face"
     }
   ];
 
@@ -185,7 +192,7 @@ export default function Home() {
               Orbyt Booking • For Service Businesses
             </p>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight font-space-grotesk">
-              The <span className="text-primary">perfect platform</span> to make your service business <span className="text-primary">work smarter for you</span>.
+              The <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">perfect platform</span> to make your service business <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">work smarter for you</span>.
             </h1>
             <p className="text-base sm:text-lg text-slate-200 max-w-xl font-sans">
               Orbyt Booking gives cleaners and local service businesses a modern booking experience with built-in online scheduling, automated reminders, and payments.
@@ -193,12 +200,12 @@ export default function Home() {
             <div className="flex flex-col sm:flex-row gap-4">
               <a
                 href="/auth/login"
-                className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors"
+                className="inline-flex items-center justify-center rounded-md bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 px-6 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-200"
               >
                 Start free trial
               </a>
             </div>
-            <div className="flex flex-wrap gap-6 pt-4 text-xs text-slate-300">
+            <div className="flex flex-wrap gap-6 mt-6 text-xs text-slate-300">
               <div>
                 <p className="font-semibold text-white">Built for cleaning & home services</p>
                 <p>No code, no plugins, just bookings that work.</p>
@@ -265,7 +272,13 @@ export default function Home() {
                           </p>
                         </div>
                         <div className="mt-6 pt-5 border-t border-gray-400/40 flex items-center gap-4">
-                          <div className="text-3xl shrink-0">{testimonial.avatar}</div>
+                          <div className="shrink-0 w-12 h-12 rounded-full overflow-hidden bg-slate-600 flex items-center justify-center">
+                            {testimonial.avatarImage ? (
+                              <img src={testimonial.avatarImage} alt={testimonial.author} className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-2xl">{testimonial.avatar}</span>
+                            )}
+                          </div>
                           <div className="min-w-0">
                             <p className="font-semibold text-white">{testimonial.author}</p>
                             <p className="text-sm text-white/80 font-normal">{testimonial.role}</p>
@@ -303,9 +316,26 @@ export default function Home() {
         </div>
       </section>
 
-      {/* About Us — same page, white background, three separate white cards */}
-      <section id="about-us" className="py-16 px-4 bg-white">
-        <div className="container mx-auto max-w-6xl">
+      {/* About Us — trust indicators overlay at top, then content */}
+      <section id="about-us" className="relative pt-20 pb-16 px-4 bg-white overflow-visible">
+        {/* Trust indicators — transparent backgrounds */}
+        <div className="absolute top-0 left-0 right-0 flex justify-center z-10 -translate-y-1/2">
+          <div className="inline-flex flex-wrap justify-center gap-8 sm:gap-10 rounded-xl border border-slate-200/80 bg-white shadow-lg shadow-slate-300/40 px-6 py-3 sm:px-10 sm:py-3.5">
+            <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-6 py-3 min-w-[130px] sm:min-w-[150px] text-center">
+              <p className="text-xl sm:text-2xl font-bold text-slate-800 tabular-nums">10,000+</p>
+              <p className="text-[10px] sm:text-xs font-medium uppercase tracking-wider text-slate-500 mt-1">Happy clients</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-6 py-3 min-w-[130px] sm:min-w-[150px] text-center">
+              <p className="text-xl sm:text-2xl font-bold text-slate-800 tabular-nums">50,000+</p>
+              <p className="text-[10px] sm:text-xs font-medium uppercase tracking-wider text-slate-500 mt-1">Bookings completed</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-6 py-3 min-w-[130px] sm:min-w-[150px] text-center">
+              <p className="text-xl sm:text-2xl font-bold text-slate-800 tabular-nums">500+</p>
+              <p className="text-[10px] sm:text-xs font-medium uppercase tracking-wider text-slate-500 mt-1">Businesses</p>
+            </div>
+          </div>
+        </div>
+        <div className="container relative z-0 mx-auto max-w-6xl pt-24">
           <div className="text-center mb-12">
             <h2 className="text-3xl sm:text-4xl font-bold text-slate-800 tracking-tight mb-4">About Us</h2>
             <p className="text-lg text-slate-600 max-w-2xl mx-auto">
@@ -571,15 +601,15 @@ export default function Home() {
             <div className="rounded-2xl border border-slate-200/80 bg-white/95 shadow-lg p-6 sm:p-8 flex flex-col items-center text-center md:items-start md:text-left">
               <div className="hidden md:flex items-center justify-center w-full mb-2">
                 <span className="flex-1 h-px bg-slate-500 mr-2 min-w-0" aria-hidden />
-                <span className="inline-flex items-center justify-center w-24 h-24 text-5xl font-bold text-transparent shrink-0" style={{ WebkitTextStroke: '2px rgb(51 65 85)' }}>
+                <span className="inline-flex items-center justify-center w-24 h-24 text-5xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent shrink-0">
                   01
                 </span>
                 <span className="flex-1 h-px bg-slate-500 ml-2 min-w-0" aria-hidden />
               </div>
-              <span className="md:hidden inline-flex items-center justify-center w-20 h-20 text-4xl font-bold text-transparent mb-0" style={{ WebkitTextStroke: '2px rgb(51 65 85)' }}>
+              <span className="md:hidden inline-flex items-center justify-center w-20 h-20 text-4xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent mb-0">
                 01
               </span>
-              <h3 className="text-purple-500 font-bold text-lg mt-4 md:mt-2 mb-2">Step 1</h3>
+              <h3 className="text-black font-bold text-lg mt-4 md:mt-2 mb-2">Step 1</h3>
               <p className="text-slate-700 text-sm leading-relaxed max-w-sm mx-auto md:mx-0">
                 Create your free account in minutes. Add your business details and connect your calendar so you’re ready to accept bookings.
               </p>
@@ -588,15 +618,15 @@ export default function Home() {
             <div className="rounded-2xl border border-slate-200/80 bg-white/95 shadow-lg p-6 sm:p-8 flex flex-col items-center text-center md:items-start md:text-left">
               <div className="hidden md:flex items-center justify-center w-full mb-2">
                 <span className="flex-1 h-px bg-slate-500 mr-2 min-w-0" aria-hidden />
-                <span className="inline-flex items-center justify-center w-24 h-24 text-5xl font-bold text-transparent shrink-0" style={{ WebkitTextStroke: '2px rgb(51 65 85)' }}>
+                <span className="inline-flex items-center justify-center w-24 h-24 text-5xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent shrink-0">
                   02
                 </span>
                 <span className="flex-1 h-px bg-slate-500 ml-2 min-w-0" aria-hidden />
               </div>
-              <span className="md:hidden inline-flex items-center justify-center w-20 h-20 text-4xl font-bold text-transparent mb-0" style={{ WebkitTextStroke: '2px rgb(51 65 85)' }}>
+              <span className="md:hidden inline-flex items-center justify-center w-20 h-20 text-4xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent mb-0">
                 02
               </span>
-              <h3 className="text-purple-500 font-bold text-lg mt-4 md:mt-2 mb-2">Step 2</h3>
+              <h3 className="text-black font-bold text-lg mt-4 md:mt-2 mb-2">Step 2</h3>
               <p className="text-slate-700 text-sm leading-relaxed max-w-sm mx-auto md:mx-0">
                 Set up your services, pricing, and availability. Customize your booking page to match your brand and decide when you want to be booked.
               </p>
@@ -605,15 +635,15 @@ export default function Home() {
             <div className="rounded-2xl border border-slate-200/80 bg-white/95 shadow-lg p-6 sm:p-8 flex flex-col items-center text-center md:items-start md:text-left">
               <div className="hidden md:flex items-center justify-center w-full mb-2">
                 <span className="flex-1 h-px bg-slate-500 mr-2 min-w-0" aria-hidden />
-                <span className="inline-flex items-center justify-center w-24 h-24 text-5xl font-bold text-transparent shrink-0" style={{ WebkitTextStroke: '2px rgb(51 65 85)' }}>
+                <span className="inline-flex items-center justify-center w-24 h-24 text-5xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent shrink-0">
                   03
                 </span>
                 <span className="flex-1 h-px bg-slate-500 ml-2 min-w-0" aria-hidden />
               </div>
-              <span className="md:hidden inline-flex items-center justify-center w-20 h-20 text-4xl font-bold text-transparent mb-0" style={{ WebkitTextStroke: '2px rgb(51 65 85)' }}>
+              <span className="md:hidden inline-flex items-center justify-center w-20 h-20 text-4xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent mb-0">
                 03
               </span>
-              <h3 className="text-purple-500 font-bold text-lg mt-4 md:mt-2 mb-2">Step 3</h3>
+              <h3 className="text-black font-bold text-lg mt-4 md:mt-2 mb-2">Step 3</h3>
               <p className="text-slate-700 text-sm leading-relaxed max-w-sm mx-auto md:mx-0">
                 Share your booking link with clients. They pick a time, get reminders, and you get a clear schedule—no more back-and-forth or no-shows.
               </p>
@@ -837,7 +867,7 @@ export default function Home() {
             />
             <button 
               type="button"
-              className="bg-primary hover:bg-primary/90 text-white font-medium py-3 px-6 rounded-md transition-colors whitespace-nowrap"
+              className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-medium py-3 px-6 rounded-md transition-all duration-200 whitespace-nowrap"
             >
               Start Free Trial
             </button>
@@ -853,15 +883,15 @@ export default function Home() {
             <div className="md:w-1/2">
               <div className="rounded-2xl overflow-hidden h-full">
                 <img 
-                  src="https://images.unsplash.com/photo-1551434678-e076c223a692?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=1470&q=80" 
-                  alt="Friendly customer support team"
+                  src="/images/contact-support.png" 
+                  alt="We're here to help — support and connectivity"
                   className="w-full h-full object-cover"
                 />
               </div>
             </div>
             <div className="md:w-1/2 text-center md:text-left">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-6">
-                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 mb-6">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white">
                   <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
                   <polyline points="22,6 12,13 2,6"></polyline>
                 </svg>
@@ -873,7 +903,7 @@ export default function Home() {
               <div className="space-y-4">
                 <a 
                   href="mailto:hello@orbitbooking.com" 
-                  className="inline-flex items-center justify-center bg-primary hover:bg-primary/90 text-white font-medium py-3 px-6 rounded-md transition-colors group"
+                  className="inline-flex items-center justify-center bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-medium py-3 px-6 rounded-md transition-all duration-200 group"
                 >
                   Send us a message
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ml-2 transition-transform group-hover:translate-x-1">
