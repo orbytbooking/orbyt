@@ -83,6 +83,12 @@ export default function FeaturesPage() {
               </span>
               <span className="text-center font-medium text-gray-800">Reports</span>
             </a>
+            <a href="#ai-receptionist" className="flex flex-col items-center gap-2 rounded-xl border bg-white p-3 hover:shadow-sm transition-shadow">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-cyan-50 text-cyan-600 text-lg">
+                💬
+              </span>
+              <span className="text-center font-medium text-gray-800">AI Receptionist</span>
+            </a>
             <a href="/admin/dashboard" className="flex flex-col items-center gap-2 rounded-xl border bg-white p-3 hover:shadow-sm transition-shadow">
               <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-rose-50 text-rose-600 text-lg">
                 📆
@@ -472,6 +478,59 @@ export default function FeaturesPage() {
                     alt="Advanced Reports — Revenue over time, status breakdown, and key metrics; responsive on desktop and mobile"
                     className="w-full h-auto rounded-md object-cover object-top"
                   />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* AI Virtual Receptionist Section */}
+      <section id="ai-receptionist" className="py-16 px-4 bg-gray-50">
+        <div className="container mx-auto max-w-6xl">
+          <div className="flex flex-col md:flex-row items-center">
+            <div className="md:w-1/2 mb-8 md:mb-0 md:order-2 md:pl-12">
+              <h2 className="text-3xl font-bold mb-6">AI Virtual Receptionist</h2>
+              <p className="text-lg text-gray-600 mb-6">
+                Let an AI assistant handle common questions 24/7. Our virtual receptionist appears on your booking page and in the admin area, answering questions about your services, how to book, and more—so visitors get instant help and you reduce no-shows.
+              </p>
+              <ul className="space-y-4">
+                <li className="flex items-start">
+                  <div className="flex-shrink-0 h-6 w-6 text-cyan-600">
+                    <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                  </div>
+                  <span className="ml-3 text-gray-700">
+                    <span className="font-medium">Answers questions about services &amp; booking:</span> Visitors can ask how to book, what you offer, and get instant replies.
+                  </span>
+                </li>
+                <li className="flex items-start">
+                  <div className="flex-shrink-0 h-6 w-6 text-cyan-600">
+                    <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                  </div>
+                  <span className="ml-3 text-gray-700">
+                    <span className="font-medium">Available on your booking page &amp; admin:</span> One chat widget for customers, one for your team—both powered by the same AI.
+                  </span>
+                </li>
+                <li className="flex items-start">
+                  <div className="flex-shrink-0 h-6 w-6 text-cyan-600">
+                    <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                  </div>
+                  <span className="ml-3 text-gray-700">
+                    <span className="font-medium">Instant answers so visitors book with confidence:</span> When people get clear answers right away, they&apos;re more likely to complete their booking and show up.
+                  </span>
+                </li>
+              </ul>
+            </div>
+            <div className="md:w-1/2 md:pr-12 md:order-1">
+              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
+                <div className="h-64 bg-gray-100 rounded-md flex items-center justify-center text-gray-400">
+                  AI Virtual Receptionist Preview
                 </div>
               </div>
             </div>
