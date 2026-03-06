@@ -1,6 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+/** List YYYY-MM-DD dates in [startStr, endStr] (inclusive) that have the given UTC day of week (0–6). */
+function getDatesWithDayInRange(
+  startStr: string,
+  endStr: string | null,
+  dayOfWeek: number
+): string[] {
+  const out: string[] = [];
+  const start = new Date(startStr + 'T12:00:00Z');
+  const end = endStr
+    ? new Date(endStr + 'T12:00:00Z')
+    : new Date(start);
+  if (!endStr) end.setUTCFullYear(end.getUTCFullYear() + 1);
+  const cur = new Date(start.getTime());
+  while (cur <= end) {
+    if (cur.getUTCDay() === dayOfWeek) {
+      const y = cur.getUTCFullYear();
+      const m = String(cur.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(cur.getUTCDate()).padStart(2, '0');
+      out.push(`${y}-${m}-${d}`);
+    }
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  return out;
+}
+
 export async function GET(request: NextRequest) {
   try {
     console.log('=== PROVIDER AVAILABILITY API ===');
@@ -395,28 +420,129 @@ export async function DELETE(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const slotId = searchParams.get('slotId');
+    const removeAll = searchParams.get('all') === 'true';
+    const dateOnly = searchParams.get('date') || null; // YYYY-MM-DD: remove slot only for this date
 
-    if (!slotId) {
+    if (!slotId && !removeAll) {
       return NextResponse.json(
-        { error: 'Slot ID is required' },
+        { error: 'Slot ID is required, or use ?all=true to remove all availability' },
         { status: 400 }
       );
     }
 
-    // Delete availability slot from database (ensure it belongs to this provider and business)
-    const { error: deleteError } = await supabaseAdmin
+    if (removeAll) {
+      // Delete all availability slots for this provider
+      const { error: deleteError } = await supabaseAdmin
+        .from('provider_availability')
+        .delete()
+        .eq('provider_id', provider.id)
+        .eq('business_id', provider.business_id);
+
+      if (deleteError) {
+        console.error('Error deleting all availability:', deleteError);
+        return NextResponse.json(
+          { error: 'Failed to remove all availability' },
+          { status: 500 }
+        );
+      }
+      return NextResponse.json({ success: true, removed: 'all' });
+    }
+
+    // Fetch the slot to check if it spans multiple dates (recurring or range)
+    const { data: slot, error: fetchError } = await supabaseAdmin
       .from('provider_availability')
-      .delete()
+      .select('id, effective_date, expiry_date, day_of_week, start_time, end_time')
       .eq('id', slotId)
       .eq('provider_id', provider.id)
-      .eq('business_id', provider.business_id);
+      .eq('business_id', provider.business_id)
+      .single();
 
-    if (deleteError) {
-      console.error('Error deleting availability slot:', deleteError);
+    if (fetchError || !slot) {
       return NextResponse.json(
-        { error: 'Failed to delete availability slot' },
-        { status: 500 }
+        { error: 'Slot not found', details: fetchError?.message },
+        { status: 404 }
       );
+    }
+
+    const effectiveDate = slot.effective_date as string | null;
+    const expiryDate = slot.expiry_date as string | null;
+    const dayOfWeek = slot.day_of_week as number;
+    const startTime = slot.start_time as string;
+    const endTime = slot.end_time as string;
+
+    // Check if slot spans multiple dates (recurring or range) and we're removing only one date
+    const isSingleDate = effectiveDate && expiryDate && effectiveDate === expiryDate;
+    const removeOnlyThisDate = dateOnly && !isSingleDate;
+
+    if (removeOnlyThisDate) {
+      // Slot applies to many dates (e.g. every Sunday). Remove only the requested date:
+      // list all dates it applies to, drop dateOnly, delete original row, insert one row per remaining date
+      const endForRange = expiryDate || null;
+      const dates = getDatesWithDayInRange(
+        effectiveDate || new Date().toISOString().slice(0, 10),
+        endForRange,
+        dayOfWeek
+      );
+      const remaining = dates.filter((d) => d !== dateOnly);
+      if (remaining.length === 0) {
+        // Only that date was in range; delete the row
+        const { error: delErr } = await supabaseAdmin
+          .from('provider_availability')
+          .delete()
+          .eq('id', slotId)
+          .eq('provider_id', provider.id)
+          .eq('business_id', provider.business_id);
+        if (delErr) {
+          console.error('Error deleting slot:', delErr);
+          return NextResponse.json({ error: 'Failed to delete slot' }, { status: 500 });
+        }
+      } else {
+        // Delete original and insert one row per remaining date (single-date slots)
+        const { error: delErr } = await supabaseAdmin
+          .from('provider_availability')
+          .delete()
+          .eq('id', slotId)
+          .eq('provider_id', provider.id)
+          .eq('business_id', provider.business_id);
+        if (delErr) {
+          console.error('Error deleting slot:', delErr);
+          return NextResponse.json({ error: 'Failed to delete slot' }, { status: 500 });
+        }
+        const now = new Date().toISOString();
+        for (const d of remaining) {
+          const { error: insErr } = await supabaseAdmin.from('provider_availability').insert({
+            provider_id: provider.id,
+            business_id: provider.business_id,
+            day_of_week: dayOfWeek,
+            start_time: startTime,
+            end_time: endTime,
+            is_available: true,
+            effective_date: d,
+            expiry_date: d,
+            created_at: now,
+            updated_at: now,
+          });
+          if (insErr) {
+            console.error('Error re-inserting slot for date', d, insErr);
+          }
+        }
+      }
+    } else {
+      // Single-date slot or no date param: delete the whole row
+      const { error: deleteError } = await supabaseAdmin
+        .from('provider_availability')
+        .delete()
+        .eq('id', slotId)
+        .eq('provider_id', provider.id)
+        .eq('business_id', provider.business_id);
+
+      if (deleteError) {
+        console.error('Error deleting availability slot:', deleteError);
+        return NextResponse.json(
+          { error: 'Failed to delete availability slot' },
+          { status: 500 }
+        );
+      }
     }
 
     // Sync availability update to admin dashboard

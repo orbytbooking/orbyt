@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
@@ -38,6 +38,13 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSupabaseProviderClient } from "@/lib/supabaseProviderClient";
@@ -66,6 +73,7 @@ type Booking = {
   payment_method?: string | null;
   provider_wage?: number | null;
   provider_wage_type?: string | null;
+  is_recurring?: boolean;
 };
 
 type BookingPhotos = {
@@ -119,24 +127,29 @@ const formatDateTime = (iso: string) => {
 };
 
 const getStatusBadge = (status: string) => {
-  const styles = {
+  const styles: Record<string, string> = {
     pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400",
     confirmed: "bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400",
+    in_progress: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400",
     completed: "bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400",
     cancelled: "bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400",
   };
 
-  const icons = {
+  const icons: Record<string, ReactNode> = {
     pending: <Clock className="h-3 w-3" />,
     confirmed: <CheckCircle2 className="h-3 w-3" />,
+    in_progress: <AlertCircle className="h-3 w-3" />,
     completed: <CheckCircle2 className="h-3 w-3" />,
     cancelled: <XCircle className="h-3 w-3" />,
   };
 
+  const style = styles[status] ?? "bg-gray-100 text-gray-700 dark:bg-gray-900/20 dark:text-gray-400";
+  const icon = icons[status];
+
   return (
-    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${styles[status as keyof typeof styles]}`}>
-      {icons[status as keyof typeof icons]}
-      {status.charAt(0).toUpperCase() + status.slice(1)}
+    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${style}`}>
+      {icon}
+      {status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, " ")}
     </span>
   );
 };
@@ -149,6 +162,8 @@ const getStatusTone = (status: string) => {
       return { chip: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)" };
     case "confirmed":
       return { chip: "linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)" };
+    case "in_progress":
+      return { chip: "linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)" };
     case "pending":
       return { chip: "linear-gradient(135deg, #fde68a 0%, #f59e42 100%)" };
     default:
@@ -180,6 +195,7 @@ const ProviderBookings = () => {
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [refreshKey, setRefreshKey] = useState(0);
+  const [bookingsView, setBookingsView] = useState<"occurrences" | "bookings">("occurrences");
   const { toast } = useToast();
   const searchParams = useSearchParams();
 
@@ -207,7 +223,7 @@ const ProviderBookings = () => {
           throw new Error('No active session');
         }
 
-        const response = await fetch(`/api/provider/bookings?status=${statusFilter}&search=${searchQuery}`, {
+        const response = await fetch(`/api/provider/bookings?status=${statusFilter}&search=${searchQuery}&view=${bookingsView}`, {
           headers: {
             'Authorization': `Bearer ${session.access_token}`
           }
@@ -232,7 +248,7 @@ const ProviderBookings = () => {
     };
 
     fetchBookingsData();
-  }, [toast, statusFilter, searchQuery, refreshKey]);
+  }, [toast, statusFilter, searchQuery, refreshKey, bookingsView]);
 
   useEffect(() => {
     if (selectedBooking?.id) {
@@ -495,9 +511,14 @@ const ProviderBookings = () => {
         <CardContent className="p-4">
           <div className="flex items-start justify-between mb-3">
             <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <h4 className="font-semibold">{booking.customer.name}</h4>
                 {getStatusBadge(booking.status)}
+                {booking.is_recurring && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300">
+                    Recurring
+                  </span>
+                )}
                 {photosExist && (
                   <span 
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400"
@@ -560,6 +581,19 @@ const ProviderBookings = () => {
               <Filter className="h-4 w-4 mr-2" />
               Filter
             </Button>
+            <Select value={bookingsView} onValueChange={(v) => setBookingsView(v as "occurrences" | "bookings")}>
+              <SelectTrigger className="w-[220px]">
+                <SelectValue placeholder="Show bookings" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="occurrences">
+                  By date (each occurrence)
+                </SelectItem>
+                <SelectItem value="bookings">
+                  By booking (matches database)
+                </SelectItem>
+              </SelectContent>
+            </Select>
             <div className="flex gap-2">
               <Button
                 variant={viewMode === "calendar" ? "default" : "outline"}
@@ -638,12 +672,12 @@ const ProviderBookings = () => {
                       <div className="text-sm font-medium mb-1">{day}</div>
                       {hasBookings && (
                         <div className="flex-1 space-y-0.5 overflow-y-auto">
-                          {dayBookings.slice(0, 3).map((booking) => {
+                          {dayBookings.slice(0, 3).map((booking, idx) => {
                             const tone = getStatusTone(booking.status);
                             const shortName = (booking.customer?.name || "Booking").trim().split(/\s+/)[0] || "Booking";
                             return (
                               <div
-                                key={`${booking.id}-${booking.date}-${booking.time}`}
+                                key={`${booking.id}-${booking.date}-${booking.time}-${idx}`}
                                 onClick={() => setSelectedBooking(booking)}
                                 className="text-[10px] px-1 py-0.5 rounded cursor-pointer hover:opacity-80 transition-opacity text-white truncate"
                                 style={{ background: tone.chip }}
@@ -669,6 +703,10 @@ const ProviderBookings = () => {
                 <span>Confirmed</span>
               </div>
               <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded" style={{ background: "linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)" }} />
+                <span>In progress</span>
+              </div>
+              <div className="flex items-center gap-2">
                 <div className="w-4 h-4 rounded" style={{ background: "linear-gradient(135deg, #fde68a 0%, #f59e42 100%)" }} />
                 <span>Pending</span>
               </div>
@@ -690,6 +728,7 @@ const ProviderBookings = () => {
         <Tabs defaultValue="all" className="space-y-4">
           <TabsList>
             <TabsTrigger value="all">All Bookings</TabsTrigger>
+            <TabsTrigger value="pending">Pending</TabsTrigger>
             <TabsTrigger value="confirmed">Confirmed</TabsTrigger>
             <TabsTrigger value="completed">Completed</TabsTrigger>
             <TabsTrigger value="cancelled">Cancelled</TabsTrigger>
@@ -697,32 +736,39 @@ const ProviderBookings = () => {
 
           <TabsContent value="all" className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
-              {filterBookings().map((booking) => (
-                <BookingCard key={`${booking.id}-${booking.date}-${booking.time}`} booking={booking} />
+              {filterBookings().map((booking, idx) => (
+                <BookingCard key={`${booking.id}-${booking.date}-${booking.time}-${idx}`} booking={booking} />
               ))}
             </div>
           </TabsContent>
 
+          <TabsContent value="pending" className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              {filterBookings("pending").map((booking, idx) => (
+                <BookingCard key={`${booking.id}-${booking.date}-${booking.time}-${idx}`} booking={booking} />
+              ))}
+            </div>
+          </TabsContent>
           <TabsContent value="confirmed" className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
-              {filterBookings("confirmed").map((booking) => (
-                <BookingCard key={`${booking.id}-${booking.date}-${booking.time}`} booking={booking} />
+              {filterBookings("confirmed").map((booking, idx) => (
+                <BookingCard key={`${booking.id}-${booking.date}-${booking.time}-${idx}`} booking={booking} />
               ))}
             </div>
           </TabsContent>
 
           <TabsContent value="completed" className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
-              {filterBookings("completed").map((booking) => (
-                <BookingCard key={`${booking.id}-${booking.date}-${booking.time}`} booking={booking} />
+              {filterBookings("completed").map((booking, idx) => (
+                <BookingCard key={`${booking.id}-${booking.date}-${booking.time}-${idx}`} booking={booking} />
               ))}
             </div>
           </TabsContent>
 
           <TabsContent value="cancelled" className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
-              {filterBookings("cancelled").map((booking) => (
-                <BookingCard key={`${booking.id}-${booking.date}-${booking.time}`} booking={booking} />
+              {filterBookings("cancelled").map((booking, idx) => (
+                <BookingCard key={`${booking.id}-${booking.date}-${booking.time}-${idx}`} booking={booking} />
               ))}
             </div>
           </TabsContent>
@@ -730,8 +776,8 @@ const ProviderBookings = () => {
       ) : viewMode === "list" ? (
         <div className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
-            {filterBookings().map((booking) => (
-              <BookingCard key={`${booking.id}-${booking.date}-${booking.time}`} booking={booking} />
+            {filterBookings().map((booking, idx) => (
+              <BookingCard key={`${booking.id}-${booking.date}-${booking.time}-${idx}`} booking={booking} />
             ))}
           </div>
         </div>

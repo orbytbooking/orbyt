@@ -62,7 +62,10 @@ export async function GET(request: NextRequest) {
     }
 
     // Get provider's bookings with customer info (include recurring_series_id for expansion)
-    console.log(`📋 Fetching bookings for provider ${provider.id} (business: ${provider.business_id})`);
+    const { searchParams } = new URL(request.url);
+    const view = searchParams.get('view') || 'occurrences'; // 'occurrences' = one row per date (default) | 'bookings' = one row per DB booking
+
+    console.log(`📋 Fetching bookings for provider ${provider.id} (business: ${provider.business_id}) view=${view}`);
     const { data: bookings, error: bookingsError } = await supabaseAdmin
       .from('bookings')
       .select(`
@@ -85,22 +88,7 @@ export async function GET(request: NextRequest) {
 
     const formatPrice = (val: unknown) => `$${Number(val || 0).toFixed(2)}`;
 
-    // Fetch recurring_series for any bookings that are part of a series (so we can expand occurrences)
-    const recurringIds = [...new Set((bookings || []).filter((b: { recurring_series_id?: string }) => b.recurring_series_id).map((b: { recurring_series_id: string }) => b.recurring_series_id))];
-    let seriesById: Record<string, { start_date: string; end_date?: string | null; frequency?: string | null; frequency_repeats?: string | null; occurrences_ahead?: number; scheduled_time?: string | null }> = {};
-    if (recurringIds.length > 0) {
-      const { data: seriesList } = await supabaseAdmin
-        .from('recurring_series')
-        .select('id, start_date, end_date, frequency, frequency_repeats, occurrences_ahead, scheduled_time')
-        .in('id', recurringIds);
-      seriesById = (seriesList || []).reduce((acc: Record<string, typeof seriesList[0]>, s) => {
-        if (s?.id) acc[s.id] = s;
-        return acc;
-      }, {});
-    }
-
-    // Build list: expand recurring into one entry per occurrence so provider sees all dates
-    const expanded: Array<{
+    type BookingRow = {
       id: string;
       occurrence_date?: string;
       customer: { name: string; email: string; phone: string };
@@ -120,15 +108,83 @@ export async function GET(request: NextRequest) {
       payment_method?: string | null;
       provider_wage?: number | null;
       provider_wage_type?: string | null;
-    }> = [];
+      is_recurring?: boolean;
+      occurrence_count?: number;
+    };
+
+    // view=bookings: return one entry per DB row (no expansion) so list matches actual booking count
+    if (view === 'bookings') {
+      const transformedBookings: BookingRow[] = (bookings || []).map((booking) => {
+        const b = booking as Record<string, unknown>;
+        return {
+          id: booking.id,
+          customer: {
+            name: (booking.customer_name ?? booking.customers?.name) || 'Unknown',
+            email: (booking.customer_email ?? booking.customers?.email) || '',
+            phone: (booking.customer_phone ?? booking.customers?.phone) || ''
+          },
+          service: booking.service || 'Service',
+          date: booking.scheduled_date || booking.date || '',
+          time: booking.scheduled_time || booking.time || '',
+          status: booking.status || 'pending',
+          amount: formatPrice(booking.total_price ?? booking.amount),
+          location: booking.address || '',
+          notes: booking.notes,
+          service_provider_notes: Array.isArray(booking.service_provider_notes) ? booking.service_provider_notes : (booking.service_provider_notes ? [booking.service_provider_notes] : []),
+          duration_minutes: b.duration_minutes != null ? Number(b.duration_minutes) : null,
+          frequency: (b.frequency as string) || null,
+          customization: (b.customization as Record<string, unknown>) || null,
+          apt_no: (b.apt_no as string) || null,
+          zip_code: (b.zip_code as string) || null,
+          payment_method: (b.payment_method as string) || null,
+          provider_wage: b.provider_wage != null ? Number(b.provider_wage) : null,
+          provider_wage_type: (b.provider_wage_type as string) || null,
+          is_recurring: !!(booking as { recurring_series_id?: string }).recurring_series_id,
+        };
+      });
+      const sorted = [...transformedBookings].sort((a, b) => {
+        const d = (b.date || '').localeCompare(a.date || '');
+        if (d !== 0) return d;
+        return (b.time || '').localeCompare(a.time || '');
+      });
+      const stats = {
+        total: sorted.length,
+        pending: sorted.filter(b => b.status === 'pending').length,
+        confirmed: sorted.filter(b => b.status === 'confirmed').length,
+        completed: sorted.filter(b => b.status === 'completed').length,
+        cancelled: sorted.filter(b => b.status === 'cancelled').length,
+      };
+      return NextResponse.json({
+        provider: { id: provider.id, name: `${provider.first_name || ''} ${provider.last_name || ''}`.trim() || provider.name || 'Provider', email: provider.email || '' },
+        bookings: sorted,
+        stats,
+        view: 'bookings',
+      });
+    }
+
+    // Default: expand recurring into one entry per occurrence
+    const recurringIds = [...new Set((bookings || []).filter((b: { recurring_series_id?: string }) => b.recurring_series_id).map((b: { recurring_series_id: string }) => b.recurring_series_id))];
+    let seriesById: Record<string, { start_date: string; end_date?: string | null; frequency?: string | null; frequency_repeats?: string | null; occurrences_ahead?: number; scheduled_time?: string | null }> = {};
+    if (recurringIds.length > 0) {
+      const { data: seriesList } = await supabaseAdmin
+        .from('recurring_series')
+        .select('id, start_date, end_date, frequency, frequency_repeats, occurrences_ahead, scheduled_time')
+        .in('id', recurringIds);
+      seriesById = (seriesList || []).reduce((acc: Record<string, typeof seriesList[0]>, s) => {
+        if (s?.id) acc[s.id] = s;
+        return acc;
+      }, {});
+    }
+
+    const expanded: BookingRow[] = [];
     for (const booking of bookings || []) {
       const b = booking as Record<string, unknown>;
-      const base = {
+      const base: BookingRow = {
         id: booking.id,
         customer: {
-          name: booking.customers?.name || booking.customer_name || 'Unknown',
-          email: booking.customers?.email || booking.customer_email || '',
-          phone: booking.customers?.phone || booking.customer_phone || ''
+          name: (booking.customer_name ?? booking.customers?.name) || 'Unknown',
+          email: (booking.customer_email ?? booking.customers?.email) || '',
+          phone: (booking.customer_phone ?? booking.customers?.phone) || ''
         },
         service: booking.service || 'Service',
         date: booking.scheduled_date || booking.date || '',
@@ -171,14 +227,21 @@ export async function GET(request: NextRequest) {
         expanded.push(base);
       }
     }
-    // Sort by date desc then time for consistent list/calendar
-    expanded.sort((a, b) => {
+    const seen = new Set<string>();
+    const deduped = expanded.filter((row) => {
+      const key = `${row.id}-${row.date || ''}-${row.time || ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    deduped.sort((a, b) => {
       const d = (b.date || '').localeCompare(a.date || '');
       if (d !== 0) return d;
       return (b.time || '').localeCompare(a.time || '');
     });
 
-    const transformedBookings = expanded;
+    const transformedBookings = deduped;
 
     // Calculate stats
     const stats = {
@@ -197,7 +260,8 @@ export async function GET(request: NextRequest) {
         email: provider.email || ''
       },
       bookings: transformedBookings,
-      stats
+      stats,
+      view: 'occurrences',
     });
 
   } catch (error) {

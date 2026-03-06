@@ -122,13 +122,22 @@ const getStatusBadge = (status: string) => {
   );
 };
 
-type CalendarBooking = { id: string; date: string; time: string; customer: { name: string }; service: string; status: string };
+type CalendarBooking = {
+  id: string;
+  date: string;
+  time: string;
+  customer: { name: string } | string;
+  service: string;
+  status: string;
+  amount?: string;
+};
 
 const ProviderDashboard = () => {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [calendarBookings, setCalendarBookings] = useState<CalendarBooking[]>([]);
   const [calendarDate, setCalendarDate] = useState(() => new Date());
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -188,6 +197,16 @@ const ProviderDashboard = () => {
     };
     if (dashboardData?.provider?.id) fetchBookingsForCalendar();
   }, [dashboardData?.provider?.id]);
+
+  // Default selected calendar day to today when dashboard is ready
+  useEffect(() => {
+    if (dashboardData && selectedCalendarDate === null) {
+      const t = new Date();
+      setSelectedCalendarDate(
+        `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`
+      );
+    }
+  }, [dashboardData, selectedCalendarDate]);
 
   if (loading) {
     return (
@@ -371,7 +390,7 @@ const ProviderDashboard = () => {
         </Card>
       </div>
 
-      {/* Schedule calendar - same style as admin */}
+      {/* Schedule calendar - interactive */}
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -379,13 +398,24 @@ const ProviderDashboard = () => {
               <CardTitle>Your schedule</CardTitle>
               <p className="text-sm text-muted-foreground mt-1">
                 {calendarDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+                {selectedCalendarDate && (
+                  <span className="ml-2 text-foreground font-medium">
+                    · Click a day to see appointments
+                  </span>
+                )}
               </p>
             </div>
             <div className="flex gap-2">
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setCalendarDate(new Date())}
+                onClick={() => {
+                  const now = new Date();
+                  setCalendarDate(now);
+                  setSelectedCalendarDate(
+                    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+                  );
+                }}
               >
                 Today
               </Button>
@@ -409,7 +439,7 @@ const ProviderDashboard = () => {
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           {(() => {
             const year = calendarDate.getFullYear();
             const month = calendarDate.getMonth();
@@ -419,43 +449,120 @@ const ProviderDashboard = () => {
             const startWeekday = firstDay.getDay();
             const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
             const formatDay = (d: number) => `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+            const getBookingsForDate = (dateStr: string) =>
+              calendarBookings.filter((b) => b.date === dateStr).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
             const getCount = (dateStr: string) => calendarBookings.filter((b) => b.date === dateStr).length;
             const today = new Date();
             const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
             return (
-              <div className="grid grid-cols-7 gap-1">
-                {dayNames.map((name) => (
-                  <div key={name} className="text-center text-xs font-semibold text-muted-foreground py-1">
-                    {name}
-                  </div>
-                ))}
-                {Array.from({ length: startWeekday }).map((_, i) => (
-                  <div key={`e-${i}`} className="h-10" />
-                ))}
-                {Array.from({ length: daysInMonth }).map((_, i) => {
-                  const day = i + 1;
-                  const dateStr = formatDay(day);
-                  const count = getCount(dateStr);
-                  const isToday = dateStr === todayStr;
-                  return (
-                    <div
-                      key={day}
-                      className={cn(
-                        "h-10 rounded flex flex-col items-center justify-center text-sm border",
-                        isToday && "bg-primary/10 border-primary/50 font-medium",
-                        !isToday && "border-transparent"
-                      )}
-                    >
-                      <span>{day}</span>
-                      {count > 0 && (
-                        <span className="text-[10px] text-primary font-medium" title={`${count} booking(s)`}>
-                          {count}
-                        </span>
-                      )}
+              <>
+                <div className="grid grid-cols-7 gap-1">
+                  {dayNames.map((name) => (
+                    <div key={name} className="text-center text-xs font-semibold text-muted-foreground py-1">
+                      {name}
                     </div>
-                  );
-                })}
-              </div>
+                  ))}
+                  {Array.from({ length: startWeekday }).map((_, i) => (
+                    <div key={`e-${i}`} className="h-12" />
+                  ))}
+                  {Array.from({ length: daysInMonth }).map((_, i) => {
+                    const day = i + 1;
+                    const dateStr = formatDay(day);
+                    const count = getCount(dateStr);
+                    const isToday = dateStr === todayStr;
+                    const isSelected = selectedCalendarDate === dateStr;
+                    const dayBookings = getBookingsForDate(dateStr);
+                    const firstTime = dayBookings[0]?.time ? formatTime(dayBookings[0].time) : null;
+                    return (
+                      <button
+                        type="button"
+                        key={day}
+                        onClick={() => setSelectedCalendarDate(dateStr)}
+                        className={cn(
+                          "h-12 rounded flex flex-col items-center justify-center text-sm border transition-colors",
+                          "hover:bg-muted/80 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-1",
+                          isToday && "bg-primary/10 border-primary/30 font-medium",
+                          isSelected && "ring-2 ring-primary bg-primary/15 border-primary",
+                          !isToday && !isSelected && "border-transparent"
+                        )}
+                        title={count > 0 ? `${count} appointment(s)${firstTime ? ` — first at ${firstTime}` : ""}` : "No appointments"}
+                      >
+                        <span>{day}</span>
+                        {count > 0 && (
+                          <span className="text-[10px] text-primary font-medium mt-0.5">
+                            {count} {count === 1 ? "appt" : "appts"}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Selected day's schedule */}
+                {selectedCalendarDate && (
+                  <div className="border rounded-lg bg-muted/30 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-semibold flex items-center gap-2">
+                        <Calendar className="h-4 w-4" />
+                        {new Date(selectedCalendarDate + "T12:00:00").toLocaleDateString("en-US", {
+                          weekday: "long",
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </h4>
+                      <Button variant="outline" size="sm" asChild>
+                        <Link href={`/provider/bookings?date=${selectedCalendarDate}`}>
+                          Open in Bookings
+                        </Link>
+                      </Button>
+                    </div>
+                    {getBookingsForDate(selectedCalendarDate).length > 0 ? (
+                      <ul className="space-y-2">
+                        {getBookingsForDate(selectedCalendarDate).map((b) => (
+                          <li key={`${b.id}-${b.date}-${b.time}`}>
+                            <Link
+                              href={`/provider/bookings?bookingId=${b.id}`}
+                              className="flex items-center gap-3 p-3 rounded-lg border bg-background hover:bg-muted/50 transition-colors"
+                            >
+                              <div className="flex-shrink-0 w-10 text-center">
+                                <span className="text-xs text-muted-foreground block">Time</span>
+                                <span className="font-medium text-sm">{formatTime(b.time)}</span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium truncate">
+                                  {typeof b.customer === "object" && b.customer?.name
+                                    ? b.customer.name
+                                    : String(b.customer || "Customer")}
+                                </p>
+                                <p className="text-sm text-muted-foreground truncate">{b.service}</p>
+                              </div>
+                              <span
+                                className={cn(
+                                  "text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0",
+                                  b.status === "confirmed" && "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+                                  b.status === "pending" && "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
+                                  b.status === "completed" && "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+                                  b.status === "cancelled" && "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                                )}
+                              >
+                                {b.status}
+                              </span>
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-muted-foreground py-4 text-center">
+                        No appointments on this day.{" "}
+                        <Link href="/provider/availability" className="text-primary hover:underline">
+                          Manage availability
+                        </Link>
+                      </p>
+                    )}
+                  </div>
+                )}
+              </>
             );
           })()}
         </CardContent>

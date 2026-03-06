@@ -49,11 +49,11 @@ type ProviderPreferences = {
   auto_assignments: boolean;
   email_notifications: boolean;
   sms_notifications: boolean;
-  push_notifications: boolean;
+  push_notifications?: boolean;
   advance_booking_days: number;
   minimum_booking_notice_hours: number;
   accepts_emergency_bookings: boolean;
-  preferred_payment_methods: string[];
+  preferred_payment_methods?: string[] | null;
   timezone?: string;
   created_at: string;
   updated_at: string;
@@ -100,6 +100,8 @@ const ManageAvailability = () => {
   const [newSlotStart, setNewSlotStart] = useState("9:00 AM");
   const [newSlotEnd, setNewSlotEnd] = useState("10:00 AM");
   const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
+  const [isRemoveAllDialogOpen, setIsRemoveAllDialogOpen] = useState(false);
+  const [isRemovingAll, setIsRemovingAll] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -114,11 +116,12 @@ const ManageAvailability = () => {
       let availabilitySlots: TimeSlot[] = [];
       
       if (availabilityResponse.ok) {
-        const slots = await availabilityResponse.json();
+        const data = await availabilityResponse.json();
+        const slots = Array.isArray(data) ? data : [];
         console.log('Loaded slots from database:', slots); // Debug log
         // Convert database time format to display format
         availabilitySlots = slots
-          .filter((slot: any) => slot.start_time && slot.end_time) // Filter out slots with invalid times
+          .filter((slot: any) => slot && slot.start_time && slot.end_time) // Filter out slots with invalid times
           .map((slot: any) => ({
             ...slot,
             start: convertTimeToDisplay(slot.start_time),
@@ -365,12 +368,15 @@ const ManageAvailability = () => {
       if (response.ok) {
         const newSlot = await response.json();
         console.log(`✅ Slot ${editingSlotId ? 'updated' : 'created'} successfully:`, newSlot);
-        
+        if (!newSlot || (!newSlot.start_time && !newSlot.end_time)) {
+          toast({ title: "Error", description: "Invalid slot response from server.", variant: "destructive" });
+          return;
+        }
         // Convert to display format
         const displaySlot = {
           ...newSlot,
-          start: convertTimeToDisplay(newSlot.start_time),
-          end: convertTimeToDisplay(newSlot.end_time)
+          start: convertTimeToDisplay(newSlot.start_time ?? '09:00:00'),
+          end: convertTimeToDisplay(newSlot.end_time ?? '10:00:00')
         };
         
         console.log('🔄 Display slot created:', displaySlot);
@@ -416,24 +422,28 @@ const ManageAvailability = () => {
     }
   };
 
-  // Remove time slot from database
-  const removeTimeSlot = async (id: string) => {
+  // Remove time slot from database. Pass dateStr when deleting from a specific calendar date so only that date is removed (not every matching day).
+  const removeTimeSlot = async (id: string, dateStr?: string) => {
     try {
-      const response = await createAuthenticatedFetch(`/api/provider/availability?slotId=${id}`, {
+      const url = dateStr
+        ? `/api/provider/availability?slotId=${encodeURIComponent(id)}&date=${encodeURIComponent(dateStr)}`
+        : `/api/provider/availability?slotId=${encodeURIComponent(id)}`;
+      const response = await createAuthenticatedFetch(url, {
         method: 'DELETE',
       });
 
       if (response.ok) {
-        setTimeSlots(timeSlots.filter(slot => slot.id !== id));
+        // If we removed only one date, the API may have replaced the slot with per-date slots; refresh to get new state
+        if (dateStr) {
+          loadTimeSlots();
+        } else {
+          setTimeSlots(timeSlots.filter(slot => slot.id !== id));
+          setTimeout(() => loadTimeSlots(), 500);
+        }
         toast({
           title: "Time Slot Removed",
-          description: "The time slot has been deleted.",
+          description: dateStr ? "Removed for that date only." : "The time slot has been deleted.",
         });
-
-        // Refresh data to ensure persistence
-        setTimeout(() => {
-          loadTimeSlots();
-        }, 500);
       } else {
         const error = await response.json();
         toast({
@@ -452,6 +462,42 @@ const ManageAvailability = () => {
     }
   };
 
+  // Remove all availability slots
+  const removeAllAvailability = async () => {
+    try {
+      setIsRemovingAll(true);
+      const response = await createAuthenticatedFetch('/api/provider/availability?all=true', {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        setTimeSlots([]);
+        setIsRemoveAllDialogOpen(false);
+        toast({
+          title: "All availability removed",
+          description: "Your availability calendar has been cleared.",
+        });
+        loadTimeSlots();
+      } else {
+        const error = await response.json();
+        toast({
+          title: "Error",
+          description: error.error || "Failed to remove all availability",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error removing all availability:', error);
+      toast({
+        title: "Error",
+        description: "Failed to remove all availability",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRemovingAll(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -461,6 +507,17 @@ const ManageAvailability = () => {
           <p className="text-sm text-muted-foreground">Manage your availability calendar and provider preferences</p>
         </div>
         <div className="flex items-center gap-2">
+          {timeSlots.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive border-destructive/50 hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => setIsRemoveAllDialogOpen(true)}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Remove all
+            </Button>
+          )}
           <Button variant="outline" size="icon" onClick={previousMonth}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
@@ -545,7 +602,7 @@ const ManageAvailability = () => {
                   </div>
                   <div className="flex justify-between">
                     <span>Payment Methods:</span>
-                    <span className="font-medium">{preferences.preferred_payment_methods.join(', ')}</span>
+                    <span className="font-medium">{(preferences.preferred_payment_methods ?? []).join(', ') || '—'}</span>
                   </div>
                 </div>
               </div>
@@ -663,7 +720,7 @@ const ManageAvailability = () => {
                                   className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    removeTimeSlot(slot.id);
+                                    removeTimeSlot(slot.id, dateToLocalString(day));
                                   }}
                                 >
                                   <X className="h-2 w-2" />
@@ -739,6 +796,31 @@ const ManageAvailability = () => {
         </DialogContent>
       </Dialog>
       )}
+
+      {/* Remove all availability – confirmation */}
+      <Dialog open={isRemoveAllDialogOpen} onOpenChange={setIsRemoveAllDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove all availability?</DialogTitle>
+            <DialogDescription>
+              This will delete every time slot on your calendar. You can add new slots again anytime. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsRemoveAllDialogOpen(false)} disabled={isRemovingAll}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={removeAllAvailability}
+              disabled={isRemovingAll}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              {isRemovingAll ? "Removing…" : "Remove all"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
