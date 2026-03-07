@@ -373,10 +373,10 @@ export default function Home() {
         >
           <motion.div className="text-center mb-10" variants={scrollReveal} transition={transition}>
             <h2 className="text-2xl sm:text-3xl font-bold text-slate-800 tracking-tight mb-3">
-              One platform. Every industry.
+              Your Service Business, In Orbit.
             </h2>
             <p className="text-slate-600 max-w-2xl mx-auto mb-6">
-              Cleaning, lawn care, salons, moving, pet services, and more. Set pricing your way—fixed, hourly, by job, or percentage. Orbyt keeps you in orbit.
+              Cleaning, lawn care, salons, moving, pet services, and beyond. Different crafts. One orbit.
             </p>
             <motion.div whileHover={buttonHover} whileTap={buttonTap}>
               <Link
@@ -428,9 +428,9 @@ export default function Home() {
               </p>
               <ul className="space-y-5">
                 {[
-                  { num: '1', title: 'Pricing built for services, not hours', desc: 'Variable pricing by square footage, room count, or custom parameters, not just time slots. Matches how cleaners and home services actually quote.' },
-                  { num: '2', title: 'One link for your whole business', desc: 'Clients book, pay, and reschedule from one page. No juggling multiple tools or plugins. Everything lives in Orbyt.' },
-                  { num: '3', title: 'AI receptionist, not a chatbot', desc: 'Answers questions about your services and availability in real time, so visitors book instead of bouncing.' },
+                  { num: '1', title: 'Pricing that fits how you actually quote', desc: 'By job, by room, by sq ft, by hour. Orbyt bends to your pricing model, not the other way around.' },
+                  { num: '2', title: 'One link for your whole business', desc: 'Book, pay, reschedule. One page. No juggling tools or plugins. Everything stays in orbit.' },
+                  { num: '3', title: 'AI receptionist, not a chatbot', desc: 'Real-time answers about your services and availability. Visitors book instead of bouncing.' },
                 ].map((item, i) => (
                   <motion.li
                     key={item.num}
