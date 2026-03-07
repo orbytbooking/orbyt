@@ -475,7 +475,7 @@ export default function FeaturesPage() {
                 <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 overflow-hidden">
                   <img
                     src="/images/advanced-reports-preview.png"
-                    alt="Advanced Reports — Revenue over time, status breakdown, and key metrics; responsive on desktop and mobile"
+                    alt="Advanced Reports — Revenue over time, status breakdown, and key metrics, responsive on desktop and mobile"
                     className="w-full h-auto rounded-md object-cover object-top"
                   />
                 </div>

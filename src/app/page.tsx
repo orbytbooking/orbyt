@@ -2,9 +2,29 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { motion } from 'framer-motion';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ChevronDown, HelpCircle, MessageSquare, LifeBuoy, BookOpen, User, Zap, Users, Target, Star } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+
+const scrollReveal = {
+  hidden: { opacity: 0, y: 28 },
+  visible: { opacity: 1, y: 0 },
+};
+const slideInLeft = {
+  hidden: { opacity: 0, x: -32 },
+  visible: { opacity: 1, x: 0 },
+};
+const slideInRight = {
+  hidden: { opacity: 0, x: 32 },
+  visible: { opacity: 1, x: 0 },
+};
+const viewport = { once: false, amount: 0.12 };
+const transition = { duration: 0.45, ease: [0.25, 0.46, 0.45, 0.94] };
+const stagger = { visible: { transition: { staggerChildren: 0.08, delayChildren: 0.05 } } };
+const cardHover = { scale: 1.02, y: -4, transition: { duration: 0.2 } };
+const buttonHover = { scale: 1.03 };
+const buttonTap = { scale: 0.98 };
 
 type Testimonial = {
   quote: string;
@@ -91,7 +111,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen flex flex-col relative">
-      {/* Fixed hero background — stays in place while content scrolls (like ArtChain) */}
+      {/* Fixed hero background: stays in place while content scrolls */}
       <div
         className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat"
         style={{
@@ -101,7 +121,12 @@ export default function Home() {
         aria-hidden
       />
       <div className="relative z-10 flex flex-col min-h-screen">
-      <header className="fixed top-0 left-0 right-0 z-50 border-b border-white/10 bg-slate-900/30 backdrop-blur-md">
+      <motion.header
+        className="fixed top-0 left-0 right-0 z-50 border-b border-white/10 bg-slate-900/30 backdrop-blur-md"
+        initial={{ opacity: 0, y: -16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+      >
         <div className="container mx-auto flex h-16 items-center justify-between px-4">
           <a href="/" className="flex items-center gap-3">
             <img
@@ -114,6 +139,9 @@ export default function Home() {
             </span>
           </a>
           <nav className="hidden gap-8 text-sm font-medium text-white sm:flex">
+            <a href="#differentiators" className="relative pb-0.5 text-white transition-colors hover:text-primary after:absolute after:left-0 after:bottom-0 after:h-0.5 after:w-0 after:bg-primary after:transition-[width] after:content-[''] hover:after:w-full">
+              Why Orbyt
+            </a>
             <a href="#about-us" className="relative pb-0.5 text-white transition-colors hover:text-primary after:absolute after:left-0 after:bottom-0 after:h-0.5 after:w-0 after:bg-primary after:transition-[width] after:content-[''] hover:after:w-full">
               About Us
             </a>
@@ -182,42 +210,54 @@ export default function Home() {
             </a>
           </div>
         </div>
-      </header>
+      </motion.header>
 
       <section className="relative pt-28 pb-16 px-4 text-white overflow-hidden">
         <div className="absolute inset-0 bg-slate-950/70" aria-hidden />
-        <div className="container relative z-10 mx-auto grid gap-12 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] items-center">
-          <div className="space-y-6">
+        <div className="container relative z-10 mx-auto grid gap-12 lg:grid-cols-[1.1fr_1fr] items-center max-w-6xl">
+          <motion.div
+            className="space-y-6"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
+          >
             <p className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-200">
-              Orbyt Booking • For Service Businesses
+              Your Service Business, In Orbit.
             </p>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight font-space-grotesk">
-              The <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">perfect platform</span> to make your service business <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">work smarter for you</span>.
+              You&apos;re the center. <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">Everything else orbits.</span>
             </h1>
             <p className="text-base sm:text-lg text-slate-200 max-w-xl font-sans">
-              Orbyt Booking gives cleaners and local service businesses a modern booking experience with built-in online scheduling, automated reminders, and payments.
+              One platform for bookings, reminders, and payments. Set it once. We keep the loop running so you can run the business.
             </p>
             <div className="flex flex-col sm:flex-row gap-4">
-              <a
+              <motion.a
                 href="/auth/login"
-                className="inline-flex items-center justify-center rounded-md bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 px-6 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-200"
+                className="inline-flex items-center justify-center rounded-md bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 px-6 py-3 text-sm font-semibold text-white shadow-lg transition-colors duration-200"
+                whileHover={buttonHover}
+                whileTap={buttonTap}
               >
-                Start free trial
-              </a>
+                Try free for 14 days
+              </motion.a>
             </div>
-            <div className="flex flex-wrap gap-6 mt-6 text-xs text-slate-300">
-              <div>
-                <p className="font-semibold text-white">Built for cleaning & home services</p>
-                <p>No code, no plugins, just bookings that work.</p>
-              </div>
-              <div>
-                <p className="font-semibold text-white">Reduce no‑shows</p>
-                <p>Automatic confirmations and reminder texts.</p>
-              </div>
-            </div>
-          </div>
+            <motion.div className="flex flex-wrap gap-6 mt-6 text-xs text-slate-300" initial="hidden" animate="visible" variants={stagger}>
+              <motion.div variants={scrollReveal} transition={{ ...transition, delay: 0.3 }}>
+                <p className="font-semibold text-white">One link. Every industry.</p>
+                <p>Live in minutes. Bookings roll in 24/7.</p>
+              </motion.div>
+              <motion.div variants={scrollReveal} transition={{ ...transition, delay: 0.4 }}>
+                <p className="font-semibold text-white">Fewer ghosts, more guests.</p>
+                <p>Auto confirmations and SMS reminders.</p>
+              </motion.div>
+            </motion.div>
+          </motion.div>
 
-          <div className="relative group">
+          <motion.div
+            className="relative group lg:translate-x-4"
+            initial={{ opacity: 0, x: 24 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.6, delay: 0.15, ease: [0.25, 0.46, 0.45, 0.94] }}
+          >
             <div
               className="relative rounded-3xl border border-slate-400/20 bg-slate-900/50 backdrop-blur-xl p-8 overflow-hidden"
               style={{ boxShadow: '0 0 0 1px rgba(148,163,184,0.1), 0 0 40px -5px rgba(30,58,138,0.2), 0 0 60px -15px rgba(15,23,42,0.25)' }}
@@ -227,28 +267,32 @@ export default function Home() {
                   <div className="flex items-center gap-2">
                     <span className="text-2xl font-serif text-white leading-none select-none" aria-hidden>"</span>
                     <h3 className="text-xl font-bold text-white">
-                      Trusted by Industry Leaders
+                      Businesses already in orbit
                     </h3>
                   </div>
                   <div className="flex gap-2">
-                    <button 
+                    <motion.button
                       onClick={goToPrev}
                       className="p-2.5 rounded-full bg-gray-800/90 hover:bg-gray-700/90 border border-white/20 backdrop-blur-sm transition-colors"
                       aria-label="Previous testimonial"
+                      whileHover={{ scale: 1.08 }}
+                      whileTap={{ scale: 0.95 }}
                     >
                       <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                       </svg>
-                    </button>
-                    <button 
+                    </motion.button>
+                    <motion.button
                       onClick={goToNext}
                       className="p-2.5 rounded-full bg-gray-800/90 hover:bg-gray-700/90 border border-white/20 backdrop-blur-sm transition-colors"
                       aria-label="Next testimonial"
+                      whileHover={{ scale: 1.08 }}
+                      whileTap={{ scale: 0.95 }}
                     >
                       <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
-                    </button>
+                    </motion.button>
                   </div>
                 </div>
                 
@@ -297,53 +341,159 @@ export default function Home() {
                   
                   <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-2">
                     {testimonials.map((_: Testimonial, index: number) => (
-                      <button
-                        key={index}
-                        onClick={() => goToSlide(index)}
-                        className={`rounded-full transition-all duration-300 ${
-                          index === currentSlide 
-                            ? 'bg-primary h-2 w-8' 
-                            : 'bg-white/30 h-2 w-2 hover:bg-white/50'
-                        }`}
-                        aria-label={`Go to testimonial ${index + 1}`}
-                      />
+                    <motion.button
+                      key={index}
+                      onClick={() => goToSlide(index)}
+                      className={`rounded-full transition-colors duration-300 ${
+                        index === currentSlide
+                          ? 'bg-primary h-2 w-8'
+                          : 'bg-white/30 h-2 w-2 hover:bg-white/50'
+                      }`}
+                      aria-label={`Go to testimonial ${index + 1}`}
+                      whileHover={{ scale: 1.2 }}
+                      whileTap={{ scale: 0.9 }}
+                    />
                     ))}
                   </div>
                 </div>
               </div>
             </div>
-          </div>
+          </motion.div>
         </div>
       </section>
 
-      {/* About Us — trust indicators overlay at top, then content */}
-      <section id="about-us" className="relative pt-20 pb-16 px-4 bg-white overflow-visible">
-        {/* Trust indicators — transparent backgrounds */}
-        <div className="absolute top-0 left-0 right-0 flex justify-center z-10 -translate-y-1/2">
-          <div className="inline-flex flex-wrap justify-center gap-8 sm:gap-10 rounded-xl border border-slate-200/80 bg-white shadow-lg shadow-slate-300/40 px-6 py-3 sm:px-10 sm:py-3.5">
-            <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-6 py-3 min-w-[130px] sm:min-w-[150px] text-center">
-              <p className="text-xl sm:text-2xl font-bold text-slate-800 tabular-nums">10,000+</p>
-              <p className="text-[10px] sm:text-xs font-medium uppercase tracking-wider text-slate-500 mt-1">Happy clients</p>
-            </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-6 py-3 min-w-[130px] sm:min-w-[150px] text-center">
-              <p className="text-xl sm:text-2xl font-bold text-slate-800 tabular-nums">50,000+</p>
-              <p className="text-[10px] sm:text-xs font-medium uppercase tracking-wider text-slate-500 mt-1">Bookings completed</p>
-            </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-6 py-3 min-w-[130px] sm:min-w-[150px] text-center">
-              <p className="text-xl sm:text-2xl font-bold text-slate-800 tabular-nums">500+</p>
-              <p className="text-[10px] sm:text-xs font-medium uppercase tracking-wider text-slate-500 mt-1">Businesses</p>
-            </div>
+      {/* Industries + trust stats */}
+      <section className="py-16 px-4 bg-white">
+        <motion.div
+          className="container mx-auto max-w-5xl"
+          initial="hidden"
+          whileInView="visible"
+          viewport={viewport}
+          variants={stagger}
+        >
+          <motion.div className="text-center mb-10" variants={scrollReveal} transition={transition}>
+            <h2 className="text-2xl sm:text-3xl font-bold text-slate-800 tracking-tight mb-3">
+              One platform. Every industry.
+            </h2>
+            <p className="text-slate-600 max-w-2xl mx-auto mb-6">
+              Cleaning, lawn care, salons, moving, pet services, and more. Set pricing your way—fixed, hourly, by job, or percentage. Orbyt keeps you in orbit.
+            </p>
+            <motion.div whileHover={buttonHover} whileTap={buttonTap}>
+              <Link
+                href="/industries"
+                className="inline-flex items-center justify-center gap-2 rounded-lg border-2 border-primary bg-white px-5 py-2.5 text-sm font-semibold text-primary hover:bg-primary hover:text-white transition-colors"
+              >
+                See all industries
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+              </Link>
+            </motion.div>
+          </motion.div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
+            {[
+              { value: '10,000+', label: 'Clients in orbit' },
+              { value: '50,000+', label: 'Bookings completed' },
+              { value: '500+', label: 'Businesses running' },
+            ].map((stat, i) => (
+              <motion.div
+                key={i}
+                className="rounded-2xl bg-slate-50 border border-slate-200/80 px-6 py-8 text-center cursor-default"
+                variants={scrollReveal}
+                transition={transition}
+                whileHover={{ scale: 1.03, y: -4, boxShadow: '0 12px 24px -8px rgba(15,23,42,0.15)' }}
+              >
+                <p className="text-3xl sm:text-4xl font-bold text-slate-800 tabular-nums">{stat.value}</p>
+                <p className="text-sm font-medium text-slate-500 mt-1.5">{stat.label}</p>
+              </motion.div>
+            ))}
           </div>
-        </div>
-        <div className="container relative z-0 mx-auto max-w-6xl pt-24">
-          <div className="text-center mb-12">
+        </motion.div>
+      </section>
+
+      {/* What makes us different */}
+      <section id="differentiators" className="relative py-20 px-4 bg-slate-50 overflow-hidden">
+        <motion.div
+          className="container mx-auto max-w-6xl"
+          initial="hidden"
+          whileInView="visible"
+          viewport={viewport}
+          variants={stagger}
+        >
+          <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+            <motion.div className="lg:pl-0" variants={scrollReveal} transition={transition}>
+              <h2 className="text-3xl sm:text-4xl font-bold text-slate-800 tracking-tight mb-4">
+                What sets Orbyt apart
+              </h2>
+              <p className="text-lg text-slate-600 mb-8">
+                Built for service businesses across industries, not a generic booking tool. Cleaning, lawn care, salons, and more.
+              </p>
+              <ul className="space-y-5">
+                {[
+                  { num: '1', title: 'Pricing built for services, not hours', desc: 'Variable pricing by square footage, room count, or custom parameters, not just time slots. Matches how cleaners and home services actually quote.' },
+                  { num: '2', title: 'One link for your whole business', desc: 'Clients book, pay, and reschedule from one page. No juggling multiple tools or plugins. Everything lives in Orbyt.' },
+                  { num: '3', title: 'AI receptionist, not a chatbot', desc: 'Answers questions about your services and availability in real time, so visitors book instead of bouncing.' },
+                ].map((item, i) => (
+                  <motion.li
+                    key={item.num}
+                    className="flex gap-4"
+                    initial={{ opacity: 0, x: -16 }}
+                    whileInView={{ opacity: 1, x: 0 }}
+                    viewport={viewport}
+                    transition={{ ...transition, delay: i * 0.08 }}
+                  >
+                    <span className="flex-shrink-0 w-8 h-8 rounded-lg bg-slate-800 text-white flex items-center justify-center text-sm font-semibold">{item.num}</span>
+                    <div>
+                      <p className="font-semibold text-slate-800">{item.title}</p>
+                      <p className="text-slate-600 text-sm mt-0.5">{item.desc}</p>
+                    </div>
+                  </motion.li>
+                ))}
+              </ul>
+            </motion.div>
+            <motion.div
+              className="relative lg:mt-8"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={{ scale: 1.02 }}
+            >
+              <div className="rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden">
+                <img
+                  src="/images/dashboard.png"
+                  alt="Orbyt admin dashboard, bookings and provider management"
+                  className="w-full h-auto object-cover"
+                />
+              </div>
+            </motion.div>
+          </div>
+        </motion.div>
+      </section>
+
+      {/* About Us */}
+      <section id="about-us" className="relative py-16 px-4 bg-slate-50">
+        <motion.div
+          className="container relative z-0 mx-auto max-w-6xl"
+          initial="hidden"
+          whileInView="visible"
+          viewport={viewport}
+          variants={stagger}
+        >
+          <motion.p className="text-center mb-6" variants={scrollReveal} transition={transition}>
+            <Link href="/customers" className="text-sm font-medium text-primary hover:underline">
+              See who else is in orbit
+            </Link>
+          </motion.p>
+          <motion.div className="text-center mb-10" variants={scrollReveal} transition={transition}>
             <h2 className="text-3xl sm:text-4xl font-bold text-slate-800 tracking-tight mb-4">About Us</h2>
             <p className="text-lg text-slate-600 max-w-2xl mx-auto">
-              We’re on a mission to make scheduling simple for cleaners and local service businesses.
+              We put service businesses at the center. Scheduling, reminders, and payments orbit around you.
             </p>
-          </div>
+          </motion.div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-200/50 p-6 sm:p-8">
+            <motion.div
+              className="rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-200/50 p-6 sm:p-8 cursor-default"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={cardHover}
+            >
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-12 h-12 shrink-0 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
                   <Users className="w-6 h-6 text-white" />
@@ -351,10 +501,15 @@ export default function Home() {
                 <h3 className="text-xl font-bold text-slate-800">Who We Are</h3>
               </div>
               <p className="text-slate-600 leading-relaxed">
-                Orbyt Booking is built for cleaning companies, home service providers, and local businesses that want a professional booking experience without the complexity. We combine online scheduling, automated reminders, and payments in one place so you can focus on your work instead of back-and-forth with clients.
+                Orbyt is where bookings, payments, and your team share one orbit. Pricing is fully customizable: fixed, per hour, by job, or percentage. You run the show. We keep the loop running.
               </p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-200/50 p-6 sm:p-8">
+            </motion.div>
+            <motion.div
+              className="rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-200/50 p-6 sm:p-8 cursor-default"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={cardHover}
+            >
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-12 h-12 shrink-0 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
                   <Target className="w-6 h-6 text-white" />
@@ -362,48 +517,64 @@ export default function Home() {
                 <h3 className="text-xl font-bold text-slate-800">Our Mission</h3>
               </div>
               <p className="text-slate-600 leading-relaxed">
-                We believe every service business deserves tools that are easy to use and reliable. Our goal is to help you reduce no-shows, save time on admin, and give your customers a smooth way to book—so you can grow your business with confidence.
+                Every service business deserves an orbit that just works. Fewer no-shows, less admin, clients who book in one click. We run the system so you can run the business.
               </p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-200/50 p-6 sm:p-8">
+            </motion.div>
+            <motion.div
+              className="rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-200/50 p-6 sm:p-8 cursor-default"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={cardHover}
+            >
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-12 h-12 shrink-0 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
                   <Star className="w-6 h-6 text-white" />
                 </div>
-                <h3 className="text-xl font-bold text-slate-800">Why Choose Orbyt</h3>
+                <h3 className="text-xl font-bold text-slate-800">Why Orbyt</h3>
               </div>
               <ul className="space-y-2 text-slate-600">
-                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Simple setup—get your booking page live in minutes</li>
-                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Automated reminders to cut no-shows</li>
-                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Built for cleaners and home services</li>
-                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Support when you need it</li>
+                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Live in minutes. One link, one booking page, no orbit decay.</li>
+                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Reminders on autopilot. Fewer ghosts, more show-ups.</li>
+                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Customizable pricing: fixed, hourly, by job, or percentage. Your rules.</li>
+                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Support that keeps you in orbit, not on hold.</li>
               </ul>
-            </div>
+            </motion.div>
           </div>
-        </div>
+        </motion.div>
       </section>
 
       <section id="features" className="py-16 px-4 bg-background">
-        <div className="container mx-auto">
-          <div className="text-center max-w-3xl mx-auto mb-12">
-            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4">Powerful Features for Your Business</h2>
+        <motion.div
+          className="container mx-auto"
+          initial="hidden"
+          whileInView="visible"
+          viewport={viewport}
+          variants={stagger}
+        >
+          <motion.div className="text-center max-w-3xl mx-auto mb-12" variants={scrollReveal} transition={transition}>
+            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4">What keeps your orbit running</h2>
             <p className="text-lg text-muted-foreground mb-6">
-              Everything you need to manage your service business efficiently and effectively.
+              One platform. Bookings, teams, payments, and marketing. All in the same loop.
             </p>
             <Link 
               href="/features" 
               className="inline-flex items-center text-primary font-medium hover:underline"
             >
-              Explore all features
+              See everything in orbit
               <svg className="ml-1 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path>
               </svg>
             </Link>
-          </div>
+          </motion.div>
 
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <motion.div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3" variants={stagger}>
             {/* Customer Account */}
-            <div className="group rounded-2xl border bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
+            <motion.div
+              className="group rounded-2xl border bg-white p-6 shadow-sm transition-shadow cursor-default"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={{ y: -4, boxShadow: '0 12px 24px -8px rgba(15,23,42,0.12)' }}
+            >
               <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
                 <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
@@ -430,10 +601,15 @@ export default function Home() {
                   Secure payment portal
                 </li>
               </ul>
-            </div>
+            </motion.div>
 
             {/* Provider Account */}
-            <div className="group rounded-2xl border bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
+            <motion.div
+              className="group rounded-2xl border bg-white p-6 shadow-sm transition-shadow cursor-default"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={{ y: -4, boxShadow: '0 12px 24px -8px rgba(15,23,42,0.12)' }}
+            >
               <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
                 <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
@@ -460,10 +636,15 @@ export default function Home() {
                   Service customization
                 </li>
               </ul>
-            </div>
+            </motion.div>
 
             {/* Business Account */}
-            <div className="group rounded-2xl border bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
+            <motion.div
+              className="group rounded-2xl border bg-white p-6 shadow-sm transition-shadow cursor-default"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={{ y: -4, boxShadow: '0 12px 24px -8px rgba(15,23,42,0.12)' }}
+            >
               <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center mb-4">
                 <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
@@ -490,10 +671,15 @@ export default function Home() {
                   Enterprise support
                 </li>
               </ul>
-            </div>
+            </motion.div>
 
             {/* Website Builder */}
-            <div className="group rounded-2xl border bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
+            <motion.div
+              className="group rounded-2xl border bg-white p-6 shadow-sm transition-shadow cursor-default"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={{ y: -4, boxShadow: '0 12px 24px -8px rgba(15,23,42,0.12)' }}
+            >
               <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mb-4">
                 <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
@@ -520,10 +706,15 @@ export default function Home() {
                   Custom domain support
                 </li>
               </ul>
-            </div>
+            </motion.div>
 
             {/* Notifications */}
-            <div className="group rounded-2xl border bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
+            <motion.div
+              className="group rounded-2xl border bg-white p-6 shadow-sm transition-shadow cursor-default"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={{ y: -4, boxShadow: '0 12px 24px -8px rgba(15,23,42,0.12)' }}
+            >
               <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center mb-4">
                 <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
@@ -550,10 +741,15 @@ export default function Home() {
                   Automated reminders
                 </li>
               </ul>
-            </div>
+            </motion.div>
 
             {/* Reports */}
-            <div className="group rounded-2xl border bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
+            <motion.div
+              className="group rounded-2xl border bg-white p-6 shadow-sm transition-shadow cursor-default"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={{ y: -4, boxShadow: '0 12px 24px -8px rgba(15,23,42,0.12)' }}
+            >
               <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
                 <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
@@ -580,10 +776,15 @@ export default function Home() {
                   Exportable data
                 </li>
               </ul>
-            </div>
+            </motion.div>
 
             {/* AI Assistant */}
-            <div className="group rounded-2xl border bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
+            <motion.div
+              className="group rounded-2xl border bg-white p-6 shadow-sm transition-shadow cursor-default"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={{ y: -4, boxShadow: '0 12px 24px -8px rgba(15,23,42,0.12)' }}
+            >
               <div className="w-12 h-12 bg-cyan-100 rounded-lg flex items-center justify-center mb-4">
                 <svg className="w-6 h-6 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
@@ -610,10 +811,15 @@ export default function Home() {
                   Instant answers so visitors book with confidence
                 </li>
               </ul>
-            </div>
+            </motion.div>
 
             {/* Marketing & Promotions */}
-            <div className="group rounded-2xl border bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
+            <motion.div
+              className="group rounded-2xl border bg-white p-6 shadow-sm transition-shadow cursor-default"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={{ y: -4, boxShadow: '0 12px 24px -8px rgba(15,23,42,0.12)' }}
+            >
               <div className="w-12 h-12 bg-pink-100 rounded-lg flex items-center justify-center mb-4">
                 <svg className="w-6 h-6 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"></path>
@@ -640,10 +846,15 @@ export default function Home() {
                   Scripts for cold-calling & follow-ups
                 </li>
               </ul>
-            </div>
+            </motion.div>
 
             {/* Hiring & Team */}
-            <div className="group rounded-2xl border bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
+            <motion.div
+              className="group rounded-2xl border bg-white p-6 shadow-sm transition-shadow cursor-default"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={{ y: -4, boxShadow: '0 12px 24px -8px rgba(15,23,42,0.12)' }}
+            >
               <div className="w-12 h-12 bg-teal-100 rounded-lg flex items-center justify-center mb-4">
                 <svg className="w-6 h-6 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path>
@@ -670,25 +881,36 @@ export default function Home() {
                   Contacts & hiring reports
                 </li>
               </ul>
-            </div>
+            </motion.div>
 
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       </section>
 
-      {/* Our Process — same overlay as hero; steps in cards */}
+      {/* Our Process */}
       <section className="relative py-16 px-4 overflow-hidden text-white">
         <div className="absolute inset-0 bg-slate-950/70" aria-hidden />
-        <div className="container relative z-10 mx-auto max-w-6xl">
-          <div className="text-center mb-14">
+        <motion.div
+          className="container relative z-10 mx-auto max-w-6xl"
+          initial="hidden"
+          whileInView="visible"
+          viewport={viewport}
+          variants={stagger}
+        >
+          <motion.div className="text-center mb-14" variants={scrollReveal} transition={transition}>
             <h2 className="text-3xl sm:text-4xl font-bold text-white tracking-tight inline-block">
-              Our Process
+              Get in orbit in three steps
             </h2>
             <div className="mt-2 h-1 w-16 sm:w-20 bg-purple-500 rounded-full mx-auto" aria-hidden />
-          </div>
+          </motion.div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8 items-stretch">
-            {/* Step 1 — card */}
-            <div className="rounded-2xl border border-slate-200/80 bg-white/95 shadow-lg p-6 sm:p-8 flex flex-col items-center text-center md:items-start md:text-left">
+            {/* Step 1 */}
+            <motion.div
+              className="rounded-2xl border border-slate-200/80 bg-white/95 shadow-lg p-6 sm:p-8 flex flex-col items-center text-center md:items-start md:text-left cursor-default"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={{ y: -4, boxShadow: '0 20px 40px -12px rgba(0,0,0,0.2)' }}
+            >
               <div className="hidden md:flex items-center justify-center w-full mb-2">
                 <span className="flex-1 h-px bg-slate-500 mr-2 min-w-0" aria-hidden />
                 <span className="inline-flex items-center justify-center w-24 h-24 text-5xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent shrink-0">
@@ -703,9 +925,14 @@ export default function Home() {
               <p className="text-slate-700 text-sm leading-relaxed max-w-sm mx-auto md:mx-0">
                 Create your free account in minutes. Add your business details and connect your calendar so you’re ready to accept bookings.
               </p>
-            </div>
-            {/* Step 2 — card */}
-            <div className="rounded-2xl border border-slate-200/80 bg-white/95 shadow-lg p-6 sm:p-8 flex flex-col items-center text-center md:items-start md:text-left">
+            </motion.div>
+            {/* Step 2 */}
+            <motion.div
+              className="rounded-2xl border border-slate-200/80 bg-white/95 shadow-lg p-6 sm:p-8 flex flex-col items-center text-center md:items-start md:text-left cursor-default"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={{ y: -4, boxShadow: '0 20px 40px -12px rgba(0,0,0,0.2)' }}
+            >
               <div className="hidden md:flex items-center justify-center w-full mb-2">
                 <span className="flex-1 h-px bg-slate-500 mr-2 min-w-0" aria-hidden />
                 <span className="inline-flex items-center justify-center w-24 h-24 text-5xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent shrink-0">
@@ -718,11 +945,16 @@ export default function Home() {
               </span>
               <h3 className="text-black font-bold text-lg mt-4 md:mt-2 mb-2">Step 2</h3>
               <p className="text-slate-700 text-sm leading-relaxed max-w-sm mx-auto md:mx-0">
-                Set up your services, pricing, and availability. Customize your booking page to match your brand and decide when you want to be booked.
+                Add services, set your pricing, and open your calendar. One link, your brand, your rules.
               </p>
-            </div>
-            {/* Step 3 — card */}
-            <div className="rounded-2xl border border-slate-200/80 bg-white/95 shadow-lg p-6 sm:p-8 flex flex-col items-center text-center md:items-start md:text-left">
+            </motion.div>
+            {/* Step 3 */}
+            <motion.div
+              className="rounded-2xl border border-slate-200/80 bg-white/95 shadow-lg p-6 sm:p-8 flex flex-col items-center text-center md:items-start md:text-left cursor-default"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={{ y: -4, boxShadow: '0 20px 40px -12px rgba(0,0,0,0.2)' }}
+            >
               <div className="hidden md:flex items-center justify-center w-full mb-2">
                 <span className="flex-1 h-px bg-slate-500 mr-2 min-w-0" aria-hidden />
                 <span className="inline-flex items-center justify-center w-24 h-24 text-5xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent shrink-0">
@@ -735,34 +967,56 @@ export default function Home() {
               </span>
               <h3 className="text-black font-bold text-lg mt-4 md:mt-2 mb-2">Step 3</h3>
               <p className="text-slate-700 text-sm leading-relaxed max-w-sm mx-auto md:mx-0">
-                Share your booking link with clients. They pick a time, get reminders, and you get a clear schedule—no more back-and-forth or no-shows.
+                Share your link. Clients book, get reminded, and show up. Your schedule runs itself. You run the business.
               </p>
-            </div>
+            </motion.div>
           </div>
-        </div>
+        </motion.div>
       </section>
 
       <section id="pricing" className="py-16 px-4 bg-white">
-        <div className="container mx-auto max-w-6xl">
-          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6 mb-12">
+        <motion.div
+          className="container mx-auto max-w-6xl"
+          initial="hidden"
+          whileInView="visible"
+          viewport={viewport}
+          variants={stagger}
+        >
+          <motion.div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6 mb-12" variants={scrollReveal} transition={transition}>
             <div className="space-y-3">
               <span className="inline-block rounded-lg bg-violet-200/80 px-4 py-1.5 text-xs font-medium uppercase tracking-wider text-violet-800">
-                Extra Package
+                Pricing
               </span>
               <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-slate-800">
-                Choose Your Perfect Plan
+                Pick your orbit
               </h2>
             </div>
-            <p className="text-slate-600 max-w-xl text-base lg:text-right">
-              Explore our range of plans designed to meet your unique business needs—from solo operators to established teams.
-            </p>
-          </div>
+            <div className="flex flex-col gap-2 lg:items-end">
+              <p className="text-slate-600 max-w-xl text-base lg:text-right">
+                Solo pilot or full crew. Same loop: unlimited bookings, no per-booking fees. Scale when you're ready.
+              </p>
+              <Link
+                href="/pricing"
+                className="inline-flex items-center justify-center gap-2 rounded-lg border-2 border-primary bg-white px-5 py-2.5 text-sm font-semibold text-primary hover:bg-primary hover:text-white transition-colors lg:self-end"
+              >
+                View full comparison & see all features
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </Link>
+            </div>
+          </motion.div>
 
-          <div className="grid md:grid-cols-3 gap-6 lg:gap-8">
+          <motion.div className="grid md:grid-cols-3 gap-6 lg:gap-8" variants={stagger}>
             {/* Starter Plan */}
-            <div className="rounded-3xl bg-white/95 p-6 sm:p-8 shadow-lg shadow-slate-200/60 flex flex-col h-full border border-white/80">
-              <h3 className="text-xl font-bold text-slate-800 mb-2">Starter Plan</h3>
-              <p className="text-slate-600 text-sm mb-6">Perfect for solo operators and small teams getting started</p>
+            <motion.div
+              className="rounded-3xl bg-white/95 p-6 sm:p-8 shadow-lg shadow-slate-200/60 flex flex-col h-full border border-white/80 cursor-default"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={{ y: -6, scale: 1.02, boxShadow: '0 24px 48px -12px rgba(15,23,42,0.2)' }}
+            >
+              <h3 className="text-xl font-bold text-slate-800 mb-2">Starter</h3>
+              <p className="text-slate-600 text-sm mb-6">Solo or small crew. Get in orbit without the bloat.</p>
               <div className="mb-6 flex items-baseline">
                 <span className="text-4xl font-bold text-sky-500">$19</span>
                 <span className="text-slate-600 text-sm ml-1">monthly</span>
@@ -786,15 +1040,20 @@ export default function Home() {
                   href="/auth/login"
                   className="block w-full py-3 px-6 text-center rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white font-medium shadow-sm hover:opacity-90 transition-opacity"
                 >
-                  Buy Plan
+                  Get started
                 </a>
               </div>
-            </div>
+            </motion.div>
 
             {/* Growth Plan */}
-            <div className="rounded-3xl bg-white/95 p-6 sm:p-8 shadow-lg shadow-slate-200/60 flex flex-col h-full border border-white/80">
-              <h3 className="text-xl font-bold text-slate-800 mb-2">Growth Plan</h3>
-              <p className="text-slate-600 text-sm mb-6">For growing teams that need more automation and control</p>
+            <motion.div
+              className="rounded-3xl bg-white/95 p-6 sm:p-8 shadow-lg shadow-slate-200/60 flex flex-col h-full border border-white/80 cursor-default"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={{ y: -6, scale: 1.02, boxShadow: '0 24px 48px -12px rgba(15,23,42,0.2)' }}
+            >
+              <h3 className="text-xl font-bold text-slate-800 mb-2">Growth</h3>
+              <p className="text-slate-600 text-sm mb-6">Bigger team, more automation. The loop gets smarter.</p>
               <div className="mb-6 flex items-baseline">
                 <span className="text-4xl font-bold text-sky-500">$49</span>
                 <span className="text-slate-600 text-sm ml-1">monthly</span>
@@ -822,15 +1081,20 @@ export default function Home() {
                   href="/auth/login"
                   className="block w-full py-3 px-6 text-center rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white font-medium shadow-sm hover:opacity-90 transition-opacity"
                 >
-                  Buy Plan
+                  Get started
                 </a>
               </div>
-            </div>
+            </motion.div>
 
             {/* Pro Plan */}
-            <div className="rounded-3xl bg-white/95 p-6 sm:p-8 shadow-lg shadow-slate-200/60 flex flex-col h-full border border-white/80">
-              <h3 className="text-xl font-bold text-slate-800 mb-2">Premium Plan</h3>
-              <p className="text-slate-600 text-sm mb-6">For established businesses that want everything unlocked</p>
+            <motion.div
+              className="rounded-3xl bg-white/95 p-6 sm:p-8 shadow-lg shadow-slate-200/60 flex flex-col h-full border border-white/80 cursor-default"
+              variants={scrollReveal}
+              transition={transition}
+              whileHover={{ y: -6, scale: 1.02, boxShadow: '0 24px 48px -12px rgba(15,23,42,0.2)' }}
+            >
+              <h3 className="text-xl font-bold text-slate-800 mb-2">Premium</h3>
+              <p className="text-slate-600 text-sm mb-6">Full orbit. API, priority support, no limits.</p>
               <div className="mb-6 flex items-baseline">
                 <span className="text-4xl font-bold text-sky-500">$110</span>
                 <span className="text-slate-600 text-sm ml-1">monthly</span>
@@ -858,24 +1122,30 @@ export default function Home() {
                   href="/auth/login"
                   className="block w-full py-3 px-6 text-center rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white font-medium shadow-sm hover:opacity-90 transition-opacity"
                 >
-                  Buy Plan
+                  Get started
                 </a>
               </div>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
+
+          <motion.p className="text-center mt-6" variants={scrollReveal} transition={transition}>
+            <Link href="/why-premium" className="text-sm font-medium text-primary hover:underline">
+              Why upgrade to Premium?
+            </Link>
+          </motion.p>
 
           {/* Plan details accordion - FAQ style */}
-          <div className="mt-12 max-w-3xl mx-auto">
+          <motion.div className="mt-12 max-w-3xl mx-auto" initial="hidden" whileInView="visible" viewport={viewport} variants={scrollReveal} transition={transition}>
             <h3 className="text-2xl font-semibold text-center mb-4">
-              What&apos;s included in each plan
+              What’s in each orbit
             </h3>
             <p className="text-sm text-muted-foreground text-center mb-6">
-              Scroll through the plans below to see a detailed breakdown of features and how they help your business.
+              The fine print. Same unlimited bookings, different levels of automation and support.
             </p>
             <Accordion type="single" collapsible className="w-full space-y-3">
               <AccordionItem value="starter" className="rounded-xl border border-slate-200/80 bg-slate-100/90 dark:bg-slate-800/40 dark:border-slate-700/80 shadow-sm overflow-hidden border-b-0">
                 <AccordionTrigger className="px-4 py-3.5 text-left hover:no-underline hover:bg-slate-200/40 dark:hover:bg-slate-700/40 transition-colors [&[data-state=open]]:rounded-none">
-                  Starter – solo operators and small teams just getting started.
+                  Starter: solo operators and small teams just getting started.
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4 pt-0">
                   <ul className="space-y-2 text-sm text-muted-foreground">
@@ -889,7 +1159,7 @@ export default function Home() {
 
               <AccordionItem value="growth" className="rounded-xl border border-slate-200/80 bg-slate-100/90 dark:bg-slate-800/40 dark:border-slate-700/80 shadow-sm overflow-hidden border-b-0">
                 <AccordionTrigger className="px-4 py-3.5 text-left hover:no-underline hover:bg-slate-200/40 dark:hover:bg-slate-700/40 transition-colors [&[data-state=open]]:rounded-none">
-                  Growth – growing teams that need advanced automation and greater control.
+                  Growth: growing teams that need advanced automation and greater control.
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4 pt-0">
                   <ul className="space-y-2 text-sm text-muted-foreground">
@@ -903,7 +1173,7 @@ export default function Home() {
 
               <AccordionItem value="pro" className="rounded-xl border border-slate-200/80 bg-slate-100/90 dark:bg-slate-800/40 dark:border-slate-700/80 shadow-sm overflow-hidden border-b-0">
                 <AccordionTrigger className="px-4 py-3.5 text-left hover:no-underline hover:bg-slate-200/40 dark:hover:bg-slate-700/40 transition-colors [&[data-state=open]]:rounded-none">
-                  Pro – established businesses that want full access to all features.
+                  Pro: established businesses that want full access to all features.
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4 pt-0">
                   <ul className="space-y-2 text-sm text-muted-foreground">
@@ -915,10 +1185,10 @@ export default function Home() {
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
-          </div>
+          </motion.div>
           
           {/* Pricing FAQ */}
-          <div className="mt-12 max-w-4xl mx-auto grid gap-6 md:grid-cols-3">
+          <motion.div className="mt-12 max-w-4xl mx-auto grid gap-6 md:grid-cols-3" variants={scrollReveal} transition={transition}>
             <div>
               <h4 className="font-semibold mb-2 text-sm">Do you charge per booking?</h4>
               <p className="text-sm text-muted-foreground">
@@ -937,16 +1207,23 @@ export default function Home() {
                 Starter includes email support, Growth adds chat support and setup guidance, and Pro includes priority support and strategy calls.
               </p>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       </section>
 
-      {/* Try it for free section — hero image with same overlay as hero */}
+      {/* Try it for free section */}
       <section className="relative py-16 px-4 overflow-hidden">
         <div className="absolute inset-0 bg-slate-950/70" aria-hidden />
-        <div className="container relative z-10 mx-auto max-w-4xl text-center">
-          <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">Ready to get started?</h2>
-          <p className="text-lg text-slate-200 mb-8">Join thousands of businesses that trust Orbyt Booking. Try it for free today!</p>
+        <motion.div
+          className="container relative z-10 mx-auto max-w-4xl text-center"
+          initial="hidden"
+          whileInView="visible"
+          viewport={viewport}
+          variants={scrollReveal}
+          transition={transition}
+        >
+          <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">Ready to get in orbit?</h2>
+          <p className="text-lg text-slate-200 mb-8">Join the loop. Try Orbyt free and see why businesses stay.</p>
           
           <div className="flex flex-col sm:flex-row gap-3 max-w-lg mx-auto">
             <input
@@ -955,26 +1232,40 @@ export default function Home() {
               className="flex-1 px-4 py-3 rounded-md border border-slate-400 bg-white/95 text-slate-900 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
               required
             />
-            <button 
+            <motion.button
               type="button"
-              className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-medium py-3 px-6 rounded-md transition-all duration-200 whitespace-nowrap"
+              className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-medium py-3 px-6 rounded-md transition-colors duration-200 whitespace-nowrap"
+              whileHover={buttonHover}
+              whileTap={buttonTap}
             >
               Start Free Trial
-            </button>
+            </motion.button>
           </div>
           <p className="text-sm text-slate-300 mt-3">No credit card required. 14-day free trial.</p>
-        </div>
+          <p className="mt-4">
+            <Link href="/support" className="text-sm text-slate-300 hover:text-white transition-colors">
+              Support options and response times
+            </Link>
+          </p>
+        </motion.div>
       </section>
 
       {/* Contact Section */}
       <section className="py-16 px-4 bg-white">
-        <div className="container mx-auto max-w-6xl">
+        <motion.div
+          className="container mx-auto max-w-6xl"
+          initial="hidden"
+          whileInView="visible"
+          viewport={viewport}
+          variants={scrollReveal}
+          transition={transition}
+        >
           <div className="flex flex-col md:flex-row items-center gap-12">
             <div className="md:w-1/2">
               <div className="rounded-2xl overflow-hidden h-full">
                 <img 
                   src="/images/contact-support.png" 
-                  alt="We're here to help — support and connectivity"
+                  alt="We're here to help, support and connectivity"
                   className="w-full h-full object-cover"
                 />
               </div>
@@ -986,33 +1277,42 @@ export default function Home() {
                   <polyline points="22,6 12,13 2,6"></polyline>
                 </svg>
               </div>
-              <h2 className="text-2xl md:text-3xl font-bold mb-4">We're Here to Help</h2>
+              <h2 className="text-2xl md:text-3xl font-bold mb-4">We keep you in orbit</h2>
               <p className="text-muted-foreground mb-6">
-                Our dedicated support team is ready to assist you with any questions or concerns you might have about our services.
+                Stuck? Have a question? We're here. Drop us a line and we'll get you back in the loop.
               </p>
               <div className="space-y-4">
-                <a 
-                  href="mailto:hello@orbitbooking.com" 
-                  className="inline-flex items-center justify-center bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-medium py-3 px-6 rounded-md transition-all duration-200 group"
+                <motion.a
+                  href="mailto:hello@orbitbooking.com"
+                  className="inline-flex items-center justify-center bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-medium py-3 px-6 rounded-md transition-colors duration-200 group"
+                  whileHover={buttonHover}
+                  whileTap={buttonTap}
                 >
                   Send us a message
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ml-2 transition-transform group-hover:translate-x-1">
                     <line x1="5" y1="12" x2="19" y2="12"></line>
                     <polyline points="12 5 19 12 12 19"></polyline>
                   </svg>
-                </a>
+                </motion.a>
                 <p className="text-sm text-muted-foreground">
                   We typically respond within 24 hours
                 </p>
               </div>
             </div>
           </div>
-        </div>
+        </motion.div>
       </section>
 
       <footer className="bg-navy text-navy-foreground py-12 px-4 relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-accent/5" />
-        <div className="container mx-auto relative z-10">
+        <motion.div
+          className="container mx-auto relative z-10"
+          initial="hidden"
+          whileInView="visible"
+          viewport={viewport}
+          variants={scrollReveal}
+          transition={transition}
+        >
           <div className="grid md:grid-cols-2 gap-8 mb-8">
             <div>
               <div className="flex items-center gap-3 mb-4">
@@ -1020,7 +1320,7 @@ export default function Home() {
                 <h3 className="text-2xl font-bold">Orbyt Booking</h3>
               </div>
               <p className="text-navy-foreground/80 mb-4 text-sm">
-              Modern booking for cleaners and local service businesses.
+              Your service business, in orbit. Bookings, payments, and everything in between. All in one loop.
               </p>
             </div>
             <div className="grid grid-cols-2 gap-8">
@@ -1029,15 +1329,17 @@ export default function Home() {
                 <ul className="space-y-2 text-sm">
                   <li><a href="#features" className="hover:underline">Features</a></li>
                   <li><a href="#pricing" className="hover:underline">Pricing</a></li>
-                  <li><a href="#" className="hover:underline">Testimonials</a></li>
+                  <li><Link href="/customers" className="hover:underline">Customers</Link></li>
+                  <li><Link href="/industries" className="hover:underline">Industries</Link></li>
                 </ul>
               </div>
               <div>
                 <h4 className="font-semibold mb-4">Company</h4>
                 <ul className="space-y-2 text-sm">
                   <li><a href="#about-us" className="hover:underline">About Us</a></li>
-                  <li><a href="#" className="hover:underline">Contact</a></li>
-                  <li><a href="#" className="hover:underline">Careers</a></li>
+                  <li><Link href="/support" className="hover:underline">Support</Link></li>
+                  <li><Link href="/why-premium" className="hover:underline">Why Premium</Link></li>
+                  <li><a href="/contact-support" className="hover:underline">Contact</a></li>
                 </ul>
               </div>
             </div>
@@ -1047,7 +1349,7 @@ export default function Home() {
               &copy; {new Date().getFullYear()} Orbyt Booking. All rights reserved.
             </p>
           </div>
-        </div>
+        </motion.div>
       </footer>
       </div>
     </main>
