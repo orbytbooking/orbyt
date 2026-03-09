@@ -59,8 +59,8 @@ export default function IndustriesPage() {
       <header className="border-b border-slate-200 bg-white">
         <div className="container mx-auto flex h-16 items-center justify-between px-4">
           <Link href="/" className="flex items-center gap-3">
-            <img src="/images/orbit.png" alt="Orbyt Booking" className="h-8 w-8" />
-            <span className="text-base font-bold text-slate-800 uppercase tracking-wide">Orbyt Booking</span>
+            <img src="/images/orbit.png" alt="Orbyt Service" className="h-8 w-8" />
+            <span className="text-base font-bold text-slate-800 uppercase tracking-wide">Orbyt Service</span>
           </Link>
           <nav className="flex items-center gap-6">
             <Link href="/#features" className="text-sm font-medium text-slate-600 hover:text-primary transition-colors">Features</Link>

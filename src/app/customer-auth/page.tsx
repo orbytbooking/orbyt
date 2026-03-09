@@ -78,7 +78,7 @@ export default function CustomerAuthPage() {
     console.log('Customer Auth - Saved Config:', savedConfig);
     
     // Force reload if config doesn't match what we expect
-    if (config && config?.branding?.companyName === 'ORBIT') {
+    if (config && config?.branding?.companyName === 'ORBYT') {
       console.log('⚠️ WARNING: Customer-auth page is showing default ORBIT config instead of saved config');
       console.log('🔄 Triggering config reload to get latest saved configuration...');
       
@@ -178,7 +178,7 @@ export default function CustomerAuthPage() {
             if (data.businesses && data.businesses.length > 0) {
               const business = data.businesses[0];
               // Look for actual business name fields first
-              const name = business.business_name || business.name || business.display_name || business.title || 'ORBIT';
+              const name = business.business_name || business.name || business.display_name || business.title || 'ORBYT';
               console.log('Business name from businesses API:', name);
               setBusinessName(name);
               return;
@@ -197,7 +197,7 @@ export default function CustomerAuthPage() {
             if (industriesData.industries && industriesData.industries.length > 0) {
               // Use the first industry (not prioritizing cleaning-related ones)
               const firstIndustry = industriesData.industries[0];
-              const name = firstIndustry.business_name || firstIndustry.name || 'ORBIT';
+              const name = firstIndustry.business_name || firstIndustry.name || 'ORBYT';
               console.log('Business name from industries API:', name);
               setBusinessName(name);
               return;
@@ -206,15 +206,15 @@ export default function CustomerAuthPage() {
           
           // Final fallback if no data found
           console.log('No data found, using fallback ORBIT');
-          setBusinessName('ORBIT');
+          setBusinessName('ORBYT');
         } catch (error) {
           console.error('Error fetching business name:', error);
-          setBusinessName('ORBIT');
+          setBusinessName('ORBYT');
         }
       } else {
         // No business ID found, set fallback
         console.log('No business ID found, using fallback ORBIT');
-        setBusinessName('ORBIT');
+        setBusinessName('ORBYT');
       }
     };
 
@@ -351,7 +351,7 @@ export default function CustomerAuthPage() {
 
         toast({
           title: "Login Successful!",
-          description: `Welcome back to ${savedConfig?.branding?.companyName || config?.branding?.companyName || 'ORBIT'}${customer.name ? ', ' + customer.name : ''}!`,
+          description: `Welcome back to ${savedConfig?.branding?.companyName || config?.branding?.companyName || 'ORBYT'}${customer.name ? ', ' + customer.name : ''}!`,
         });
         
         setTimeout(() => {
@@ -504,7 +504,7 @@ export default function CustomerAuthPage() {
 
         toast({
           title: "Account Created!",
-          description: `Welcome to ${savedConfig?.branding?.companyName || config?.branding?.companyName || 'ORBIT'}, ${values.name}! You can now sign in to your account.`,
+          description: `Welcome to ${savedConfig?.branding?.companyName || config?.branding?.companyName || 'ORBYT'}, ${values.name}! You can now sign in to your account.`,
         });
         
         setIsLogin(true);
@@ -558,7 +558,7 @@ export default function CustomerAuthPage() {
       <Navigation 
         branding={savedConfig?.branding || config?.branding}
         headerData={savedConfig?.sections?.find(s => s.type === 'header')?.data || config?.sections?.find(s => s.type === 'header')?.data || {
-          companyName: savedConfig?.branding?.companyName || config?.branding?.companyName || 'ORBIT',
+          companyName: savedConfig?.branding?.companyName || config?.branding?.companyName || 'ORBYT',
           logo: savedConfig?.branding?.logo || config?.branding?.logo,
           showNavigation: true,
           navigationLinks: []
@@ -585,8 +585,8 @@ export default function CustomerAuthPage() {
               </h3>
               <p className="text-muted-foreground text-sm">
                 {isLogin 
-                  ? `Sign in to your ${savedConfig?.branding?.companyName || config?.branding?.companyName || 'ORBIT'} account to manage your bookings` 
-                  : `Create your ${savedConfig?.branding?.companyName || config?.branding?.companyName || 'ORBIT'} account to book professional services`}
+                  ? `Sign in to your ${savedConfig?.branding?.companyName || config?.branding?.companyName || 'ORBYT'} account to manage your bookings` 
+                  : `Create your ${savedConfig?.branding?.companyName || config?.branding?.companyName || 'ORBYT'} account to book professional services`}
               </p>
             </div>
 
@@ -982,7 +982,7 @@ export default function CustomerAuthPage() {
               href={`/my-website?business=${businessId}`} 
               className="text-sm text-muted-foreground hover:text-primary transition-colors"
             >
-              ← Back to {config?.branding?.companyName || 'ORBIT'} Website
+              ← Back to {config?.branding?.companyName || 'ORBYT'} Website
             </Link>
           </div>
         </div>

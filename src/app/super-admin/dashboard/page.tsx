@@ -349,7 +349,7 @@ export default function SuperAdminDashboard() {
                   <h1 className="text-xl font-bold text-gray-900 bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
                     Super Admin
                   </h1>
-                  <p className="text-xs text-gray-500">Orbyt Booking Platform</p>
+                  <p className="text-xs text-gray-500">Orbyt Service Platform</p>
                 </div>
               </div>
             </div>

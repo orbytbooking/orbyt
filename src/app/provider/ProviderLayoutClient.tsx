@@ -175,9 +175,9 @@ export default function ProviderLayout({
             {/* Logo */}
             <div className="p-6 border-b border-border">
               <div className="flex items-center gap-3">
-                <img src="/images/orbit.png" alt="Orbit Booking" className="h-10 w-10" />
+                <img src="/images/orbit.png" alt="Orbyt Service" className="h-10 w-10" />
                 <div>
-                  <h1 className="text-lg font-bold" style={{ color: '#0C2B4E' }}>Orbyt Booking</h1>
+                  <h1 className="text-lg font-bold" style={{ color: '#0C2B4E' }}>Orbyt Service</h1>
                   <p className="text-xs text-muted-foreground">Provider Portal</p>
                 </div>
               </div>

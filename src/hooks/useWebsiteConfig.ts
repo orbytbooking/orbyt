@@ -64,7 +64,7 @@ const getDefaultConfig = (businessName?: string): WebsiteConfig => ({
 
       data: {
 
-        companyName: businessName || 'ORBIT',
+        companyName: businessName || 'ORBYT',
 
         logo: '/images/orbit.png',
 
@@ -294,7 +294,7 @@ const getDefaultConfig = (businessName?: string): WebsiteConfig => ({
 
       data: {
 
-        companyName: businessName || 'ORBIT',
+        companyName: businessName || 'ORBYT',
 
         description: 'Professional services you can trust. Experience the difference with our expert team.',
 
@@ -328,7 +328,7 @@ const getDefaultConfig = (businessName?: string): WebsiteConfig => ({
 
         ],
 
-        copyright: `© 2024 ${businessName || 'ORBIT'}. All rights reserved.`
+        copyright: `© 2024 ${businessName || 'ORBYT'}. All rights reserved.`
 
       }
 
@@ -344,7 +344,7 @@ const getDefaultConfig = (businessName?: string): WebsiteConfig => ({
 
     logo: '/images/orbit.png',
 
-    companyName: businessName || 'ORBIT',
+    companyName: businessName || 'ORBYT',
 
     domain: 'yourbusiness.orbyt.com',
 
@@ -623,7 +623,7 @@ export const useWebsiteConfig = () => {
                   if (industriesData.industries && industriesData.industries.length > 0) {
                     // Use the first industry (don't prioritize cleaning-related ones)
                     const targetIndustry = industriesData.industries[0];
-                    businessName = targetIndustry.business_name || targetIndustry.name || 'ORBIT';
+                    businessName = targetIndustry.business_name || targetIndustry.name || 'ORBYT';
                   }
                 }
               }  
@@ -633,7 +633,7 @@ export const useWebsiteConfig = () => {
           }
 
           console.log('🏗️ Creating default config with business name:', businessName);
-          const defaultConfigWithBusiness = getDefaultConfig(businessName || 'ORBIT');
+          const defaultConfigWithBusiness = getDefaultConfig(businessName || 'ORBYT');
           console.log('📋 Default config created:', defaultConfigWithBusiness);
           console.log('📋 Company name in default config:', defaultConfigWithBusiness.branding?.companyName);
 
@@ -737,7 +737,7 @@ export const useWebsiteConfig = () => {
 
             data: {
 
-              companyName: config.branding?.companyName || currentBusiness?.name || 'ORBIT',
+              companyName: config.branding?.companyName || currentBusiness?.name || 'ORBYT',
 
               logo: config.branding?.logo || '/images/orbit.png',
 

@@ -493,7 +493,7 @@ const Dashboard = () => {
             {currentBusiness?.name || config?.branding?.companyName || 'Your Business'}
           </h1>
           <p className="text-lg text-gray-400 font-normal" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
-            Your Service Business, In Orbit.
+            Your Service Business, In Orbyt.
           </p>
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">

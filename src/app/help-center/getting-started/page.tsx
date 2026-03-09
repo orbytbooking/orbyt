@@ -7,7 +7,7 @@ export default function GettingStartedPage() {
   const steps = [
     {
       title: "1. Create Your Account",
-      description: "Sign up and complete your profile to get started with Orbit Booking.",
+      description: "Sign up and complete your profile to get started with Orbyt Service.",
       icon: <CheckCircle className="h-6 w-6 text-primary" />
     },
     {
@@ -41,7 +41,7 @@ export default function GettingStartedPage() {
     <div className="min-h-screen bg-gray-50 pt-24 pb-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-5xl mx-auto">
         <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">Getting Started with Orbyt Booking</h1>
+          <h1 className="text-4xl font-bold text-gray-900 mb-4">Getting Started with Orbyt Service</h1>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
             Follow these simple steps to set up your account and start managing your business efficiently
           </p>
@@ -73,7 +73,7 @@ export default function GettingStartedPage() {
                 Next Steps
               </CardTitle>
               <CardDescription>
-                Now that you're all set up, here are some additional resources to help you get the most out of Orbit Booking.
+                Now that you're all set up, here are some additional resources to help you get the most out of Orbyt Service.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -86,7 +86,7 @@ export default function GettingStartedPage() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="text-sm text-gray-600">Learn how to use all the features of Orbit Booking with our video tutorials.</p>
+                      <p className="text-sm text-gray-600">Learn how to use all the features of Orbyt Service with our video tutorials.</p>
                     </CardContent>
                   </Card>
                 </Link>
@@ -98,7 +98,7 @@ export default function GettingStartedPage() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="text-sm text-gray-600">Find answers to common questions about using Orbit Booking.</p>
+                      <p className="text-sm text-gray-600">Find answers to common questions about using Orbyt Service.</p>
                     </CardContent>
                   </Card>
                 </Link>

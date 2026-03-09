@@ -135,9 +135,9 @@ export default function LoginPage() {
           {/* Logo and Header */}
           <div className="text-center mb-8">
             <div className="flex justify-center mb-4">
-              <img src="/images/orbit.png" alt="Orbit Booking" className="h-20 w-20" />
+              <img src="/images/orbit.png" alt="Orbyt Service" className="h-20 w-20" />
             </div>
-            <h1 className="text-3xl font-bold mb-2" style={{ color: '#0C2B4E' }}>Orbyt Booking</h1>
+            <h1 className="text-3xl font-bold mb-2" style={{ color: '#0C2B4E' }}>Orbyt Service</h1>
             <p className="text-muted-foreground text-sm">Business owner / admin sign in</p>
             <p className="text-xs text-muted-foreground mt-2">
               Are you a service provider?{' '}

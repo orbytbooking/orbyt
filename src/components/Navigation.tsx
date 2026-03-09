@@ -143,14 +143,14 @@ const Navigation = ({ branding, inline = false, headerData }: NavigationProps = 
           <div className="flex items-center gap-4">
             <Link href={getBusinessWebsiteUrl()} className="flex items-center gap-4 cursor-pointer">
               {(headerData?.logo || branding?.logo) && !(headerData?.logo || branding?.logo)?.startsWith('blob:') ? (
-                <img src={headerData?.logo || branding?.logo} alt={headerData?.companyName || branding?.companyName || "ORBIT"} className="h-12 w-12 rounded-lg object-cover" />
+                <img src={headerData?.logo || branding?.logo} alt={headerData?.companyName || branding?.companyName || "ORBYT"} className="h-12 w-12 rounded-lg object-cover" />
               ) : (
                 <div className="h-12 w-12 bg-gray-200 rounded-lg flex items-center justify-center">
                   <ImageIcon className="h-6 w-6 text-gray-400" />
                 </div>
               )}
               <span className="text-2xl font-bold gradient-text">
-                {headerData?.companyName || branding?.companyName || "ORBIT"}
+                {headerData?.companyName || branding?.companyName || "ORBYT"}
               </span>
             </Link>
           </div>

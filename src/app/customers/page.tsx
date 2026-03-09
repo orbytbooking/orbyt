@@ -11,7 +11,7 @@ const stats = [
 
 const testimonials = [
   {
-    quote: "Orbyt Booking helped reduce the time I spend scheduling clients. The system keeps track of appointments and reminders, which saves me a lot of time every week.",
+    quote: "Orbyt Service helped reduce the time I spend scheduling clients. The system keeps track of appointments and reminders, which saves me a lot of time every week.",
     author: "Sofia Ramirez",
     role: "Owner, Prime Care Services",
     rating: 5,
@@ -23,7 +23,7 @@ const testimonials = [
     rating: 5,
   },
   {
-    quote: "I've tried a few booking tools before, but Orbyt Booking is by far the easiest one for my team. Our customers can book anytime, and we can manage everything from one dashboard.",
+    quote: "I've tried a few booking tools before, but Orbyt Service is by far the easiest one for my team. Our customers can book anytime, and we can manage everything from one dashboard.",
     author: "Emma Rivera",
     role: "Founder, Edge & Fade",
     rating: 5,
@@ -35,13 +35,13 @@ const testimonials = [
     rating: 5,
   },
   {
-    quote: "Orbyt Booking has made managing my appointments so much easier. Before, I had to keep track of everything through messages and a notebook. Now my customers can book online and everything is organized in one place.",
+    quote: "Orbyt Service has made managing my appointments so much easier. Before, I had to keep track of everything through messages and a notebook. Now my customers can book online and everything is organized in one place.",
     author: "Daniel Reyes",
     role: "CEO, Crystal Clear Services",
     rating: 5,
   },
   {
-    quote: "What I like most about Orbyt Booking is how simple it is to use. I was able to set up my services and start accepting bookings the same day. It really helped my cleaning business stay organized.",
+    quote: "What I like most about Orbyt Service is how simple it is to use. I was able to set up my services and start accepting bookings the same day. It really helped my cleaning business stay organized.",
     author: "Robert Taylor",
     role: "CTO, Pristine Pro",
     rating: 5,
@@ -54,8 +54,8 @@ export default function CustomersPage() {
       <header className="border-b border-slate-200 bg-white">
         <div className="container mx-auto flex h-16 items-center justify-between px-4">
           <Link href="/" className="flex items-center gap-3">
-            <img src="/images/orbit.png" alt="Orbyt Booking" className="h-8 w-8" />
-            <span className="text-base font-bold text-slate-800 uppercase tracking-wide">Orbyt Booking</span>
+            <img src="/images/orbit.png" alt="Orbyt Service" className="h-8 w-8" />
+            <span className="text-base font-bold text-slate-800 uppercase tracking-wide">Orbyt Service</span>
           </Link>
           <nav className="flex items-center gap-6">
             <Link href="/#features" className="text-sm font-medium text-slate-600 hover:text-primary transition-colors">Features</Link>

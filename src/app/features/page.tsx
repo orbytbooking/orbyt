@@ -12,10 +12,10 @@ export default function FeaturesPage() {
             <Link href="/" className="flex items-center space-x-2">
               <img 
                 src="/images/orbit.png" 
-                alt="Orbit Booking logo"
+                alt="Orbyt Service logo"
                 className="h-10 w-10"
               />
-              <span className="text-xl font-bold text-gray-900">Orbyt Booking</span>
+              <span className="text-xl font-bold text-gray-900">Orbyt Service</span>
             </Link>
             <nav className="hidden md:flex items-center space-x-8">
               <Link href="/#features" className="text-sm font-medium text-gray-700 hover:text-primary transition-colors">Features</Link>
@@ -103,7 +103,7 @@ export default function FeaturesPage() {
             </a>
           </div>
 
-          {/* High-level list of everything included in Orbit Booking */}
+          {/* High-level list of everything included in Orbyt Service */}
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 text-sm text-gray-700">
             <div className="rounded-xl border bg-white p-4">
               <h3 className="font-semibold mb-2">Booking &amp; Calendar</h3>
@@ -364,7 +364,7 @@ export default function FeaturesPage() {
               <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 overflow-hidden">
                 <img
                   src="/images/website-builder-preview.png"
-                  alt="Visual Page Builder — Edit page sections, hero, and content at orbit.orbyt.com"
+                  alt="Visual Page Builder — Edit page sections, hero, and content at orbyt.orbyt.com"
                   className="w-full h-auto rounded-md object-cover object-top"
                 />
               </div>
@@ -543,7 +543,7 @@ export default function FeaturesPage() {
         <div className="container mx-auto max-w-4xl text-center">
           <h2 className="text-3xl font-bold mb-4">Ready to get started?</h2>
           <p className="text-xl mb-8 text-primary-foreground/90">
-            Join thousands of businesses that trust Orbit Booking to manage their appointments.
+            Join thousands of businesses that trust Orbyt Service to manage their appointments.
           </p>
           <div className="flex flex-col sm:flex-row justify-center gap-4">
             <Link 
@@ -616,7 +616,7 @@ export default function FeaturesPage() {
           </div>
           <div className="mt-12 pt-8 border-t border-gray-800">
             <p className="text-center text-sm text-gray-400">
-              &copy; {new Date().getFullYear()} Orbit Booking. All rights reserved.
+              &copy; {new Date().getFullYear()} Orbyt Service. All rights reserved.
             </p>
           </div>
         </div>

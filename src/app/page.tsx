@@ -40,7 +40,7 @@ export default function Home() {
   
   const testimonials: Testimonial[] = [
     {
-      quote: "Orbyt Booking helped reduce the time I spend scheduling clients. The system keeps track of appointments and reminders, which saves me a lot of time every week.",
+      quote: "Orbyt Service helped reduce the time I spend scheduling clients. The system keeps track of appointments and reminders, which saves me a lot of time every week.",
       author: "Sofia Ramirez",
       role: "Owner, Prime Care Services",
       rating: 5,
@@ -56,7 +56,7 @@ export default function Home() {
       avatarImage: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=96&h=96&fit=crop&crop=face"
     },
     {
-      quote: "I’ve tried a few booking tools before, but Orbyt Booking is by far the easiest one for my team. Our customers can book anytime, and we can manage everything from one dashboard.",
+      quote: "I’ve tried a few booking tools before, but Orbyt Service is by far the easiest one for my team. Our customers can book anytime, and we can manage everything from one dashboard.",
       author: "Emma Rivera",
       role: "Founder, Edge & Fade",
       rating: 5,
@@ -72,7 +72,7 @@ export default function Home() {
       avatarImage: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=96&h=96&fit=crop&crop=face"
     },
     {
-      quote: "Orbyt Booking has made managing my appointments so much easier. Before, I had to keep track of everything through messages and a notebook. Now my customers can book online and everything is organized in one place.",
+      quote: "Orbyt Service has made managing my appointments so much easier. Before, I had to keep track of everything through messages and a notebook. Now my customers can book online and everything is organized in one place.",
       author: "Daniel Reyes",
       role: "CEO, Crystal Clear Services",
       rating: 5,
@@ -80,7 +80,7 @@ export default function Home() {
       avatarImage: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=96&h=96&fit=crop&crop=face"
     },
     {
-      quote: "What I like most about Orbyt Booking is how simple it is to use. I was able to set up my services and start accepting bookings the same day. It really helped my cleaning business stay organized",
+      quote: "What I like most about Orbyt Service is how simple it is to use. I was able to set up my services and start accepting bookings the same day. It really helped my cleaning business stay organized",
       author: "Robert Taylor",
       role: "CTO, Pristine Pro",
       rating: 5,
@@ -131,11 +131,11 @@ export default function Home() {
           <a href="/" className="flex items-center gap-3">
             <img
               src="/images/orbit.png"
-              alt="Orbyt Booking logo"
+              alt="Orbyt Service logo"
               className="h-8 w-8"
             />
             <span className="text-base font-bold text-white uppercase tracking-wide">
-              Orbyt Booking
+              Orbyt Service
             </span>
           </a>
           <nav className="hidden gap-8 text-sm font-medium text-white sm:flex">
@@ -222,10 +222,10 @@ export default function Home() {
             transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
           >
             <p className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-200">
-              Your Service Business, In Orbit.
+              Your Service Business, In Orbyt.
             </p>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight font-space-grotesk">
-              You&apos;re the center. <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">Everything else orbits.</span>
+              You&apos;re the center. <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">Everything else Orbyts.</span>
             </h1>
             <p className="text-base sm:text-lg text-slate-200 max-w-xl font-sans">
               One platform for bookings, reminders, and payments. Set it once. We keep the loop running so you can run the business.
@@ -267,7 +267,7 @@ export default function Home() {
                   <div className="flex items-center gap-2">
                     <span className="text-2xl font-serif text-white leading-none select-none" aria-hidden>"</span>
                     <h3 className="text-xl font-bold text-white">
-                      Businesses already in orbit
+                      Businesses already in Orbyt
                     </h3>
                   </div>
                   <div className="flex gap-2">
@@ -373,10 +373,10 @@ export default function Home() {
         >
           <motion.div className="text-center mb-10" variants={scrollReveal} transition={transition}>
             <h2 className="text-2xl sm:text-3xl font-bold text-slate-800 tracking-tight mb-3">
-              Your Service Business, In Orbit.
+              Your Service Business, In Orbyt.
             </h2>
             <p className="text-slate-600 max-w-2xl mx-auto mb-6">
-              Cleaning, lawn care, salons, moving, pet services, and beyond. Different crafts. One orbit.
+              Cleaning, lawn care, salons, moving, pet services, and beyond. Different crafts. One Orbyt.
             </p>
             <motion.div whileHover={buttonHover} whileTap={buttonTap}>
               <Link
@@ -390,7 +390,7 @@ export default function Home() {
           </motion.div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
             {[
-              { value: '10,000+', label: 'Clients in orbit' },
+              { value: '10,000+', label: 'Clients in Orbyt' },
               { value: '50,000+', label: 'Bookings completed' },
               { value: '500+', label: 'Businesses running' },
             ].map((stat, i) => (
@@ -429,7 +429,7 @@ export default function Home() {
               <ul className="space-y-5">
                 {[
                   { num: '1', title: 'Pricing that fits how you actually quote', desc: 'By job, by room, by sq ft, by hour. Orbyt bends to your pricing model, not the other way around.' },
-                  { num: '2', title: 'One link for your whole business', desc: 'Book, pay, reschedule. One page. No juggling tools or plugins. Everything stays in orbit.' },
+                  { num: '2', title: 'One link for your whole business', desc: 'Book, pay, reschedule. One page. No juggling tools or plugins. Everything stays in Orbyt.' },
                   { num: '3', title: 'AI receptionist, not a chatbot', desc: 'Real-time answers about your services and availability. Visitors book instead of bouncing.' },
                 ].map((item, i) => (
                   <motion.li
@@ -478,13 +478,13 @@ export default function Home() {
         >
           <motion.p className="text-center mb-6" variants={scrollReveal} transition={transition}>
             <Link href="/customers" className="text-sm font-medium text-primary hover:underline">
-              See who else is in orbit
+              See who else is in Orbyt
             </Link>
           </motion.p>
           <motion.div className="text-center mb-10" variants={scrollReveal} transition={transition}>
             <h2 className="text-3xl sm:text-4xl font-bold text-slate-800 tracking-tight mb-4">About Us</h2>
             <p className="text-lg text-slate-600 max-w-2xl mx-auto">
-              We put service businesses at the center. Scheduling, reminders, and payments orbit around you.
+              We put service businesses at the center. Scheduling, reminders, and payments Orbyt around you.
             </p>
           </motion.div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
@@ -501,7 +501,7 @@ export default function Home() {
                 <h3 className="text-xl font-bold text-slate-800">Who We Are</h3>
               </div>
               <p className="text-slate-600 leading-relaxed">
-                Orbyt is where bookings, payments, and your team share one orbit. Pricing is fully customizable: fixed, per hour, by job, or percentage. You run the show. We keep the loop running.
+                Orbyt is where bookings, payments, and your team share one Orbyt. Pricing is fully customizable: fixed, per hour, by job, or percentage. You run the show. We keep the loop running.
               </p>
             </motion.div>
             <motion.div
@@ -517,7 +517,7 @@ export default function Home() {
                 <h3 className="text-xl font-bold text-slate-800">Our Mission</h3>
               </div>
               <p className="text-slate-600 leading-relaxed">
-                Every service business deserves an orbit that just works. Fewer no-shows, less admin, clients who book in one click. We run the system so you can run the business.
+                Every service business deserves an Orbyt that just works. Fewer no-shows, less admin, clients who book in one click. We run the system so you can run the business.
               </p>
             </motion.div>
             <motion.div
@@ -533,10 +533,10 @@ export default function Home() {
                 <h3 className="text-xl font-bold text-slate-800">Why Orbyt</h3>
               </div>
               <ul className="space-y-2 text-slate-600">
-                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Live in minutes. One link, one booking page, no orbit decay.</li>
+                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Live in minutes. One link, one booking page, no Orbyt decay.</li>
                 <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Reminders on autopilot. Fewer ghosts, more show-ups.</li>
                 <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Customizable pricing: fixed, hourly, by job, or percentage. Your rules.</li>
-                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Support that keeps you in orbit, not on hold.</li>
+                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Support that keeps you in Orbyt, not on hold.</li>
               </ul>
             </motion.div>
           </div>
@@ -552,7 +552,7 @@ export default function Home() {
           variants={stagger}
         >
           <motion.div className="text-center max-w-3xl mx-auto mb-12" variants={scrollReveal} transition={transition}>
-            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4">What keeps your orbit running</h2>
+            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4">What keeps your Orbyt running</h2>
             <p className="text-lg text-muted-foreground mb-6">
               One platform. Bookings, teams, payments, and marketing. All in the same loop.
             </p>
@@ -560,7 +560,7 @@ export default function Home() {
               href="/features" 
               className="inline-flex items-center text-primary font-medium hover:underline"
             >
-              See everything in orbit
+              See everything in Orbyt
               <svg className="ml-1 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path>
               </svg>
@@ -899,7 +899,7 @@ export default function Home() {
         >
           <motion.div className="text-center mb-14" variants={scrollReveal} transition={transition}>
             <h2 className="text-3xl sm:text-4xl font-bold text-white tracking-tight inline-block">
-              Get in orbit in three steps
+              Get in Orbyt in three steps
             </h2>
             <div className="mt-2 h-1 w-16 sm:w-20 bg-purple-500 rounded-full mx-auto" aria-hidden />
           </motion.div>
@@ -988,7 +988,7 @@ export default function Home() {
                 Pricing
               </span>
               <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-slate-800">
-                Pick your orbit
+                Pick your Orbyt
               </h2>
             </div>
             <div className="flex flex-col gap-2 lg:items-end">
@@ -1016,7 +1016,7 @@ export default function Home() {
               whileHover={{ y: -6, scale: 1.02, boxShadow: '0 24px 48px -12px rgba(15,23,42,0.2)' }}
             >
               <h3 className="text-xl font-bold text-slate-800 mb-2">Starter</h3>
-              <p className="text-slate-600 text-sm mb-6">Solo or small crew. Get in orbit without the bloat.</p>
+              <p className="text-slate-600 text-sm mb-6">Solo or small crew. Get in Orbyt without the bloat.</p>
               <div className="mb-6 flex items-baseline">
                 <span className="text-4xl font-bold text-sky-500">$19</span>
                 <span className="text-slate-600 text-sm ml-1">monthly</span>
@@ -1094,7 +1094,7 @@ export default function Home() {
               whileHover={{ y: -6, scale: 1.02, boxShadow: '0 24px 48px -12px rgba(15,23,42,0.2)' }}
             >
               <h3 className="text-xl font-bold text-slate-800 mb-2">Premium</h3>
-              <p className="text-slate-600 text-sm mb-6">Full orbit. API, priority support, no limits.</p>
+              <p className="text-slate-600 text-sm mb-6">Full Orbyt. API, priority support, no limits.</p>
               <div className="mb-6 flex items-baseline">
                 <span className="text-4xl font-bold text-sky-500">$110</span>
                 <span className="text-slate-600 text-sm ml-1">monthly</span>
@@ -1137,7 +1137,7 @@ export default function Home() {
           {/* Plan details accordion - FAQ style */}
           <motion.div className="mt-12 max-w-3xl mx-auto" initial="hidden" whileInView="visible" viewport={viewport} variants={scrollReveal} transition={transition}>
             <h3 className="text-2xl font-semibold text-center mb-4">
-              What’s in each orbit
+              What’s in each Orbyt
             </h3>
             <p className="text-sm text-muted-foreground text-center mb-6">
               The fine print. Same unlimited bookings, different levels of automation and support.
@@ -1166,7 +1166,7 @@ export default function Home() {
                     <li><span className="font-medium text-foreground">Advanced scheduling &amp; routing:</span> Assign jobs to the right team members and optimize routes.</li>
                     <li><span className="font-medium text-foreground">Team management:</span> Add multiple staff, manage availability, and see who is booked where.</li>
                     <li><span className="font-medium text-foreground">Email &amp; chat support:</span> Get faster help from our support team as you scale.</li>
-                    <li><span className="font-medium text-foreground">Custom branding:</span> Match Orbyt Booking to your brand with your logo and colors.</li>
+                    <li><span className="font-medium text-foreground">Custom branding:</span> Match Orbyt Service to your brand with your logo and colors.</li>
                   </ul>
                 </AccordionContent>
               </AccordionItem>
@@ -1179,7 +1179,7 @@ export default function Home() {
                   <ul className="space-y-2 text-sm text-muted-foreground">
                     <li><span className="font-medium text-foreground">Everything in Growth:</span> Includes all features from the Starter and Growth plans.</li>
                     <li><span className="font-medium text-foreground">Priority support:</span> Skip the line with priority response times from our team.</li>
-                    <li><span className="font-medium text-foreground">API access:</span> Connect Orbyt Booking to your other tools and internal systems.</li>
+                    <li><span className="font-medium text-foreground">API access:</span> Connect Orbyt Service to your other tools and internal systems.</li>
                     <li><span className="font-medium text-foreground">Advanced reporting:</span> Deeper insights into revenue, team performance, and customer behavior.</li>
                   </ul>
                 </AccordionContent>
@@ -1222,7 +1222,7 @@ export default function Home() {
           variants={scrollReveal}
           transition={transition}
         >
-          <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">Ready to get in orbit?</h2>
+          <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">Ready to get in Orbyt?</h2>
           <p className="text-lg text-slate-200 mb-8">Join the loop. Try Orbyt free and see why businesses stay.</p>
           
           <div className="flex flex-col sm:flex-row gap-3 max-w-lg mx-auto">
@@ -1277,13 +1277,13 @@ export default function Home() {
                   <polyline points="22,6 12,13 2,6"></polyline>
                 </svg>
               </div>
-              <h2 className="text-2xl md:text-3xl font-bold mb-4">We keep you in orbit</h2>
+              <h2 className="text-2xl md:text-3xl font-bold mb-4">We keep you in Orbyt</h2>
               <p className="text-muted-foreground mb-6">
                 Stuck? Have a question? We're here. Drop us a line and we'll get you back in the loop.
               </p>
               <div className="space-y-4">
                 <motion.a
-                  href="mailto:hello@orbitbooking.com"
+                  href="mailto:hello@orbytservice.com"
                   className="inline-flex items-center justify-center bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-medium py-3 px-6 rounded-md transition-colors duration-200 group"
                   whileHover={buttonHover}
                   whileTap={buttonTap}
@@ -1316,11 +1316,11 @@ export default function Home() {
           <div className="grid md:grid-cols-2 gap-8 mb-8">
             <div>
               <div className="flex items-center gap-3 mb-4">
-                <img src="/images/orbit.png" alt="Orbyt Booking" className="h-12 w-12" />
-                <h3 className="text-2xl font-bold">Orbyt Booking</h3>
+                <img src="/images/orbit.png" alt="Orbyt Service" className="h-12 w-12" />
+                <h3 className="text-2xl font-bold">Orbyt Service</h3>
               </div>
               <p className="text-navy-foreground/80 mb-4 text-sm">
-              Your service business, in orbit. Bookings, payments, and everything in between. All in one loop.
+              Your service business, in Orbyt. Bookings, payments, and everything in between. All in one loop.
               </p>
             </div>
             <div className="grid grid-cols-2 gap-8">
@@ -1346,7 +1346,7 @@ export default function Home() {
           </div>
           <div className="pt-8 border-t border-white/10">
             <p className="text-center text-sm text-navy-foreground/60">
-              &copy; {new Date().getFullYear()} Orbyt Booking. All rights reserved.
+              &copy; {new Date().getFullYear()} Orbyt Service. All rights reserved.
             </p>
           </div>
         </motion.div>

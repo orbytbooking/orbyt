@@ -69,7 +69,7 @@ export default function SuperAdminLogin() {
           </h1>
           <p className="text-slate-300 text-sm flex items-center justify-center">
             <Sparkles className="w-4 h-4 mr-1" />
-            Orbyt Booking Platform Management
+            Orbyt Service Platform Management
             <Sparkles className="w-4 h-4 ml-1" />
           </p>
         </div>
