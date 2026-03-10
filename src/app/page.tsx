@@ -1135,7 +1135,7 @@ export default function Home() {
               Your service business, in Orbyt. Bookings, payments, and everything in between. All in one loop.
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-8">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-8">
               <div>
                 <h4 className="font-semibold mb-4">Product</h4>
                 <ul className="space-y-2 text-sm">
@@ -1152,6 +1152,13 @@ export default function Home() {
                   <li><Link href="/support" className="hover:underline">Support</Link></li>
                   <li><Link href="/why-premium" className="hover:underline">Why Premium</Link></li>
                   <li><a href="/contact-support" className="hover:underline">Contact</a></li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-semibold mb-4">Legal</h4>
+                <ul className="space-y-2 text-sm">
+                  <li><Link href="/terms-and-conditions" className="hover:underline">Terms &amp; Conditions</Link></li>
+                  <li><Link href="/privacy-policy" className="hover:underline">Privacy Policy</Link></li>
                 </ul>
               </div>
             </div>

@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
-import Navigation from "@/components/Navigation";
+import PlatformHeader from "@/components/PlatformHeader";
 import Footer from "@/components/Footer";
-import { Separator } from "@/components/ui/separator";
 import { Shield, Lock, Eye, Database, UserCheck, Mail, Cookie, Globe } from "lucide-react";
 
 const PrivacyPolicy = () => {
@@ -13,416 +12,357 @@ const PrivacyPolicy = () => {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Navigation />
-      
-      <main className="flex-1 bg-gradient-to-b from-background to-muted/20">
-        <div className="container mx-auto px-4 py-16 max-w-5xl">
+      <PlatformHeader />
+
+      <main className="flex-1 bg-slate-50 pt-16">
+        <div className="container mx-auto px-4 py-12 sm:py-16 max-w-4xl">
           {/* Header */}
-          <div className="text-center mb-12">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
-              <Shield className="w-8 h-8 text-primary" />
-            </div>
-            <h1 className="text-4xl md:text-5xl font-bold mb-4 gradient-text">
+          <div className="mb-10">
+            <p className="text-sm font-medium text-primary uppercase tracking-wider mb-2">Legal</p>
+            <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight mb-2">
               Privacy Policy
             </h1>
-            <p className="text-muted-foreground text-lg">
-              Last Updated: November 6, 2024
+            <p className="text-slate-600">
+              Orbyt Service Platform. Last updated: March 2025
             </p>
+            <p className="text-slate-600 text-sm mt-2 max-w-2xl">
+              This policy applies only to the Orbyt Service platform (orbyt.com, the Orbyt product, and our apps). It does not apply to business websites built with Orbyt. Each business that uses Orbyt has its own separate privacy policy for their own website and their customers; those policies are different and are the responsibility of each business.
+            </p>
+            <div className="mt-4 p-4 rounded-lg border border-amber-200 bg-amber-50 text-slate-700 text-sm max-w-2xl">
+              <strong className="text-slate-900">Platform only.</strong> This is the privacy policy for Orbyt Service (the platform). If you are on a business's booking site or their website (e.g. a site built with Orbyt), that business's privacy policy applies to you there, not this one.
+            </div>
           </div>
 
           {/* Content */}
-          <div className="bg-card rounded-lg shadow-lg border p-8 md:p-12">
-            <div className="prose prose-slate dark:prose-invert max-w-none">
-              
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 sm:p-8 md:p-10">
+            <div className="max-w-none">
               {/* Introduction */}
               <section className="mb-8">
-                <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-                  <Lock className="w-6 h-6 text-primary" />
+                <h2 className="text-xl font-bold text-slate-900 mb-3 flex items-center gap-2">
+                  <Lock className="w-5 h-5 text-primary shrink-0" />
                   1. Introduction
                 </h2>
-                <p className="text-muted-foreground leading-relaxed">
-                  At our cleaning service, we are committed to protecting your privacy and ensuring 
-                  the security of your personal information. This Privacy Policy explains how we collect, 
-                  use, disclose, and safeguard your information when you visit our website and use our services. 
-                  Please read this policy carefully to understand our practices regarding your personal data.
+                <p className="text-slate-600 leading-relaxed">
+                  Orbyt Service (“Orbyt,” “we,” “us,” or “our”) operates the Orbyt Service platform, a software-as-a-service (SaaS) platform that helps service businesses manage bookings, payments, customers, and operations. This Privacy Policy explains how we collect, use, disclose, and safeguard information when you use our platform, website, and related services (the “Platform”). It applies to business users who subscribe to Orbyt, visitors to our marketing website, and others who interact with Orbyt. If you are a customer of a business that uses Orbyt (e.g., you booked a service through a business’s Orbyt-powered site), that business has its own privacy practices for your data; we process such data on the business’s behalf as a service provider. Please read this policy carefully.
                 </p>
               </section>
 
-              <Separator className="my-8" />
+              <hr className="my-8 border-slate-200" />
 
               {/* Information We Collect */}
               <section className="mb-8">
-                <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-                  <Database className="w-6 h-6 text-primary" />
+                <h2 className="text-xl font-bold text-slate-900 mb-3 flex items-center gap-2">
+                  <Database className="w-5 h-5 text-primary shrink-0" />
                   2. Information We Collect
                 </h2>
-                
-                <div className="space-y-6 text-muted-foreground">
+                <div className="space-y-6 text-slate-600">
                   <div>
-                    <h3 className="font-semibold text-foreground mb-3">2.1 Personal Information</h3>
+                    <h3 className="text-base font-semibold text-slate-900 mb-2">2.1 Information You Give Us (Platform and Website)</h3>
                     <p className="leading-relaxed mb-3">
-                      We collect personal information that you voluntarily provide to us when you:
+                      We collect information you provide when you:
                     </p>
                     <ul className="space-y-2 ml-6">
                       <li className="flex items-start gap-2">
                         <span className="text-primary mt-1">•</span>
-                        <span>Book a cleaning service through our website</span>
+                        <span>Create or manage an Orbyt business account (e.g., business name, email, phone, address, billing details)</span>
                       </li>
                       <li className="flex items-start gap-2">
                         <span className="text-primary mt-1">•</span>
-                        <span>Create an account or register for our services</span>
+                        <span>Add team members, providers, or staff to your account</span>
                       </li>
                       <li className="flex items-start gap-2">
                         <span className="text-primary mt-1">•</span>
-                        <span>Contact us via email, phone, or contact forms</span>
+                        <span>Contact us for support, sales, or general inquiries</span>
                       </li>
                       <li className="flex items-start gap-2">
                         <span className="text-primary mt-1">•</span>
-                        <span>Subscribe to our newsletter or marketing communications</span>
+                        <span>Subscribe to newsletters or marketing from Orbyt</span>
                       </li>
                       <li className="flex items-start gap-2">
                         <span className="text-primary mt-1">•</span>
-                        <span>Participate in surveys, promotions, or feedback requests</span>
+                        <span>Fill out forms on our website (e.g., contact, demo requests)</span>
                       </li>
                     </ul>
                     <p className="leading-relaxed mt-3">
-                      This information may include:
+                      This may include: name, email address, phone number, business address, payment and billing information (processed by our payment providers), and any other information you choose to provide.
                     </p>
-                    <ul className="space-y-2 ml-6 mt-2">
-                      <li className="flex items-start gap-2">
-                        <span className="text-primary mt-1">•</span>
-                        <span>Full name</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="text-primary mt-1">•</span>
-                        <span>Email address</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="text-primary mt-1">•</span>
-                        <span>Phone number</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="text-primary mt-1">•</span>
-                        <span>Service address and location details</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="text-primary mt-1">•</span>
-                        <span>Payment information (processed securely through third-party payment processors)</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="text-primary mt-1">•</span>
-                        <span>Service preferences and special instructions</span>
-                      </li>
-                    </ul>
                   </div>
 
                   <div>
-                    <h3 className="font-semibold text-foreground mb-3">2.2 Automatically Collected Information</h3>
+                    <h3 className="text-base font-semibold text-slate-900 mb-2">2.2 Information Collected Automatically</h3>
                     <p className="leading-relaxed mb-3">
-                      When you visit our website, we automatically collect certain information about your device and usage:
+                      When you use our Platform or visit our website, we and our service providers may automatically collect:
                     </p>
                     <ul className="space-y-2 ml-6">
                       <li className="flex items-start gap-2">
                         <span className="text-primary mt-1">•</span>
-                        <span>IP address and browser type</span>
+                        <span>Device and browser information (e.g., IP address, browser type, operating system)</span>
                       </li>
                       <li className="flex items-start gap-2">
                         <span className="text-primary mt-1">•</span>
-                        <span>Operating system and device information</span>
+                        <span>Usage data (e.g., pages visited, features used, time spent)</span>
                       </li>
                       <li className="flex items-start gap-2">
                         <span className="text-primary mt-1">•</span>
-                        <span>Pages visited and time spent on our website</span>
+                        <span>Referring URLs and search terms</span>
                       </li>
                       <li className="flex items-start gap-2">
                         <span className="text-primary mt-1">•</span>
-                        <span>Referring website and search terms used</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="text-primary mt-1">•</span>
-                        <span>Cookies and similar tracking technologies</span>
+                        <span>Cookies and similar technologies (see Section 5)</span>
                       </li>
                     </ul>
                   </div>
+
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-900 mb-2">2.3 Data Processed on Behalf of Business Users</h3>
+                    <p className="leading-relaxed">
+                      When your business uses Orbyt, you may input data about your customers (e.g., names, emails, phone numbers, booking details). We process this data on your behalf to provide the Platform (e.g., to send booking confirmations, process payments you authorize). In that context, we act as a data processor; your business is the data controller responsible for your own privacy notices and compliance with applicable law.
+                    </p>
+                  </div>
                 </div>
               </section>
 
-              <Separator className="my-8" />
+              <hr className="my-8 border-slate-200" />
 
               {/* How We Use Your Information */}
               <section className="mb-8">
-                <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-                  <UserCheck className="w-6 h-6 text-primary" />
+                <h2 className="text-xl font-bold text-slate-900 mb-3 flex items-center gap-2">
+                  <UserCheck className="w-5 h-5 text-primary shrink-0" />
                   3. How We Use Your Information
                 </h2>
-                <div className="space-y-3 text-muted-foreground">
-                  <p className="leading-relaxed">
-                    We use the information we collect for the following purposes:
-                  </p>
+                <div className="space-y-3 text-slate-600">
+                  <p className="leading-relaxed">We use the information we collect to:</p>
                   <ul className="space-y-2 ml-6">
                     <li className="flex items-start gap-2">
                       <span className="text-primary mt-1">•</span>
-                      <span><strong className="text-foreground">Service Delivery:</strong> To process bookings, schedule appointments, and provide cleaning services</span>
+                      <span><strong className="text-slate-900">Provide the Platform:</strong> Operate, maintain, and improve our services, including bookings, payments, and business tools</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-primary mt-1">•</span>
-                      <span><strong className="text-foreground">Communication:</strong> To send confirmations, updates, and respond to inquiries</span>
+                      <span><strong className="text-slate-900">Account and Billing:</strong> Create and manage accounts, authenticate users, and process subscription and other payments</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-primary mt-1">•</span>
-                      <span><strong className="text-foreground">Payment Processing:</strong> To process transactions and prevent fraud</span>
+                      <span><strong className="text-slate-900">Communication:</strong> Send service-related messages, security alerts, and support responses</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-primary mt-1">•</span>
-                      <span><strong className="text-foreground">Customer Support:</strong> To address questions, concerns, and provide assistance</span>
+                      <span><strong className="text-slate-900">Marketing:</strong> Send product updates, offers, and newsletters (where permitted and with opt-out available)</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-primary mt-1">•</span>
-                      <span><strong className="text-foreground">Marketing:</strong> To send promotional offers, newsletters, and service updates (with your consent)</span>
+                      <span><strong className="text-slate-900">Analytics and Improvement:</strong> Analyze usage to improve the Platform, fix issues, and develop new features</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-primary mt-1">•</span>
-                      <span><strong className="text-foreground">Analytics:</strong> To analyze website usage and improve our services</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-primary mt-1">•</span>
-                      <span><strong className="text-foreground">Legal Compliance:</strong> To comply with legal obligations and protect our rights</span>
+                      <span><strong className="text-slate-900">Safety and Legal:</strong> Enforce our Terms of Service, protect the Platform, and comply with legal obligations</span>
                     </li>
                   </ul>
                 </div>
               </section>
 
-              <Separator className="my-8" />
+              <hr className="my-8 border-slate-200" />
 
               {/* Information Sharing */}
               <section className="mb-8">
-                <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-                  <Globe className="w-6 h-6 text-primary" />
+                <h2 className="text-xl font-bold text-slate-900 mb-3 flex items-center gap-2">
+                  <Globe className="w-5 h-5 text-primary shrink-0" />
                   4. Information Sharing and Disclosure
                 </h2>
-                <div className="space-y-4 text-muted-foreground">
+                <div className="space-y-4 text-slate-600">
                   <p className="leading-relaxed">
-                    We do not sell, rent, or trade your personal information to third parties. We may share 
-                    your information only in the following circumstances:
+                    We do not sell your personal information. We may share information in these circumstances:
                   </p>
                   <div>
-                    <h3 className="font-semibold text-foreground mb-2">4.1 Service Providers</h3>
+                    <h3 className="text-base font-semibold text-slate-900 mb-2">4.1 Service Providers</h3>
                     <p className="leading-relaxed">
-                      We may share information with trusted third-party service providers who assist us in 
-                      operating our website, conducting business, or providing services (e.g., payment processors, 
-                      email service providers, scheduling tools). These providers are contractually obligated to 
-                      protect your information and use it only for the purposes we specify.
+                      We work with third parties who help us operate the Platform (e.g., hosting, payment processing, email delivery, analytics). They have access to information only as needed to perform their functions and are contractually required to protect it and use it only for our purposes.
                     </p>
                   </div>
                   <div>
-                    <h3 className="font-semibold text-foreground mb-2">4.2 Legal Requirements</h3>
+                    <h3 className="text-base font-semibold text-slate-900 mb-2">4.2 Business Users and Their Customers</h3>
                     <p className="leading-relaxed">
-                      We may disclose your information if required by law, court order, or government regulation, 
-                      or if we believe disclosure is necessary to protect our rights, your safety, or the safety of others.
+                      Data that you or your end customers provide through the Platform (e.g., bookings, customer details) is shared as necessary to provide the services you use (e.g., with payment processors when you charge customers).
                     </p>
                   </div>
                   <div>
-                    <h3 className="font-semibold text-foreground mb-2">4.3 Business Transfers</h3>
+                    <h3 className="text-base font-semibold text-slate-900 mb-2">4.3 Legal and Safety</h3>
                     <p className="leading-relaxed">
-                      In the event of a merger, acquisition, or sale of assets, your information may be transferred 
-                      to the acquiring entity. We will notify you of any such change in ownership or control.
+                      We may disclose information if required by law, court order, or government request, or when we believe disclosure is necessary to protect the rights, safety, or property of Orbyt, our users, or others.
+                    </p>
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-900 mb-2">4.4 Business Transfers</h3>
+                    <p className="leading-relaxed">
+                      If Orbyt is involved in a merger, acquisition, or sale of assets, your information may be transferred. We will notify you of any material change in ownership or use of your information.
                     </p>
                   </div>
                 </div>
               </section>
 
-              <Separator className="my-8" />
+              <hr className="my-8 border-slate-200" />
 
               {/* Cookies */}
               <section className="mb-8">
-                <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-                  <Cookie className="w-6 h-6 text-primary" />
+                <h2 className="text-xl font-bold text-slate-900 mb-3 flex items-center gap-2">
+                  <Cookie className="w-5 h-5 text-primary shrink-0" />
                   5. Cookies and Tracking Technologies
                 </h2>
-                <div className="space-y-4 text-muted-foreground">
+                <div className="space-y-4 text-slate-600">
                   <p className="leading-relaxed">
-                    We use cookies and similar tracking technologies to enhance your experience on our website. 
-                    Cookies are small data files stored on your device that help us:
+                    We use cookies and similar technologies to:
                   </p>
                   <ul className="space-y-2 ml-6">
                     <li className="flex items-start gap-2">
                       <span className="text-primary mt-1">•</span>
-                      <span>Remember your preferences and settings</span>
+                      <span>Keep you logged in and remember your preferences</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-primary mt-1">•</span>
-                      <span>Understand how you use our website</span>
+                      <span>Understand how the Platform and website are used</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-primary mt-1">•</span>
-                      <span>Improve website functionality and performance</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-primary mt-1">•</span>
-                      <span>Deliver personalized content and advertisements</span>
+                      <span>Improve performance and security</span>
                     </li>
                   </ul>
                   <p className="leading-relaxed mt-4">
-                    You can control cookie settings through your browser preferences. However, disabling cookies 
-                    may affect the functionality of our website.
+                    You can control cookies through your browser settings. Disabling certain cookies may affect the functionality of the Platform or website.
                   </p>
                 </div>
               </section>
 
-              <Separator className="my-8" />
+              <hr className="my-8 border-slate-200" />
 
               {/* Data Security */}
               <section className="mb-8">
-                <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-                  <Lock className="w-6 h-6 text-primary" />
+                <h2 className="text-xl font-bold text-slate-900 mb-3 flex items-center gap-2">
+                  <Lock className="w-5 h-5 text-primary shrink-0" />
                   6. Data Security
                 </h2>
-                <p className="text-muted-foreground leading-relaxed">
-                  We implement industry-standard security measures to protect your personal information from 
-                  unauthorized access, disclosure, alteration, or destruction. These measures include:
-                </p>
-                <ul className="space-y-2 ml-6 mt-3 text-muted-foreground">
-                  <li className="flex items-start gap-2">
-                    <span className="text-primary mt-1">•</span>
-                    <span>Encryption of sensitive data (e.g., payment information)</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-primary mt-1">•</span>
-                    <span>Secure socket layer (SSL) technology for data transmission</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-primary mt-1">•</span>
-                    <span>Regular security audits and vulnerability assessments</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-primary mt-1">•</span>
-                    <span>Restricted access to personal information on a need-to-know basis</span>
-                  </li>
-                </ul>
-                <p className="text-muted-foreground leading-relaxed mt-4">
-                  However, no method of transmission over the internet or electronic storage is 100% secure. 
-                  While we strive to protect your information, we cannot guarantee absolute security.
+                <p className="text-slate-600 leading-relaxed">
+                  We implement technical and organizational measures to protect your information against unauthorized access, alteration, disclosure, or destruction, including encryption, access controls, and secure infrastructure. No method of transmission or storage is completely secure; we cannot guarantee absolute security.
                 </p>
               </section>
 
-              <Separator className="my-8" />
+              <hr className="my-8 border-slate-200" />
 
               {/* Your Rights */}
               <section className="mb-8">
-                <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-                  <Eye className="w-6 h-6 text-primary" />
+                <h2 className="text-xl font-bold text-slate-900 mb-3 flex items-center gap-2">
+                  <Eye className="w-5 h-5 text-primary shrink-0" />
                   7. Your Privacy Rights
                 </h2>
-                <div className="space-y-3 text-muted-foreground">
+                <div className="space-y-3 text-slate-600">
                   <p className="leading-relaxed">
-                    You have the following rights regarding your personal information:
+                    Depending on where you live, you may have the right to:
                   </p>
                   <ul className="space-y-2 ml-6">
                     <li className="flex items-start gap-2">
                       <span className="text-primary mt-1">•</span>
-                      <span><strong className="text-foreground">Access:</strong> Request a copy of the personal information we hold about you</span>
+                      <span><strong className="text-slate-900">Access:</strong> Request a copy of the personal information we hold about you</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-primary mt-1">•</span>
-                      <span><strong className="text-foreground">Correction:</strong> Request correction of inaccurate or incomplete information</span>
+                      <span><strong className="text-slate-900">Correction:</strong> Request correction of inaccurate or incomplete information</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-primary mt-1">•</span>
-                      <span><strong className="text-foreground">Deletion:</strong> Request deletion of your personal information (subject to legal obligations)</span>
+                      <span><strong className="text-slate-900">Deletion:</strong> Request deletion of your personal information (subject to legal and contractual obligations)</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-primary mt-1">•</span>
-                      <span><strong className="text-foreground">Opt-Out:</strong> Unsubscribe from marketing communications at any time</span>
+                      <span><strong className="text-slate-900">Opt-Out of Marketing:</strong> Unsubscribe from marketing emails via the link in our messages or by contacting us</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-primary mt-1">•</span>
-                      <span><strong className="text-foreground">Data Portability:</strong> Request transfer of your data to another service provider</span>
+                      <span><strong className="text-slate-900">Data Portability:</strong> Request a copy of your data in a portable format where applicable</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-primary mt-1">•</span>
-                      <span><strong className="text-foreground">Object:</strong> Object to processing of your personal information for certain purposes</span>
+                      <span><strong className="text-slate-900">Object or Restrict:</strong> Object to or request restriction of certain processing where provided by law</span>
                     </li>
                   </ul>
                   <p className="leading-relaxed mt-4">
-                    To exercise any of these rights, please contact us using the information provided below.
+                    To exercise these rights, contact us at the details below. You may also have the right to lodge a complaint with a supervisory authority in your country.
                   </p>
                 </div>
               </section>
 
-              <Separator className="my-8" />
+              <hr className="my-8 border-slate-200" />
 
               {/* Data Retention */}
               <section className="mb-8">
-                <h2 className="text-2xl font-bold mb-4">8. Data Retention</h2>
-                <p className="text-muted-foreground leading-relaxed">
-                  We retain your personal information only for as long as necessary to fulfill the purposes 
-                  outlined in this Privacy Policy, unless a longer retention period is required or permitted 
-                  by law. When we no longer need your information, we will securely delete or anonymize it.
+                <h2 className="text-xl font-bold text-slate-900 mb-3">8. Data Retention</h2>
+                <p className="text-slate-600 leading-relaxed">
+                  We retain your information for as long as your account is active or as needed to provide the Platform and fulfill the purposes described in this policy. We may retain certain information as required by law, for dispute resolution, or to enforce our agreements. When data is no longer needed, we will delete or anonymize it in accordance with our practices and legal obligations.
                 </p>
               </section>
 
-              <Separator className="my-8" />
+              <hr className="my-8 border-slate-200" />
 
               {/* Third-Party Links */}
               <section className="mb-8">
-                <h2 className="text-2xl font-bold mb-4">9. Third-Party Links</h2>
-                <p className="text-muted-foreground leading-relaxed">
-                  Our website may contain links to third-party websites or services. We are not responsible 
-                  for the privacy practices or content of these external sites. We encourage you to review 
-                  the privacy policies of any third-party sites you visit.
+                <h2 className="text-xl font-bold text-slate-900 mb-3">9. Third-Party Links and Services</h2>
+                <p className="text-slate-600 leading-relaxed">
+                  Our website or Platform may contain links to third-party sites or services (e.g., payment providers, social media). We are not responsible for their privacy practices. We encourage you to read their privacy policies before providing any personal information.
                 </p>
               </section>
 
-              <Separator className="my-8" />
+              <hr className="my-8 border-slate-200" />
 
               {/* Children's Privacy */}
               <section className="mb-8">
-                <h2 className="text-2xl font-bold mb-4">10. Children's Privacy</h2>
-                <p className="text-muted-foreground leading-relaxed">
-                  Our services are not intended for individuals under the age of 18. We do not knowingly 
-                  collect personal information from children. If we become aware that we have collected 
-                  information from a child without parental consent, we will take steps to delete that information.
+                <h2 className="text-xl font-bold text-slate-900 mb-3">10. Children's Privacy</h2>
+                <p className="text-slate-600 leading-relaxed">
+                  The Platform is not intended for individuals under 18. We do not knowingly collect personal information from children. If we learn that we have collected such information, we will take steps to delete it.
                 </p>
               </section>
 
-              <Separator className="my-8" />
+              <hr className="my-8 border-slate-200" />
 
-              {/* Changes to Policy */}
+              {/* International */}
               <section className="mb-8">
-                <h2 className="text-2xl font-bold mb-4">11. Changes to This Privacy Policy</h2>
-                <p className="text-muted-foreground leading-relaxed">
-                  We may update this Privacy Policy from time to time to reflect changes in our practices 
-                  or legal requirements. We will notify you of any material changes by posting the updated 
-                  policy on our website with a new "Last Updated" date. We encourage you to review this 
-                  policy periodically.
+                <h2 className="text-xl font-bold text-slate-900 mb-3">11. International Transfers</h2>
+                <p className="text-slate-600 leading-relaxed">
+                  We may store and process information in the United States and other countries where our service providers operate. If you are located outside these jurisdictions, your information may be transferred to and processed in those countries. We take steps to ensure appropriate safeguards where required by applicable law.
                 </p>
               </section>
 
-              <Separator className="my-8" />
+              <hr className="my-8 border-slate-200" />
+
+              {/* Changes */}
+              <section className="mb-8">
+                <h2 className="text-xl font-bold text-slate-900 mb-3">12. Changes to This Privacy Policy</h2>
+                <p className="text-slate-600 leading-relaxed">
+                  We may update this Privacy Policy from time to time. We will post the updated policy on the Platform and update the “Last Updated” date. Material changes may be communicated by email or a notice in the Platform. Your continued use of the Platform after the effective date constitutes acceptance of the updated policy.
+                </p>
+              </section>
+
+              <hr className="my-8 border-slate-200" />
 
               {/* Contact */}
               <section className="mb-8">
-                <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-                  <Mail className="w-6 h-6 text-primary" />
-                  12. Contact Us
+                <h2 className="text-xl font-bold text-slate-900 mb-3 flex items-center gap-2">
+                  <Mail className="w-5 h-5 text-primary shrink-0" />
+                  13. Contact Orbyt Service
                 </h2>
-                <p className="text-muted-foreground leading-relaxed mb-4">
-                  If you have any questions, concerns, or requests regarding this Privacy Policy or our 
-                  data practices, please contact us:
+                <p className="text-slate-600 leading-relaxed mb-4">
+                  For questions about this Privacy Policy or our data practices, contact us:
                 </p>
-                <div className="bg-muted/50 rounded-lg p-6 space-y-2">
-                  <p className="font-medium text-foreground">Our Cleaning Service</p>
-                  <p className="text-muted-foreground">Phone: +1 234 567 890</p>
-                  <p className="text-muted-foreground">Email: privacy@cleaningservice.com</p>
-                  <p className="text-muted-foreground">Address: Chicago, Illinois, USA</p>
+                <div className="bg-slate-100 rounded-lg border border-slate-200 p-5 space-y-1 text-slate-600">
+                  <p className="font-semibold text-slate-900">Orbyt Service</p>
+                  <p>Email: privacy@orbyt.com (or support@orbyt.com)</p>
+                  <p>Website: orbyt.com</p>
                 </div>
               </section>
 
               {/* Consent */}
-              <div className="mt-12 p-6 bg-primary/5 border-l-4 border-primary rounded-r-lg">
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  <strong className="text-foreground">By using our website and services, you consent to the 
-                  collection and use of your information as described in this Privacy Policy.</strong>
+              <div className="mt-10 p-5 bg-slate-100 border-l-4 border-primary rounded-r-lg">
+                <p className="text-sm text-slate-700 leading-relaxed">
+                  <strong className="text-slate-900">
+                    By using the Orbyt Service platform or our website, you consent to the collection and use of your information as described in this Privacy Policy.
+                  </strong>
                 </p>
               </div>
             </div>

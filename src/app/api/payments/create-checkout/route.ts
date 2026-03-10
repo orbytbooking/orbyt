@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createCheckout } from "@/lib/payments/createCheckout";
 
-/** Unified checkout: uses business's payment_provider (stripe | worldpay) to create session and return URL */
+/** Unified checkout: uses business's payment_provider (stripe | authorize_net) to create session and return URL */
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -45,9 +45,8 @@ export async function POST(request: Request) {
   } catch (err) {
     console.error("Payments create-checkout error:", err);
     const message = err instanceof Error ? err.message : "Unknown error";
-    const isConfig = message.includes("not configured") || message.includes("WORLDPAY");
-    const isUpstream = /Worldpay failed \(\d+\)/.test(message);
-    const status = isConfig ? 500 : isUpstream ? 502 : 500;
+    const isConfig = message.includes("not configured") || message.includes("Authorize.net");
+    const status = isConfig ? 500 : 500;
     return NextResponse.json(
       { error: "Failed to create checkout", details: message },
       { status }

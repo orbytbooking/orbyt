@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { EmailService } from "@/lib/emailService";
 
 /**
- * Called when the customer returns from Worldpay with payment success.
+ * Called when the customer returns from Authorize.net with payment success.
  * Marks the booking as paid and sends a receipt email (same behavior as Stripe webhook).
  * Only updates if booking is pending + online to avoid abuse.
  */
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
       .eq("id", bookingId);
 
     if (updateError) {
-      console.error("[Worldpay confirm-return] Failed to update booking:", bookingId, updateError);
+      console.error("[Authorize.net confirm-return] Failed to update booking:", bookingId, updateError);
       return NextResponse.json({ error: "Failed to update booking" }, { status: 500 });
     }
 
@@ -83,13 +83,13 @@ export async function POST(request: Request) {
           paymentMethod: "card",
         });
       } catch (e) {
-        console.warn("[Worldpay confirm-return] Receipt email failed:", e);
+        console.warn("[Authorize.net confirm-return] Receipt email failed:", e);
       }
     }
 
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error("[Worldpay confirm-return] Error:", err);
+    console.error("[Authorize.net confirm-return] Error:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Unknown error" },
       { status: 500 }

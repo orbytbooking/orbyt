@@ -8,9 +8,9 @@ import { Loader2 } from "lucide-react";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { toast } from "sonner";
 import { BillingStripeConnect } from "./BillingStripeConnect";
-import { BillingWorldpay } from "./BillingWorldpay";
+import { BillingAuthorizeNet } from "./BillingAuthorizeNet";
 
-type PaymentProvider = "stripe" | "worldpay";
+type PaymentProvider = "stripe" | "authorize_net";
 
 export function BillingPaymentProvider() {
   const { currentBusiness } = useBusiness();
@@ -33,7 +33,8 @@ export function BillingPaymentProvider() {
         });
         if (!cancelled && res.ok) {
           const data = await res.json();
-          setProvider(data.paymentProvider === "worldpay" ? "worldpay" : "stripe");
+          const p = data.paymentProvider;
+          setProvider(p === "authorize_net" ? "authorize_net" : "stripe");
         }
       } catch {
         if (!cancelled) setProvider("stripe");
@@ -47,7 +48,7 @@ export function BillingPaymentProvider() {
   }, [businessId]);
 
   const handleProviderChange = async (value: string) => {
-    const newProvider = value === "worldpay" ? "worldpay" : "stripe";
+    const newProvider = value === "authorize_net" ? "authorize_net" : "stripe";
     if (newProvider === provider) return;
     if (!businessId) {
       toast.error("No business selected");
@@ -67,7 +68,8 @@ export function BillingPaymentProvider() {
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setProvider(newProvider);
-        toast.success(newProvider === "stripe" ? "Stripe selected for payments" : "Worldpay selected for payments");
+        const label = newProvider === "stripe" ? "Stripe" : "Authorize.net";
+        toast.success(`${label} selected for payments`);
       } else {
         toast.error(data.error || "Failed to update payment provider");
       }
@@ -118,9 +120,9 @@ export function BillingPaymentProvider() {
               </Label>
             </div>
             <div className="flex items-center space-x-2">
-              <RadioGroupItem value="worldpay" id="provider-worldpay" />
-              <Label htmlFor="provider-worldpay" className="font-normal cursor-pointer">
-                Worldpay — use platform Worldpay for checkout
+              <RadioGroupItem value="authorize_net" id="provider-authorize-net" />
+              <Label htmlFor="provider-authorize-net" className="font-normal cursor-pointer">
+                Authorize.net — connect your own merchant account
               </Label>
             </div>
           </RadioGroup>
@@ -134,7 +136,7 @@ export function BillingPaymentProvider() {
       </Card>
 
       {provider === "stripe" && <BillingStripeConnect />}
-      {provider === "worldpay" && <BillingWorldpay />}
+      {provider === "authorize_net" && <BillingAuthorizeNet />}
     </div>
   );
 }

@@ -69,7 +69,7 @@ export default function LoginPage() {
             description: "Please sign in using the Provider Login page.",
             variant: "destructive",
           });
-          setTimeout(() => router.push("/provider/login"), 500);
+          window.location.href = "/provider/login";
           return;
         }
         
@@ -89,9 +89,7 @@ export default function LoginPage() {
             title: "Welcome!",
             description: "Please complete your business setup to continue.",
           });
-          setTimeout(() => {
-            router.push("/auth/onboarding");
-          }, 500);
+          window.location.href = "/auth/onboarding";
           return;
         }
 
@@ -100,21 +98,18 @@ export default function LoginPage() {
           console.warn('Business query warning:', businessError);
         }
 
-        toast({
-          title: "Login Successful!",
-          description: `Welcome back${data.user.user_metadata?.full_name ? ', ' + data.user.user_metadata.full_name : ''}!`,
-        });
-
-        // Set business context if available
+        // Set business context if available before redirect
         if (business?.id) {
           localStorage.setItem('currentBusinessId', business.id);
         }
 
-        // Redirect based on user role
+        // Redirect based on user role – use full page navigation so auth state is visible on the next load
         const redirectPath = userRole === 'provider' ? '/provider/dashboard' : '/admin/dashboard';
-        setTimeout(() => {
-          router.push(redirectPath);
-        }, 500);
+        toast({
+          title: "Login Successful!",
+          description: `Welcome back${data.user.user_metadata?.full_name ? ', ' + data.user.user_metadata.full_name : ''}!`,
+        });
+        window.location.href = redirectPath;
       }
       
     } catch (error: any) {

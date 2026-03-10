@@ -8,6 +8,25 @@ const Footer = ({ data, branding, headerData }: { data?: any; branding?: any; he
   const router = useRouter();
   const pathname = usePathname();
 
+  // Use Orbyt Service platform branding on platform legal/marketing pages (no business context)
+  const isPlatformPage = pathname === "/terms-and-conditions" || pathname === "/privacy-policy" || pathname === "/" || pathname === "/features" || pathname.startsWith("/login") || pathname === "/customer-auth";
+  const usePlatformFooter = isPlatformPage && !data && !branding;
+  const platformBranding = usePlatformFooter
+    ? {
+        companyName: "Orbyt Service",
+        logo: "/images/orbit.png",
+        description: "Your service business, in Orbyt. Bookings, payments, and everything in between.",
+        email: "support@orbyt.com",
+        copyright: `© ${new Date().getFullYear()} Orbyt Service. All rights reserved.`,
+      }
+    : null;
+
+  const displayName = platformBranding?.companyName ?? headerData?.companyName ?? branding?.companyName ?? "Cleaning Service";
+  const displayLogo = platformBranding?.logo ?? branding?.logo;
+  const displayDescription = platformBranding?.description ?? data?.description ?? "Professional cleaning services you can trust. Experience the difference with our expert team.";
+  const displayEmail = platformBranding?.email ?? data?.email ?? "info@orbyt.com";
+  const displayCopyright = platformBranding?.copyright ?? data?.copyright ?? `© ${new Date().getFullYear()} ${displayName}. All rights reserved.`;
+
   const handleSectionClick = (e: React.MouseEvent, sectionId: string) => {
     e.preventDefault();
     
@@ -31,27 +50,30 @@ const Footer = ({ data, branding, headerData }: { data?: any; branding?: any; he
         <div className="grid md:grid-cols-2 gap-8 mb-8">
           <div>
             <div className="flex items-center gap-3 mb-4">
-              {branding?.logo && !branding.logo.startsWith('blob:') ? (
-                <img src={branding.logo} alt={headerData?.companyName || branding.companyName || "Cleaning Service"} className="h-16 w-16" />
+              {displayLogo && !displayLogo.startsWith("blob:") ? (
+                <img src={displayLogo} alt={displayName} className="h-16 w-16" />
               ) : (
                 <div className="h-16 w-16 bg-gray-200 rounded flex items-center justify-center">
                   <ImageIcon className="h-8 w-8 text-gray-400" />
                 </div>
               )}
-              <h3 className="text-2xl font-bold gradient-text">{headerData?.companyName || branding?.companyName || "Cleaning Service"}</h3>
+              <h3 className="text-2xl font-bold gradient-text">{displayName}</h3>
             </div>
             <p className="text-navy-foreground/80 mb-4">
-              {data?.description || "Professional cleaning services you can trust. Experience the difference with our expert team."}
+              {displayDescription}
             </p>
-            <p className="text-navy-foreground/80 mb-4">
-              Call: {data?.phone || "+1 234 567 8900"}
-            </p>
+            {!usePlatformFooter && (
+              <p className="text-navy-foreground/80 mb-4">
+                Call: {data?.phone || "+1 234 567 8900"}
+              </p>
+            )}
             <p className="text-navy-foreground/80">
-              Email: {data?.email || "info@orbyt.com"}
+              Email: {displayEmail}
             </p>
           </div>
           
-          <div className="grid grid-cols-2 gap-4">
+          <div className={`grid gap-4 ${(data?.quickLinks || []).filter((l: any) => l?.text && l?.url).length > 0 ? "grid-cols-2" : ""}`}>
+            {(data?.quickLinks || []).filter((link: any) => link?.text && link?.url).length > 0 && (
             <div>
               <h4 className="font-semibold mb-3">Quick Links</h4>
               <ul className="space-y-2 text-navy-foreground/80">
@@ -67,8 +89,9 @@ const Footer = ({ data, branding, headerData }: { data?: any; branding?: any; he
                 ))}
               </ul>
             </div>
+            )}
             <div>
-              <h4 className="font-semibold mb-3">Legal</h4>
+              <h4 className="font-semibold mb-3">{usePlatformFooter ? "Legal" : "Orbyt Service"}</h4>
               <ul className="space-y-2 text-navy-foreground/80">
                 <li>
                   <Link 
@@ -95,13 +118,14 @@ const Footer = ({ data, branding, headerData }: { data?: any; branding?: any; he
                   </Link>
                 </li>
               </ul>
+              {!usePlatformFooter && <p className="text-xs text-navy-foreground/60 mt-1">Platform terms and privacy</p>}
             </div>
           </div>
         </div>
 
         <div className="flex flex-col md:flex-row justify-between items-center pt-8 border-t border-navy-foreground/20">
           <p className="text-navy-foreground/80 mb-4 md:mb-0">
-            {data?.copyright || `© 2024 ${headerData?.companyName || branding?.companyName || "Cleaning Service"}. All rights reserved.`}
+            {displayCopyright}
           </p>
           
           <div className="flex gap-4">

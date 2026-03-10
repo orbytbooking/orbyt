@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Store, Tag, MailX, Receipt, List, Plug, Plus, Minus, Loader2, Pencil, Trash2, Info, Clock, Users, Bell, Settings, Calendar, CalendarDays, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, Link as LinkIcon, ChevronDown } from 'lucide-react';
+import { Store, Tag, MailX, Receipt, List, Plug, Plus, Minus, Loader2, Pencil, Trash2, Info, Clock, Users, Bell, Settings, Calendar, CalendarDays, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, Link as LinkIcon, ChevronDown, CreditCard, ExternalLink } from 'lucide-react';
 import { useBusiness } from '@/contexts/BusinessContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -57,6 +58,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import Link from 'next/link';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 interface AdminTag {
   id: string;
@@ -215,8 +217,13 @@ function RescheduleMessageEditor({ value, onChange }: { value: string; onChange:
 
 export default function GeneralSettingsPage() {
   const { currentBusiness } = useBusiness();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const storeTab = searchParams.get('tab') || 'general';
+  const tabParam = searchParams.get('tab');
+  const mainTab = ['store-options', 'tags', 'taxes', 'email-lists', 'undelivered-emails', 'apps-integrations'].includes(tabParam || '')
+    ? (tabParam || 'store-options')
+    : 'store-options';
   const [tags, setTags] = useState<AdminTag[]>([]);
   const [tagsLoading, setTagsLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -226,6 +233,27 @@ export default function GeneralSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [deleteTag, setDeleteTag] = useState<AdminTag | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [integrationConfig, setIntegrationConfig] = useState<Record<string, { enabled: boolean; configured: boolean }>>({});
+  const [configDialogOpen, setConfigDialogOpen] = useState(false);
+  const [configDialogProvider, setConfigDialogProvider] = useState<{ slug: string; name: string; description: string } | null>(null);
+  const [configDialogApiKey, setConfigDialogApiKey] = useState('');
+  const [integrationSaving, setIntegrationSaving] = useState(false);
+  const [paymentGatewaysSheetOpen, setPaymentGatewaysSheetOpen] = useState(false);
+  const [paymentGatewaysSelected, setPaymentGatewaysSelected] = useState<'stripe' | 'authorize_net'>('stripe');
+  const [authorizeNetApiKey, setAuthorizeNetApiKey] = useState('');
+  const [stripeConnecting, setStripeConnecting] = useState(false);
+  const [authorizeNetSaving, setAuthorizeNetSaving] = useState(false);
+  const [stripePublishKey, setStripePublishKey] = useState('');
+  const [stripeSecretKey, setStripeSecretKey] = useState('');
+  const [paymentProcessorEnabled, setPaymentProcessorEnabled] = useState(true);
+  const [stripe3dsEnabled, setStripe3dsEnabled] = useState(true);
+  const [stripeBillingAddressEnabled, setStripeBillingAddressEnabled] = useState(false);
+  const [stripeKeysSaving, setStripeKeysSaving] = useState(false);
+  const [paymentGatewaysSettings, setPaymentGatewaysSettings] = useState<{
+    stripePublishableKeyMasked?: string | null;
+    stripe3dsEnabled?: boolean;
+    stripeBillingAddressEnabled?: boolean;
+  } | null>(null);
   const [locationSettingsExpanded, setLocationSettingsExpanded] = useState(false);
   const [locationManagement, setLocationManagement] = useState<'zip' | 'name' | 'none'>('zip');
   const [wildcardZipEnabled, setWildcardZipEnabled] = useState<'yes' | 'no'>('yes');
@@ -420,6 +448,54 @@ export default function GeneralSettingsPage() {
       setAccessSettingsLoading(false);
     }
   };
+
+  const fetchIntegrationConfig = useCallback(() => {
+    if (!currentBusiness?.id) return;
+    const bizId = currentBusiness.id;
+    Promise.all([
+      fetch(`/api/admin/integrations?business=${encodeURIComponent(bizId)}`, { credentials: 'include', headers: { 'x-business-id': bizId } }).then((r) => r.json()),
+      fetch(`/api/admin/payment-settings?business=${encodeURIComponent(bizId)}`, { credentials: 'include', headers: { 'x-business-id': bizId } }).then((r) => r.json()),
+    ])
+      .then(([intData, payData]) => {
+        const config: Record<string, { enabled: boolean; configured: boolean }> = { ...(intData.config || {}) };
+        if (payData.stripeConnected) config.stripe = { enabled: true, configured: true };
+        if (payData.authorizeNetApiLoginId) config.authorize_net = { enabled: true, configured: true };
+        setIntegrationConfig(config);
+      })
+      .catch(() => {});
+  }, [currentBusiness?.id]);
+
+  useEffect(() => {
+    if (!currentBusiness?.id) return;
+    let cancelled = false;
+    const bizId = currentBusiness.id;
+    Promise.all([
+      fetch(`/api/admin/integrations?business=${encodeURIComponent(bizId)}`, { credentials: 'include', headers: { 'x-business-id': bizId } }).then((r) => r.json()),
+      fetch(`/api/admin/payment-settings?business=${encodeURIComponent(bizId)}`, { credentials: 'include', headers: { 'x-business-id': bizId } }).then((r) => r.json()),
+    ])
+      .then(([intData, payData]) => {
+        if (cancelled) return;
+        const config: Record<string, { enabled: boolean; configured: boolean }> = { ...(intData.config || {}) };
+        if (payData.stripeConnected) config.stripe = { enabled: true, configured: true };
+        if (payData.authorizeNetApiLoginId) config.authorize_net = { enabled: true, configured: true };
+        setIntegrationConfig(config);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [currentBusiness?.id]);
+
+  useEffect(() => {
+    const gc = searchParams.get('google_calendar');
+    if (gc === 'success') {
+      toast.success('Google Calendar connected successfully.');
+      fetchIntegrationConfig();
+      router.replace('/admin/settings/general?tab=apps-integrations');
+    } else if (gc === 'error') {
+      const msg = searchParams.get('message') || 'Connection failed.';
+      toast.error(msg);
+      router.replace('/admin/settings/general?tab=apps-integrations');
+    }
+  }, [searchParams, fetchIntegrationConfig, router]);
 
   const saveAccessSettings = async () => {
     if (!currentBusiness?.id) return;
@@ -904,8 +980,8 @@ export default function GeneralSettingsPage() {
         </p>
       </div>
       <Separator />
-      <Tabs defaultValue="store-options" className="w-full">
-        <TabsList className="grid w-full grid-cols-6">
+      <Tabs value={mainTab} onValueChange={(v) => router.replace(`/admin/settings/general?tab=${v}`)} className="w-full">
+        <TabsList className="grid w-full grid-cols-6 lg:grid-cols-7">
           <TabsTrigger value="store-options" className="flex items-center gap-2">
             <Store className="h-4 w-4" />
             <span>Store options</span>
@@ -4812,10 +4888,416 @@ export default function GeneralSettingsPage() {
             Email lists settings will be implemented here.
           </p>
         </TabsContent>
-        <TabsContent value="apps-integrations" className="pt-6 space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Apps & Integrations settings will be implemented here.
-          </p>
+        <TabsContent value="apps-integrations" className="pt-6 space-y-6">
+          <div>
+            <h3 className="text-lg font-semibold">Apps & Integrations</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              Connect third-party apps for your business. Click here to enter API keys or configure each integration.
+            </p>
+          </div>
+          <div className="space-y-4">
+            {[
+              { slug: "stripe", name: "Stripe", description: "Use Stripe to collect credit and debit cards from your customers and send payments to providers instantly.", connectGoogleCalendar: false, isPayment: true },
+              { slug: "authorize_net", name: "Authorize.net", description: "Collect credit and debit cards from your customers and send payments to providers instantly.", connectGoogleCalendar: false, isPayment: true },
+              { slug: "mailchimp", name: "MailChimp", description: "Collect emails from checked-out or abandoned cart customers for marketing.", connectGoogleCalendar: false, isPayment: false },
+              { slug: "twilio", name: "Twilio", description: "Send SMS notifications to customers and providers.", connectGoogleCalendar: false, isPayment: false },
+              { slug: "google_calendar", name: "Google Calendar", description: "Sync your bookings to Google Calendar automatically.", connectGoogleCalendar: true, isPayment: false },
+              { slug: "quickbooks", name: "QuickBooks", description: "Sync all transactions automatically to QuickBooks.", connectGoogleCalendar: false, isPayment: false },
+            ].map((app) => (
+              <div key={app.slug} className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-lg border bg-card p-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                  <CreditCard className="h-5 w-5 text-primary" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="font-medium">{app.name}</h4>
+                  <p className="text-sm text-muted-foreground mt-0.5">{app.description}</p>
+                </div>
+                <div className="shrink-0">
+                  {app.isPayment ? (
+                    <Button
+                      variant={integrationConfig[app.slug]?.configured ? "secondary" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setPaymentGatewaysSelected(app.slug as 'stripe' | 'authorize_net');
+                        setPaymentGatewaysSheetOpen(true);
+                        if (app.slug === 'authorize_net') setAuthorizeNetApiKey('');
+                        if (currentBusiness?.id) {
+                          fetch(`/api/admin/payment-settings?business=${encodeURIComponent(currentBusiness.id)}`, { credentials: 'include', headers: { 'x-business-id': currentBusiness.id } })
+                            .then((r) => r.json())
+                            .then((data) => {
+                              setPaymentGatewaysSettings({
+                                stripePublishableKeyMasked: data.stripePublishableKeyMasked ?? null,
+                                stripe3dsEnabled: data.stripe3dsEnabled,
+                                stripeBillingAddressEnabled: data.stripeBillingAddressEnabled,
+                              });
+                              if (data.stripe3dsEnabled !== undefined) setStripe3dsEnabled(!!data.stripe3dsEnabled);
+                              if (data.stripeBillingAddressEnabled !== undefined) setStripeBillingAddressEnabled(!!data.stripeBillingAddressEnabled);
+                            })
+                            .catch(() => {});
+                        }
+                      }}
+                    >
+                      {integrationConfig[app.slug]?.configured ? "Configured" : "Click here"}
+                    </Button>
+                  ) : app.connectGoogleCalendar ? (
+                    <Button
+                      variant={integrationConfig[app.slug]?.configured ? "secondary" : "outline"}
+                      size="sm"
+                      asChild={!integrationConfig[app.slug]?.configured}
+                      onClick={integrationConfig[app.slug]?.configured ? undefined : undefined}
+                    >
+                      {integrationConfig[app.slug]?.configured ? (
+                        <span>Connected</span>
+                      ) : (
+                        <Link href={currentBusiness?.id ? `/api/admin/integrations/google-calendar/connect?business=${encodeURIComponent(currentBusiness.id)}` : '#'}>
+                          Connect Google Calendar
+                        </Link>
+                      )}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant={integrationConfig[app.slug]?.configured ? "secondary" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setConfigDialogProvider(app);
+                        setConfigDialogApiKey("");
+                        setConfigDialogOpen(true);
+                      }}
+                    >
+                      {integrationConfig[app.slug]?.configured ? "Configured" : "Click here"}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Configure {configDialogProvider?.name}</DialogTitle>
+                <DialogDescription>
+                  Enter your API credentials for this business. These are stored securely and used only for your account.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="integration-api-key">API Key</Label>
+                  <Input
+                    id="integration-api-key"
+                    type="password"
+                    placeholder="Enter API key"
+                    value={configDialogApiKey}
+                    onChange={(e) => setConfigDialogApiKey(e.target.value)}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setConfigDialogOpen(false)}>Cancel</Button>
+                <Button
+                  onClick={async () => {
+                    if (!currentBusiness?.id || !configDialogProvider) return;
+                    setIntegrationSaving(true);
+                    try {
+                      const res = await fetch("/api/admin/integrations", {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json", "x-business-id": currentBusiness.id },
+                        body: JSON.stringify({
+                          providerSlug: configDialogProvider.slug,
+                          apiKey: configDialogApiKey || null,
+                        }),
+                        credentials: "include",
+                      });
+                      const data = await res.json().catch(() => ({}));
+                      if (res.ok) {
+                        setIntegrationConfig((prev) => ({
+                          ...prev,
+                          [configDialogProvider.slug]: { enabled: true, configured: true },
+                        }));
+                        setConfigDialogOpen(false);
+                        toast.success(`${configDialogProvider.name} credentials saved`);
+                      } else {
+                        toast.error(data.error || "Failed to save");
+                      }
+                    } catch {
+                      toast.error("Failed to save");
+                    } finally {
+                      setIntegrationSaving(false);
+                    }
+                  }}
+                  disabled={integrationSaving || !configDialogApiKey.trim()}
+                >
+                  {integrationSaving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving…
+                    </>
+                  ) : (
+                    "Save"
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Connect Payment Gateways — Booking Koala style: sidebar + Stripe / Authorize.net content */}
+          <Sheet open={paymentGatewaysSheetOpen} onOpenChange={setPaymentGatewaysSheetOpen}>
+            <SheetContent
+              side="right"
+              className="w-full sm:max-w-2xl overflow-y-auto p-0 flex flex-col"
+            >
+              <div className="flex flex-1 min-h-0">
+                {/* Left: gateway list */}
+                <nav className="w-48 shrink-0 border-r border-border bg-muted/30 flex flex-col py-4">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentGatewaysSelected('stripe')}
+                    className={cn(
+                      'flex items-center gap-2 px-4 py-3 text-left text-sm font-medium transition-colors',
+                      paymentGatewaysSelected === 'stripe'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                    )}
+                  >
+                    <CreditCard className="h-5 w-5 shrink-0" />
+                    Stripe
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentGatewaysSelected('authorize_net')}
+                    className={cn(
+                      'flex items-center gap-2 px-4 py-3 text-left text-sm font-medium transition-colors',
+                      paymentGatewaysSelected === 'authorize_net'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                    )}
+                  >
+                    <CreditCard className="h-5 w-5 shrink-0" />
+                    Authorize.Net
+                  </button>
+                </nav>
+                {/* Right: content */}
+                <div className="flex-1 overflow-y-auto p-6">
+                  <SheetHeader className="text-left pb-4 border-b">
+                    <SheetTitle>Connect Payment Gateways</SheetTitle>
+                    <SheetDescription>
+                      In this section you can choose and set up one of the payment gateways we offer in order to collect payments from customers and send payments to your providers. Only 1 processor can be connected at a time.
+                    </SheetDescription>
+                  </SheetHeader>
+
+                  {paymentGatewaysSelected === 'stripe' && (
+                    <div className="space-y-6 pt-6">
+                      {/* Enable or disable your payment processor */}
+                      <div className="flex items-center justify-between rounded-lg border bg-card p-4">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <Label className="text-base font-medium">Enable or disable your payment processor</Label>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button type="button" className="text-muted-foreground hover:text-foreground">
+                                    <Info className="h-4 w-4" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-xs">
+                                  Only one payment processor can be connected at a time.
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </div>
+                          <p className="text-sm text-muted-foreground">Turn the payment processor on or off for this business.</p>
+                        </div>
+                        <Switch checked={paymentProcessorEnabled} onCheckedChange={setPaymentProcessorEnabled} />
+                      </div>
+
+                      {/* Live Stripe Account */}
+                      <div className="rounded-lg border bg-card p-6 space-y-4">
+                        <h4 className="text-base font-semibold">Stripe Account</h4>
+                        <p className="text-sm text-muted-foreground">Enter your Stripe API keys from the Stripe Dashboard. Use live keys for production.</p>
+                        <div className="space-y-2">
+                          <Label htmlFor="stripe-publish-key">Publish key</Label>
+                          <Input
+                            id="stripe-publish-key"
+                            type="password"
+                            autoComplete="off"
+                            placeholder={paymentGatewaysSettings?.stripePublishableKeyMasked ?? 'pk_live_... or pk_test_...'}
+                            value={stripePublishKey}
+                            onChange={(e) => setStripePublishKey(e.target.value)}
+                            className="font-mono text-sm"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="stripe-secret-key">Secret key</Label>
+                          <Input
+                            id="stripe-secret-key"
+                            type="password"
+                            autoComplete="off"
+                            placeholder={paymentGatewaysSettings?.stripePublishableKeyMasked ? '••••••••••••' : 'sk_live_... or sk_test_...'}
+                            value={stripeSecretKey}
+                            onChange={(e) => setStripeSecretKey(e.target.value)}
+                            className="font-mono text-sm"
+                          />
+                        </div>
+                        <Button
+                          disabled={stripeKeysSaving}
+                          onClick={async () => {
+                            if (!currentBusiness?.id) return;
+                            setStripeKeysSaving(true);
+                            try {
+                              const body: { paymentProvider?: string; stripePublishableKey?: string; stripeSecretKey?: string; stripe3dsEnabled: boolean; stripeBillingAddressEnabled: boolean } = {
+                                stripe3dsEnabled: stripe3dsEnabled,
+                                stripeBillingAddressEnabled: stripeBillingAddressEnabled,
+                              };
+                              if (stripePublishKey.trim() || stripeSecretKey.trim()) {
+                                body.paymentProvider = 'stripe';
+                                if (stripePublishKey.trim()) body.stripePublishableKey = stripePublishKey.trim();
+                                if (stripeSecretKey.trim()) body.stripeSecretKey = stripeSecretKey.trim();
+                              }
+                              const res = await fetch('/api/admin/payment-settings', {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json', 'x-business-id': currentBusiness.id },
+                                body: JSON.stringify(body),
+                                credentials: 'include',
+                              });
+                              const data = await res.json().catch(() => ({}));
+                              if (res.ok) {
+                                setIntegrationConfig((prev) => ({ ...prev, stripe: { enabled: true, configured: true } }));
+                                setPaymentGatewaysSettings((prev) => ({ ...prev, stripePublishableKeyMasked: (stripePublishKey.trim() || prev?.stripePublishableKeyMasked) ? 'pk_***...' : null }));
+                                if (stripePublishKey.trim()) setStripePublishKey('');
+                                if (stripeSecretKey.trim()) setStripeSecretKey('');
+                                toast.success('Stripe credentials saved');
+                              } else {
+                                toast.error(data.error || 'Failed to save');
+                              }
+                            } catch {
+                              toast.error('Failed to save');
+                            } finally {
+                              setStripeKeysSaving(false);
+                            }
+                          }}
+                        >
+                          {stripeKeysSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                          Save
+                        </Button>
+                      </div>
+
+                      {/* 3DS */}
+                      <div className="flex items-center justify-between rounded-lg border bg-card p-4">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <Label className="text-base font-medium">Enable or disable 3DS (Strong Customer Authentication)</Label>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button type="button" className="text-muted-foreground hover:text-foreground">
+                                    <Info className="h-4 w-4" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-xs">
+                                  3D Secure adds an extra verification step for card payments to reduce fraud.
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </div>
+                        </div>
+                        <Switch checked={stripe3dsEnabled} onCheckedChange={setStripe3dsEnabled} />
+                      </div>
+
+                      {/* Billing address */}
+                      <div className="flex items-center justify-between rounded-lg border bg-card p-4">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <Label className="text-base font-medium">Do you want to add the billing address associated with the card?</Label>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button type="button" className="text-muted-foreground hover:text-foreground">
+                                    <Info className="h-4 w-4" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-xs">
+                                  Collect the cardholder&apos;s billing address during checkout.
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </div>
+                        </div>
+                        <Switch checked={stripeBillingAddressEnabled} onCheckedChange={setStripeBillingAddressEnabled} />
+                      </div>
+                    </div>
+                  )}
+
+                  {paymentGatewaysSelected === 'authorize_net' && (
+                    <div className="space-y-6 pt-6">
+                      <div className="flex items-center justify-between rounded-lg border bg-card p-4">
+                        <div className="space-y-0.5">
+                          <Label className="text-base font-medium">Enable or disable your payment processor</Label>
+                          <p className="text-sm text-muted-foreground">Turn the payment processor on or off for this business.</p>
+                        </div>
+                        <Switch checked={paymentProcessorEnabled} onCheckedChange={setPaymentProcessorEnabled} />
+                      </div>
+                      <div className="rounded-lg border bg-card p-6 space-y-4">
+                        <h4 className="text-base font-semibold">Authorize.Net</h4>
+                        <p className="text-sm text-muted-foreground">Enter your API key in the format: <strong>API Login ID : Transaction Key</strong> (from Merchant Dashboard → Account → API Credentials &amp; Keys).</p>
+                        <div className="space-y-2">
+                          <Label htmlFor="authorize-net-api-key-sheet">API Key</Label>
+                          <Input
+                            id="authorize-net-api-key-sheet"
+                            type="password"
+                            placeholder="API Login ID : Transaction Key"
+                            value={authorizeNetApiKey}
+                            onChange={(e) => setAuthorizeNetApiKey(e.target.value)}
+                          />
+                        </div>
+                        <Button
+                          disabled={authorizeNetSaving || !authorizeNetApiKey.trim()}
+                          onClick={async () => {
+                            if (!currentBusiness?.id) return;
+                            const trimmed = authorizeNetApiKey.trim();
+                            const colonIndex = trimmed.indexOf(':');
+                            const apiLoginId = colonIndex >= 0 ? trimmed.slice(0, colonIndex).trim() : trimmed;
+                            const transactionKey = colonIndex >= 0 ? trimmed.slice(colonIndex + 1).trim() : '';
+                            if (colonIndex < 0 || !transactionKey) {
+                              toast.error('Enter API key as: API Login ID : Transaction Key');
+                              return;
+                            }
+                            setAuthorizeNetSaving(true);
+                            try {
+                              const res = await fetch('/api/admin/payment-settings', {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json', 'x-business-id': currentBusiness.id },
+                                body: JSON.stringify({
+                                  paymentProvider: 'authorize_net',
+                                  authorizeNetApiLoginId: apiLoginId,
+                                  authorizeNetTransactionKey: transactionKey,
+                                }),
+                                credentials: 'include',
+                              });
+                              const data = await res.json().catch(() => ({}));
+                              if (res.ok) {
+                                setIntegrationConfig((prev) => ({ ...prev, authorize_net: { enabled: true, configured: true } }));
+                                setAuthorizeNetApiKey('');
+                                setPaymentGatewaysSheetOpen(false);
+                                toast.success('Authorize.net credentials saved');
+                              } else {
+                                toast.error(data.error || 'Failed to save');
+                              }
+                            } catch {
+                              toast.error('Failed to save');
+                            } finally {
+                              setAuthorizeNetSaving(false);
+                            }
+                          }}
+                        >
+                          {authorizeNetSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </SheetContent>
+          </Sheet>
         </TabsContent>
       </Tabs>
     </div>

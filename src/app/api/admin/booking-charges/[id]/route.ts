@@ -7,7 +7,7 @@ import { createCheckout } from '@/lib/payments/createCheckout';
  * POST: Process charge for a completed booking
  * Body: { method: 'cash' | 'online' | 'void' }
  * - cash: Mark payment_status = paid
- * - online: Create checkout session URL (Stripe or Worldpay per business) for customer to pay
+ * - online: Create checkout session URL (Stripe or Authorize.net per business) for customer to pay
  * - void: Mark payment voided
  */
 export async function POST(
@@ -93,7 +93,7 @@ export async function POST(
       });
     }
 
-    // online: create checkout session (Stripe or Worldpay per business payment_provider)
+    // online: create checkout session (Stripe or Authorize.net per business payment_provider)
     const amount = Number(booking.total_price) || 0;
     const amountInCents = Math.round(amount * 100);
     if (amountInCents < 50) {

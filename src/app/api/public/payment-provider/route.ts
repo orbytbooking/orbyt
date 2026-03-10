@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 /**
  * GET ?business=uuid
- * Returns the payment provider for the given business (stripe | worldpay).
+ * Returns the payment provider for the given business (stripe | authorize_net).
  * Public endpoint for book-now page to show correct payment method label.
  */
 export async function GET(request: NextRequest) {
@@ -30,7 +30,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ provider: "stripe" }, { status: 200 });
     }
 
-    const provider = (data as { payment_provider?: string }).payment_provider === "worldpay" ? "worldpay" : "stripe";
+    const p = (data as { payment_provider?: string }).payment_provider;
+    const provider = p === "authorize_net" ? "authorize_net" : "stripe";
     return NextResponse.json({ provider });
   } catch {
     return NextResponse.json({ provider: "stripe" }, { status: 200 });

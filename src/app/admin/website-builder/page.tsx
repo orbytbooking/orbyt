@@ -204,8 +204,7 @@ const defaultSections: WebsiteSection[] = [
       quickLinks: [
         { text: 'About Us', url: '#about' },
         { text: 'Services', url: '#services' },
-        { text: 'Contact', url: '#contact' },
-        { text: 'Privacy Policy', url: '/privacy-policy' }
+        { text: 'Contact', url: '#contact' }
       ]
     }
   },
@@ -639,8 +638,7 @@ export default function WebsiteBuilderPage() {
           quickLinks: [
             { text: 'About Us', url: '#about' },
             { text: 'Services', url: '#services' },
-            { text: 'Contact', url: '#contact' },
-            { text: 'Privacy Policy', url: '/privacy-policy' }
+            { text: 'Contact', url: '#contact' }
           ]
         };
       default:

@@ -1,8 +1,6 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 
-const WORLDPAY_TEST_BASE = "https://try.access.worldpay.com";
-
 export type CreateCheckoutParams = {
   bookingId: string;
   amountInCents: number;
@@ -16,10 +14,10 @@ export type CreateCheckoutParams = {
 
 export type CreateCheckoutResult =
   | { url: string; provider: "stripe"; sessionId: string }
-  | { url: string; provider: "worldpay"; sessionId: string };
+  | { url: string; provider: "authorize_net"; sessionId: string };
 
 /**
- * Create a checkout session (Stripe or Worldpay) based on business's payment_provider.
+ * Create a checkout session (Stripe or Authorize.net) based on business's payment_provider.
  * Uses supabase to read business; pass existing client to reuse.
  */
 export async function createCheckout(
@@ -37,8 +35,11 @@ export async function createCheckout(
     origin,
   } = params;
 
-  let paymentProvider: "stripe" | "worldpay" = "stripe";
+  let paymentProvider: "stripe" | "authorize_net" = "stripe";
   let stripeConnectAccountId: string | null = null;
+  let stripeSecretKey: string | null = null;
+  let authorizeNetApiLoginId: string | null = null;
+  let authorizeNetTransactionKey: string | null = null;
 
   if (businessId && (supabase ?? (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY))) {
     const client =
@@ -49,17 +50,27 @@ export async function createCheckout(
       );
     const { data: business, error } = await client
       .from("businesses")
-      .select("payment_provider, stripe_connect_account_id")
+      .select("payment_provider, stripe_connect_account_id, stripe_secret_key, authorize_net_api_login_id, authorize_net_transaction_key")
       .eq("id", businessId)
       .single();
 
     if (!error && business) {
-      const b = business as { payment_provider?: string; stripe_connect_account_id?: string | null };
-      if (b.payment_provider === "worldpay") {
-        paymentProvider = "worldpay";
+      const b = business as {
+        payment_provider?: string;
+        stripe_connect_account_id?: string | null;
+        stripe_secret_key?: string | null;
+        authorize_net_api_login_id?: string | null;
+        authorize_net_transaction_key?: string | null;
+      };
+      if (b.payment_provider === "authorize_net" && b.authorize_net_api_login_id && b.authorize_net_transaction_key) {
+        paymentProvider = "authorize_net";
+        authorizeNetApiLoginId = b.authorize_net_api_login_id;
+        authorizeNetTransactionKey = b.authorize_net_transaction_key;
       } else {
         paymentProvider = "stripe";
         stripeConnectAccountId = b.stripe_connect_account_id ?? null;
+        const sk = b.stripe_secret_key != null ? String(b.stripe_secret_key).trim() : "";
+        stripeSecretKey = sk !== "" ? b.stripe_secret_key : null;
       }
     } else {
       // Fallback when payment_provider column doesn't exist yet (migration 056 not run)
@@ -73,7 +84,8 @@ export async function createCheckout(
   }
 
   if (paymentProvider === "stripe") {
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+    const secretKey = stripeSecretKey ?? process.env.STRIPE_SECRET_KEY!;
+    const stripe = new Stripe(secretKey);
     const success =
       successUrl || `${origin}/book-now?stripe=success&session_id={CHECKOUT_SESSION_ID}&business=${businessId || ""}`;
     const cancel = cancelUrl || `${origin}/book-now?stripe=cancel&business=${businessId || ""}`;
@@ -102,9 +114,10 @@ export async function createCheckout(
         ...(businessId ? { business_id: String(businessId) } : {}),
       },
     };
-    const session = stripeConnectAccountId
-      ? await stripe.checkout.sessions.create(sessionParams, { stripeAccount: stripeConnectAccountId })
-      : await stripe.checkout.sessions.create(sessionParams);
+    const session =
+      stripeSecretKey == null && stripeConnectAccountId
+        ? await stripe.checkout.sessions.create(sessionParams, { stripeAccount: stripeConnectAccountId })
+        : await stripe.checkout.sessions.create(sessionParams);
     return {
       url: session.url!,
       provider: "stripe",
@@ -112,100 +125,161 @@ export async function createCheckout(
     };
   }
 
-  // Worldpay Access Hosted Payments: Bearer + WP-Entity-Id OR Basic (per docs, some accounts use Basic)
-  const baseUrl = (process.env.WORLDPAY_BASE_URL || WORLDPAY_TEST_BASE).trim();
-  const entity = process.env.WORLDPAY_ENTITY?.trim();
-  const useBasicAuth = process.env.WORLDPAY_USE_BASIC_AUTH === "true";
-  const basicAuthRaw = process.env.WORLDPAY_BASIC_AUTH?.trim();
-  const serviceKey = process.env.WORLD_PAY_SERVICE_KEY?.trim();
-  const accountToken = process.env.WORLDPAY_ACCOUNT_TOKEN?.trim();
-
-  if (!entity) {
-    throw new Error("Worldpay is not configured. Set WORLDPAY_ENTITY.");
-  }
-  let authHeader: string;
-  let headers: Record<string, string>;
-  if (useBasicAuth && basicAuthRaw) {
-    authHeader = `Basic ${basicAuthRaw}`;
-    headers = {
-      Authorization: authHeader,
-      "WP-Entity-Id": entity,
-      Accept: "application/vnd.worldpay.payment_pages-v1.hal+json",
-      "Content-Type": "application/vnd.worldpay.payment_pages-v1.hal+json",
-    };
-    if (process.env.NODE_ENV === "development") {
-      console.log("[Worldpay HPP] Request to", baseUrl, "entity:", entity, "auth: Basic");
+  if (paymentProvider === "authorize_net") {
+    if (!authorizeNetApiLoginId || !authorizeNetTransactionKey) {
+      throw new Error("Authorize.net is selected but credentials are not configured. Add API Login ID and Transaction Key in Billing settings.");
     }
-  } else {
-    const bearerToken = serviceKey || accountToken;
-    if (!bearerToken) {
-      throw new Error(
-        "Worldpay is not configured. Set WORLD_PAY_SERVICE_KEY or WORLDPAY_ACCOUNT_TOKEN (or WORLDPAY_USE_BASIC_AUTH=true and WORLDPAY_BASIC_AUTH)."
-      );
-    }
-    authHeader = `Bearer ${bearerToken}`;
-    headers = {
-      Authorization: authHeader,
-      "WP-Entity-Id": entity,
-      Accept: "application/vnd.worldpay.payment_pages-v1.hal+json",
-      "Content-Type": "application/vnd.worldpay.payment_pages-v1.hal+json",
-    };
-    if (process.env.NODE_ENV === "development") {
-      console.log("[Worldpay HPP] Request to", baseUrl, "entity:", entity, "auth: Bearer");
-    }
+    return createAuthorizeNetCheckout({
+      apiLoginId: authorizeNetApiLoginId,
+      transactionKey: authorizeNetTransactionKey,
+      bookingId,
+      amountInCents,
+      lineItemDescription,
+      origin,
+      businessId,
+    });
   }
 
-  const success = successUrl || `${origin}/book-now?worldpay=success&booking_id=${bookingId}&business=${businessId || ""}`;
-  const cancel = cancelUrl || `${origin}/book-now?worldpay=cancel&business=${businessId || ""}`;
-  const transactionReference = `ORBYT-${bookingId}-${Date.now()}`;
-  const amount = Math.round(amountInCents);
-  // Worldpay narrative.line1: max 24 chars, optional chars A-Z a-z 0-9 - . , space
-  const narrativeLine1 = (lineItemDescription || "Booking payment")
-    .replace(/[^A-Za-z0-9\-., ]/g, " ")
-    .trim()
-    .slice(0, 24) || "Booking payment";
-
-  const payload = {
-    transactionReference,
-    merchant: { entity },
-    narrative: { line1: narrativeLine1 },
-    value: { currency: "USD", amount },
-    description: lineItemDescription || "Service booking",
-    resultURLs: {
-      successURL: success,
-      cancelURL: cancel,
-      failureURL: cancel,
-      errorURL: cancel,
-      expiryURL: cancel,
-      pendingURL: success,
-    },
-    expiry: 3600,
+  // Fallback to Stripe (e.g. if payment_provider was worldpay before migration)
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+  const success =
+    successUrl || `${origin}/book-now?stripe=success&session_id={CHECKOUT_SESSION_ID}&business=${businessId || ""}`;
+  const cancel = cancelUrl || `${origin}/book-now?stripe=cancel&business=${businessId || ""}`;
+  const sessionParams: Stripe.Checkout.SessionCreateParams = {
+    mode: "payment",
+    payment_method_types: ["card"],
+    line_items: [
+      {
+        price_data: {
+          currency: "usd",
+          unit_amount: Math.round(amountInCents),
+          product_data: { name: "Booking payment", description: lineItemDescription || "Service booking", images: [] },
+        },
+        quantity: 1,
+      },
+    ],
+    success_url: success,
+    cancel_url: cancel,
+    customer_email: customerEmail || undefined,
+    metadata: { booking_id: String(bookingId), ...(businessId ? { business_id: String(businessId) } : {}) },
   };
+  const session = stripeConnectAccountId
+    ? await stripe.checkout.sessions.create(sessionParams, { stripeAccount: stripeConnectAccountId })
+    : await stripe.checkout.sessions.create(sessionParams);
+  return { url: session.url!, provider: "stripe", sessionId: session.id };
+}
 
-  const res = await fetch(`${baseUrl}/payment_pages`, {
-    method: "POST",
-    headers: { ...headers, "WP-CorrelationId": transactionReference.slice(0, 64) },
-    body: JSON.stringify(payload),
+const AUTHORIZE_NET_SANDBOX_API = "https://apitest.authorize.net/xml/v1/request.api";
+const AUTHORIZE_NET_PROD_API = "https://api.authorize.net/xml/v1/request.api";
+
+async function createAuthorizeNetCheckout(params: {
+  apiLoginId: string;
+  transactionKey: string;
+  bookingId: string;
+  amountInCents: number;
+  lineItemDescription?: string;
+  origin: string;
+  businessId?: string;
+}): Promise<{ url: string; provider: "authorize_net"; sessionId: string }> {
+  const {
+    apiLoginId,
+    transactionKey,
+    bookingId,
+    amountInCents,
+    lineItemDescription,
+    origin,
+    businessId,
+  } = params;
+
+  const useSandbox = process.env.AUTHORIZE_NET_ENVIRONMENT !== "production";
+  const apiUrl = useSandbox ? AUTHORIZE_NET_SANDBOX_API : AUTHORIZE_NET_PROD_API;
+
+  const successUrl = `${origin}/book-now?authorize_net=success&booking_id=${bookingId}&business=${businessId || ""}`;
+  const cancelUrl = `${origin}/book-now?authorize_net=cancel&business=${businessId || ""}`;
+
+  const amount = (Math.round(amountInCents) / 100).toFixed(2);
+  const transactionRef = `ORBYT-${bookingId}-${Date.now()}`;
+
+  const hostedPaymentReturnOptions = JSON.stringify({
+    showReceipt: false,
+    url: successUrl,
+    urlText: "Continue",
+    cancelUrl,
+    cancelUrlText: "Cancel",
   });
 
+  const requestBody = {
+    getHostedPaymentPageRequest: {
+      merchantAuthentication: {
+        name: apiLoginId,
+        transactionKey,
+      },
+      transactionRequest: {
+        transactionType: "authCaptureTransaction",
+        amount,
+        referenceId: transactionRef.slice(0, 20),
+        order: {
+          invoiceNumber: transactionRef.slice(0, 20),
+          description: (lineItemDescription || "Booking payment").slice(0, 255),
+        },
+      },
+      hostedPaymentSettings: {
+        setting: [
+          {
+            settingName: "hostedPaymentReturnOptions",
+            settingValue: hostedPaymentReturnOptions,
+          },
+          {
+            settingName: "hostedPaymentButtonOptions",
+            settingValue: JSON.stringify({ text: "Pay" }),
+          },
+        ],
+      },
+    },
+  };
+
+  const res = await fetch(apiUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(requestBody),
+  });
+
+  const text = await res.text();
   if (!res.ok) {
-    const text = await res.text();
-    console.error("[Worldpay HPP] Request failed:", res.status, text.slice(0, 500));
-    throw new Error(`Worldpay failed (${res.status}): ${text.slice(0, 300)}`);
+    console.error("[Authorize.net] Request failed:", res.status, text.slice(0, 500));
+    throw new Error(`Authorize.net failed (${res.status}): ${text.slice(0, 300)}`);
   }
 
-  let data: { url?: string };
+  type AuthNetMessages = { resultCode?: string; message?: { code?: string; text?: string }[] };
+  type AuthNetResp = { token?: string; messages?: AuthNetMessages; getHostedPaymentPageResponse?: { token?: string; messages?: AuthNetMessages } };
+  let data: AuthNetResp;
   try {
-    data = (await res.json()) as { url?: string };
-  } catch (e) {
-    console.error("[Worldpay HPP] Invalid JSON response");
-    throw new Error("Worldpay returned invalid response");
-  }
-  const url = data?.url;
-  if (!url) {
-    console.error("[Worldpay HPP] Response missing url:", data);
-    throw new Error("Worldpay did not return a payment URL");
+    data = JSON.parse(text) as AuthNetResp;
+  } catch {
+    console.error("[Authorize.net] Invalid JSON response:", text.slice(0, 200));
+    throw new Error("Authorize.net returned invalid response");
   }
 
-  return { url, provider: "worldpay", sessionId: transactionReference };
+  const resp = data.getHostedPaymentPageResponse ?? data;
+  const messages = resp.messages;
+  if (messages?.resultCode === "Error") {
+    const errText = messages.message?.map((m) => m.text).filter(Boolean).join("; ") ?? "Unknown error";
+    console.error("[Authorize.net] API error:", errText);
+    throw new Error(`Authorize.net: ${errText}`);
+  }
+
+  const token = resp.token ?? data.token;
+  if (!token) {
+    console.error("[Authorize.net] Response missing token:", data);
+    throw new Error("Authorize.net did not return a payment token");
+  }
+
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || origin;
+  const redirectUrl = `${baseUrl}/api/authorize-net/redirect?token=${encodeURIComponent(token)}`;
+
+  return {
+    url: redirectUrl,
+    provider: "authorize_net",
+    sessionId: transactionRef,
+  };
 }
