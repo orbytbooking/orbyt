@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { ChevronDown, HelpCircle, MessageSquare, LifeBuoy, BookOpen, User, Zap, Users, Target, Star } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { ClientOnly } from '@/components/ClientOnly';
 
 function SupportDropdown() {
   const [open, setOpen] = useState(false);
@@ -74,11 +75,150 @@ const slideInRight = {
   visible: { opacity: 1, x: 0 },
 };
 const viewport = { once: false, amount: 0.12 };
-const transition = { duration: 0.45, ease: [0.25, 0.46, 0.45, 0.94] };
+const easeCubic = [0.25, 0.46, 0.45, 0.94] as [number, number, number, number];
+const transition = { duration: 0.45, ease: easeCubic };
 const stagger = { visible: { transition: { staggerChildren: 0.08, delayChildren: 0.05 } } };
 const cardHover = { scale: 1.02, y: -4, transition: { duration: 0.2 } };
 const buttonHover = { scale: 1.03 };
 const buttonTap = { scale: 0.98 };
+
+function ContactSection() {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [message, setMessage] = useState('');
+  const [status, setStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStatus('sending');
+    setErrorMessage('');
+    try {
+      const res = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), email: email.trim(), message: message.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setStatus('error');
+        setErrorMessage(data.error || 'Failed to send message. Please try again.');
+        return;
+      }
+      setStatus('success');
+      setName('');
+      setEmail('');
+      setMessage('');
+    } catch {
+      setStatus('error');
+      setErrorMessage('Something went wrong. Please try again.');
+    }
+  };
+
+  return (
+    <section className="py-16 px-4 bg-white">
+      <motion.div
+        className="container mx-auto max-w-6xl"
+        initial="hidden"
+        whileInView="visible"
+        viewport={viewport}
+        variants={scrollReveal}
+        transition={transition}
+      >
+        <div className="flex flex-col md:flex-row items-center gap-12">
+          <div className="md:w-1/2">
+            <div className="rounded-2xl overflow-hidden h-full">
+              <img
+                src="/images/contact-support.png"
+                alt="We're here to help, support and connectivity"
+                className="w-full h-full object-cover"
+              />
+            </div>
+          </div>
+          <div className="md:w-1/2 w-full max-w-md">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                  <polyline points="22,6 12,13 2,6"></polyline>
+                </svg>
+              </div>
+              <h2 className="text-2xl md:text-3xl font-bold">We keep you in Orbyt</h2>
+            </div>
+            <p className="text-muted-foreground mb-6">
+              Stuck? Have a question? We're here. Drop us a line and we'll get you back in the loop.
+            </p>
+            {status === 'success' ? (
+              <div className="rounded-lg bg-green-50 border border-green-200 text-green-800 px-4 py-3 text-sm">
+                Thanks! Your message was sent. We typically respond within 24 hours.
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label htmlFor="contact-name" className="block text-sm font-medium text-slate-700 mb-1.5">Name</label>
+                  <input
+                    id="contact-name"
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                    placeholder="Your name"
+                    className="w-full px-4 py-2.5 rounded-md border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="contact-email" className="block text-sm font-medium text-slate-700 mb-1.5">Email address</label>
+                  <input
+                    id="contact-email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    placeholder="you@example.com"
+                    className="w-full px-4 py-2.5 rounded-md border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="contact-message" className="block text-sm font-medium text-slate-700 mb-1.5">Message</label>
+                  <textarea
+                    id="contact-message"
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    required
+                    rows={4}
+                    placeholder="Your message..."
+                    className="w-full px-4 py-2.5 rounded-md border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-y min-h-[100px]"
+                  />
+                </div>
+                {status === 'error' && errorMessage && (
+                  <p className="text-sm text-red-600">{errorMessage}</p>
+                )}
+                <motion.button
+                  type="submit"
+                  disabled={status === 'sending'}
+                  className="w-full inline-flex items-center justify-center bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-70 disabled:cursor-not-allowed text-white font-medium py-3 px-6 rounded-md transition-colors duration-200 group"
+                  whileHover={status === 'sending' ? undefined : buttonHover}
+                  whileTap={status === 'sending' ? undefined : buttonTap}
+                >
+                  {status === 'sending' ? 'Sending...' : 'Send message'}
+                  {status !== 'sending' && (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ml-2 transition-transform group-hover:translate-x-1">
+                      <line x1="5" y1="12" x2="19" y2="12"></line>
+                      <polyline points="12 5 19 12 12 19"></polyline>
+                    </svg>
+                  )}
+                </motion.button>
+              </form>
+            )}
+            <p className="text-sm text-muted-foreground mt-4">
+              We typically respond within 24 hours
+            </p>
+          </div>
+        </div>
+      </motion.div>
+    </section>
+  );
+}
 
 type Testimonial = {
   quote: string;
@@ -179,7 +319,7 @@ export default function Home() {
         className="fixed top-0 left-0 right-0 z-50 border-b border-white/10 bg-slate-900/30 backdrop-blur-md"
         initial={{ opacity: 0, y: -16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+        transition={{ duration: 0.4, ease: easeCubic }}
       >
         <div className="container mx-auto flex h-16 items-center justify-between px-4">
           <a href="/" className="flex items-center gap-3">
@@ -205,6 +345,9 @@ export default function Home() {
             <Link href="/pricing" className="relative pb-0.5 text-white transition-colors hover:text-primary after:absolute after:left-0 after:bottom-0 after:h-0.5 after:w-0 after:bg-primary after:transition-[width] after:content-[''] hover:after:w-full">
               Pricing
             </Link>
+            <Link href="/testimonials" className="relative pb-0.5 text-white transition-colors hover:text-primary after:absolute after:left-0 after:bottom-0 after:h-0.5 after:w-0 after:bg-primary after:transition-[width] after:content-[''] hover:after:w-full">
+              Testimonials
+            </Link>
             <SupportDropdown />
           </nav>
           <div className="flex items-center gap-2">
@@ -225,7 +368,7 @@ export default function Home() {
             className="space-y-6"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
+            transition={{ duration: 0.6, ease: easeCubic }}
           >
             <p className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-200">
               Your Service Business, In Orbyt.
@@ -262,7 +405,7 @@ export default function Home() {
             className="relative group lg:translate-x-4"
             initial={{ opacity: 0, x: 24 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.6, delay: 0.15, ease: [0.25, 0.46, 0.45, 0.94] }}
+            transition={{ duration: 0.6, delay: 0.15, ease: easeCubic }}
           >
             <div
               className="relative rounded-3xl border border-slate-400/20 bg-slate-900/50 backdrop-blur-xl p-8 overflow-hidden"
@@ -313,7 +456,7 @@ export default function Home() {
                             : 'opacity-0 translate-x-4'
                       }`}
                     >
-                      <div className="h-full flex flex-col rounded-xl bg-slate-800/40 backdrop-blur-md p-6 border border-white/10">
+                      <div className="h-full flex flex-col rounded-xl bg-white/5 backdrop-blur-xl p-6 border border-white/20 shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
                         <div className="flex-1 flex items-start">
                           <p className="text-white text-base leading-relaxed">
                             {testimonial.quote}
@@ -954,49 +1097,65 @@ export default function Home() {
             <p className="text-sm text-muted-foreground text-center mb-6">
               The fine print. Same unlimited bookings, different levels of automation and support.
             </p>
-            <Accordion type="single" collapsible className="w-full space-y-3">
-              <AccordionItem value="starter" className="rounded-xl border border-slate-200/80 bg-slate-100/90 dark:bg-slate-800/40 dark:border-slate-700/80 shadow-sm overflow-hidden border-b-0">
-                <AccordionTrigger className="px-4 py-3.5 text-left hover:no-underline hover:bg-slate-200/40 dark:hover:bg-slate-700/40 transition-colors [&[data-state=open]]:rounded-none">
-                  Starter: solo operators and small teams just getting started.
-                </AccordionTrigger>
-                <AccordionContent className="px-4 pb-4 pt-0">
-                  <ul className="space-y-2 text-sm text-muted-foreground">
-                    <li><span className="font-medium text-foreground">Core scheduling &amp; calendar:</span> Accept bookings online 24/7 and see everything in a simple calendar view.</li>
-                    <li><span className="font-medium text-foreground">Unlimited bookings:</span> Take as many appointments as you want with no extra per‑booking fees.</li>
-                    <li><span className="font-medium text-foreground">Email reminders:</span> Reduce no‑shows with automatic confirmation and reminder emails.</li>
-                    <li><span className="font-medium text-foreground">Basic customer profiles:</span> Keep track of client details and service history in one place.</li>
-                  </ul>
-                </AccordionContent>
-              </AccordionItem>
+            <ClientOnly
+              fallback={
+                <div className="w-full space-y-3" aria-hidden>
+                  <div className="rounded-xl border border-slate-200/80 bg-slate-100/90 dark:bg-slate-800/40 dark:border-slate-700/80 shadow-sm overflow-hidden border-b-0 px-4 py-3.5">
+                    <p className="font-medium">Starter: solo operators and small teams just getting started.</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200/80 bg-slate-100/90 dark:bg-slate-800/40 dark:border-slate-700/80 shadow-sm overflow-hidden border-b-0 px-4 py-3.5">
+                    <p className="font-medium">Growth: growing teams that need advanced automation and greater control.</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200/80 bg-slate-100/90 dark:bg-slate-800/40 dark:border-slate-700/80 shadow-sm overflow-hidden border-b-0 px-4 py-3.5">
+                    <p className="font-medium">Pro: established businesses that want full access to all features.</p>
+                  </div>
+                </div>
+              }
+            >
+              <Accordion type="single" collapsible className="w-full space-y-3">
+                <AccordionItem value="starter" className="rounded-xl border border-slate-200/80 bg-slate-100/90 dark:bg-slate-800/40 dark:border-slate-700/80 shadow-sm overflow-hidden border-b-0">
+                  <AccordionTrigger className="px-4 py-3.5 text-left hover:no-underline hover:bg-slate-200/40 dark:hover:bg-slate-700/40 transition-colors [&[data-state=open]]:rounded-none">
+                    Starter: solo operators and small teams just getting started.
+                  </AccordionTrigger>
+                  <AccordionContent className="px-4 pb-4 pt-0">
+                    <ul className="space-y-2 text-sm text-muted-foreground">
+                      <li><span className="font-medium text-foreground">Core scheduling &amp; calendar:</span> Accept bookings online 24/7 and see everything in a simple calendar view.</li>
+                      <li><span className="font-medium text-foreground">Unlimited bookings:</span> Take as many appointments as you want with no extra per‑booking fees.</li>
+                      <li><span className="font-medium text-foreground">Email reminders:</span> Reduce no‑shows with automatic confirmation and reminder emails.</li>
+                      <li><span className="font-medium text-foreground">Basic customer profiles:</span> Keep track of client details and service history in one place.</li>
+                    </ul>
+                  </AccordionContent>
+                </AccordionItem>
 
-              <AccordionItem value="growth" className="rounded-xl border border-slate-200/80 bg-slate-100/90 dark:bg-slate-800/40 dark:border-slate-700/80 shadow-sm overflow-hidden border-b-0">
-                <AccordionTrigger className="px-4 py-3.5 text-left hover:no-underline hover:bg-slate-200/40 dark:hover:bg-slate-700/40 transition-colors [&[data-state=open]]:rounded-none">
-                  Growth: growing teams that need advanced automation and greater control.
-                </AccordionTrigger>
-                <AccordionContent className="px-4 pb-4 pt-0">
-                  <ul className="space-y-2 text-sm text-muted-foreground">
-                    <li><span className="font-medium text-foreground">Advanced scheduling &amp; routing:</span> Assign jobs to the right team members and optimize routes.</li>
-                    <li><span className="font-medium text-foreground">Team management:</span> Add multiple staff, manage availability, and see who is booked where.</li>
-                    <li><span className="font-medium text-foreground">Email &amp; chat support:</span> Get faster help from our support team as you scale.</li>
-                    <li><span className="font-medium text-foreground">Custom branding:</span> Match Orbyt Service to your brand with your logo and colors.</li>
-                  </ul>
-                </AccordionContent>
-              </AccordionItem>
+                <AccordionItem value="growth" className="rounded-xl border border-slate-200/80 bg-slate-100/90 dark:bg-slate-800/40 dark:border-slate-700/80 shadow-sm overflow-hidden border-b-0">
+                  <AccordionTrigger className="px-4 py-3.5 text-left hover:no-underline hover:bg-slate-200/40 dark:hover:bg-slate-700/40 transition-colors [&[data-state=open]]:rounded-none">
+                    Growth: growing teams that need advanced automation and greater control.
+                  </AccordionTrigger>
+                  <AccordionContent className="px-4 pb-4 pt-0">
+                    <ul className="space-y-2 text-sm text-muted-foreground">
+                      <li><span className="font-medium text-foreground">Advanced scheduling &amp; routing:</span> Assign jobs to the right team members and optimize routes.</li>
+                      <li><span className="font-medium text-foreground">Team management:</span> Add multiple staff, manage availability, and see who is booked where.</li>
+                      <li><span className="font-medium text-foreground">Email &amp; chat support:</span> Get faster help from our support team as you scale.</li>
+                      <li><span className="font-medium text-foreground">Custom branding:</span> Match Orbyt Service to your brand with your logo and colors.</li>
+                    </ul>
+                  </AccordionContent>
+                </AccordionItem>
 
-              <AccordionItem value="pro" className="rounded-xl border border-slate-200/80 bg-slate-100/90 dark:bg-slate-800/40 dark:border-slate-700/80 shadow-sm overflow-hidden border-b-0">
-                <AccordionTrigger className="px-4 py-3.5 text-left hover:no-underline hover:bg-slate-200/40 dark:hover:bg-slate-700/40 transition-colors [&[data-state=open]]:rounded-none">
-                  Pro: established businesses that want full access to all features.
-                </AccordionTrigger>
-                <AccordionContent className="px-4 pb-4 pt-0">
-                  <ul className="space-y-2 text-sm text-muted-foreground">
-                    <li><span className="font-medium text-foreground">Everything in Growth:</span> Includes all features from the Starter and Growth plans.</li>
-                    <li><span className="font-medium text-foreground">Priority support:</span> Skip the line with priority response times from our team.</li>
-                    <li><span className="font-medium text-foreground">API access:</span> Connect Orbyt Service to your other tools and internal systems.</li>
-                    <li><span className="font-medium text-foreground">Advanced reporting:</span> Deeper insights into revenue, team performance, and customer behavior.</li>
-                  </ul>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
+                <AccordionItem value="pro" className="rounded-xl border border-slate-200/80 bg-slate-100/90 dark:bg-slate-800/40 dark:border-slate-700/80 shadow-sm overflow-hidden border-b-0">
+                  <AccordionTrigger className="px-4 py-3.5 text-left hover:no-underline hover:bg-slate-200/40 dark:hover:bg-slate-700/40 transition-colors [&[data-state=open]]:rounded-none">
+                    Pro: established businesses that want full access to all features.
+                  </AccordionTrigger>
+                  <AccordionContent className="px-4 pb-4 pt-0">
+                    <ul className="space-y-2 text-sm text-muted-foreground">
+                      <li><span className="font-medium text-foreground">Everything in Growth:</span> Includes all features from the Starter and Growth plans.</li>
+                      <li><span className="font-medium text-foreground">Priority support:</span> Skip the line with priority response times from our team.</li>
+                      <li><span className="font-medium text-foreground">API access:</span> Connect Orbyt Service to your other tools and internal systems.</li>
+                      <li><span className="font-medium text-foreground">Advanced reporting:</span> Deeper insights into revenue, team performance, and customer behavior.</li>
+                    </ul>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            </ClientOnly>
           </motion.div>
           
           {/* Pricing FAQ */}
@@ -1063,57 +1222,7 @@ export default function Home() {
       </section>
 
       {/* Contact Section */}
-      <section className="py-16 px-4 bg-white">
-        <motion.div
-          className="container mx-auto max-w-6xl"
-          initial="hidden"
-          whileInView="visible"
-          viewport={viewport}
-          variants={scrollReveal}
-          transition={transition}
-        >
-          <div className="flex flex-col md:flex-row items-center gap-12">
-            <div className="md:w-1/2">
-              <div className="rounded-2xl overflow-hidden h-full">
-                <img 
-                  src="/images/contact-support.png" 
-                  alt="We're here to help, support and connectivity"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            </div>
-            <div className="md:w-1/2 text-center md:text-left">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 mb-6">
-                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white">
-                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
-                  <polyline points="22,6 12,13 2,6"></polyline>
-                </svg>
-              </div>
-              <h2 className="text-2xl md:text-3xl font-bold mb-4">We keep you in Orbyt</h2>
-              <p className="text-muted-foreground mb-6">
-                Stuck? Have a question? We're here. Drop us a line and we'll get you back in the loop.
-              </p>
-              <div className="space-y-4">
-                <motion.a
-                  href="mailto:hello@orbytservice.com"
-                  className="inline-flex items-center justify-center bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-medium py-3 px-6 rounded-md transition-colors duration-200 group"
-                  whileHover={buttonHover}
-                  whileTap={buttonTap}
-                >
-                  Send us a message
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ml-2 transition-transform group-hover:translate-x-1">
-                    <line x1="5" y1="12" x2="19" y2="12"></line>
-                    <polyline points="12 5 19 12 12 19"></polyline>
-                  </svg>
-                </motion.a>
-                <p className="text-sm text-muted-foreground">
-                  We typically respond within 24 hours
-                </p>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-      </section>
+      <ContactSection />
 
       <footer className="bg-navy text-navy-foreground py-12 px-4 relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-accent/5" />

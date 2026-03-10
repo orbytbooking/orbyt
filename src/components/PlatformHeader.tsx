@@ -89,6 +89,9 @@ export default function PlatformHeader() {
           <Link href="/pricing" className="relative pb-0.5 text-white transition-colors hover:text-primary after:absolute after:left-0 after:bottom-0 after:h-0.5 after:w-0 after:bg-primary after:transition-[width] after:content-[''] hover:after:w-full">
             Pricing
           </Link>
+          <Link href="/testimonials" className="relative pb-0.5 text-white transition-colors hover:text-primary after:absolute after:left-0 after:bottom-0 after:h-0.5 after:w-0 after:bg-primary after:transition-[width] after:content-[''] hover:after:w-full">
+            Testimonials
+          </Link>
           <SupportDropdown />
         </nav>
         <div className="flex items-center gap-2">
@@ -115,6 +118,7 @@ export default function PlatformHeader() {
           <Link href="/about" className="text-white hover:text-primary py-2" onClick={() => setMobileOpen(false)}>About Us</Link>
           <Link href="/features" className="text-white hover:text-primary py-2" onClick={() => setMobileOpen(false)}>Features</Link>
           <Link href="/pricing" className="text-white hover:text-primary py-2" onClick={() => setMobileOpen(false)}>Pricing</Link>
+          <Link href="/testimonials" className="text-white hover:text-primary py-2" onClick={() => setMobileOpen(false)}>Testimonials</Link>
           <Link href="/help-center" className="text-white hover:text-primary py-2" onClick={() => setMobileOpen(false)}>Support</Link>
           <Link href="/auth/login" className="text-white hover:text-primary py-2 font-medium" onClick={() => setMobileOpen(false)}>Log In</Link>
         </div>
