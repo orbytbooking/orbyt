@@ -3,90 +3,61 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ChevronDown, HelpCircle, MessageSquare, LifeBuoy, BookOpen, User, Zap, Users, Target, Star } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
 function SupportDropdown() {
   const [open, setOpen] = useState(false);
-  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  const cancelClose = useCallback(() => {
-    if (closeTimeoutRef.current) {
-      clearTimeout(closeTimeoutRef.current);
-      closeTimeoutRef.current = null;
-    }
-  }, []);
-
-  const scheduleClose = useCallback(() => {
-    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
-    closeTimeoutRef.current = setTimeout(() => setOpen(false), 150);
-  }, []);
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
 
   return (
-    <DropdownMenu.Root open={open} onOpenChange={setOpen}>
-      <div
-        onMouseEnter={() => {
-          cancelClose();
-          setOpen(true);
-        }}
-        onMouseLeave={scheduleClose}
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={`flex items-center gap-1 text-sm font-medium transition-colors outline-none ${open ? 'text-primary' : 'text-white hover:text-primary'}`}
       >
-        <DropdownMenu.Trigger asChild>
-          <button className="flex items-center gap-1 text-sm font-medium text-white transition-colors hover:text-primary [&[data-state=open]]:text-primary outline-none">
-            Support
-            <ChevronDown className="h-4 w-4" />
-          </button>
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content
-            className="min-w-[220px] bg-slate-900/95 backdrop-blur border border-white/10 rounded-md p-2 shadow-xl z-50"
-            sideOffset={10}
-            align="end"
-            onMouseEnter={cancelClose}
-            onMouseLeave={scheduleClose}
-          >
-            <Link href="/help-center">
-              <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer text-white hover:bg-white/10 hover:text-primary">
-                <HelpCircle className="mr-2 h-4 w-4" />
-                <span>Help Center</span>
-              </DropdownMenu.Item>
-            </Link>
-            <Link href="/help-center/faqs">
-              <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer text-white hover:bg-white/10 hover:text-primary">
-                <MessageSquare className="mr-2 h-4 w-4" />
-                <span>FAQs</span>
-              </DropdownMenu.Item>
-            </Link>
-            <Link href="/contact-support">
-              <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer text-white hover:bg-white/10 hover:text-primary">
-                <LifeBuoy className="mr-2 h-4 w-4" />
-                <span>Contact Support</span>
-              </DropdownMenu.Item>
-            </Link>
-            <Link href="/help-center/tutorials">
-              <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer text-white hover:bg-white/10 hover:text-primary">
-                <BookOpen className="mr-2 h-4 w-4" />
-                <span>Tutorials</span>
-              </DropdownMenu.Item>
-            </Link>
-            <Link href="/help-center/account">
-              <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer text-white hover:bg-white/10 hover:text-primary">
-                <User className="mr-2 h-4 w-4" />
-                <span>Account Support</span>
-              </DropdownMenu.Item>
-            </Link>
-            <Link href="/help-center/feature-requests">
-              <DropdownMenu.Item className="group text-sm rounded-sm flex items-center px-2 py-2 outline-none cursor-pointer text-white hover:bg-white/10 hover:text-primary">
-                <Zap className="mr-2 h-4 w-4" />
-                <span>Request a Feature</span>
-              </DropdownMenu.Item>
-            </Link>
-            <DropdownMenu.Arrow className="fill-slate-900" />
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </div>
-    </DropdownMenu.Root>
+        Support
+        <ChevronDown className="h-4 w-4" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full pt-1 min-w-[220px] max-h-[min(70vh,320px)] overflow-y-auto overflow-x-hidden bg-slate-900/95 backdrop-blur border border-white/10 rounded-md p-2 shadow-xl z-50 [scrollbar-gutter:stable]">
+          <Link href="/help-center" className="flex items-center px-2 py-2 text-sm rounded-sm text-white hover:bg-white/10 hover:text-primary transition-colors">
+            <HelpCircle className="mr-2 h-4 w-4 shrink-0" />
+            <span>Help Center</span>
+          </Link>
+          <Link href="/help-center/faqs" className="flex items-center px-2 py-2 text-sm rounded-sm text-white hover:bg-white/10 hover:text-primary transition-colors">
+            <MessageSquare className="mr-2 h-4 w-4 shrink-0" />
+            <span>FAQs</span>
+          </Link>
+          <Link href="/contact-support" className="flex items-center px-2 py-2 text-sm rounded-sm text-white hover:bg-white/10 hover:text-primary transition-colors">
+            <LifeBuoy className="mr-2 h-4 w-4 shrink-0" />
+            <span>Contact Support</span>
+          </Link>
+          <Link href="/help-center/tutorials" className="flex items-center px-2 py-2 text-sm rounded-sm text-white hover:bg-white/10 hover:text-primary transition-colors">
+            <BookOpen className="mr-2 h-4 w-4 shrink-0" />
+            <span>Tutorials</span>
+          </Link>
+          <Link href="/help-center/account" className="flex items-center px-2 py-2 text-sm rounded-sm text-white hover:bg-white/10 hover:text-primary transition-colors">
+            <User className="mr-2 h-4 w-4 shrink-0" />
+            <span>Account Support</span>
+          </Link>
+          <Link href="/help-center/feature-requests" className="flex items-center px-2 py-2 text-sm rounded-sm text-white hover:bg-white/10 hover:text-primary transition-colors">
+            <Zap className="mr-2 h-4 w-4 shrink-0" />
+            <span>Request a Feature</span>
+          </Link>
+        </div>
+      )}
+    </div>
   );
 }
 
