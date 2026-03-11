@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
 import { getCancellationFeeForBooking } from '@/lib/cancellationFee';
+import { syncBookingCancelled } from '@/lib/googleCalendar';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -173,7 +174,7 @@ export async function PATCH(
 
   const { data: booking, error: fetchError } = await supabase
     .from('bookings')
-    .select('id, customer_id, business_id, scheduled_date, scheduled_time, date, time, service_id')
+    .select('id, customer_id, business_id, scheduled_date, scheduled_time, date, time, service_id, google_calendar_event_id')
     .eq('id', bookingId)
     .single();
 
@@ -242,6 +243,7 @@ export async function PATCH(
   }
 
   if (status === 'cancelled' && booking.business_id) {
+    await syncBookingCancelled(booking.business_id, booking).catch(() => {});
     const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
     await createAdminNotification(booking.business_id, 'cancellation_request', {
       title: 'Cancellation request',

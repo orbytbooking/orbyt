@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
+import { syncBookingCreated } from '@/lib/googleCalendar';
 import { notifyProviderOfBooking } from '@/lib/notifyProviderBooking';
 
 export async function POST(request: Request) {
@@ -216,6 +217,11 @@ export async function POST(request: Request) {
           })
         })
         .eq('provider_id', providerId);
+    }
+
+    const eventId = await syncBookingCreated(businessId, booking).catch(() => null);
+    if (eventId) {
+      await supabaseAdmin.from('bookings').update({ google_calendar_event_id: eventId }).eq('id', booking.id).eq('business_id', businessId);
     }
 
     const bkRef = `BK${String(booking.id).slice(-6).toUpperCase()}`;

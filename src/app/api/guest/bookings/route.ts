@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
 import { processBookingScheduling } from '@/lib/bookingScheduling';
 import { EmailService } from '@/lib/emailService';
+import { syncBookingCreated } from '@/lib/googleCalendar';
 import { getStoreOptionsScheduling, isDateHoliday, getSpotLimits, getBookingCountForDate, getBookingCountForWeek, isTimeSlotAvailableForBooking } from '@/lib/schedulingFilters';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -312,6 +313,11 @@ export async function POST(request: NextRequest) {
     scheduledDate: booking.scheduled_date ?? booking.date,
     service: booking.service,
   }).catch((e) => console.warn('Scheduling processing failed:', e));
+
+  const eventId = await syncBookingCreated(businessId, booking).catch(() => null);
+  if (eventId) {
+    await supabase.from('bookings').update({ google_calendar_event_id: eventId }).eq('id', booking.id).eq('business_id', businessId);
+  }
 
   const bkRef = `BK${String(booking.id).slice(-6).toUpperCase()}`;
   await createAdminNotification(businessId, 'new_booking', {

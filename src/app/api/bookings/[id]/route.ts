@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
 import { getCancellationFeeForBooking } from '@/lib/cancellationFee';
+import { syncBookingCancelled, syncBookingUpdated } from '@/lib/googleCalendar';
 
 export async function GET(
   request: Request,
@@ -348,6 +349,15 @@ export async function PUT(
 
     if (bookingError) {
       return NextResponse.json({ error: bookingError.message }, { status: 500 });
+    }
+
+    if (booking.status === 'cancelled') {
+      await syncBookingCancelled(businessId, booking).catch(() => {});
+    } else {
+      const newEventId = await syncBookingUpdated(businessId, booking).catch(() => null);
+      if (newEventId) {
+        await supabase.from('bookings').update({ google_calendar_event_id: newEventId }).eq('id', bookingId).eq('business_id', businessId);
+      }
     }
 
     const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;

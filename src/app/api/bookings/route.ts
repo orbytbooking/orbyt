@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { MultiTenantHelper } from '@/lib/multiTenantSupabase';
 import { createAdminNotification } from '@/lib/adminProviderSync';
+import { syncBookingCreated } from '@/lib/googleCalendar';
 import { getStoreOptionsScheduling, isDateHoliday } from '@/lib/schedulingFilters';
 
 export async function GET(request: Request) {
@@ -425,6 +426,10 @@ export async function POST(request: Request) {
         const warning = msg.includes('customization')
           ? 'Customization column not found. Run migration 018 to save exclude quantities and partial cleaning.'
           : (msg.includes('provider_wage') ? 'Run migration 012 for provider wage.' : '');
+        const eventIdRetry = await syncBookingCreated(businessId, retryBooking).catch(() => null);
+        if (eventIdRetry) {
+          await supabase.from('bookings').update({ google_calendar_event_id: eventIdRetry }).eq('id', retryBooking.id).eq('business_id', businessId);
+        }
         const bkRef = `BK${String(retryBooking.id).slice(-6).toUpperCase()}`;
         const assignMsg = retryBooking.provider_id ? ' and assigned to provider' : '';
         await createAdminNotification(businessId, 'new_booking', {
@@ -453,6 +458,11 @@ export async function POST(request: Request) {
       provider_id: booking.provider_id,
       status: booking.status
     });
+
+    const eventId = await syncBookingCreated(businessId, booking).catch(() => null);
+    if (eventId) {
+      await supabase.from('bookings').update({ google_calendar_event_id: eventId }).eq('id', booking.id).eq('business_id', businessId);
+    }
 
     const bkRef = `BK${String(booking.id).slice(-6).toUpperCase()}`;
     const assignMsg = booking.provider_id ? ' and assigned to provider' : '';
