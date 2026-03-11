@@ -1,6 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { ChevronRight, Key, Mail, User, Lock, Bell, CreditCard, Shield } from "lucide-react";
 import Link from "next/link";
+import PlatformHeader from "@/components/PlatformHeader";
+import Footer from "@/components/Footer";
 
 export default function AccountSupportPage() {
   const accountTopics: Array<{
@@ -213,8 +215,10 @@ export default function AccountSupportPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto">
+    <>
+      <PlatformHeader />
+      <div className="min-h-screen bg-gray-50 pt-24 pb-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-4xl mx-auto">
         <div className="text-center mb-12">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
             <User className="h-8 w-8 text-primary" />
@@ -301,7 +305,10 @@ export default function AccountSupportPage() {
                 Visit Help Center
               </Link>
             </Button>
-            <Button asChild>
+            <Button
+              asChild
+              className="bg-gradient-to-r from-sky-500 via-indigo-500 to-purple-600 hover:from-sky-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-md"
+            >
               <Link href="/contact-support" className="inline-flex items-center">
                 Contact Support
                 <ChevronRight className="ml-2 h-4 w-4" />
@@ -311,5 +318,7 @@ export default function AccountSupportPage() {
         </div>
       </div>
     </div>
+      <Footer />
+    </>
   );
 }
