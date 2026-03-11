@@ -39,8 +39,8 @@ export async function GET(request: NextRequest) {
       .eq("business_id", businessId);
 
     if (fetchErr) {
-      if (fetchErr.code === "42P01") return NextResponse.json({ config: {} });
-      throw fetchErr;
+      console.warn("Integrations GET business_integrations query:", fetchErr.code, fetchErr.message);
+      return NextResponse.json({ config: {} });
     }
 
     const config: Record<string, { enabled: boolean; configured: boolean }> = {};
