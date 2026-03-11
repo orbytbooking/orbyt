@@ -243,6 +243,7 @@ export default function GeneralSettingsPage() {
   const [authorizeNetApiKey, setAuthorizeNetApiKey] = useState('');
   const [stripeConnecting, setStripeConnecting] = useState(false);
   const [authorizeNetSaving, setAuthorizeNetSaving] = useState(false);
+  const [googleCalendarDisconnecting, setGoogleCalendarDisconnecting] = useState(false);
   const [stripePublishKey, setStripePublishKey] = useState('');
   const [stripeSecretKey, setStripeSecretKey] = useState('');
   const [paymentProcessorEnabled, setPaymentProcessorEnabled] = useState(true);
@@ -460,7 +461,7 @@ export default function GeneralSettingsPage() {
         const config: Record<string, { enabled: boolean; configured: boolean }> = { ...(intData.config || {}) };
         if (payData.stripeConnected) config.stripe = { enabled: true, configured: true };
         if (payData.authorizeNetApiLoginId) config.authorize_net = { enabled: true, configured: true };
-        setIntegrationConfig(config);
+        setIntegrationConfig((prev) => ({ ...prev, ...config }));
       })
       .catch(() => {});
   }, [currentBusiness?.id]);
@@ -478,7 +479,7 @@ export default function GeneralSettingsPage() {
         const config: Record<string, { enabled: boolean; configured: boolean }> = { ...(intData.config || {}) };
         if (payData.stripeConnected) config.stripe = { enabled: true, configured: true };
         if (payData.authorizeNetApiLoginId) config.authorize_net = { enabled: true, configured: true };
-        setIntegrationConfig(config);
+        setIntegrationConfig((prev) => ({ ...prev, ...config }));
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -487,8 +488,21 @@ export default function GeneralSettingsPage() {
   useEffect(() => {
     const gc = searchParams.get('google_calendar');
     if (gc === 'success') {
+      setIntegrationConfig((prev) => ({ ...prev, google_calendar: { enabled: true, configured: true } }));
       toast.success('Google Calendar connected successfully.');
-      fetchIntegrationConfig();
+      if (currentBusiness?.id) {
+        const bizId = currentBusiness.id;
+        const t = Date.now();
+        Promise.all([
+          fetch(`/api/admin/integrations?business=${encodeURIComponent(bizId)}&_t=${t}`, { credentials: 'include', headers: { 'x-business-id': bizId }, cache: 'no-store' }).then((r) => r.json()),
+          fetch(`/api/admin/payment-settings?business=${encodeURIComponent(bizId)}`, { credentials: 'include', headers: { 'x-business-id': bizId } }).then((r) => r.json()),
+        ]).then(([intData, payData]) => {
+          const config: Record<string, { enabled: boolean; configured: boolean }> = { ...(intData.config || {}) };
+          if (payData?.stripeConnected) config.stripe = { enabled: true, configured: true };
+          if (payData?.authorizeNetApiLoginId) config.authorize_net = { enabled: true, configured: true };
+          setIntegrationConfig((prev) => ({ ...prev, ...config }));
+        }).catch(() => {});
+      }
       router.replace('/admin/settings/general?tab=apps-integrations');
     } else if (gc === 'error') {
       const msg = searchParams.get('message') || 'Connection failed.';
@@ -4940,20 +4954,51 @@ export default function GeneralSettingsPage() {
                       {integrationConfig[app.slug]?.configured ? "Configured" : "Click here"}
                     </Button>
                   ) : app.connectGoogleCalendar ? (
-                    <Button
-                      variant={integrationConfig[app.slug]?.configured ? "secondary" : "outline"}
-                      size="sm"
-                      asChild={!integrationConfig[app.slug]?.configured}
-                      onClick={integrationConfig[app.slug]?.configured ? undefined : undefined}
-                    >
-                      {integrationConfig[app.slug]?.configured ? (
-                        <span>Connected</span>
-                      ) : (
-                        <Link href={currentBusiness?.id ? `/api/admin/integrations/google-calendar/connect?business=${encodeURIComponent(currentBusiness.id)}` : '#'}>
+                    integrationConfig[app.slug]?.configured ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-muted-foreground">Connected</span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={googleCalendarDisconnecting}
+                          onClick={async () => {
+                            if (!currentBusiness?.id) return;
+                            setGoogleCalendarDisconnecting(true);
+                            try {
+                              const res = await fetch('/api/admin/integrations', {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json', 'x-business-id': currentBusiness.id },
+                                body: JSON.stringify({
+                                  providerSlug: 'google_calendar',
+                                  apiKey: null,
+                                  apiSecret: null,
+                                }),
+                                credentials: 'include',
+                              });
+                              if (res.ok) {
+                                setIntegrationConfig((prev) => ({ ...prev, google_calendar: { enabled: false, configured: false } }));
+                                toast.success('Google Calendar disconnected.');
+                              } else {
+                                const data = await res.json().catch(() => ({}));
+                                toast.error(data.error || 'Failed to disconnect');
+                              }
+                            } catch {
+                              toast.error('Failed to disconnect');
+                            } finally {
+                              setGoogleCalendarDisconnecting(false);
+                            }
+                          }}
+                        >
+                          {googleCalendarDisconnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Disconnect'}
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button variant="outline" size="sm" asChild>
+                        <Link href={currentBusiness?.id ? `/api/admin/integrations/google-calendar/connect?business=${encodeURIComponent(currentBusiness.id)}` : '#'} prefetch={false}>
                           Connect Google Calendar
                         </Link>
-                      )}
-                    </Button>
+                      </Button>
+                    )
                   ) : (
                     <Button
                       variant={integrationConfig[app.slug]?.configured ? "secondary" : "outline"}
