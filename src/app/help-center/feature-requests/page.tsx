@@ -1,11 +1,22 @@
+"use client";
+
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Check, ChevronRight, Zap } from "lucide-react";
 import Link from "next/link";
+import PlatformHeader from "@/components/PlatformHeader";
+import Footer from "@/components/Footer";
 
 export default function FeatureRequestsPage() {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [email, setEmail] = useState("");
+  const [status, setStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState("");
+
   const popularFeatures = [
     "Mobile app for service providers",
     "Recurring payment options",
@@ -22,8 +33,10 @@ export default function FeatureRequestsPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto">
+    <>
+      <PlatformHeader />
+      <div className="min-h-screen bg-gray-50 pt-24 pb-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-4xl mx-auto">
         <div className="text-center mb-12">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
             <Zap className="h-8 w-8 text-primary" />
@@ -34,8 +47,44 @@ export default function FeatureRequestsPage() {
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-12">
           <h2 className="text-2xl font-semibold text-gray-900 mb-6">Submit Your Idea</h2>
-          
-          <form className="space-y-6">
+
+          {status === "success" ? (
+            <div className="rounded-lg bg-green-50 border border-green-200 text-green-800 px-4 py-3 text-sm">
+              Thanks! Your feature request was submitted. We review all ideas and will reach out if we need more details.
+            </div>
+          ) : (
+          <form
+            className="space-y-6"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setStatus("sending");
+              setErrorMessage("");
+              try {
+                const res = await fetch("/api/feature-request", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    title: title.trim(),
+                    description: description.trim(),
+                    email: email.trim() || undefined,
+                  }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                  setStatus("error");
+                  setErrorMessage(data.error || "Failed to submit. Please try again.");
+                  return;
+                }
+                setStatus("success");
+                setTitle("");
+                setDescription("");
+                setEmail("");
+              } catch {
+                setStatus("error");
+                setErrorMessage("Something went wrong. Please try again.");
+              }
+            }}
+          >
             <div>
               <Label htmlFor="feature-title" className="block text-sm font-medium text-gray-700 mb-1">
                 Feature Title
@@ -45,6 +94,8 @@ export default function FeatureRequestsPage() {
                 id="feature-title"
                 placeholder="e.g., Add support for recurring payments"
                 className="w-full"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
                 required
               />
             </div>
@@ -61,6 +112,8 @@ export default function FeatureRequestsPage() {
                 placeholder="Please describe your feature request in detail..."
                 rows={6}
                 className="w-full"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
                 required
               />
             </div>
@@ -77,15 +130,26 @@ export default function FeatureRequestsPage() {
                 type="email"
                 placeholder="your.email@example.com"
                 className="w-full"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
               />
             </div>
 
+            {status === "error" && errorMessage && (
+              <p className="text-sm text-red-600">{errorMessage}</p>
+            )}
+
             <div className="flex justify-end">
-              <Button type="submit" className="bg-primary hover:bg-primary/90">
-                Submit Feature Request
+              <Button
+                type="submit"
+                className="bg-gradient-to-r from-sky-500 via-indigo-500 to-purple-600 hover:from-sky-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-md"
+                disabled={status === "sending"}
+              >
+                {status === "sending" ? "Submitting..." : "Submit Feature Request"}
               </Button>
             </div>
           </form>
+          )}
         </div>
 
         <div className="grid md:grid-cols-2 gap-8 mb-12">
@@ -136,7 +200,10 @@ export default function FeatureRequestsPage() {
                 Visit Help Center
               </Link>
             </Button>
-            <Button asChild>
+            <Button
+              asChild
+              className="bg-gradient-to-r from-sky-500 via-indigo-500 to-purple-600 hover:from-sky-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-md"
+            >
               <Link href="/contact-support" className="inline-flex items-center">
                 Contact Support
                 <ChevronRight className="ml-2 h-4 w-4" />
@@ -146,5 +213,7 @@ export default function FeatureRequestsPage() {
         </div>
       </div>
     </div>
+      <Footer />
+    </>
   );
 }

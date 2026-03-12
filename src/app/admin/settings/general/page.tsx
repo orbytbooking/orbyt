@@ -4925,6 +4925,8 @@ export default function GeneralSettingsPage() {
               { slug: "twilio", name: "Twilio", description: "Send SMS notifications to customers and providers.", connectGoogleCalendar: false, isPayment: false },
               { slug: "google_calendar", name: "Google Calendar", description: "Sync your bookings to Google Calendar automatically.", connectGoogleCalendar: true, isPayment: false },
               { slug: "quickbooks", name: "QuickBooks", description: "Sync all transactions automatically to QuickBooks.", connectGoogleCalendar: false, isPayment: false },
+              { slug: "taxify", name: "Taxify", description: "Calculate and manage sales tax automatically for your transactions.", connectGoogleCalendar: false, isPayment: false },
+              { slug: "paypal", name: "PayPal", description: "Accept PayPal and PayPal-branded payment methods from your customers.", connectGoogleCalendar: false, isPayment: false },
             ].map((app) => (
               <div key={app.slug} className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-lg border bg-card p-4">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">

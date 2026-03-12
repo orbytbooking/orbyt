@@ -1,11 +1,23 @@
+"use client";
+
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Mail, Phone, MapPin, Clock, MessageSquare, CheckCircle } from "lucide-react";
 import Link from "next/link";
+import PlatformHeader from "@/components/PlatformHeader";
+import Footer from "@/components/Footer";
 
 export default function ContactSupport() {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [subject, setSubject] = useState("");
+  const [message, setMessage] = useState("");
+  const [status, setStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState("");
+
   const contactMethods = [
     {
       icon: <Mail className="h-6 w-6 text-primary" />,
@@ -37,8 +49,10 @@ export default function ContactSupport() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 pt-24 pb-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
+    <>
+      <PlatformHeader />
+      <div className="min-h-screen bg-gray-50 pt-24 pb-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto">
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold text-gray-900 mb-4">Contact Our Support Team</h1>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
@@ -55,43 +69,112 @@ export default function ContactSupport() {
               </CardDescription>
             </CardHeader>
             <CardContent className="px-0">
-              <form className="space-y-6">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label htmlFor="name" className="text-sm font-medium leading-none">
-                      Full Name <span className="text-red-500">*</span>
-                    </label>
-                    <Input id="name" placeholder="John Doe" required />
+              {status === "success" ? (
+                <div className="rounded-lg bg-green-50 border border-green-200 text-green-800 px-4 py-3 text-sm">
+                  Thanks! Your message was sent. We typically respond within 24 hours.
+                </div>
+              ) : (
+                <form
+                  className="space-y-6"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    setStatus("sending");
+                    setErrorMessage("");
+                    try {
+                      const body = {
+                        name: name.trim(),
+                        email: email.trim(),
+                        message: subject.trim()
+                          ? `Subject: ${subject.trim()}\n\n${message.trim()}`
+                          : message.trim(),
+                      };
+                      const res = await fetch("/api/contact", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(body),
+                      });
+                      const data = await res.json().catch(() => ({}));
+                      if (!res.ok) {
+                        setStatus("error");
+                        setErrorMessage(data.error || "Failed to send message. Please try again.");
+                        return;
+                      }
+                      setStatus("success");
+                      setName("");
+                      setEmail("");
+                      setSubject("");
+                      setMessage("");
+                    } catch {
+                      setStatus("error");
+                      setErrorMessage("Something went wrong. Please try again.");
+                    }
+                  }}
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label htmlFor="name" className="text-sm font-medium leading-none">
+                        Full Name <span className="text-red-500">*</span>
+                      </label>
+                      <Input
+                        id="name"
+                        placeholder="John Doe"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label htmlFor="email" className="text-sm font-medium leading-none">
+                        Email <span className="text-red-500">*</span>
+                      </label>
+                      <Input
+                        id="email"
+                        type="email"
+                        placeholder="you@example.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                      />
+                    </div>
                   </div>
                   <div className="space-y-2">
-                    <label htmlFor="email" className="text-sm font-medium leading-none">
-                      Email <span className="text-red-500">*</span>
+                    <label htmlFor="subject" className="text-sm font-medium leading-none">
+                      Subject <span className="text-red-500">*</span>
                     </label>
-                    <Input id="email" type="email" placeholder="you@example.com" required />
+                    <Input
+                      id="subject"
+                      placeholder="How can we help you?"
+                      value={subject}
+                      onChange={(e) => setSubject(e.target.value)}
+                      required
+                    />
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <label htmlFor="subject" className="text-sm font-medium leading-none">
-                    Subject <span className="text-red-500">*</span>
-                  </label>
-                  <Input id="subject" placeholder="How can we help you?" required />
-                </div>
-                <div className="space-y-2">
-                  <label htmlFor="message" className="text-sm font-medium leading-none">
-                    Message <span className="text-red-500">*</span>
-                  </label>
-                  <Textarea
-                    id="message"
-                    placeholder="Tell us about your inquiry..."
-                    className="min-h-[150px]"
-                    required
-                  />
-                </div>
-                <Button type="submit" className="w-full sm:w-auto">
-                  <MessageSquare className="mr-2 h-5 w-5" />
-                  Send Message
-                </Button>
-              </form>
+                  <div className="space-y-2">
+                    <label htmlFor="message" className="text-sm font-medium leading-none">
+                      Message <span className="text-red-500">*</span>
+                    </label>
+                    <Textarea
+                      id="message"
+                      placeholder="Tell us about your inquiry..."
+                      className="min-h-[150px]"
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
+                      required
+                    />
+                  </div>
+                  {status === "error" && errorMessage && (
+                    <p className="text-sm text-red-600">{errorMessage}</p>
+                  )}
+                  <Button
+                    type="submit"
+                    className="w-full sm:w-auto bg-gradient-to-r from-sky-500 via-indigo-500 to-purple-600 hover:from-sky-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-md"
+                    disabled={status === "sending"}
+                  >
+                    <MessageSquare className="mr-2 h-5 w-5" />
+                    {status === "sending" ? "Sending..." : "Send Message"}
+                  </Button>
+                </form>
+              )}
             </CardContent>
           </Card>
 
@@ -151,5 +234,7 @@ export default function ContactSupport() {
         </div>
       </div>
     </div>
+      <Footer />
+    </>
   );
 }

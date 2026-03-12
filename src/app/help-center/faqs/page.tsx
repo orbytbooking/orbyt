@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { ChevronRight, HelpCircle, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import type { FAQ } from "@/components/admin/FAQsManager";
+import PlatformHeader from "@/components/PlatformHeader";
+import Footer from "@/components/Footer";
 
 const FAQS_STORAGE_KEY = 'orbyt_faqs';
 
@@ -63,8 +65,10 @@ export default function FAQPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto">
+    <>
+      <PlatformHeader />
+      <div className="min-h-screen bg-gray-50 pt-24 pb-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-4xl mx-auto">
         <div className="text-center mb-12">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
             <HelpCircle className="h-8 w-8 text-primary" />
@@ -96,7 +100,10 @@ export default function FAQPage() {
           <h3 className="mt-4 text-lg font-medium text-gray-900">Still have questions?</h3>
           <p className="mt-2 text-gray-600">Can't find the answer you're looking for? Our support team is here to help.</p>
           <div className="mt-6">
-            <Button asChild>
+            <Button
+              asChild
+              className="bg-gradient-to-r from-sky-500 via-indigo-500 to-purple-600 hover:from-sky-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-md"
+            >
               <Link href="/contact-support" className="inline-flex items-center">
                 Contact Support
                 <ChevronRight className="ml-2 h-4 w-4" />
@@ -106,5 +113,7 @@ export default function FAQPage() {
         </div>
       </div>
     </div>
+      <Footer />
+    </>
   );
 }

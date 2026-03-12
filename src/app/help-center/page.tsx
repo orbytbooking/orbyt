@@ -6,6 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Search, HelpCircle, MessageSquare, LifeBuoy, BookOpen, User, Zap } from "lucide-react";
 import Link from "next/link";
+import PlatformHeader from "@/components/PlatformHeader";
+import Footer from "@/components/Footer";
 
 export default function HelpCenter() {
   const helpTopics = [
@@ -64,8 +66,10 @@ export default function HelpCenter() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 pt-24 pb-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
+    <>
+      <PlatformHeader />
+      <div className="min-h-screen bg-gray-50 pt-24 pb-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto">
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold text-gray-900 mb-4">How can we help you?</h1>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
@@ -118,7 +122,11 @@ export default function HelpCenter() {
           </CardHeader>
           <CardContent>
             <div className="flex flex-col sm:flex-row gap-4">
-              <Button asChild size="lg" className="bg-primary hover:bg-primary/90">
+              <Button
+                asChild
+                size="lg"
+                className="bg-gradient-to-r from-sky-500 via-indigo-500 to-purple-600 hover:from-sky-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-md"
+              >
                 <Link href="/contact-support" className="flex items-center gap-2">
                   <MessageSquare className="h-5 w-5" />
                   Contact Support
@@ -135,5 +143,7 @@ export default function HelpCenter() {
         </Card>
       </div>
     </div>
+      <Footer />
+    </>
   );
 }

@@ -9,7 +9,7 @@ const Footer = ({ data, branding, headerData }: { data?: any; branding?: any; he
   const pathname = usePathname();
 
   // Use Orbyt Service platform branding on platform legal/marketing pages (no business context)
-  const isPlatformPage = pathname === "/terms-and-conditions" || pathname === "/privacy-policy" || pathname === "/" || pathname === "/features" || pathname.startsWith("/login") || pathname === "/customer-auth";
+  const isPlatformPage = pathname === "/terms-and-conditions" || pathname === "/privacy-policy" || pathname === "/" || pathname === "/features" || pathname.startsWith("/login") || pathname === "/customer-auth" || pathname === "/contact-support" || pathname.startsWith("/help-center");
   const usePlatformFooter = isPlatformPage && !data && !branding;
   const platformBranding = usePlatformFooter
     ? {
