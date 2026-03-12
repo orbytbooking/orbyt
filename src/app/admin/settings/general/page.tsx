@@ -244,6 +244,7 @@ export default function GeneralSettingsPage() {
   const [stripeConnecting, setStripeConnecting] = useState(false);
   const [authorizeNetSaving, setAuthorizeNetSaving] = useState(false);
   const [googleCalendarDisconnecting, setGoogleCalendarDisconnecting] = useState(false);
+  const [googleCalendarSyncing, setGoogleCalendarSyncing] = useState(false);
   const [stripePublishKey, setStripePublishKey] = useState('');
   const [stripeSecretKey, setStripeSecretKey] = useState('');
   const [paymentProcessorEnabled, setPaymentProcessorEnabled] = useState(true);
@@ -510,6 +511,26 @@ export default function GeneralSettingsPage() {
         }).catch((e) => {
           console.warn('Integrations refetch after connect failed', e);
         });
+        // Sync system calendar (bookings) to Google Calendar
+        fetch('/api/admin/integrations/google-calendar/sync-existing', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'x-business-id': bizId },
+          body: JSON.stringify({ businessId: bizId }),
+        })
+          .then((r) => r.json())
+          .then((data: { synced?: number; failed?: number; skippedNoDate?: number; total?: number }) => {
+            if (data.synced != null && data.total != null) {
+              if (data.synced > 0) {
+                let msg = `${data.synced} booking(s) synced to Google Calendar.`;
+                if (data.failed) msg += ` ${data.failed} failed.`;
+                if (data.skippedNoDate) msg += ` ${data.skippedNoDate} skipped (no date).`;
+                toast.success(msg);
+              } else if (data.total === 0) toast.success('Google Calendar connected. No existing bookings to sync.');
+              else if (data.failed || data.skippedNoDate) toast.info(`Sync finished. ${data.synced} synced, ${data.failed || 0} failed, ${data.skippedNoDate || 0} skipped (no date).`);
+            }
+          })
+          .catch(() => {});
       }
       router.replace('/admin/settings/general?tab=apps-integrations');
     } else if (gc === 'error') {
@@ -4965,12 +4986,45 @@ export default function GeneralSettingsPage() {
                     </Button>
                   ) : app.connectGoogleCalendar ? (
                     integrationConfig[app.slug]?.configured ? (
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-medium text-muted-foreground">Connected</span>
                         <Button
                           variant="outline"
                           size="sm"
-                          disabled={googleCalendarDisconnecting}
+                          disabled={googleCalendarSyncing || googleCalendarDisconnecting}
+                          onClick={async () => {
+                            if (!currentBusiness?.id) return;
+                            setGoogleCalendarSyncing(true);
+                            try {
+                              const res = await fetch('/api/admin/integrations/google-calendar/sync-existing', {
+                                method: 'POST',
+                                credentials: 'include',
+                                headers: { 'Content-Type': 'application/json', 'x-business-id': currentBusiness.id },
+                                body: JSON.stringify({ businessId: currentBusiness.id }),
+                              });
+                              const data = await res.json().catch(() => ({}));
+                              if (res.ok && data.synced != null) {
+                                if (data.synced > 0) {
+                                  let msg = `${data.synced} booking(s) synced to Google Calendar.`;
+                                  if (data.failed) msg += ` ${data.failed} failed.`;
+                                  if (data.skippedNoDate) msg += ` ${data.skippedNoDate} skipped (no date).`;
+                                  toast.success(msg);
+                                } else if (data.total === 0) toast.success('No bookings in system calendar to sync.');
+                                else toast.info(`Sync finished. ${data.synced} synced, ${data.failed || 0} failed, ${data.skippedNoDate || 0} skipped.`);
+                              } else toast.error(data.error || 'Sync failed');
+                            } catch {
+                              toast.error('Sync failed');
+                            } finally {
+                              setGoogleCalendarSyncing(false);
+                            }
+                          }}
+                        >
+                          {googleCalendarSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Sync to Google Calendar'}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={googleCalendarSyncing || googleCalendarDisconnecting}
                           onClick={async () => {
                             if (!currentBusiness?.id) return;
                             setGoogleCalendarDisconnecting(true);

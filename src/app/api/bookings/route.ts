@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { MultiTenantHelper } from '@/lib/multiTenantSupabase';
 import { createAdminNotification } from '@/lib/adminProviderSync';
-import { syncBookingCreated } from '@/lib/googleCalendar';
+import { syncBookingCreated, createRecurringCalendarEvent } from '@/lib/googleCalendar';
 import { getStoreOptionsScheduling, isDateHoliday } from '@/lib/schedulingFilters';
 
 export async function GET(request: Request) {
@@ -327,6 +327,15 @@ export async function POST(request: Request) {
         });
         const { data: firstBooking } = await supabase.from('bookings').select('*').eq('id', bookingIds[0]).single();
         const bkRef = `BK${String(bookingIds[0]).slice(-6).toUpperCase()}`;
+        if (firstBooking) {
+          const { data: series } = await supabase.from('recurring_series').select('start_date, end_date, frequency, frequency_repeats, occurrences_ahead').eq('id', seriesId).single();
+          const eventId = series
+            ? await createRecurringCalendarEvent(businessId, firstBooking, series).catch(() => null)
+            : await syncBookingCreated(businessId, firstBooking).catch(() => null);
+          if (eventId) {
+            await supabase.from('bookings').update({ google_calendar_event_id: eventId }).eq('id', firstBooking.id).eq('business_id', businessId);
+          }
+        }
         await createAdminNotification(businessId, 'new_booking', {
           title: 'Recurring series created',
           message: `Recurring booking ${bkRef} created with ${bookingIds.length} occurrences.`,
@@ -459,9 +468,16 @@ export async function POST(request: Request) {
       status: booking.status
     });
 
-    const eventId = await syncBookingCreated(businessId, booking).catch(() => null);
+    console.log('[googleCalendar] Attempting sync for booking', booking.id, 'business', businessId, { scheduled_date: booking.scheduled_date ?? booking.date, scheduled_time: booking.scheduled_time ?? booking.time });
+    const eventId = await syncBookingCreated(businessId, booking).catch((err) => {
+      console.warn('[googleCalendar] Sync threw:', err);
+      return null;
+    });
     if (eventId) {
       await supabase.from('bookings').update({ google_calendar_event_id: eventId }).eq('id', booking.id).eq('business_id', businessId);
+      console.log('[googleCalendar] Event created and saved:', eventId);
+    } else {
+      console.warn('[googleCalendar] No event id returned (check logs above for reason)');
     }
 
     const bkRef = `BK${String(booking.id).slice(-6).toUpperCase()}`;

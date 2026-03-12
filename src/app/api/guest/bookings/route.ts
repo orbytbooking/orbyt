@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
 import { processBookingScheduling } from '@/lib/bookingScheduling';
 import { EmailService } from '@/lib/emailService';
-import { syncBookingCreated } from '@/lib/googleCalendar';
+import { syncBookingCreated, createRecurringCalendarEvent } from '@/lib/googleCalendar';
 import { getStoreOptionsScheduling, isDateHoliday, getSpotLimits, getBookingCountForDate, getBookingCountForWeek, isTimeSlotAvailableForBooking } from '@/lib/schedulingFilters';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -259,6 +259,15 @@ export async function POST(request: NextRequest) {
       });
       const { data: firstBooking } = await supabase.from('bookings').select('*').eq('id', bookingIds[0]).single();
       const bkRef = `BK${String(bookingIds[0]).slice(-6).toUpperCase()}`;
+      if (firstBooking) {
+        const { data: series } = await supabase.from('recurring_series').select('start_date, end_date, frequency, frequency_repeats, occurrences_ahead').eq('id', seriesId).single();
+        const eventId = series
+          ? await createRecurringCalendarEvent(businessId, firstBooking, series).catch(() => null)
+          : await syncBookingCreated(businessId, firstBooking).catch(() => null);
+        if (eventId) {
+          await supabase.from('bookings').update({ google_calendar_event_id: eventId }).eq('id', firstBooking.id).eq('business_id', businessId);
+        }
+      }
       await createAdminNotification(businessId, 'new_booking', {
         title: 'Recurring booking (guest)',
         message: `Recurring booking ${bkRef} created with ${bookingIds.length} occurrences.`,

@@ -21,6 +21,15 @@ export type BookingForCalendar = {
   customer_name?: string | null;
   duration_minutes?: number | null;
   google_calendar_event_id?: string | null;
+  recurring_series_id?: string | null;
+};
+
+export type RecurringSeriesForCalendar = {
+  start_date: string;
+  end_date?: string | null;
+  frequency?: string | null;
+  frequency_repeats?: string | null;
+  occurrences_ahead?: number;
 };
 
 async function getSupabase() {
@@ -84,10 +93,21 @@ function toCalendarDateTime(
   const date = (dateStr || '').toString().trim();
   if (date.length < 10) return null;
   const time = (timeStr || '09:00').toString().trim();
-  const match = time.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-  const h = match ? parseInt(match[1], 10) : 9;
-  const m = match ? parseInt(match[2], 10) : 0;
-  const s = match && match[3] != null ? parseInt(match[3], 10) : 0;
+  // Support HH:mm, HH:mm:ss, and "h:mm AM/PM" (e.g. "2:30 PM")
+  let h = 9, m = 0, s = 0;
+  const match24 = time.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  const match12 = time.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)/i);
+  if (match24) {
+    h = parseInt(match24[1], 10);
+    m = parseInt(match24[2], 10);
+    s = match24[3] != null ? parseInt(match24[3], 10) : 0;
+  } else if (match12) {
+    h = parseInt(match12[1], 10);
+    m = parseInt(match12[2], 10);
+    s = match12[3] != null ? parseInt(match12[3], 10) : 0;
+    if (match12[4].toUpperCase() === 'PM' && h !== 12) h += 12;
+    if (match12[4].toUpperCase() === 'AM' && h === 12) h = 0;
+  }
   // Build ISO-like string in the given timezone; Google API accepts dateTime with timeZone
   const startStr = `${date}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   const startDate = new Date(`${startStr}Z`); // treat as UTC for duration math
@@ -117,11 +137,17 @@ export async function createCalendarEvent(
   booking: BookingForCalendar
 ): Promise<string | null> {
   const refreshToken = await getGoogleCalendarRefreshToken(businessId);
-  if (!refreshToken) return null;
+  if (!refreshToken) {
+    console.warn('[googleCalendar] No connected Google Calendar for this business:', businessId);
+    return null;
+  }
   const accessToken = await getAccessToken(refreshToken);
   if (!accessToken) return null;
   const dateTime = buildEventBody(booking);
-  if (!dateTime) return null;
+  if (!dateTime) {
+    console.warn('[googleCalendar] Could not build event time from booking:', { scheduled_date: booking.scheduled_date ?? booking.date, scheduled_time: booking.scheduled_time ?? booking.time });
+    return null;
+  }
   const summary = (booking.service || 'Booking').toString().trim() || 'Booking';
   const descParts: string[] = [];
   if (booking.address) descParts.push(`Address: ${booking.address}`);
@@ -150,7 +176,136 @@ export async function createCalendarEvent(
     return null;
   }
   const data = (await res.json()) as { id?: string };
-  return data.id && typeof data.id === 'string' ? data.id : null;
+  const eventId = data.id && typeof data.id === 'string' ? data.id : null;
+  if (eventId) console.log('[googleCalendar] Event created:', eventId);
+  return eventId;
+}
+
+/** Build RRULE for Google Calendar from series (e.g. FREQ=WEEKLY;COUNT=8). */
+function buildRRULE(series: RecurringSeriesForCalendar): string {
+  const count = Math.max(1, series.occurrences_ahead ?? 8);
+  const name = (series.frequency ?? '').toLowerCase().replace(/\s+/g, ' ');
+  const repeats = (series.frequency_repeats ?? '').toLowerCase().replace(/\s+/g, ' ');
+  let freq = 'WEEKLY';
+  let interval = 1;
+  if (repeats.includes('daily') || name.includes('daily')) {
+    freq = 'DAILY';
+  } else if (repeats.includes('monthly') || name.includes('monthly')) {
+    freq = 'MONTHLY';
+  } else if (repeats.includes('yearly') || name.includes('yearly')) {
+    freq = 'YEARLY';
+  } else if (repeats.includes('bi') || repeats.includes('every-2') || name.includes('bi-weekly') || name.includes('biweekly')) {
+    freq = 'WEEKLY';
+    interval = 2;
+  } else {
+    freq = 'WEEKLY';
+  }
+  const parts = [`FREQ=${freq}`, interval > 1 ? `INTERVAL=${interval}` : null].filter(Boolean);
+  if (series.end_date && series.end_date.length >= 10) {
+    const until = series.end_date.replace(/-/g, '') + 'T235959Z';
+    parts.push(`UNTIL=${until}`);
+  } else {
+    parts.push(`COUNT=${count}`);
+  }
+  return 'RRULE:' + parts.join(';');
+}
+
+/** Create a recurring calendar event (one event with RRULE). Returns event id or null. */
+export async function createRecurringCalendarEvent(
+  businessId: string,
+  booking: BookingForCalendar,
+  series: RecurringSeriesForCalendar
+): Promise<string | null> {
+  const refreshToken = await getGoogleCalendarRefreshToken(businessId);
+  if (!refreshToken) {
+    console.warn('[googleCalendar] No connected Google Calendar for this business:', businessId);
+    return null;
+  }
+  const accessToken = await getAccessToken(refreshToken);
+  if (!accessToken) return null;
+  const dateTime = buildEventBody(booking);
+  if (!dateTime) {
+    console.warn('[googleCalendar] Could not build event time for recurring:', { scheduled_date: booking.scheduled_date ?? booking.date, scheduled_time: booking.scheduled_time ?? booking.time });
+    return null;
+  }
+  const summary = (booking.service || 'Booking').toString().trim() || 'Booking';
+  const descParts: string[] = [];
+  if (booking.address) descParts.push(`Address: ${booking.address}`);
+  if (booking.notes) descParts.push(`Notes: ${booking.notes}`);
+  if (booking.customer_name) descParts.push(`Customer: ${booking.customer_name}`);
+  const description = descParts.join('\n') || undefined;
+  const rrule = buildRRULE(series);
+  const body = {
+    summary,
+    description,
+    start: { dateTime: dateTime.start, timeZone: DEFAULT_TIMEZONE },
+    end: { dateTime: dateTime.end, timeZone: DEFAULT_TIMEZONE },
+    recurrence: [rrule],
+  };
+  const res = await fetch(
+    `${GOOGLE_CALENDAR_API}/calendars/primary/events`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    }
+  );
+  if (!res.ok) {
+    console.warn('[googleCalendar] Create recurring event failed:', res.status, await res.text());
+    return null;
+  }
+  const data = (await res.json()) as { id?: string };
+  const eventId = data.id && typeof data.id === 'string' ? data.id : null;
+  if (eventId) console.log('[googleCalendar] Recurring event created:', eventId);
+  return eventId;
+}
+
+/** Update an existing recurring calendar event (same body as create, with recurrence). */
+export async function updateRecurringCalendarEvent(
+  businessId: string,
+  eventId: string,
+  booking: BookingForCalendar,
+  series: RecurringSeriesForCalendar
+): Promise<boolean> {
+  const refreshToken = await getGoogleCalendarRefreshToken(businessId);
+  if (!refreshToken) return false;
+  const accessToken = await getAccessToken(refreshToken);
+  if (!accessToken) return false;
+  const dateTime = buildEventBody(booking);
+  if (!dateTime) return false;
+  const summary = (booking.service || 'Booking').toString().trim() || 'Booking';
+  const descParts: string[] = [];
+  if (booking.address) descParts.push(`Address: ${booking.address}`);
+  if (booking.notes) descParts.push(`Notes: ${booking.notes}`);
+  if (booking.customer_name) descParts.push(`Customer: ${booking.customer_name}`);
+  const description = descParts.join('\n') || undefined;
+  const rrule = buildRRULE(series);
+  const body = {
+    summary,
+    description,
+    start: { dateTime: dateTime.start, timeZone: DEFAULT_TIMEZONE },
+    end: { dateTime: dateTime.end, timeZone: DEFAULT_TIMEZONE },
+    recurrence: [rrule],
+  };
+  const res = await fetch(
+    `${GOOGLE_CALENDAR_API}/calendars/primary/events/${encodeURIComponent(eventId)}`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    }
+  );
+  if (!res.ok) {
+    console.warn('[googleCalendar] Update recurring event failed:', res.status, await res.text());
+    return false;
+  }
+  return true;
 }
 
 /** Update an existing calendar event (e.g. reschedule). */
