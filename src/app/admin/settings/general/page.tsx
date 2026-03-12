@@ -494,14 +494,22 @@ export default function GeneralSettingsPage() {
         const bizId = currentBusiness.id;
         const t = Date.now();
         Promise.all([
-          fetch(`/api/admin/integrations?business=${encodeURIComponent(bizId)}&_t=${t}`, { credentials: 'include', headers: { 'x-business-id': bizId }, cache: 'no-store' }).then((r) => r.json()),
+          fetch(`/api/admin/integrations?business=${encodeURIComponent(bizId)}&_t=${t}`, { credentials: 'include', headers: { 'x-business-id': bizId }, cache: 'no-store' }).then((r) => r.json().then((d) => ({ ok: r.ok, data: d }))),
           fetch(`/api/admin/payment-settings?business=${encodeURIComponent(bizId)}`, { credentials: 'include', headers: { 'x-business-id': bizId } }).then((r) => r.json()),
-        ]).then(([intData, payData]) => {
-          const config: Record<string, { enabled: boolean; configured: boolean }> = { ...(intData.config || {}) };
+        ]).then(([intResult, payData]) => {
+          const intData = intResult.data;
+          const config: Record<string, { enabled: boolean; configured: boolean }> = intResult.ok && intData?.config ? { ...intData.config } : {};
+          if (!intResult.ok && intData?.error) console.warn('Integrations refetch after connect:', intData.error);
           if (payData?.stripeConnected) config.stripe = { enabled: true, configured: true };
           if (payData?.authorizeNetApiLoginId) config.authorize_net = { enabled: true, configured: true };
-          setIntegrationConfig((prev) => ({ ...prev, ...config }));
-        }).catch(() => {});
+          setIntegrationConfig((prev) => ({
+            ...prev,
+            ...config,
+            google_calendar: config.google_calendar ?? prev.google_calendar ?? { enabled: true, configured: true },
+          }));
+        }).catch((e) => {
+          console.warn('Integrations refetch after connect failed', e);
+        });
       }
       router.replace('/admin/settings/general?tab=apps-integrations');
     } else if (gc === 'error') {

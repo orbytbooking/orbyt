@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
     .single();
 
   if (existing) {
-    await supabase
+    const { error: updateErr } = await supabase
       .from("business_integrations")
       .update({
         api_key: "oauth",
@@ -95,14 +95,22 @@ export async function GET(request: NextRequest) {
       })
       .eq("business_id", businessId)
       .eq("provider_slug", "google_calendar");
+    if (updateErr) {
+      console.error("Google Calendar callback: update failed", updateErr);
+      return NextResponse.redirect(`${returnUrl}&google_calendar=error&message=${encodeURIComponent("Failed to save connection")}`);
+    }
   } else {
-    await supabase.from("business_integrations").insert({
+    const { error: insertErr } = await supabase.from("business_integrations").insert({
       business_id: businessId,
       provider_slug: "google_calendar",
       api_key: "oauth",
       api_secret: refreshToken,
       enabled: true,
     });
+    if (insertErr) {
+      console.error("Google Calendar callback: insert failed", insertErr);
+      return NextResponse.redirect(`${returnUrl}&google_calendar=error&message=${encodeURIComponent("Failed to save connection")}`);
+    }
   }
 
   return NextResponse.redirect(`${returnUrl}&google_calendar=success`);
