@@ -77,6 +77,7 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabaseClient";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { SendScheduleDialog } from "@/components/admin/SendScheduleDialog";
+import { AdminBookingsCalendar } from "@/components/admin/AdminBookingsCalendar";
 import { getOccurrenceDatesForSeriesSync } from "@/lib/recurringBookings";
 
 // Bookings are now loaded from Supabase only.
@@ -404,8 +405,21 @@ export default function BookingsPage() {
             const series = seriesById[booking.recurring_series_id];
             const dates = getOccurrenceDatesForSeriesSync(series);
             const time = series.scheduled_time || booking.scheduled_time || booking.time;
+            const completedDates: string[] = Array.isArray(booking.completed_occurrence_dates)
+              ? booking.completed_occurrence_dates
+              : [];
             for (const d of dates) {
-              expanded.push({ ...booking, date: d, scheduled_date: d, time, scheduled_time: time });
+              const occurrenceStatus = completedDates.includes(d)
+                ? 'completed'
+                : (booking.status === 'cancelled' ? 'cancelled' : 'confirmed');
+              expanded.push({
+                ...booking,
+                date: d,
+                scheduled_date: d,
+                time,
+                scheduled_time: time,
+                status: occurrenceStatus,
+              });
             }
           } else {
             expanded.push(booking);
@@ -600,7 +614,75 @@ export default function BookingsPage() {
     }
   };
 
-  const handleStatusChange = async (bookingId: string, newStatus: string) => {
+  const handleStatusChange = async (
+    bookingId: string,
+    newStatus: string,
+    options?: { occurrenceDate?: string; recurring_series_id?: string }
+  ) => {
+    const isRecurringCompletion =
+      newStatus === 'completed' &&
+      options?.occurrenceDate &&
+      options?.recurring_series_id;
+
+    if (isRecurringCompletion) {
+      const { data: row, error: fetchErr } = await supabase
+        .from('bookings')
+        .select('completed_occurrence_dates')
+        .eq('id', bookingId)
+        .single();
+      if (fetchErr || !row) {
+        toast({ title: "Error", description: "Booking not found.", variant: "destructive" });
+        return;
+      }
+      const dateStr = String(options.occurrenceDate).slice(0, 10);
+      const completedList: string[] = Array.isArray(row.completed_occurrence_dates)
+        ? row.completed_occurrence_dates
+        : [];
+      if (completedList.includes(dateStr)) {
+        toast({ title: "Already completed", description: "This occurrence is already marked completed." });
+        return;
+      }
+      const { error } = await supabase
+        .from('bookings')
+        .update({
+          completed_occurrence_dates: [...completedList, dateStr],
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', bookingId);
+      if (error) {
+        toast({
+          title: "Error",
+          description: `Failed to update: ${error.message}`,
+          variant: "destructive",
+        });
+        return;
+      }
+      const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
+      await createBookingNotification('Booking modified', `Recurring booking ${bkRef} occurrence ${dateStr} marked completed.`);
+      setBookings((prev) =>
+        prev.map((b) => {
+          if (b.id !== bookingId) return b;
+          const completedDates = [...completedList, dateStr];
+          const occurrenceStatus = completedDates.includes(b.date)
+            ? 'completed'
+            : ((b as any).status === 'cancelled' ? 'cancelled' : 'confirmed');
+          return {
+            ...b,
+            completed_occurrence_dates: completedDates,
+            status: occurrenceStatus,
+          };
+        })
+      );
+      setSelectedBooking((prev) =>
+        prev?.id === bookingId && prev?.date === dateStr
+          ? { ...prev, status: 'completed', completed_occurrence_dates: [...completedList, dateStr] }
+          : prev
+      );
+      toast({ title: "Status Updated", description: `Occurrence ${dateStr} marked completed.` });
+      setShowDetails(false);
+      return;
+    }
+
     const { error } = await supabase.from('bookings').update({ status: newStatus }).eq('id', bookingId);
     if (error) {
       toast({
@@ -613,17 +695,17 @@ export default function BookingsPage() {
     const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
     await createBookingNotification('Booking modified', `Booking ${bkRef} status changed to ${newStatus}.`);
     setBookings((prev) => {
-  const updated = prev.map((booking) =>
-    booking.id === bookingId ? { ...booking, status: newStatus } : booking
-  );
-  const activeSelection = updated.find((booking) => booking.id === bookingId) || null;
-  setSelectedBooking(activeSelection);
-  return updated;
-});
-toast({
-  title: "Status Updated",
-  description: `Booking ${bookingId} status changed to ${newStatus}`,
-});
+      const updated = prev.map((booking) =>
+        booking.id === bookingId ? { ...booking, status: newStatus } : booking
+      );
+      const activeSelection = updated.find((booking) => booking.id === bookingId) || null;
+      setSelectedBooking(activeSelection);
+      return updated;
+    });
+    toast({
+      title: "Status Updated",
+      description: `Booking ${bookingId} status changed to ${newStatus}`,
+    });
     setShowDetails(false);
   };
 
@@ -694,43 +776,6 @@ toast({
     setSelectedProvider(null);
   };
 
-
-  // Calendar functions
-  const getDaysInMonth = (date: Date) => {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const daysInMonth = lastDay.getDate();
-    const startingDayOfWeek = firstDay.getDay();
-    
-    return { daysInMonth, startingDayOfWeek, year, month };
-  };
-
-  const getBookingsForDate = (date: string) => {
-    return bookings.filter((booking) => booking.date === date);
-  };
-
-  const formatDate = (year: number, month: number, day: number) => {
-    return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  };
-
-  const navigateMonth = (direction: 'prev' | 'next') => {
-    setCurrentDate(prev => {
-      const newDate = new Date(prev);
-      if (direction === 'prev') {
-        newDate.setMonth(newDate.getMonth() - 1);
-      } else {
-        newDate.setMonth(newDate.getMonth() + 1);
-      }
-      return newDate;
-    });
-  };
-
-  const { daysInMonth, startingDayOfWeek, year, month } = getDaysInMonth(currentDate);
-  const monthNames = ["January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"];
-  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   const formatTime = (timeStr: string | undefined) => {
     if (!timeStr) return "—";
@@ -1074,139 +1119,16 @@ toast({
       </Card>
       )}
 
-      {/* Calendar View */}
+      {/* Calendar View - same component as dashboard */}
       {viewMode === "calendar" && (
-        <Card>
-          <CardHeader>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <CardTitle>{monthNames[month]} {year}</CardTitle>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentDate(new Date())}
-                  className="shrink-0"
-                >
-                  Today
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => navigateMonth("prev")}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => navigateMonth("next")}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setRefreshKey((k) => k + 1)}
-                  title="Refresh"
-                >
-                  <RotateCw className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-7 gap-2">
-              {/* Day headers */}
-              {dayNames.map(day => (
-                <div key={day} className="text-center font-semibold text-sm py-2 text-foreground/90">
-                  {day}
-                </div>
-              ))}
-              
-              {/* Empty cells for days before month starts */}
-              {Array.from({ length: startingDayOfWeek }).map((_, index) => (
-                <div key={`empty-${index}`} className="h-24" />
-              ))}
-              
-              {/* Calendar days */}
-              {Array.from({ length: daysInMonth }).map((_, index) => {
-                const day = index + 1;
-                const dateString = formatDate(year, month, day);
-                const dayBookings = getBookingsForDate(dateString);
-                const hasBookings = dayBookings.length > 0;
-                const today = new Date();
-                const isToday = today.getDate() === day && 
-                               today.getMonth() === month && 
-                               today.getFullYear() === year;
-                
-                return (
-                  <div
-                    key={day}
-                    className={cn(
-                      "h-24 rounded-lg p-2 transition-all cursor-pointer border",
-                      isToday 
-                        ? "bg-accent/50 border-primary/50 hover:bg-accent/70"
-                        : "bg-background border-border hover:bg-accent/20"
-                    )}
-                  >
-                    <div className="flex flex-col h-full">
-                      <div className="text-sm font-medium mb-1 text-foreground">
-                        {day}
-                      </div>
-                      {hasBookings && (
-                        <div className="flex-1 space-y-0.5 overflow-y-auto">
-                          {dayBookings.slice(0, 2).map((booking, idx) => {
-                            const tone = getStatusTone(booking.status);
-                            const nameParts = (booking.customer_name || "Booking").trim().split(/\s+/);
-                            const shortName = nameParts.length >= 2
-                              ? `${nameParts[0]} ${nameParts[nameParts.length - 1].charAt(0)}`
-                              : nameParts[0] || "Booking";
-                            return (
-                              <div
-                                key={`${booking.id}-${booking.date ?? ''}-${booking.time ?? ''}-${idx}`}
-                                onClick={() => handleViewDetails(booking)}
-                                className="text-[10px] px-1 py-0.5 rounded cursor-pointer hover:opacity-80 transition-opacity text-white truncate"
-                                style={{ background: tone.chip }}
-                                title={`${booking.customer_name || "Booking"} - ${booking.service}`}
-                              >
-                                {shortName}
-                              </div>
-                            );
-                          })}
-                          {dayBookings.length > 2 && (
-                            <div className="text-[10px] text-muted-foreground text-center">
-                              +{dayBookings.length - 2}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            
-            {/* Legend */}
-            <div className="mt-6 flex flex-wrap gap-4 text-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded bg-blue-100 dark:bg-blue-900/30 border border-blue-200" />
-                <span>Confirmed</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-200" />
-                <span>Pending</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded bg-green-100 dark:bg-green-900/30 border border-green-200" />
-                <span>Completed</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded bg-red-100 dark:bg-red-900/30 border border-red-200" />
-                <span>Cancelled</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <AdminBookingsCalendar
+          bookings={filteredBookings}
+          onBookingClick={handleViewDetails}
+          currentDate={currentDate}
+          onMonthChange={setCurrentDate}
+          onRefresh={() => setRefreshKey((k) => k + 1)}
+          showRefresh={true}
+        />
       )}
         </TabsContent>
       </Tabs>
@@ -1504,6 +1426,22 @@ toast({
                 >
                   <Pencil className="h-4 w-4 mr-2" />Edit
                 </Button>
+                {selectedBooking.status !== "completed" && (
+                  <Button
+                    className="w-full text-white bg-green-600 hover:bg-green-700"
+                    onClick={() => {
+                      const rid = (selectedBooking as { recurring_series_id?: string }).recurring_series_id;
+                      const occDate = selectedBooking.date;
+                      if (rid && occDate) {
+                        handleStatusChange(selectedBooking.id, "completed", { occurrenceDate: occDate, recurring_series_id: rid });
+                      } else {
+                        handleStatusChange(selectedBooking.id, "completed");
+                      }
+                    }}
+                  >
+                    <CheckCircle2 className="h-4 w-4 mr-2" />Mark as completed
+                  </Button>
+                )}
                 <Button className="w-full text-white bg-red-600 hover:bg-red-700" onClick={() => handleStatusChange(selectedBooking.id, "cancelled")} disabled={selectedBooking.status === "cancelled"}>
                   <XCircle className="h-4 w-4 mr-2" />Cancel
                 </Button>

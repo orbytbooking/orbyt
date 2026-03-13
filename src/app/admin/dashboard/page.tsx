@@ -40,6 +40,8 @@ import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabaseClient";
+import { AdminBookingsCalendar } from "@/components/admin/AdminBookingsCalendar";
+import { getOccurrenceDatesForSeriesSync } from "@/lib/recurringBookings";
 
 // Icon mapping for API responses
 const iconMap: Record<string, any> = {
@@ -286,88 +288,119 @@ const Dashboard = () => {
     }
   }, [data, selectedBooking?.id]);
 
-  // Get all bookings for calendar (remove duplicates)
-  const allBookings = useMemo(() => {
-    if (!data) return [];
-    
-    // Combine both arrays and remove duplicates by ID
-    const combinedBookings = [...data.upcomingBookings, ...data.recentBookings];
-    const uniqueBookings = new Map();
-    
-    combinedBookings.forEach(booking => {
-      if (booking && booking.id) {
-        uniqueBookings.set(booking.id, booking);
-      }
-    });
-    
-    const result = Array.from(uniqueBookings.values());
-    console.log(`Dashboard: Combined ${combinedBookings.length} bookings, removed ${combinedBookings.length - result.length} duplicates, ${result.length} unique bookings`);
-    
-    return result;
-  }, [data]);
-  
-  // Get calendar data
-  const getDaysInMonth = (date: Date) => {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const daysInMonth = lastDay.getDate();
-    const startingDayOfWeek = firstDay.getDay();
-    
-    return { daysInMonth, startingDayOfWeek, year, month };
-  };
-
-  const { daysInMonth, startingDayOfWeek, year, month } = getDaysInMonth(currentDate);
-  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  
-  const normalizedBookings = useMemo(() => {
-    if (!allBookings || !Array.isArray(allBookings)) return [];
-    
-    return allBookings.filter(Boolean).map((booking) => {
-      try {
-        // Use provider name if available, otherwise fall back to customer name
-        const displayName = booking.provider?.name || booking.customer?.name || booking.customerName || 'Unassigned';
-        
-        return {
-          ...booking,
-          customerName: displayName,
-        };
-      } catch (error) {
-        console.error('Error normalizing booking:', error);
-        return {
-          ...booking,
-          customerName: 'Error Loading',
-        };
-      }
-    });
-  }, [allBookings]);
-
-  const bookingsByDate = useMemo(() => {
-    return normalizedBookings.reduce<Record<string, typeof normalizedBookings>>(function (acc, booking) {
-      const dateKey = booking.date;
-      if (!acc[dateKey]) {
-        acc[dateKey] = [];
-      }
-      acc[dateKey].push(booking);
-      return acc;
-    }, {});
-  }, [normalizedBookings]);
+  // Calendar bookings: same source as All Bookings (Supabase + expand recurring with per-occurrence status)
+  const [calendarBookings, setCalendarBookings] = useState<Booking[]>([]);
+  const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
 
   useEffect(() => {
-    const today = new Date();
-    const upcoming = [...normalizedBookings]
-      .filter((booking) => new Date(booking.date) >= new Date(today.toDateString()))
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    if (upcoming.length > 0) {
-      setSelectedDate(upcoming[0].date);
+    let cancelled = false;
+    async function fetchCalendarBookings() {
+      if (!currentBusiness?.id) return;
+      try {
+        await fetch(`/api/admin/recurring/extend?businessId=${currentBusiness.id}`, {
+          headers: { "x-business-id": currentBusiness.id },
+        });
+      } catch (e) {
+        console.warn("Dashboard: recurring extend failed", e);
+      }
+      if (cancelled) return;
+      const { data: bookingsData, error } = await supabase
+        .from("bookings")
+        .select("*")
+        .eq("business_id", currentBusiness.id)
+        .order("date", { ascending: false });
+      if (cancelled || error) {
+        if (!cancelled && error) console.error("Dashboard calendar fetch error:", error);
+        return;
+      }
+      let list: any[] = bookingsData || [];
+      const recurringIds = [...new Set(list.filter((b: any) => b.recurring_series_id).map((b: any) => b.recurring_series_id))];
+      if (recurringIds.length > 0) {
+        const { data: seriesList } = await supabase
+          .from("recurring_series")
+          .select("id, start_date, end_date, frequency, frequency_repeats, occurrences_ahead, scheduled_time")
+          .eq("business_id", currentBusiness.id)
+          .in("id", recurringIds);
+        const seriesById = (seriesList || []).reduce((acc: Record<string, any>, s: any) => {
+          acc[s.id] = s;
+          return acc;
+        }, {});
+        const expanded: any[] = [];
+        for (const booking of list) {
+          if (booking.recurring_series_id && seriesById[booking.recurring_series_id]) {
+            const series = seriesById[booking.recurring_series_id];
+            const dates = getOccurrenceDatesForSeriesSync(series);
+            const time = series.scheduled_time || booking.scheduled_time || booking.time;
+            const completedDates: string[] = Array.isArray(booking.completed_occurrence_dates)
+              ? booking.completed_occurrence_dates
+              : [];
+            for (const d of dates) {
+              const occurrenceStatus = completedDates.includes(d)
+                ? "completed"
+                : booking.status === "cancelled"
+                  ? "cancelled"
+                  : "confirmed";
+              expanded.push({
+                ...booking,
+                date: d,
+                scheduled_date: d,
+                time,
+                scheduled_time: time,
+                status: occurrenceStatus,
+              });
+            }
+          } else {
+            expanded.push(booking);
+          }
+        }
+        const seen = new Set<string>();
+        list = expanded
+          .filter((b: any) => {
+            const key = `${b.id}-${b.date ?? b.scheduled_date ?? ""}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .sort((a: any, b: any) => (b.date || b.scheduled_date || "").localeCompare(a.date || a.scheduled_date || ""));
+      }
+      const normalized: Booking[] = list.map((b: any) => {
+        const name = b.customer_name || "Unassigned";
+        return {
+          id: b.id,
+          date: b.date || b.scheduled_date || "",
+          time: typeof b.scheduled_time === "string" ? b.scheduled_time : (b.time || ""),
+          status: b.status || "pending",
+          service: b.service || "Service",
+          amount: `$${Number(b.total_price ?? b.amount ?? 0).toFixed(2)}`,
+          customerName: name,
+          customer: {
+            name,
+            email: b.customer_email || "",
+            phone: b.customer_phone || "",
+          },
+          provider: null,
+          paymentMethod: b.payment_method,
+          notes: b.notes,
+          zipCode: b.zip_code,
+          frequency: b.frequency,
+          customization: b.customization,
+          durationMinutes: b.duration_minutes != null ? Number(b.duration_minutes) : null,
+          providerWage: b.provider_wage != null ? Number(b.provider_wage) : null,
+          aptNo: b.apt_no,
+          address: b.address,
+          provider_id: b.provider_id,
+        } as Booking & { provider_id?: string };
+      });
+      if (!cancelled) {
+        setCalendarBookings(normalized);
+        const today = new Date().toISOString().split("T")[0];
+        const upcoming = normalized.filter((b) => b.date >= today).sort((a, b) => a.date.localeCompare(b.date));
+        if (upcoming.length > 0) setSelectedDate(upcoming[0].date);
+      }
     }
-  }, [normalizedBookings]);
-
-  const hasBooking = (day: number) => {
-    const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    return bookingsByDate[dateStr] && bookingsByDate[dateStr].length > 0;
-  };
+    fetchCalendarBookings();
+    return () => { cancelled = true; };
+  }, [currentBusiness?.id, calendarRefreshKey]);
 
   const formatTime = (timeStr: string) => {
     try {
@@ -380,17 +413,14 @@ const Dashboard = () => {
     }
   };
 
-  const DetailRow = ({ label, value, className }: { label: string; value: string; className?: string }) => (
-    <div className="flex justify-between items-start gap-4 py-1.5 min-w-0">
-      <span className="text-muted-foreground text-sm shrink-0">{label}</span>
-      <span className={cn("text-sm font-medium text-right break-words break-all min-w-0 flex-1", className)}>{value}</span>
-    </div>
-  );
-
-  const getBookingsForDay = (day: number) => {
-    const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    return bookingsByDate[dateStr] || [];
-  };
+  const bookingsByDate = useMemo(() => {
+    return calendarBookings.reduce<Record<string, Booking[]>>((acc, booking) => {
+      const dateKey = booking.date;
+      if (!acc[dateKey]) acc[dateKey] = [];
+      acc[dateKey].push(booking);
+      return acc;
+    }, {});
+  }, [calendarBookings]);
 
   const getFormattedSelectedDate = useMemo(() => {
     if (!selectedDate) return null;
@@ -398,18 +428,12 @@ const Dashboard = () => {
     return date.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
   }, [selectedDate]);
 
-  const previousMonth = () => {
-    setCurrentDate(new Date(year, month - 1, 1));
-  };
-
-  const nextMonth = () => {
-    setCurrentDate(new Date(year, month + 1, 1));
-  };
-
-  const isToday = (day: number) => {
-    const today = new Date();
-    return day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
-  };
+  const DetailRow = ({ label, value, className }: { label: string; value: string; className?: string }) => (
+    <div className="flex justify-between items-start gap-4 py-1.5 min-w-0">
+      <span className="text-muted-foreground text-sm shrink-0">{label}</span>
+      <span className={cn("text-sm font-medium text-right break-words break-all min-w-0 flex-1", className)}>{value}</span>
+    </div>
+  );
 
   const acceptBooking = async () => {
     if (!selectedBooking) return;
@@ -621,166 +645,69 @@ const Dashboard = () => {
         </CardContent>
       </Card>
 
-      {/* Calendar and Recent Bookings Row */}
+      {/* Calendar and Recent Bookings Row - same calendar as All Bookings */}
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Upcoming Bookings Calendar */}
-        <Card className="lg:col-span-2 glass-card border-cyan-500/20">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>Upcoming Bookings</CardTitle>
-              <div className="flex gap-1">
-                <Button variant="ghost" size="icon" onClick={previousMonth} className="h-8 w-8">
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="icon" onClick={nextMonth} className="h-8 w-8">
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-            <p className="text-sm text-foreground font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
-              {monthNames[month]} {year}
-            </p>
-          </CardHeader>
-          <CardContent>
-            {/* Calendar Grid */}
-            <div className="space-y-2">
-              {/* Days of week */}
-              <div className="grid grid-cols-7 gap-1 text-center mb-2">
-                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                  <div key={day} className="text-xs font-medium text-foreground/90 py-1" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
-                    {day}
+        <div className="lg:col-span-2">
+          <AdminBookingsCalendar
+            title="Upcoming Bookings"
+            bookings={calendarBookings.map((b) => ({
+              id: b.id,
+              date: b.date,
+              time: b.time,
+              status: b.status,
+              customer_name: b.customerName ?? b.customer?.name,
+              service: b.service,
+              ...b,
+            }))}
+            onBookingClick={(booking) => {
+              const withProvider = data?.availableProviders?.find(
+                (p: Provider) => p.id === (booking as Booking & { provider_id?: string }).provider_id
+              );
+              setSelectedBooking({
+                ...booking,
+                provider: withProvider
+                  ? { id: withProvider.id, name: withProvider.name, email: withProvider.email || "", phone: withProvider.phone || "" }
+                  : null,
+              } as Booking);
+            }}
+            currentDate={currentDate}
+            onMonthChange={setCurrentDate}
+            onRefresh={() => {
+              setCalendarRefreshKey((k) => k + 1);
+              fetchDashboardData(false);
+            }}
+            showRefresh={true}
+            onDayClick={setSelectedDate}
+          />
+          {selectedDate && (
+            <div className="mt-4">
+              <h4 className="text-sm font-semibold mb-2" style={{ fontFamily: "var(--font-inter), system-ui, sans-serif", fontWeight: 600 }}>
+                Bookings on {getFormattedSelectedDate}
+              </h4>
+              <div className="space-y-2">
+                {(bookingsByDate[selectedDate] || []).map((booking, idx) => (
+                  <div
+                    key={`${booking.id}-${booking.date ?? ""}-${booking.time ?? ""}-${idx}`}
+                    className="flex items-center justify-between rounded-lg border border-cyan-500/20 bg-white/5 px-3 py-2 text-sm hover:bg-white/10 cursor-pointer transition-all"
+                    onClick={() => setSelectedBooking(booking)}
+                  >
+                    <div>
+                      <p className="font-medium text-cyan-300" style={{ fontFamily: "var(--font-inter), system-ui, sans-serif", fontWeight: 600 }}>
+                        {booking.customerName}
+                      </p>
+                      <p className="text-xs text-gray-400" style={{ fontFamily: "var(--font-inter), system-ui, sans-serif" }}>
+                        {booking.service} • {booking.time}
+                      </p>
+                    </div>
+                    <span className="text-xs text-cyan-400 uppercase" style={{ fontFamily: "var(--font-inter), system-ui, sans-serif" }}>
+                      {booking.status}
+                    </span>
                   </div>
                 ))}
               </div>
-              
-              {/* Calendar days */}
-              <div className="grid grid-cols-7 gap-1">
-                {/* Empty cells for days before month starts */}
-                {Array.from({ length: startingDayOfWeek }).map((_, index) => (
-                  <div key={`empty-${index}`} className="min-h-[80px]" />
-                ))}
-                
-                {/* Days of the month */}
-                {Array.from({ length: daysInMonth }).map((_, index) => {
-                  const day = index + 1;
-                  const hasBookings = hasBooking(day);
-                  const bookings = getBookingsForDay(day);
-                  const today = isToday(day);
-                  const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                  
-                  const statusForDay = bookings.find((booking) => booking.status === "completed")
-                    ? "completed"
-                    : bookings.find((booking) => booking.status === "cancelled")
-                    ? "cancelled"
-                    : null;
-
-                  const dayBaseClass = cn(
-                    "min-h-[80px] p-1 rounded-lg text-sm relative transition-colors border border-border text-foreground",
-                    today
-                      ? "bg-accent/50 border-primary/50 hover:bg-accent/70"
-                      : hasBookings
-                        ? statusForDay === "completed"
-                          ? "bg-green-500/20 dark:bg-green-900/40 border-green-400/70 dark:border-green-600/70"
-                          : statusForDay === "cancelled"
-                            ? "bg-pink-500/20 dark:bg-pink-900/40 border-pink-400/70 dark:border-pink-600/70"
-                            : "bg-gradient-to-br from-accent/10 to-blue-500/10 dark:from-accent/20 dark:to-blue-900/30 border-accent/30"
-                        : "hover:bg-accent/20 border-border"
-                  );
-
-                  return (
-                    <div
-                      key={day}
-                      className={dayBaseClass}
-                      onClick={() => {
-                        if (hasBookings) {
-                          setSelectedDate(dateKey);
-                        }
-                      }}
-                    >
-                      <div className="text-xs font-semibold mb-1 text-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>
-                        {day}
-                      </div>
-                      
-                      {hasBookings && (
-                        <div className="space-y-0.5">
-                          {bookings.slice(0, 2).map((booking, i) => {
-                            const chipColor = booking.status === "completed"
-                              ? "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)"
-                              : booking.status === "cancelled"
-                                ? "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)"
-                                : 'linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%)';
-
-                            return (
-                              <div 
-                                key={`${booking.id}-${(booking as { date?: string }).date ?? ''}-${booking.time ?? ''}-${i}`}
-                                className="text-[9px] px-1 py-1 rounded text-white leading-tight cursor-pointer"
-                                style={{ background: chipColor }}
-                                title={`${booking.time} - ${booking.customerName} - ${booking.service}`}
-                                onClick={(e) => { e.stopPropagation(); setSelectedBooking(booking); }}
-                              >
-                                <div className="font-semibold truncate" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{booking.time}</div>
-                                <div className="truncate" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{booking.customerName.split(' ')[0]}</div>
-                              </div>
-                            );
-                          })}
-                          {bookings.length > 2 && (
-                            <div className="text-[9px] text-muted-foreground px-1" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
-                              +{bookings.length - 2} more
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
             </div>
-            
-            {/* Legend */}
-            <div className="mt-4 pt-4 border-t border-border">
-              <div className="flex items-center gap-4 text-xs">
-                <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 rounded bg-gradient-to-br from-cyan-400 to-blue-400 neon-cyan" />
-                  <span className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Has bookings</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 rounded bg-green-400" />
-                  <span className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Completed bookings</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 rounded bg-red-400" />
-                  <span className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Cancelled bookings</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 rounded border-2 border-cyan-400 neon-cyan" />
-                  <span className="text-muted-foreground" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Today</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Selected date bookings */}
-            {selectedDate && (
-              <div className="mt-4">
-                <h4 className="text-sm font-semibold mb-2" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>Bookings on {getFormattedSelectedDate}</h4>
-                <div className="space-y-2">
-                  {(bookingsByDate[selectedDate] || []).map((booking, idx) => (
-                    <div
-                      key={`${booking.id}-${(booking as { date?: string }).date ?? ''}-${booking.time ?? ''}-${idx}`}
-                      className="flex items-center justify-between rounded-lg border border-cyan-500/20 bg-white/5 px-3 py-2 text-sm hover:bg-white/10 cursor-pointer transition-all"
-                      onClick={() => setSelectedBooking(booking)}
-                    >
-                      <div>
-                        <p className="font-medium text-cyan-300" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>{booking.customerName}</p>
-                        <p className="text-xs text-gray-400" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{booking.service} • {booking.time}</p>
-                      </div>
-                      <span className="text-xs text-cyan-400 uppercase" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{booking.status}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          )}
+        </div>
 
         {/* Available Providers */}
         <Card className="lg:col-span-1 glass-card border-cyan-500/20">
