@@ -149,12 +149,15 @@ export default function CustomerProfilePage() {
     status: string;
     payment_status: string;
     description: string | null;
+    share_token?: string | null;
     invoice_bookings?: Array<{ bookings?: { service?: string; date?: string; scheduled_date?: string; time?: string; scheduled_time?: string } | null }>;
   };
   const [invoices, setInvoices] = useState<DbInvoice[]>([]);
   const [invoicesLoading, setInvoicesLoading] = useState(false);
   const [sendingInvoiceId, setSendingInvoiceId] = useState<string | null>(null);
   const [showCreateInvoice, setShowCreateInvoice] = useState(false);
+  const [invoiceStatusConfirm, setInvoiceStatusConfirm] = useState<{ id: string; action: "paid" | "pending" } | null>(null);
+  const [invoiceDeleteConfirmId, setInvoiceDeleteConfirmId] = useState<string | null>(null);
   const { currentBusiness } = useBusiness();
   const [industries, setIndustries] = useState<{ id: string; name: string }[]>([]);
   const [extrasMap, setExtrasMap] = useState<Record<string, string>>({});
@@ -840,7 +843,6 @@ export default function CustomerProfilePage() {
   };
 
   const deleteInvoice = async (invoiceId: string) => {
-    if (!confirm("Delete this invoice?")) return;
     try {
       const res = await fetch(`/api/admin/invoices/${invoiceId}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Delete failed");
@@ -1767,90 +1769,243 @@ export default function CustomerProfilePage() {
                 <div className="text-sm text-muted-foreground">No invoices yet.</div>
               ) : (
                 <div className="space-y-6">
-                  <div>
-                    <h3 className="font-semibold text-amber-600 mb-3">Pending ({invoices.filter((i) => i.payment_status === "pending").length})</h3>
-                    <div className="space-y-2">
-                      {invoices.filter((i) => i.payment_status === "pending").map((inv) => (
-                        <div key={inv.id} className="border rounded-lg p-4">
-                          <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-3">
-                                <span className="font-medium">{inv.invoice_number}</span>
-                                <Badge variant="secondary" className="bg-amber-100 text-amber-800">Pending</Badge>
-                              </div>
-                              {inv.invoice_bookings?.[0]?.bookings && (
-                                <div className="text-sm text-muted-foreground mt-1">
-                                  {inv.invoice_bookings[0].bookings?.service} — {inv.invoice_bookings[0].bookings?.scheduled_date || inv.invoice_bookings[0].bookings?.date}
-                                </div>
-                              )}
-                              <div className="text-sm text-muted-foreground mt-1">
-                                {inv.issue_date} {inv.due_date && `· Due: ${inv.due_date}`}
-                              </div>
-                              {inv.description && <div className="text-sm mt-2">{inv.description}</div>}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold">${Number(inv.total_amount).toFixed(2)}</span>
-                              <Button size="sm" variant="outline" onClick={() => sendInvoice(inv.id)} disabled={!!sendingInvoiceId}>
-                                <Send className="h-4 w-4 mr-1" />
-                                {sendingInvoiceId === inv.id ? "Sending..." : "Send"}
-                              </Button>
-                              <Button size="sm" variant="outline" onClick={() => updateInvoiceStatus(inv.id, "paid")}>
-                                Mark Paid
-                              </Button>
-                              <Button size="sm" variant="destructive" onClick={() => deleteInvoice(inv.id)}>
-                                Delete
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                      {invoices.filter((i) => i.payment_status === "pending").length === 0 && (
+                  <Collapsible defaultOpen>
+                    <CollapsibleTrigger asChild>
+                      <button className="flex w-full items-center justify-between mb-2 text-left">
+                        <span className="font-semibold text-amber-600">
+                          Pending ({invoices.filter((i) => i.payment_status === "pending").length})
+                        </span>
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      </button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      {invoices.filter((i) => i.payment_status === "pending").length === 0 ? (
                         <div className="text-sm text-muted-foreground">No pending invoices.</div>
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-green-600 mb-3">Paid ({invoices.filter((i) => i.payment_status === "paid").length})</h3>
-                    <div className="space-y-2">
-                      {invoices.filter((i) => i.payment_status === "paid").map((inv) => (
-                        <div key={inv.id} className="border rounded-lg p-4 bg-green-50/50">
-                          <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-3">
-                                <span className="font-medium">{inv.invoice_number}</span>
-                                <Badge variant="secondary" className="bg-green-100 text-green-800">Paid</Badge>
-                              </div>
-                              {inv.invoice_bookings?.[0]?.bookings && (
-                                <div className="text-sm text-muted-foreground mt-1">
-                                  {inv.invoice_bookings[0].bookings?.service} — {inv.invoice_bookings[0].bookings?.scheduled_date || inv.invoice_bookings[0].bookings?.date}
-                                </div>
-                              )}
-                              <div className="text-sm text-muted-foreground mt-1">
-                                {inv.issue_date} {inv.due_date && `· Due: ${inv.due_date}`}
-                              </div>
-                              {inv.description && <div className="text-sm mt-2">{inv.description}</div>}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold">${Number(inv.total_amount).toFixed(2)}</span>
-                              <Button size="sm" variant="outline" onClick={() => sendInvoice(inv.id)} disabled={!!sendingInvoiceId}>
-                                <Send className="h-4 w-4 mr-1" />
-                                {sendingInvoiceId === inv.id ? "Sending..." : "Send"}
-                              </Button>
-                              <Button size="sm" variant="outline" onClick={() => updateInvoiceStatus(inv.id, "pending")}>
-                                Mark Pending
-                              </Button>
-                              <Button size="sm" variant="destructive" onClick={() => deleteInvoice(inv.id)}>
-                                Delete
-                              </Button>
-                            </div>
-                          </div>
+                      ) : (
+                        <div className="rounded-md border">
+                          <table className="w-full text-sm">
+                            <thead className="bg-muted/40">
+                              <tr>
+                                <th className="px-3 py-2 text-left font-medium">Invoice</th>
+                                <th className="px-3 py-2 text-left font-medium">Details</th>
+                                <th className="px-3 py-2 text-left font-medium">Dates</th>
+                                <th className="px-3 py-2 text-right font-medium">Amount</th>
+                                <th className="px-3 py-2 text-right font-medium">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {invoices
+                                .filter((i) => i.payment_status === "pending")
+                                .map((inv) => (
+                                  <tr key={inv.id} className="border-t">
+                                    <td className="px-3 py-2 align-top">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-medium">{inv.invoice_number}</span>
+                                        <Badge variant="secondary" className="bg-amber-100 text-amber-800">
+                                          Pending
+                                        </Badge>
+                                      </div>
+                                    </td>
+                                    <td className="px-3 py-2 align-top text-muted-foreground">
+                                      {inv.invoice_bookings?.[0]?.bookings && (
+                                        <div>
+                                          {inv.invoice_bookings[0].bookings?.service} —{" "}
+                                          {inv.invoice_bookings[0].bookings?.scheduled_date ||
+                                            inv.invoice_bookings[0].bookings?.date}
+                                        </div>
+                                      )}
+                                      {inv.description && <div className="mt-1">{inv.description}</div>}
+                                    </td>
+                                    <td className="px-3 py-2 align-top text-muted-foreground">
+                                      <div>{inv.issue_date}</div>
+                                      {inv.due_date && <div className="text-xs">Due: {inv.due_date}</div>}
+                                    </td>
+                                    <td className="px-3 py-2 align-top text-right font-semibold">
+                                      ${Number(inv.total_amount).toFixed(2)}
+                                    </td>
+                                    <td className="px-3 py-2 align-top">
+                                      <div className="flex justify-end items-center gap-1">
+                                        <Button
+                                          size="icon"
+                                          variant="outline"
+                                          className="h-8 w-8"
+                                          onClick={() => sendInvoice(inv.id)}
+                                          disabled={!!sendingInvoiceId}
+                                          title="Send invoice"
+                                        >
+                                          <Send className="h-4 w-4" />
+                                        </Button>
+                                        <DropdownMenu>
+                                          <DropdownMenuTrigger asChild>
+                                            <Button
+                                              size="icon"
+                                              variant="ghost"
+                                              className="h-8 w-8"
+                                              aria-label="More actions"
+                                            >
+                                              <MoreVertical className="h-4 w-4" />
+                                            </Button>
+                                          </DropdownMenuTrigger>
+                                          <DropdownMenuContent align="end">
+                                            <DropdownMenuItem
+                                              onClick={() => {
+                                                if (!inv.share_token) {
+                                                  toast({
+                                                    title: "No view link yet",
+                                                    description: "Send this invoice once to generate a view link.",
+                                                    variant: "destructive",
+                                                  });
+                                                  return;
+                                                }
+                                                window.open(`/invoice/${inv.share_token}`, "_blank");
+                                              }}
+                                            >
+                                              View invoice
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem
+                                              onClick={() =>
+                                                setInvoiceStatusConfirm({ id: inv.id, action: "paid" })
+                                              }
+                                            >
+                                              Mark as paid
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem
+                                              className="text-red-600 focus:text-red-600"
+                                              onClick={() => setInvoiceDeleteConfirmId(inv.id)}
+                                            >
+                                              Delete invoice
+                                            </DropdownMenuItem>
+                                          </DropdownMenuContent>
+                                        </DropdownMenu>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
                         </div>
-                      ))}
-                      {invoices.filter((i) => i.payment_status === "paid").length === 0 && (
-                        <div className="text-sm text-muted-foreground">No paid invoices.</div>
                       )}
-                    </div>
-                  </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+
+                  <Collapsible defaultOpen>
+                    <CollapsibleTrigger asChild>
+                      <button className="flex w-full items-center justify-between mb-2 text-left">
+                        <span className="font-semibold text-green-600">
+                          Paid ({invoices.filter((i) => i.payment_status === "paid").length})
+                        </span>
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      </button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      {invoices.filter((i) => i.payment_status === "paid").length === 0 ? (
+                        <div className="text-sm text-muted-foreground">No paid invoices.</div>
+                      ) : (
+                        <div className="rounded-md border">
+                          <table className="w-full text-sm">
+                            <thead className="bg-muted/40">
+                              <tr>
+                                <th className="px-3 py-2 text-left font-medium">Invoice</th>
+                                <th className="px-3 py-2 text-left font-medium">Details</th>
+                                <th className="px-3 py-2 text-left font-medium">Dates</th>
+                                <th className="px-3 py-2 text-right font-medium">Amount</th>
+                                <th className="px-3 py-2 text-right font-medium">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {invoices
+                                .filter((i) => i.payment_status === "paid")
+                                .map((inv) => (
+                                  <tr key={inv.id} className="border-t bg-green-50/40">
+                                    <td className="px-3 py-2 align-top">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-medium">{inv.invoice_number}</span>
+                                        <Badge variant="secondary" className="bg-green-100 text-green-800">
+                                          Paid
+                                        </Badge>
+                                      </div>
+                                    </td>
+                                    <td className="px-3 py-2 align-top text-muted-foreground">
+                                      {inv.invoice_bookings?.[0]?.bookings && (
+                                        <div>
+                                          {inv.invoice_bookings[0].bookings?.service} —{" "}
+                                          {inv.invoice_bookings[0].bookings?.scheduled_date ||
+                                            inv.invoice_bookings[0].bookings?.date}
+                                        </div>
+                                      )}
+                                      {inv.description && <div className="mt-1">{inv.description}</div>}
+                                    </td>
+                                    <td className="px-3 py-2 align-top text-muted-foreground">
+                                      <div>{inv.issue_date}</div>
+                                      {inv.due_date && <div className="text-xs">Due: {inv.due_date}</div>}
+                                    </td>
+                                    <td className="px-3 py-2 align-top text-right font-semibold">
+                                      ${Number(inv.total_amount).toFixed(2)}
+                                    </td>
+                                    <td className="px-3 py-2 align-top">
+                                      <div className="flex justify-end items-center gap-1">
+                                        <Button
+                                          size="icon"
+                                          variant="outline"
+                                          className="h-8 w-8"
+                                          onClick={() => sendInvoice(inv.id)}
+                                          disabled={!!sendingInvoiceId}
+                                          title="Send invoice"
+                                        >
+                                          <Send className="h-4 w-4" />
+                                        </Button>
+                                        <DropdownMenu>
+                                          <DropdownMenuTrigger asChild>
+                                            <Button
+                                              size="icon"
+                                              variant="ghost"
+                                              className="h-8 w-8"
+                                              aria-label="More actions"
+                                            >
+                                              <MoreVertical className="h-4 w-4" />
+                                            </Button>
+                                          </DropdownMenuTrigger>
+                                          <DropdownMenuContent align="end">
+                                            <DropdownMenuItem
+                                              onClick={() => {
+                                                if (!inv.share_token) {
+                                                  toast({
+                                                    title: "No view link yet",
+                                                    description: "Send this invoice once to generate a view link.",
+                                                    variant: "destructive",
+                                                  });
+                                                  return;
+                                                }
+                                                window.open(`/invoice/${inv.share_token}`, "_blank");
+                                              }}
+                                            >
+                                              View invoice
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem
+                                              onClick={() =>
+                                                setInvoiceStatusConfirm({ id: inv.id, action: "pending" })
+                                              }
+                                            >
+                                              Mark as pending
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem
+                                              className="text-red-600 focus:text-red-600"
+                                              onClick={() => setInvoiceDeleteConfirmId(inv.id)}
+                                            >
+                                              Delete invoice
+                                            </DropdownMenuItem>
+                                          </DropdownMenuContent>
+                                        </DropdownMenu>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </CollapsibleContent>
+                  </Collapsible>
                 </div>
               )}
             </CardContent>
@@ -1862,6 +2017,57 @@ export default function CustomerProfilePage() {
             customer={customer ? { id: customer.id, name: customer.name, email: customer.email, phone: customer.phone, address: customer.address } : null}
             businessId={currentBusiness?.id ?? null}
           />
+          <Dialog open={!!invoiceStatusConfirm} onOpenChange={(open) => !open && setInvoiceStatusConfirm(null)}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>
+                  {invoiceStatusConfirm?.action === "paid" ? "Mark invoice as paid" : "Mark invoice as pending"}
+                </DialogTitle>
+                <DialogDescription>
+                  {invoiceStatusConfirm?.action === "paid"
+                    ? "Are you sure you want to mark this invoice as paid? This will set the amount paid to the full invoice total."
+                    : "Are you sure you want to mark this invoice as pending again? This will reset the amount paid to 0."}
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setInvoiceStatusConfirm(null)}>Cancel</Button>
+                <Button
+                  onClick={() => {
+                    if (!invoiceStatusConfirm) return;
+                    void updateInvoiceStatus(invoiceStatusConfirm.id, invoiceStatusConfirm.action);
+                    setInvoiceStatusConfirm(null);
+                  }}
+                >
+                  Confirm
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          <Dialog open={!!invoiceDeleteConfirmId} onOpenChange={(open) => !open && setInvoiceDeleteConfirmId(null)}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Delete invoice</DialogTitle>
+                <DialogDescription>
+                  Are you sure you want to delete this invoice? This action cannot be undone.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setInvoiceDeleteConfirmId(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    if (!invoiceDeleteConfirmId) return;
+                    void deleteInvoice(invoiceDeleteConfirmId);
+                    setInvoiceDeleteConfirmId(null);
+                  }}
+                >
+                  Delete
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         <TabsContent value="notifications">

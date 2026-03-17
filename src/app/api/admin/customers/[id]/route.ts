@@ -25,9 +25,11 @@ export async function GET(
     }
 
     const supabaseAdmin = getAdmin();
+    // Use a flexible select to avoid errors when some columns
+    // (like join_date, total_bookings, etc.) are not present yet.
     const { data: customer, error } = await supabaseAdmin
       .from('customers')
-      .select('id, name, email, phone, address, status, tags, access_blocked, booking_blocked, email_notifications, created_at, join_date, total_bookings, total_spent, last_booking, business_id, auth_user_id, company, first_name, last_name, gender, notes, sms_reminders, contacts, addresses')
+      .select('*')
       .eq('id', id)
       .single();
 

@@ -399,6 +399,12 @@ export default function GeneralSettingsPage() {
   const [paymentRefundWhenDecreasedWithLogs, setPaymentRefundWhenDecreasedWithLogs] = useState<'yes' | 'no'>('yes');
   const [paymentDeclinedPrePayment, setPaymentDeclinedPrePayment] = useState<'leave' | 'cancel_24h'>('leave');
   const [paymentIndividualChargeNotifications, setPaymentIndividualChargeNotifications] = useState<'yes' | 'no'>('no');
+  const [taxesEnabled, setTaxesEnabled] = useState(true);
+  const [taxType, setTaxType] = useState<'taxify' | 'flat'>('taxify');
+  const [locationBasedTax, setLocationBasedTax] = useState<'yes' | 'no'>('yes');
+  const [flatTaxAmount, setFlatTaxAmount] = useState('');
+  const [taxLabel, setTaxLabel] = useState('Sales Tax');
+  const [taxSettingsSaving, setTaxSettingsSaving] = useState(false);
 
   // Scheduling tab (store options)
   const [schedulingOptions, setSchedulingOptions] = useState<StoreOptions>(SCHEDULING_DEFAULT_OPTIONS);
@@ -900,6 +906,36 @@ export default function GeneralSettingsPage() {
     }
   }, [cancellationExpanded, currentBusiness?.id]);
 
+  useEffect(() => {
+    const fetchTaxSettings = async () => {
+      if (!currentBusiness?.id) return;
+      try {
+        const res = await fetch(
+          `/api/admin/tax-settings?businessId=${encodeURIComponent(currentBusiness.id)}`,
+          { headers: { 'x-business-id': currentBusiness.id } }
+        );
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch tax settings');
+        const s = data.settings || {};
+        if (typeof s.taxesEnabled === 'boolean') setTaxesEnabled(s.taxesEnabled);
+        if (s.method === 'flat' || s.method === 'taxify') setTaxType(s.method);
+        if (typeof s.taxLabel === 'string' && s.taxLabel.trim()) setTaxLabel(s.taxLabel);
+        if (s.flatLocationMode === 'per_location') {
+          setLocationBasedTax('yes');
+        } else if (s.flatLocationMode === 'single') {
+          setLocationBasedTax('no');
+        }
+        if (typeof s.flatRateGlobal === 'string') setFlatTaxAmount(s.flatRateGlobal);
+      } catch (e) {
+        console.error(e);
+        toast.error(e instanceof Error ? e.message : 'Failed to load tax settings');
+      }
+    };
+    if (mainTab === 'taxes' && currentBusiness?.id) {
+      fetchTaxSettings();
+    }
+  }, [mainTab, currentBusiness?.id]);
+
   const fetchPaymentServiceCategories = async () => {
     if (!currentBusiness?.id) return;
     setPaymentServiceCategoriesLoading(true);
@@ -1011,6 +1047,37 @@ export default function GeneralSettingsPage() {
       toast.error(e instanceof Error ? e.message : 'Failed to delete tag');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleSaveTaxSettings = async () => {
+    if (!currentBusiness?.id) return;
+    setTaxSettingsSaving(true);
+    try {
+      const res = await fetch('/api/admin/tax-settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-business-id': currentBusiness.id,
+        },
+        body: JSON.stringify({
+          businessId: currentBusiness.id,
+          taxesEnabled,
+          method: taxType,
+          taxLabel,
+          taxifyApiKey: taxType === 'taxify' ? '' : null,
+          flatLocationMode: taxType === 'flat' ? (locationBasedTax === 'yes' ? 'per_location' : 'single') : undefined,
+          flatRateGlobal: taxType === 'flat' && locationBasedTax === 'no' ? flatTaxAmount : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save tax settings');
+      toast.success('Tax settings have been saved.');
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : 'Failed to save tax settings');
+    } finally {
+      setTaxSettingsSaving(false);
     }
   };
 
@@ -4922,9 +4989,174 @@ export default function GeneralSettingsPage() {
           </p>
         </TabsContent>
         <TabsContent value="taxes" className="pt-6 space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Taxes settings will be implemented here.
-          </p>
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Taxes</CardTitle>
+                <CardDescription>
+                  Every location has their own tax laws regarding the sale of services. Please check with your accountant
+                  or local government to see if this applies to you. If your area does require a sales tax, you can set
+                  the rate per location in this section. You can also set up and connect a Taxify account to
+                  automatically calculate your taxes and file them with your local government.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <Label className="text-sm font-medium">Enable/Disable taxes</Label>
+                    <p className="text-xs text-muted-foreground mt-1 max-w-xl">
+                      Turn taxes on or off for your locations. When disabled, tax will not be calculated or applied to
+                      any bookings.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-muted-foreground">Disabled</span>
+                    <Switch checked={taxesEnabled} onCheckedChange={setTaxesEnabled} />
+                    <span className="text-xs font-medium text-foreground">Enabled</span>
+                  </div>
+                </div>
+
+                {taxesEnabled && (
+                  <>
+                    <Separator />
+
+                    <div className="space-y-4">
+                      <Label className="text-sm font-medium">Do you want to use Taxify or flat tax?</Label>
+                      <RadioGroup
+                        value={taxType}
+                        onValueChange={(v) => setTaxType(v as 'taxify' | 'flat')}
+                        className="flex flex-col gap-3 sm:flex-row sm:gap-8"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <RadioGroupItem value="taxify" id="tax-type-taxify" />
+                          <Label htmlFor="tax-type-taxify" className="text-sm">
+                            Taxify
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <RadioGroupItem value="flat" id="tax-type-flat" />
+                          <Label htmlFor="tax-type-flat" className="text-sm">
+                            Flat
+                          </Label>
+                        </div>
+                      </RadioGroup>
+                    </div>
+
+                    {taxType === 'taxify' && (
+                      <div className="space-y-3">
+                        <Label htmlFor="taxify-api-key" className="text-sm font-medium">
+                          API key
+                        </Label>
+                        <Input
+                          id="taxify-api-key"
+                          placeholder="Enter API key"
+                          className="max-w-md"
+                          // value/onChange can be wired when backend is ready
+                        />
+                        <p className="text-sm text-muted-foreground">
+                          See how to find your API key and secret{' '}
+                          <Link href="https://taxify.co" className="text-primary underline underline-offset-2">
+                            Click Here
+                          </Link>
+                          .
+                        </p>
+                      </div>
+                    )}
+
+                    {taxType === 'flat' && (
+                      <div className="space-y-4">
+                        <Label className="text-sm font-medium">
+                          Do you want to set different tax for different location?
+                        </Label>
+                        <RadioGroup
+                          value={locationBasedTax}
+                          onValueChange={(v) => setLocationBasedTax(v as 'yes' | 'no')}
+                          className="flex flex-col gap-3 sm:flex-row sm:gap-8"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="yes" id="location-tax-yes" />
+                            <Label htmlFor="location-tax-yes" className="text-sm">
+                              Yes
+                            </Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="no" id="location-tax-no" />
+                            <Label htmlFor="location-tax-no" className="text-sm">
+                              No
+                            </Label>
+                          </div>
+                        </RadioGroup>
+
+                        {locationBasedTax === 'no' && (
+                          <div className="space-y-2 pt-2">
+                            <Label htmlFor="flat-tax-amount" className="text-sm font-medium">
+                              Tax amount
+                            </Label>
+                            <div className="flex max-w-xs">
+                              <Input
+                                id="flat-tax-amount"
+                                type="number"
+                                inputMode="decimal"
+                                min={0}
+                                placeholder="Amount"
+                                value={flatTaxAmount}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  if (value === '') {
+                                    setFlatTaxAmount('');
+                                    return;
+                                  }
+                                  const numeric = Number(value);
+                                  setFlatTaxAmount(!Number.isNaN(numeric) && numeric >= 0 ? value : '0');
+                                }}
+                                className="rounded-r-none"
+                              />
+                              <div className="inline-flex items-center justify-center px-3 rounded-r-md border border-l-0 bg-muted text-sm text-muted-foreground">
+                                %
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <div className="flex justify-end">
+                  <Button type="button" onClick={handleSaveTaxSettings} disabled={taxSettingsSaving}>
+                    {taxSettingsSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Save
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Customize tax label</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="max-w-xs">
+                  <Label htmlFor="tax-label" className="text-sm font-medium">
+                    Tax label
+                  </Label>
+                  <Input
+                    id="tax-label"
+                    value={taxLabel}
+                    onChange={(e) => setTaxLabel(e.target.value)}
+                    className="mt-2"
+                    placeholder="Sales Tax"
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <Button type="button" onClick={handleSaveTaxSettings} disabled={taxSettingsSaving}>
+                    {taxSettingsSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Save
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
         <TabsContent value="email-lists" className="pt-6 space-y-4">
           <p className="text-sm text-muted-foreground">

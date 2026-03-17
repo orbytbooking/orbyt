@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Dialog,
   DialogContent,
@@ -188,6 +189,8 @@ function ProspectNoteEditor({
 export default function ProspectsTab() {
   const [prospects, setProspects] = useState<Applicant[]>([]);
   const [addOpen, setAddOpen] = useState(false);
+  const [createFormOpen, setCreateFormOpen] = useState(false);
+  const [newFormName, setNewFormName] = useState("");
   const [form, setForm] = useState({
     firstName: "",
     lastName: "",
@@ -265,6 +268,15 @@ export default function ProspectsTab() {
       addToFunnel: true,
     });
     setAddOpen(false);
+  };
+
+  const router = useRouter();
+
+  const handleCreateForm = () => {
+    const name = newFormName.trim() || "Untitled form";
+    setCreateFormOpen(false);
+    setNewFormName("");
+    router.push(`/admin/hiring/forms/builder?name=${encodeURIComponent(name)}`);
   };
 
   return (
@@ -356,17 +368,38 @@ export default function ProspectsTab() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-          <Button
-            className="bg-teal-600 text-white hover:bg-teal-700"
-            asChild
-          >
-            <Link href="/admin/settings/design">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/20">
-                <Plus className="h-3.5 w-3.5" />
-              </span>
-              Create New Form
-            </Link>
-          </Button>
+          <Dialog open={createFormOpen} onOpenChange={setCreateFormOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-teal-600 text-white hover:bg-teal-700">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/20">
+                  <Plus className="h-3.5 w-3.5" />
+                </span>
+                Create New Form
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Create form</DialogTitle>
+                <DialogDescription>Give your form a name to get started.</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700">Form name</label>
+                <Input
+                  placeholder="Enter form name"
+                  value={newFormName}
+                  onChange={(e) => setNewFormName(e.target.value)}
+                />
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setCreateFormOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleCreateForm} disabled={!newFormName.trim()}>
+                  Next
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
       <Card>
