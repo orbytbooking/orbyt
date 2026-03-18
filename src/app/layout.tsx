@@ -20,6 +20,13 @@ export const metadata: Metadata = {
   keywords: "service booking software, cleaning business booking system, home service scheduling app, online booking for cleaners, Orbyt Service",
 };
 
+// Next.js recommends exporting `viewport` directly (instead of inside `metadata`)
+// so mobile browsers scale the page correctly.
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{

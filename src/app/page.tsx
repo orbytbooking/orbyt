@@ -3,11 +3,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { ChevronDown, HelpCircle, MessageSquare, LifeBuoy, BookOpen, User, Zap, Users, Target, Star } from 'lucide-react';
+import { ChevronDown, HelpCircle, MessageSquare, LifeBuoy, BookOpen, User, Zap, Users, Target, Star, Bot, Menu, X } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { ClientOnly } from '@/components/ClientOnly';
 
-function SupportDropdown() {
+function SupportDropdown({ onNavigate }: { onNavigate?: () => void } = {}) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -32,27 +32,69 @@ function SupportDropdown() {
       </button>
       {open && (
         <div className="absolute right-0 top-full pt-1 min-w-[220px] max-h-[min(70vh,320px)] overflow-y-auto overflow-x-hidden bg-slate-900/95 backdrop-blur border border-white/10 rounded-md p-2 shadow-xl z-50 [scrollbar-gutter:stable]">
-          <Link href="/help-center" className="flex items-center px-2 py-2 text-sm rounded-sm text-white hover:bg-white/10 hover:text-primary transition-colors">
+          <Link
+            href="/help-center"
+            onClick={() => {
+              setOpen(false);
+              onNavigate?.();
+            }}
+            className="flex items-center px-2 py-2 text-sm rounded-sm text-white hover:bg-white/10 hover:text-primary transition-colors"
+          >
             <HelpCircle className="mr-2 h-4 w-4 shrink-0" />
             <span>Help Center</span>
           </Link>
-          <Link href="/help-center/faqs" className="flex items-center px-2 py-2 text-sm rounded-sm text-white hover:bg-white/10 hover:text-primary transition-colors">
+          <Link
+            href="/help-center/faqs"
+            onClick={() => {
+              setOpen(false);
+              onNavigate?.();
+            }}
+            className="flex items-center px-2 py-2 text-sm rounded-sm text-white hover:bg-white/10 hover:text-primary transition-colors"
+          >
             <MessageSquare className="mr-2 h-4 w-4 shrink-0" />
             <span>FAQs</span>
           </Link>
-          <Link href="/contact-support" className="flex items-center px-2 py-2 text-sm rounded-sm text-white hover:bg-white/10 hover:text-primary transition-colors">
+          <Link
+            href="/contact-support"
+            onClick={() => {
+              setOpen(false);
+              onNavigate?.();
+            }}
+            className="flex items-center px-2 py-2 text-sm rounded-sm text-white hover:bg-white/10 hover:text-primary transition-colors"
+          >
             <LifeBuoy className="mr-2 h-4 w-4 shrink-0" />
             <span>Contact Support</span>
           </Link>
-          <Link href="/help-center/tutorials" className="flex items-center px-2 py-2 text-sm rounded-sm text-white hover:bg-white/10 hover:text-primary transition-colors">
+          <Link
+            href="/help-center/tutorials"
+            onClick={() => {
+              setOpen(false);
+              onNavigate?.();
+            }}
+            className="flex items-center px-2 py-2 text-sm rounded-sm text-white hover:bg-white/10 hover:text-primary transition-colors"
+          >
             <BookOpen className="mr-2 h-4 w-4 shrink-0" />
             <span>Tutorials</span>
           </Link>
-          <Link href="/help-center/account" className="flex items-center px-2 py-2 text-sm rounded-sm text-white hover:bg-white/10 hover:text-primary transition-colors">
+          <Link
+            href="/help-center/account"
+            onClick={() => {
+              setOpen(false);
+              onNavigate?.();
+            }}
+            className="flex items-center px-2 py-2 text-sm rounded-sm text-white hover:bg-white/10 hover:text-primary transition-colors"
+          >
             <User className="mr-2 h-4 w-4 shrink-0" />
             <span>Account Support</span>
           </Link>
-          <Link href="/help-center/feature-requests" className="flex items-center px-2 py-2 text-sm rounded-sm text-white hover:bg-white/10 hover:text-primary transition-colors">
+          <Link
+            href="/help-center/feature-requests"
+            onClick={() => {
+              setOpen(false);
+              onNavigate?.();
+            }}
+            className="flex items-center px-2 py-2 text-sm rounded-sm text-white hover:bg-white/10 hover:text-primary transition-colors"
+          >
             <Zap className="mr-2 h-4 w-4 shrink-0" />
             <span>Request a Feature</span>
           </Link>
@@ -231,6 +273,7 @@ type Testimonial = {
 
 export default function Home() {
   const [currentSlide, setCurrentSlide] = useState<number>(0);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   
   const testimonials: Testimonial[] = [
     {
@@ -303,6 +346,16 @@ export default function Home() {
     return () => clearInterval(timer);
   }, [goToNext]);
 
+  useEffect(() => {
+    // Close the mobile nav when resizing to desktop.
+    const onResize = () => {
+      if (window.innerWidth >= 640) setMobileNavOpen(false);
+    };
+    window.addEventListener('resize', onResize);
+    onResize();
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   return (
     <main className="min-h-screen flex flex-col relative">
       {/* Fixed hero background: stays in place while content scrolls */}
@@ -351,12 +404,70 @@ export default function Home() {
             <SupportDropdown />
           </nav>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen((o) => !o)}
+              className="sm:hidden inline-flex items-center justify-center rounded-md border border-white/60 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-white/10 hover:border-primary hover:text-primary"
+              aria-label={mobileNavOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={mobileNavOpen}
+              aria-controls="mobile-nav"
+            >
+              {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
             <a
               href="/auth/login"
               className="inline-flex items-center justify-center rounded-md border border-white/60 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/10 hover:border-primary hover:text-primary"
             >
               Log In
             </a>
+          </div>
+        </div>
+
+        <div
+          id="mobile-nav"
+          className={`sm:hidden fixed left-0 right-0 top-16 z-50 border-b border-white/10 bg-slate-900/95 backdrop-blur-md ${mobileNavOpen ? 'block' : 'hidden'}`}
+        >
+          <div className="container mx-auto px-4 py-4 max-h-[calc(100vh-4rem)] overflow-y-auto">
+            <div className="flex flex-col gap-2">
+              <Link
+                href="/why-premium"
+                onClick={() => setMobileNavOpen(false)}
+                className="rounded-md px-3 py-2 text-sm font-medium text-white hover:bg-white/10"
+              >
+                Why Orbyt
+              </Link>
+              <Link
+                href="/about"
+                onClick={() => setMobileNavOpen(false)}
+                className="rounded-md px-3 py-2 text-sm font-medium text-white hover:bg-white/10"
+              >
+                About Us
+              </Link>
+              <Link
+                href="/features"
+                onClick={() => setMobileNavOpen(false)}
+                className="rounded-md px-3 py-2 text-sm font-medium text-white hover:bg-white/10"
+              >
+                Features
+              </Link>
+              <Link
+                href="/pricing"
+                onClick={() => setMobileNavOpen(false)}
+                className="rounded-md px-3 py-2 text-sm font-medium text-white hover:bg-white/10"
+              >
+                Pricing
+              </Link>
+              <Link
+                href="/testimonials"
+                onClick={() => setMobileNavOpen(false)}
+                className="rounded-md px-3 py-2 text-sm font-medium text-white hover:bg-white/10"
+              >
+                Testimonials
+              </Link>
+              <div className="pt-1">
+                <SupportDropdown onNavigate={() => setMobileNavOpen(false)} />
+              </div>
+            </div>
           </div>
         </div>
       </motion.header>
@@ -698,147 +809,190 @@ export default function Home() {
           viewport={viewport}
           variants={stagger}
         >
-          <motion.div className="text-center max-w-3xl mx-auto mb-10" variants={scrollReveal} transition={transition}>
-            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-3">What keeps your Orbyt running</h2>
-            <p className="text-lg text-muted-foreground mb-6">
-              One platform. Bookings, teams, payments, and marketing. All in the same loop.
-            </p>
-            <Link
-              href="/features"
-              className="inline-flex items-center text-primary font-medium hover:underline"
-            >
-              See everything in Orbyt
-              <svg className="ml-1 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
-            </Link>
-          </motion.div>
+          <div className="w-full grid grid-cols-1 lg:grid-cols-[360px_1fr] lg:gap-12">
+            <div className="w-full lg:flex lg:flex-col lg:justify-center">
+              <motion.div className="text-left w-full" variants={scrollReveal} transition={transition}>
+                <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-2 text-slate-900">
+                  What keeps your Orbyt running
+                </h2>
+                <p className="text-lg text-slate-600 mb-3">
+                  One platform. Bookings, teams, payments, and marketing. All in the same loop.
+                </p>
+                <Link
+                  href="/features"
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 px-6 py-2.5 text-white font-medium shadow-sm hover:opacity-90 transition-opacity"
+                >
+                  See everything in Orbyt
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                  </svg>
+                </Link>
 
-          <motion.div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" variants={stagger}>
-            <motion.div variants={scrollReveal} transition={transition}>
-              <Link href="/features#customer-account" className="group block h-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md hover:border-primary/20 transition-all">
-                <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
-                  <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-                </div>
-                <h3 className="text-xl font-semibold text-slate-900 mb-3">Customer Account</h3>
-                <ul className="space-y-2 text-muted-foreground text-sm">
-                  <li className="flex items-center gap-2"><span className="text-primary shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Easy appointment booking</li>
-                  <li className="flex items-center gap-2"><span className="text-primary shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Service history tracking</li>
-                  <li className="flex items-center gap-2"><span className="text-primary shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Secure payment portal</li>
+                <ul className="mt-3 space-y-2 text-sm text-slate-600">
+                  <li className="flex items-start gap-3">
+                    <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary">
+                      <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M20 6L9 17l-5-5" />
+                      </svg>
+                    </span>
+                    Simplify appointment scheduling
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary">
+                      <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M20 6L9 17l-5-5" />
+                      </svg>
+                    </span>
+                    Boost your marketing campaigns
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary">
+                      <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M20 6L9 17l-5-5" />
+                      </svg>
+                    </span>
+                    Grow and manage your team
+                  </li>
                 </ul>
-              </Link>
-            </motion.div>
+              </motion.div>
+            </div>
 
-            <motion.div variants={scrollReveal} transition={transition}>
-              <Link href="/features#provider-account" className="group block h-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md hover:border-blue-200 transition-all">
-                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
-                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                </div>
-                <h3 className="text-xl font-semibold text-slate-900 mb-3">Provider Account</h3>
-                <ul className="space-y-2 text-muted-foreground text-sm">
-                  <li className="flex items-center gap-2"><span className="text-blue-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Appointment management</li>
-                  <li className="flex items-center gap-2"><span className="text-blue-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Team scheduling</li>
-                  <li className="flex items-center gap-2"><span className="text-blue-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Service customization</li>
-                </ul>
-              </Link>
-            </motion.div>
+            {/* Top cards stay in the right column */}
+            <div className="w-full lg:col-start-2">
+              {/* Top grid (3 columns) */}
+              <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8" variants={stagger}>
+                <motion.div variants={scrollReveal} transition={transition}>
+                  <Link href="/features#customer-account" className="group block h-full rounded-2xl bg-white/95 backdrop-blur-2xl p-6 shadow-lg ring-1 ring-white/80 hover:shadow-xl transition-all border border-white/80 hover:border-cyan-300/70 dark:bg-white/20 dark:ring-white/40">
+                    <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4">
+                      <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                    </div>
+                    <h3 className="text-xl font-semibold text-slate-900 mb-3">Customer Account</h3>
+                    <ul className="space-y-2 text-slate-600 text-sm">
+                      <li className="flex items-center gap-2"><span className="text-primary shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Easy appointment booking</li>
+                      <li className="flex items-center gap-2"><span className="text-primary shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Service history tracking</li>
+                      <li className="flex items-center gap-2"><span className="text-primary shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Secure payment portal</li>
+                    </ul>
+                  </Link>
+                </motion.div>
 
-            <motion.div variants={scrollReveal} transition={transition}>
-              <Link href="/features#business-account" className="group block h-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all">
-                <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center mb-4">
-                  <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
-                </div>
-                <h3 className="text-xl font-semibold text-slate-900 mb-3">Business Account</h3>
-                <ul className="space-y-2 text-muted-foreground text-sm">
-                  <li className="flex items-center gap-2"><span className="text-indigo-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Multi-location management</li>
-                  <li className="flex items-center gap-2"><span className="text-indigo-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Advanced analytics</li>
-                  <li className="flex items-center gap-2"><span className="text-indigo-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Enterprise support</li>
-                </ul>
-              </Link>
-            </motion.div>
+                <motion.div variants={scrollReveal} transition={transition}>
+                  <Link href="/features#provider-account" className="group block h-full rounded-2xl bg-white/95 backdrop-blur-2xl p-6 shadow-lg ring-1 ring-white/80 hover:shadow-xl transition-all border border-white/80 hover:border-cyan-300/70 dark:bg-white/20 dark:ring-white/40">
+                    <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mb-4">
+                      <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                    </div>
+                    <h3 className="text-xl font-semibold text-slate-900 mb-3">Provider Account</h3>
+                    <ul className="space-y-2 text-slate-600 text-sm">
+                      <li className="flex items-center gap-2"><span className="text-blue-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Appointment management</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Team scheduling</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Service customization</li>
+                    </ul>
+                  </Link>
+                </motion.div>
 
-            <motion.div variants={scrollReveal} transition={transition}>
-              <Link href="/features#website-builder" className="group block h-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md hover:border-green-200 transition-all">
-                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mb-4">
-                  <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                </div>
-                <h3 className="text-xl font-semibold text-slate-900 mb-3">Website Builder</h3>
-                <ul className="space-y-2 text-muted-foreground text-sm">
-                  <li className="flex items-center gap-2"><span className="text-green-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Drag-and-drop editor</li>
-                  <li className="flex items-center gap-2"><span className="text-green-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Mobile-responsive templates</li>
-                  <li className="flex items-center gap-2"><span className="text-green-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Custom domain support</li>
-                </ul>
-              </Link>
-            </motion.div>
+                <motion.div variants={scrollReveal} transition={transition}>
+                  <Link href="/features#website-builder" className="group block h-full rounded-2xl bg-white/95 backdrop-blur-2xl p-6 shadow-lg ring-1 ring-white/80 hover:shadow-xl transition-all border border-white/80 hover:border-cyan-300/70 dark:bg-white/20 dark:ring-white/40">
+                    <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center mb-4">
+                      <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                    </div>
+                    <h3 className="text-xl font-semibold text-slate-900 mb-3">Website Builder</h3>
+                    <ul className="space-y-2 text-slate-600 text-sm">
+                      <li className="flex items-center gap-2"><span className="text-green-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Drag-and-drop editor</li>
+                      <li className="flex items-center gap-2"><span className="text-green-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Mobile-responsive templates</li>
+                      <li className="flex items-center gap-2"><span className="text-green-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Custom domain support</li>
+                    </ul>
+                  </Link>
+                </motion.div>
 
-            <motion.div variants={scrollReveal} transition={transition}>
-              <Link href="/features#smart-notifications" className="group block h-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md hover:border-amber-200 transition-all">
-                <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center mb-4">
-                  <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
-                </div>
-                <h3 className="text-xl font-semibold text-slate-900 mb-3">Smart Notifications</h3>
-                <ul className="space-y-2 text-muted-foreground text-sm">
-                  <li className="flex items-center gap-2"><span className="text-amber-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Email & SMS alerts</li>
-                  <li className="flex items-center gap-2"><span className="text-amber-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Customizable templates</li>
-                  <li className="flex items-center gap-2"><span className="text-amber-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Automated reminders</li>
-                </ul>
-              </Link>
-            </motion.div>
+                <motion.div variants={scrollReveal} transition={transition}>
+                  <Link href="/features#smart-notifications" className="group block h-full rounded-2xl bg-white/95 backdrop-blur-2xl p-6 shadow-lg ring-1 ring-white/80 hover:shadow-xl transition-all border border-white/80 hover:border-cyan-300/70 dark:bg-white/20 dark:ring-white/40">
+                    <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center mb-4">
+                      <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                    </div>
+                    <h3 className="text-xl font-semibold text-slate-900 mb-3">Smart Notifications</h3>
+                    <ul className="space-y-2 text-slate-600 text-sm">
+                      <li className="flex items-center gap-2"><span className="text-amber-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Email & SMS alerts</li>
+                      <li className="flex items-center gap-2"><span className="text-amber-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Customizable templates</li>
+                      <li className="flex items-center gap-2"><span className="text-amber-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Automated reminders</li>
+                    </ul>
+                  </Link>
+                </motion.div>
 
-            <motion.div variants={scrollReveal} transition={transition}>
-              <Link href="/features#advanced-reports" className="group block h-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md hover:border-purple-200 transition-all">
-                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
-                  <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-                </div>
-                <h3 className="text-xl font-semibold text-slate-900 mb-3">Advanced Reports</h3>
-                <ul className="space-y-2 text-muted-foreground text-sm">
-                  <li className="flex items-center gap-2"><span className="text-purple-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Revenue tracking</li>
-                  <li className="flex items-center gap-2"><span className="text-purple-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Customer insights</li>
-                  <li className="flex items-center gap-2"><span className="text-purple-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Exportable data</li>
-                </ul>
-              </Link>
-            </motion.div>
+                <motion.div variants={scrollReveal} transition={transition}>
+                  <Link href="/features#advanced-reports" className="group block h-full rounded-2xl bg-white/95 backdrop-blur-2xl p-6 shadow-lg ring-1 ring-white/80 hover:shadow-xl transition-all border border-white/80 hover:border-cyan-300/70 dark:bg-white/20 dark:ring-white/40">
+                    <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center mb-4">
+                      <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                    </div>
+                    <h3 className="text-xl font-semibold text-slate-900 mb-3">Advanced Reports</h3>
+                    <ul className="space-y-2 text-slate-600 text-sm">
+                      <li className="flex items-center gap-2"><span className="text-purple-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Revenue tracking</li>
+                      <li className="flex items-center gap-2"><span className="text-purple-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Customer insights</li>
+                      <li className="flex items-center gap-2"><span className="text-purple-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Exportable data</li>
+                    </ul>
+                  </Link>
+                </motion.div>
 
-            <motion.div variants={scrollReveal} transition={transition}>
-              <Link href="/features#ai-receptionist" className="group block h-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md hover:border-cyan-200 transition-all">
-                <div className="w-12 h-12 bg-cyan-100 rounded-lg flex items-center justify-center mb-4">
-                  <svg className="w-6 h-6 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
-                </div>
-                <h3 className="text-xl font-semibold text-slate-900 mb-3">AI Virtual Receptionist</h3>
-                <ul className="space-y-2 text-muted-foreground text-sm">
-                  <li className="flex items-center gap-2"><span className="text-cyan-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Answers questions about services & booking</li>
-                  <li className="flex items-center gap-2"><span className="text-cyan-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Available on your booking page & admin</li>
-                  <li className="flex items-center gap-2"><span className="text-cyan-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Instant answers so visitors book with confidence</li>
-                </ul>
-              </Link>
-            </motion.div>
+                <motion.div variants={scrollReveal} transition={transition}>
+                  <Link href="/features#business-account" className="group block h-full rounded-2xl bg-white/95 backdrop-blur-2xl p-6 shadow-lg ring-1 ring-white/80 hover:shadow-xl transition-all border border-white/80 hover:border-cyan-300/70 dark:bg-white/20 dark:ring-white/40">
+                    <div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center mb-4">
+                      <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                    </div>
+                    <h3 className="text-xl font-semibold text-slate-900 mb-3">Business Account</h3>
+                    <ul className="space-y-2 text-slate-600 text-sm">
+                      <li className="flex items-center gap-2"><span className="text-indigo-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Multi-location management</li>
+                      <li className="flex items-center gap-2"><span className="text-indigo-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Advanced analytics</li>
+                      <li className="flex items-center gap-2"><span className="text-indigo-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Enterprise support</li>
+                    </ul>
+                  </Link>
+                </motion.div>
+              </motion.div>
 
-            <motion.div variants={scrollReveal} transition={transition}>
-              <Link href="/features" className="group block h-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md hover:border-pink-200 transition-all">
-                <div className="w-12 h-12 bg-pink-100 rounded-lg flex items-center justify-center mb-4">
-                  <svg className="w-6 h-6 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" /></svg>
-                </div>
-                <h3 className="text-xl font-semibold text-slate-900 mb-3">Marketing & Promotions</h3>
-                <ul className="space-y-2 text-muted-foreground text-sm">
-                  <li className="flex items-center gap-2"><span className="text-pink-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Coupons & daily discounts</li>
-                  <li className="flex items-center gap-2"><span className="text-pink-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Gift cards & campaigns</li>
-                  <li className="flex items-center gap-2"><span className="text-pink-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Scripts for cold-calling & follow-ups</li>
-                </ul>
-              </Link>
-            </motion.div>
+            </div>
 
-            <motion.div variants={scrollReveal} transition={transition}>
-              <Link href="/features" className="group block h-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md hover:border-emerald-200 transition-all">
-                <div className="w-12 h-12 bg-emerald-100 rounded-lg flex items-center justify-center mb-4">
-                  <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-                </div>
-                <h3 className="text-xl font-semibold text-slate-900 mb-3">Hiring & Team</h3>
-                <ul className="space-y-2 text-muted-foreground text-sm">
-                  <li className="flex items-center gap-2"><span className="text-emerald-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Onboarding & prospect tracking</li>
-                  <li className="flex items-center gap-2"><span className="text-emerald-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Interviews & quizzes with scorecards</li>
-                  <li className="flex items-center gap-2"><span className="text-emerald-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Contacts & hiring reports</li>
-                </ul>
-              </Link>
-            </motion.div>
-          </motion.div>
+            {/* Last row aligns with the left heading column */}
+            <motion.div className="lg:col-span-2 mt-4 lg:mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8" variants={stagger}>
+                <motion.div variants={scrollReveal} transition={transition}>
+                  <Link href="/features#ai-receptionist" className="group block h-full rounded-2xl bg-white/95 backdrop-blur-2xl p-6 shadow-lg ring-1 ring-white/80 hover:shadow-xl transition-all border border-white/80 hover:border-cyan-300/70 dark:bg-white/20 dark:ring-white/40">
+                    <div className="w-12 h-12 bg-cyan-100 rounded-xl flex items-center justify-center mb-4">
+                      <Bot className="w-6 h-6 text-cyan-600" />
+                    </div>
+                    <h3 className="text-xl font-semibold text-slate-900 mb-3">AI Virtual Receptionist</h3>
+                    <ul className="space-y-2 text-slate-600 text-sm">
+                      <li className="flex items-center gap-2"><span className="text-cyan-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Answers questions about services & booking</li>
+                      <li className="flex items-center gap-2"><span className="text-cyan-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Available on your booking page & admin</li>
+                      <li className="flex items-center gap-2"><span className="text-cyan-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Instant answers so visitors book with confidence</li>
+                    </ul>
+                  </Link>
+                </motion.div>
+
+                <motion.div variants={scrollReveal} transition={transition}>
+                  <Link href="/features" className="group block h-full rounded-2xl bg-white/95 backdrop-blur-2xl p-6 shadow-lg ring-1 ring-white/80 hover:shadow-xl transition-all border border-white/80 hover:border-cyan-300/70 dark:bg-white/20 dark:ring-white/40">
+                    <div className="w-12 h-12 bg-pink-100 rounded-xl flex items-center justify-center mb-4">
+                      <svg className="w-6 h-6 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" /></svg>
+                    </div>
+                    <h3 className="text-xl font-semibold text-slate-900 mb-3">Marketing & Promotions</h3>
+                    <ul className="space-y-2 text-slate-600 text-sm">
+                      <li className="flex items-center gap-2"><span className="text-pink-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Coupons & daily discounts</li>
+                      <li className="flex items-center gap-2"><span className="text-pink-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Gift cards & campaigns</li>
+                      <li className="flex items-center gap-2"><span className="text-pink-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Scripts for cold-calling & follow-ups</li>
+                    </ul>
+                  </Link>
+                </motion.div>
+
+                <motion.div variants={scrollReveal} transition={transition}>
+                  <Link href="/features" className="group block h-full rounded-2xl bg-white/95 backdrop-blur-2xl p-6 shadow-lg ring-1 ring-white/80 hover:shadow-xl transition-all border border-white/80 hover:border-cyan-300/70 dark:bg-white/20 dark:ring-white/40">
+                    <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center mb-4">
+                      <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                    </div>
+                    <h3 className="text-xl font-semibold text-slate-900 mb-3">Hiring & Team</h3>
+                    <ul className="space-y-2 text-slate-600 text-sm">
+                      <li className="flex items-center gap-2"><span className="text-emerald-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Onboarding & prospect tracking</li>
+                      <li className="flex items-center gap-2"><span className="text-emerald-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Interviews & quizzes with scorecards</li>
+                      <li className="flex items-center gap-2"><span className="text-emerald-600 shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg></span>Contacts & hiring reports</li>
+                    </ul>
+                  </Link>
+                </motion.div>
+              </motion.div>
+          </div>
         </motion.div>
       </section>
 
