@@ -17,14 +17,14 @@ type Applicant = {
   createdAt: string;
 };
 
-export default function ContactsTab() {
-  const [contacts, setContacts] = useState<Applicant[]>([]);
+const ContractsTab = () => {
+  const [contracts, setContracts] = useState<Applicant[]>([]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
       const stored = JSON.parse(localStorage.getItem(APPLICANTS_KEY) || "[]") as Applicant[];
-      if (Array.isArray(stored)) setContacts(stored);
+      if (Array.isArray(stored)) setContracts(stored);
     } catch {
       // ignore
     }
@@ -34,9 +34,9 @@ export default function ContactsTab() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Contacts</CardTitle>
+          <CardTitle>Contracts</CardTitle>
           <CardDescription>
-            View all people who have entered your hiring pipeline, regardless of stage.
+            View all contracts and agreements in your hiring pipeline.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -52,14 +52,14 @@ export default function ContactsTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {contacts.length === 0 && (
+                {contracts.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
-                      No contacts yet. Add applicants from the Onboarding tab.
+                      No contracts yet. Add applicants from the Onboarding tab.
                     </TableCell>
                   </TableRow>
                 )}
-                {contacts.map((c) => (
+                {contracts.map((c) => (
                   <TableRow key={c.id}>
                     <TableCell className="font-medium">{c.name}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{c.email}</TableCell>
@@ -77,4 +77,6 @@ export default function ContactsTab() {
       </Card>
     </div>
   );
-}
+};
+
+export default ContractsTab;

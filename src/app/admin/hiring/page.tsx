@@ -55,7 +55,7 @@ import OnboardingTab from '@/components/admin/hiring/OnboardingTab';
 import ProspectsTab from '@/components/admin/hiring/ProspectsTab';
 import InterviewsTab from '@/components/admin/hiring/InterviewsTab';
 import QuizzesTab from '@/components/admin/hiring/QuizzesTab';
-import ContactsTab from '@/components/admin/hiring/ContactsTab';
+import ContractsTab from '@/components/admin/hiring/ContractsTab';
 import ReportsTab from '@/components/admin/hiring/ReportsTab';
 
 const FORMS_CATEGORIES = [
@@ -250,7 +250,7 @@ export default function HiringPage() {
     { value: 'prospects', label: 'Prospects', icon: Users, component: ProspectsTab },
     { value: 'interviews', label: 'Interviews', icon: Video, component: InterviewsTab },
     { value: 'quizzes', label: 'Quizzes', icon: ClipboardList, component: QuizzesTab },
-    { value: 'contacts', label: 'Contacts', icon: Contact, component: ContactsTab },
+    { value: 'contracts', label: 'Contracts', icon: FileSignature, component: ContractsTab },
     { value: 'reports', label: 'Reports', icon: BarChart3, component: ReportsTab },
   ];
 
@@ -263,7 +263,7 @@ export default function HiringPage() {
   };
 
   return (
-    <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+    <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
       <TabsList className="flex w-full flex-wrap h-auto gap-0 p-1 lg:w-auto lg:inline-flex">
         {tabs.map((tab) => {
           const Icon = tab.icon;
@@ -332,18 +332,18 @@ export default function HiringPage() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-      </TabsList>
+        </TabsList>
 
       {tabs.map((tab) => {
         const Component = tab.component;
         return (
-          <TabsContent key={tab.value} value={tab.value} className="space-y-4">
+          <TabsContent key={tab.value} value={tab.value} className="w-full space-y-4">
             <Component />
           </TabsContent>
         );
       })}
       {Object.entries(settingsContent).map(([value, Content]) => (
-        <TabsContent key={value} value={value} className="space-y-4">
+        <TabsContent key={value} value={value} className="w-full space-y-4">
           <Content />
         </TabsContent>
       ))}
