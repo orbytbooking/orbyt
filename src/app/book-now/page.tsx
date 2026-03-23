@@ -1794,6 +1794,7 @@ function BookingPageContent() {
 
   // Category Selection Screen
   if (currentStep === "category") {
+    const hasBusinessParam = Boolean(searchParams.get("business"));
     const categoriesAvailable = industryOptions.length > 0;
     return (
       <div className="min-h-screen">
@@ -1817,7 +1818,9 @@ function BookingPageContent() {
               <p className={styles.subtitle}>
                 {categoriesAvailable
                   ? "Choose from the industries you've enabled in your admin dashboard."
-                  : "Add industries in your admin dashboard to display them here."}
+                  : hasBusinessParam
+                    ? "Add industries in your admin dashboard to display them here."
+                    : "Use the booking link from your service provider's website to see their services."}
               </p>
             </div>
 
@@ -1846,11 +1849,15 @@ function BookingPageContent() {
             ) : (
               <div className="mt-12 rounded-2xl border border-dashed border-cyan-300 bg-cyan-50/60 p-8 text-center">
                 <p className="text-base text-slate-600">
-                  No industries have been added yet. Visit the admin dashboard to add industries so they appear here for customers.
+                  {hasBusinessParam
+                    ? "No industries have been added yet. Visit the admin dashboard to add industries so they appear here for customers."
+                    : "No booking context. Please open the Book Now link from your service provider's website so we can show their available services."}
                 </p>
-                <Button asChild variant="outline" className="mt-4">
-                  <Link href="/admin/settings/industries">Go to Industries Settings</Link>
-                </Button>
+                {hasBusinessParam && (
+                  <Button asChild variant="outline" className="mt-4">
+                    <Link href="/admin/settings/industries">Go to Industries Settings</Link>
+                  </Button>
+                )}
               </div>
             )}
           </div>

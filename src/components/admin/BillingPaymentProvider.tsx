@@ -7,7 +7,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Loader2 } from "lucide-react";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { toast } from "sonner";
-import { BillingStripeConnect } from "./BillingStripeConnect";
+import { BillingStripeKeys } from "./BillingStripeKeys";
 import { BillingAuthorizeNet } from "./BillingAuthorizeNet";
 
 type PaymentProvider = "stripe" | "authorize_net";
@@ -116,7 +116,7 @@ export function BillingPaymentProvider() {
             <div className="flex items-center space-x-2">
               <RadioGroupItem value="stripe" id="provider-stripe" />
               <Label htmlFor="provider-stripe" className="font-normal cursor-pointer">
-                Stripe — connect your Stripe account to receive payments directly
+                Stripe — enter your Stripe API keys to receive payments (classic gateway)
               </Label>
             </div>
             <div className="flex items-center space-x-2">
@@ -135,7 +135,7 @@ export function BillingPaymentProvider() {
         </CardContent>
       </Card>
 
-      {provider === "stripe" && <BillingStripeConnect />}
+      {provider === "stripe" && <BillingStripeKeys />}
       {provider === "authorize_net" && <BillingAuthorizeNet />}
     </div>
   );

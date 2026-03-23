@@ -11,7 +11,9 @@ import { toast } from "sonner";
 
 export function BillingAuthorizeNet() {
   const { currentBusiness } = useBusiness();
-  const [apiKey, setApiKey] = useState("");
+  const [apiLoginId, setApiLoginId] = useState("");
+  const [transactionKey, setTransactionKey] = useState("");
+  const [publicClientKey, setPublicClientKey] = useState("");
   const [hasExistingConfig, setHasExistingConfig] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -41,21 +43,12 @@ export function BillingAuthorizeNet() {
       toast.error("No business selected");
       return;
     }
-    const trimmed = apiKey.trim();
-    if (!trimmed) {
-      toast.error("API key is required");
-      return;
-    }
-    // Accept "API_LOGIN_ID:TRANSACTION_KEY" (Authorize.net needs both)
-    const colonIndex = trimmed.indexOf(":");
-    const apiLoginId = colonIndex >= 0 ? trimmed.slice(0, colonIndex).trim() : trimmed;
-    const transactionKey = colonIndex >= 0 ? trimmed.slice(colonIndex + 1).trim() : "";
-    if (colonIndex >= 0 && !transactionKey) {
-      toast.error("Enter API key as: API Login ID : Transaction Key");
-      return;
-    }
-    if (colonIndex < 0) {
-      toast.error("Enter your API key in the format: API Login ID : Transaction Key (from Authorize.net)");
+    const loginId = apiLoginId.trim();
+    const txKey = transactionKey.trim();
+    const clientKey = publicClientKey.trim();
+
+    if (!loginId || !txKey) {
+      toast.error("API Login ID and Transaction Key are required");
       return;
     }
     setSaving(true);
@@ -68,15 +61,18 @@ export function BillingAuthorizeNet() {
         },
         body: JSON.stringify({
           paymentProvider: "authorize_net",
-          authorizeNetApiLoginId: apiLoginId,
-          authorizeNetTransactionKey: transactionKey,
+          authorizeNetApiLoginId: loginId,
+          authorizeNetTransactionKey: txKey,
+          authorizeNetPublicClientKey: clientKey || undefined,
         }),
         credentials: "include",
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        toast.success("Authorize.net API key saved");
-        setApiKey("");
+        toast.success("Authorize.net credentials saved");
+        setApiLoginId("");
+        setTransactionKey("");
+        setPublicClientKey("");
         setHasExistingConfig(true);
       } else {
         toast.error(data.error || "Failed to save");
@@ -93,25 +89,45 @@ export function BillingAuthorizeNet() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">Authorize.net</CardTitle>
         <CardDescription>
-          Enter your Authorize.net API key. Get API Login ID and Transaction Key from Merchant Dashboard → Account → API Credentials & Keys, then enter as: <strong>API Login ID : Transaction Key</strong>
+          Enter your Authorize.net API credentials. Get API Login ID, Transaction Key, and Public Client Key from your
+          Merchant Dashboard → Account → API Credentials &amp; Keys.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="authnet-api-key">API Key</Label>
+          <Label htmlFor="authnet-api-login-id">API Login ID</Label>
           <Input
-            id="authnet-api-key"
+            id="authnet-api-login-id"
             type="password"
-            placeholder="API Login ID : Transaction Key"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="Enter API Login ID"
+            value={apiLoginId}
+            onChange={(e) => setApiLoginId(e.target.value)}
             className="font-mono"
           />
-          <p className="text-xs text-muted-foreground">
-            Format: your API Login ID, then a colon, then your Transaction Key. Stored securely.
-          </p>
         </div>
-        <Button onClick={handleSave} disabled={saving || !apiKey.trim()}>
+        <div className="space-y-2">
+          <Label htmlFor="authnet-transaction-key">Transaction key</Label>
+          <Input
+            id="authnet-transaction-key"
+            type="password"
+            placeholder="Enter Transaction Key"
+            value={transactionKey}
+            onChange={(e) => setTransactionKey(e.target.value)}
+            className="font-mono"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="authnet-public-client-key">Public Client Key</Label>
+          <Input
+            id="authnet-public-client-key"
+            type="password"
+            placeholder="Enter Public Client Key"
+            value={publicClientKey}
+            onChange={(e) => setPublicClientKey(e.target.value)}
+            className="font-mono"
+          />
+        </div>
+        <Button onClick={handleSave} disabled={saving || !apiLoginId.trim() || !transactionKey.trim()}>
           {saving ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -124,7 +140,7 @@ export function BillingAuthorizeNet() {
         {hasExistingConfig && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <CheckCircle2 className="h-4 w-4 text-green-600" />
-            <span>Authorize.net is configured. Enter a new API key above to update.</span>
+            <span>Authorize.net is configured. Enter new credentials above to update.</span>
           </div>
         )}
       </CardContent>

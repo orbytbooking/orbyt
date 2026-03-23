@@ -1,62 +1,67 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
-  Users, 
   Building2, 
   DollarSign, 
   TrendingUp, 
   Settings, 
-  HeadphonesIcon,
-  BarChart3,
   AlertCircle,
   CheckCircle,
   Clock,
-  ArrowUpRight,
-  ArrowDownRight,
-  Eye,
-  Edit,
-  Trash2,
-  MoreHorizontal,
   LogOut,
   Bell,
   Search,
-  Filter,
   Download,
   RefreshCw,
   Shield,
-  Globe,
-  Zap,
-  Activity,
   CreditCard,
   UserPlus,
-  Calendar,
-  Mail,
-  Phone,
-  MapPin,
-  Star,
-  TrendingDown,
-  Sparkles,
-  ArrowRight,
   Menu,
   X,
   ChevronDown,
   Home,
-  FileText,
   HelpCircle,
-  Layers,
-  Target,
-  ZapOff,
   UserCheck,
-  Briefcase,
-  TrendingUpIcon,
   PieChart,
   Users2,
   MessageSquare,
-  ThumbsUp,
-  AlertTriangle
+  TrendingDown,
+  Sparkles,
+  Eye,
+  Mail,
+  Phone,
+  MapPin,
+  Globe,
+  User,
+  FileText,
+  Calendar,
+  Loader2,
+  Tag,
+  Folder,
+  Pencil,
+  Trash2,
+  LogIn,
+  UserX,
+  Plus
 } from 'lucide-react';
+import { supabase } from '@/lib/supabaseClient';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  PieChart as RechartsPieChart,
+  Pie,
+  Cell,
+  Legend,
+} from 'recharts';
 
 interface DashboardStats {
   totalBusinesses: number;
@@ -71,6 +76,39 @@ interface DashboardStats {
   conversionRate: number;
   supportTickets: number;
   avgResponseTime: number;
+  totalBookings?: number;
+  bookingsThisMonth?: number;
+  averageRevenuePerBusiness?: number;
+  stripeConnectedCount?: number;
+  activeSubscriptions?: number;
+  canceledSubscriptions?: number;
+  trialSubscriptions?: number;
+}
+
+interface SubscriptionsData {
+  active: number;
+  canceled: number;
+  trial: number;
+  total: number;
+}
+
+interface BillingData {
+  averageRevenuePerBusiness: number;
+  stripeConnectedCount: number;
+  totalBusinessesForBilling: number;
+  revenueByPlan: { plan: string; revenue: number; businessCount: number }[];
+  recentPayments: { id?: string; business_id?: string; business_name: string; amount: number; date?: string; service: string; customer_name: string }[];
+  upcomingPayments?: {
+    totalAmount: number;
+    count: number;
+    items: { id?: string; business_id?: string; business_name: string; amount: number; scheduled_date?: string; scheduled_time?: string; service: string; customer_name: string }[];
+  };
+}
+
+interface ChartData {
+  revenueByMonth: { month: string; revenue: number; label: string }[];
+  bookingsByStatus: { status: string; count: number }[];
+  businessesByPlan: { plan: string; count: number }[];
 }
 
 interface Business {
@@ -86,6 +124,7 @@ interface Business {
   monthly_revenue: number;
   total_bookings: number;
   last_active: string;
+  is_active?: boolean;
 }
 
 interface PlatformUser {
@@ -102,11 +141,255 @@ interface PlatformUser {
 interface SupportTicket {
   id: string;
   subject: string;
+  business_id?: string;
   business_name: string;
   priority: string;
   status: string;
-  created_at: string;
+  requester_email?: string;
   assigned_to: string;
+  created_at: string;
+  updated_at?: string;
+  message?: string;
+}
+
+interface BusinessDetailData {
+  business: {
+    id: string;
+    name: string;
+    address?: string;
+    plan?: string;
+    created_at: string;
+    updated_at?: string;
+    is_active?: boolean;
+    business_email?: string;
+    business_phone?: string;
+    city?: string;
+    zip_code?: string;
+    website?: string;
+    description?: string;
+    category?: string;
+    subdomain?: string;
+    domain?: string;
+    logo_url?: string;
+    owner_name?: string;
+    owner_email?: string;
+  };
+  counts: { bookings: number; providers: number; customers: number };
+  totalRevenue: number;
+  storageUsedBytes?: number;
+  storageLimitBytes?: number;
+  recentBookings: Array<{
+    id: string;
+    service?: string;
+    scheduled_date?: string;
+    scheduled_time?: string;
+    status: string;
+    total_price?: number;
+    customer_name?: string;
+  }>;
+  subscription?: {
+    planName: string;
+    planSlug: string;
+    status: string;
+    amountCents: number;
+    currentPeriodStart?: string;
+    currentPeriodEnd?: string;
+  };
+  recentSubscriptionPayments?: Array<{ paid_at: string; amount_cents: number; description?: string }>;
+}
+
+function EditBusinessModalInline({
+  businessId,
+  onClose,
+  onSaved,
+  setSaveLoading,
+}: {
+  businessId: string;
+  onClose: () => void;
+  onSaved: () => void;
+  setSaveLoading: (v: boolean) => void;
+}) {
+  const [form, setForm] = useState<{ name: string; plan: string; is_active: boolean; business_email: string; business_phone: string; address: string; city: string; zip_code: string; website: string; description: string }>({ name: '', plan: 'starter', is_active: true, business_email: '', business_phone: '', address: '', city: '', zip_code: '', website: '', description: '' });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    setError(null);
+    fetch(`/api/super-admin/businesses/${businessId}`, { credentials: 'include' })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!mounted) return;
+        const b = data.business || data;
+        setForm({
+          name: b.name ?? '',
+          plan: (b.plan || 'starter').toString().toLowerCase(),
+          is_active: b.is_active !== false,
+          business_email: b.business_email ?? '',
+          business_phone: b.business_phone ?? '',
+          address: b.address ?? '',
+          city: b.city ?? '',
+          zip_code: b.zip_code ?? '',
+          website: b.website ?? '',
+          description: b.description ?? '',
+        });
+      })
+      .catch(() => { if (mounted) setError('Failed to load'); })
+      .finally(() => { if (mounted) setLoading(false); });
+    return () => { mounted = false; };
+  }, [businessId]);
+
+  const handleSave = () => {
+    setSaveLoading(true);
+    fetch(`/api/super-admin/businesses/${businessId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(form),
+    })
+      .then((r) => r.ok ? onSaved() : r.json().then((d) => { setError(d.error || 'Failed to save'); }))
+      .finally(() => setSaveLoading(false));
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={onClose} role="dialog" aria-modal="true">
+      <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-900">Edit business</h3>
+          <button type="button" onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          {loading && <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin text-indigo-600" /></div>}
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          {!loading && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                <input type="text" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Plan</label>
+                <select value={form.plan} onChange={(e) => setForm((f) => ({ ...f, plan: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                  <option value="starter">Starter</option>
+                  <option value="pro">Pro</option>
+                  <option value="enterprise">Enterprise</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="edit-active" checked={form.is_active} onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))} />
+                <label htmlFor="edit-active" className="text-sm text-gray-700">Account active</label>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Business email</label>
+                <input type="email" value={form.business_email} onChange={(e) => setForm((f) => ({ ...f, business_email: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Business phone</label>
+                <input type="text" value={form.business_phone} onChange={(e) => setForm((f) => ({ ...f, business_phone: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+                <input type="text" value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
+                  <input type="text" value={form.city} onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Zip code</label>
+                  <input type="text" value={form.zip_code} onChange={(e) => setForm((f) => ({ ...f, zip_code: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Website</label>
+                <input type="text" value={form.website} onChange={(e) => setForm((f) => ({ ...f, website: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+              </div>
+            </>
+          )}
+        </div>
+        {!loading && (
+          <div className="p-6 border-t border-gray-200 flex justify-end gap-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">Cancel</button>
+            <button type="button" onClick={handleSave} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Save</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CreateBusinessModalInline({
+  onClose,
+  onCreated,
+  setLoading,
+}: {
+  onClose: () => void;
+  onCreated: () => void;
+  setLoading: (v: boolean) => void;
+}) {
+  const [name, setName] = useState('');
+  const [plan, setPlan] = useState('starter');
+  const [ownerEmail, setOwnerEmail] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const handleCreate = () => {
+    if (!name.trim()) { setError('Name is required'); return; }
+    setError(null);
+    setLoading(true);
+    fetch('/api/super-admin/businesses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ name: name.trim(), plan, owner_email: ownerEmail.trim() || undefined }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.error) { setError(data.error); setLoading(false); return; }
+        setLoading(false);
+        onCreated();
+      })
+      .catch(() => { setError('Failed to create'); setLoading(false); });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={onClose} role="dialog" aria-modal="true">
+      <div className="bg-white rounded-xl shadow-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+        <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-900">Create business</h3>
+          <button type="button" onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Business name" className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Plan</label>
+            <select value={plan} onChange={(e) => setPlan(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              <option value="starter">Starter</option>
+              <option value="pro">Pro</option>
+              <option value="enterprise">Enterprise</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Owner email (optional)</label>
+            <input type="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} placeholder="Link existing user by email" className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+          </div>
+        </div>
+        <div className="p-6 border-t border-gray-200 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">Cancel</button>
+          <button type="button" onClick={handleCreate} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Create</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function SuperAdminDashboard() {
@@ -124,6 +407,29 @@ export default function SuperAdminDashboard() {
     conversionRate: 0,
     supportTickets: 0,
     avgResponseTime: 0,
+    totalBookings: 0,
+    bookingsThisMonth: 0,
+    averageRevenuePerBusiness: 0,
+    stripeConnectedCount: 0,
+    activeSubscriptions: 0,
+    canceledSubscriptions: 0,
+    trialSubscriptions: 0,
+  });
+
+  const [billingData, setBillingData] = useState<BillingData>({
+    averageRevenuePerBusiness: 0,
+    stripeConnectedCount: 0,
+    totalBusinessesForBilling: 0,
+    revenueByPlan: [],
+    recentPayments: [],
+    upcomingPayments: { totalAmount: 0, count: 0, items: [] },
+  });
+
+  const [subscriptionsData, setSubscriptionsData] = useState<SubscriptionsData>({
+    active: 0,
+    canceled: 0,
+    trial: 0,
+    total: 0,
   });
 
   const [businesses, setBusinesses] = useState<Business[]>([]);
@@ -135,136 +441,235 @@ export default function SuperAdminDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
+  const [businessDetailModalId, setBusinessDetailModalId] = useState<string | null>(null);
+  const [businessDetailData, setBusinessDetailData] = useState<BusinessDetailData | null>(null);
+  const [businessDetailLoading, setBusinessDetailLoading] = useState(false);
+  const [businessDetailError, setBusinessDetailError] = useState<string | null>(null);
+  const [editBusinessId, setEditBusinessId] = useState<string | null>(null);
+  const [createBusinessOpen, setCreateBusinessOpen] = useState(false);
+  const [deleteConfirmBusinessId, setDeleteConfirmBusinessId] = useState<string | null>(null);
+  const [impersonateLoadingId, setImpersonateLoadingId] = useState<string | null>(null);
+  const [saveBusinessLoading, setSaveBusinessLoading] = useState(false);
+  const [createBusinessLoading, setCreateBusinessLoading] = useState(false);
+  const [supportTicketDetailId, setSupportTicketDetailId] = useState<string | null>(null);
+  const [supportNewTicketOpen, setSupportNewTicketOpen] = useState(false);
+  const [supportFilterStatus, setSupportFilterStatus] = useState<string>('');
+  const [supportFilterPriority, setSupportFilterPriority] = useState<string>('');
+  const [newTicketBusinessId, setNewTicketBusinessId] = useState('');
+  const [newTicketSubject, setNewTicketSubject] = useState('');
+  const [newTicketMessage, setNewTicketMessage] = useState('');
+  const [newTicketPriority, setNewTicketPriority] = useState('medium');
+  const [newTicketLoading, setNewTicketLoading] = useState(false);
+  const [ticketEditStatus, setTicketEditStatus] = useState('');
+  const [ticketEditAssignedTo, setTicketEditAssignedTo] = useState('');
+  const [ticketSaveLoading, setTicketSaveLoading] = useState(false);
+  const [supportTicketDetail, setSupportTicketDetail] = useState<SupportTicket | null>(null);
+  const [supportTicketDetailLoading, setSupportTicketDetailLoading] = useState(false);
+  const [chartData, setChartData] = useState<ChartData>({
+    revenueByMonth: [],
+    bookingsByStatus: [],
+    businessesByPlan: [],
+  });
 
-  useEffect(() => {
-    // Check authentication
-    const token = localStorage.getItem('superAdminToken');
-    if (!token) {
-      router.push('/super-admin/login');
-      return;
-    }
-    
-    fetchDashboardData();
-  }, [router]);
-
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async () => {
     try {
-      // Mock comprehensive dashboard data
-      setStats({
-        totalBusinesses: 1247,
-        activeBusinesses: 1156,
-        totalRevenue: 2847500,
-        monthlyRevenue: 342000,
-        totalUsers: 8942,
-        activeUsers: 6234,
-        newBusinessesThisMonth: 87,
-        churnRate: 3.2,
-        trialUsers: 234,
-        conversionRate: 68.5,
-        supportTickets: 142,
-        avgResponseTime: 2.4,
+      setLoading(true);
+      const [meRes, dashRes] = await Promise.all([
+        fetch('/api/super-admin/me', { credentials: 'include' }),
+        fetch('/api/super-admin/dashboard', { credentials: 'include' }),
+      ]);
+      if (!meRes.ok) {
+        setLoading(false);
+        router.replace('/super-admin/login');
+        return;
+      }
+      const meData = await meRes.json();
+      setCurrentUserEmail(meData.user?.email ?? '');
+      if (!dashRes.ok) {
+        setLoading(false);
+        return;
+      }
+      const data = await dashRes.json();
+      setStats(data.stats ?? {
+        totalBusinesses: 0,
+        activeBusinesses: 0,
+        totalRevenue: 0,
+        monthlyRevenue: 0,
+        totalUsers: 0,
+        activeUsers: 0,
+        newBusinessesThisMonth: 0,
+        churnRate: 0,
+        trialUsers: 0,
+        conversionRate: 0,
+        supportTickets: 0,
+        avgResponseTime: 0,
+        totalBookings: 0,
+        bookingsThisMonth: 0,
+        averageRevenuePerBusiness: 0,
+        stripeConnectedCount: 0,
+        activeSubscriptions: 0,
+        canceledSubscriptions: 0,
+        trialSubscriptions: 0,
       });
-
-      setBusinesses([
-        {
-          id: '1',
-          name: 'Sparkling Clean Services',
-          owner_name: 'Sarah Johnson',
-          owner_email: 'sarah@sparklingclean.com',
-          subscription_status: 'active',
-          trial_ends_at: null,
-          plan_name: 'Professional',
-          created_at: '2024-01-15T10:30:00Z',
-          is_featured: true,
-          monthly_revenue: 149,
-          total_bookings: 1247,
-          last_active: '2024-02-10T15:30:00Z',
-        },
-        {
-          id: '2',
-          name: 'Tech Startup Inc',
-          owner_name: 'Michael Chen',
-          owner_email: 'michael@techstartup.com',
-          subscription_status: 'trial',
-          trial_ends_at: '2024-02-15T10:30:00Z',
-          plan_name: 'Starter',
-          created_at: '2024-02-01T14:20:00Z',
-          is_featured: false,
-          monthly_revenue: 0,
-          total_bookings: 23,
-          last_active: '2024-02-09T09:15:00Z',
-        },
-        {
-          id: '3',
-          name: 'Elite Cleaners Pro',
-          owner_name: 'Emily Rodriguez',
-          owner_email: 'emily@elitecleaners.com',
-          subscription_status: 'active',
-          trial_ends_at: null,
-          plan_name: 'Business',
-          created_at: '2023-12-10T09:15:00Z',
-          is_featured: false,
-          monthly_revenue: 299,
-          total_bookings: 892,
-          last_active: '2024-02-10T18:45:00Z',
-        },
-      ]);
-
-      setPlatformUsers([
-        {
-          id: 'admin-1',
-          full_name: 'John Admin',
-          email: 'john@orbytcrm.com',
-          role: 'super_admin',
-          is_active: true,
-          last_login: '2024-02-10T15:30:00Z',
-          created_at: '2023-01-01T00:00:00Z',
-          business_count: 0,
-        },
-        {
-          id: 'support-1',
-          full_name: 'Sarah Support',
-          email: 'sarah@orbytcrm.com',
-          role: 'support',
-          is_active: true,
-          last_login: '2024-02-10T14:20:00Z',
-          created_at: '2023-03-15T00:00:00Z',
-          business_count: 0,
-        },
-      ]);
-
-      setSupportTickets([
-        {
-          id: '1',
-          subject: 'Cannot process payments',
-          business_name: 'Sparkling Clean Services',
-          priority: 'high',
-          status: 'open',
-          created_at: '2024-02-10T10:30:00Z',
-          assigned_to: 'Sarah Support',
-        },
-        {
-          id: '2',
-          subject: 'Booking calendar sync issue',
-          business_name: 'Elite Cleaners Pro',
-          priority: 'medium',
-          status: 'in_progress',
-          created_at: '2024-02-09T16:45:00Z',
-          assigned_to: 'John Admin',
-        },
-      ]);
-
-      setLoading(false);
+      setBusinesses(data.businesses ?? []);
+      setPlatformUsers(data.platformUsers ?? []);
+      setSupportTickets(data.supportTickets ?? []);
+      setChartData(data.charts ?? { revenueByMonth: [], bookingsByStatus: [], businessesByPlan: [] });
+      setSubscriptionsData(data.subscriptions ?? { active: 0, canceled: 0, trial: 0, total: 0 });
+      setBillingData(data.billing ?? {
+        averageRevenuePerBusiness: 0,
+        stripeConnectedCount: 0,
+        totalBusinessesForBilling: 0,
+        revenueByPlan: [],
+        recentPayments: [],
+        upcomingPayments: { totalAmount: 0, count: 0, items: [] },
+      });
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
+    } finally {
       setLoading(false);
+    }
+  }, [router]);
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  useEffect(() => {
+    if (!businessDetailModalId) {
+      setBusinessDetailData(null);
+      setBusinessDetailError(null);
+      return;
+    }
+    let mounted = true;
+    setBusinessDetailLoading(true);
+    setBusinessDetailError(null);
+    fetch(`/api/super-admin/businesses/${businessDetailModalId}`, { credentials: 'include' })
+      .then((res) => {
+        if (!mounted) return;
+        if (!res.ok) {
+          if (res.status === 404) setBusinessDetailError('Business not found');
+          else setBusinessDetailError('Failed to load business');
+          return res.json().catch(() => ({}));
+        }
+        return res.json();
+      })
+      .then((json) => {
+        if (!mounted) return;
+        if (json.error) return;
+        setBusinessDetailData(json);
+      })
+      .finally(() => {
+        if (mounted) setBusinessDetailLoading(false);
+      });
+    return () => { mounted = false; };
+  }, [businessDetailModalId]);
+
+  useEffect(() => {
+    if (!supportTicketDetailId) {
+      setSupportTicketDetail(null);
+      return;
+    }
+    let mounted = true;
+    setSupportTicketDetailLoading(true);
+    fetch(`/api/super-admin/support-tickets/${supportTicketDetailId}`, { credentials: 'include' })
+      .then((res) => {
+        if (!mounted) return;
+        if (!res.ok) return res.json().then((j) => { throw new Error(j.error || 'Failed'); });
+        return res.json();
+      })
+      .then((data) => {
+        if (!mounted) return;
+        setSupportTicketDetail(data);
+        setTicketEditStatus(data.status ?? '');
+        setTicketEditAssignedTo(data.assigned_to ?? '');
+      })
+      .catch(() => {
+        if (mounted) setSupportTicketDetail(null);
+      })
+      .finally(() => {
+        if (mounted) setSupportTicketDetailLoading(false);
+      });
+    return () => { mounted = false; };
+  }, [supportTicketDetailId]);
+
+  const closeSupportTicketDetail = () => {
+    setSupportTicketDetailId(null);
+    setSupportTicketDetail(null);
+  };
+
+  const handleUpdateTicket = async () => {
+    if (!supportTicketDetailId) return;
+    setTicketSaveLoading(true);
+    try {
+      const res = await fetch(`/api/super-admin/support-tickets/${supportTicketDetailId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ status: ticketEditStatus, assigned_to: ticketEditAssignedTo || null }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || 'Update failed');
+      }
+      const updated = await res.json();
+      setSupportTickets((prev) => prev.map((t) => (t.id === updated.id ? { ...t, ...updated, business_name: t.business_name } : t)));
+      setSupportTicketDetail((d) => (d && d.id === updated.id ? { ...d, ...updated } : d));
+    } catch (e) {
+      console.error(e);
+      alert((e as Error).message || 'Failed to update ticket');
+    } finally {
+      setTicketSaveLoading(false);
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('superAdminToken');
-    localStorage.removeItem('superAdminUser');
-    router.push('/super-admin/login');
+  const handleCreateTicket = async () => {
+    if (!newTicketBusinessId || !newTicketSubject.trim() || !newTicketMessage.trim()) {
+      alert('Please select a business and enter subject and message.');
+      return;
+    }
+    setNewTicketLoading(true);
+    try {
+      const res = await fetch('/api/super-admin/support-tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          business_id: newTicketBusinessId,
+          subject: newTicketSubject.trim(),
+          message: newTicketMessage.trim(),
+          priority: newTicketPriority,
+          requester_email: currentUserEmail || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || 'Create failed');
+      }
+      await fetchDashboardData();
+      setSupportNewTicketOpen(false);
+      setNewTicketSubject('');
+      setNewTicketMessage('');
+      setNewTicketBusinessId(businesses[0]?.id ?? '');
+      setNewTicketPriority('medium');
+    } catch (e) {
+      console.error(e);
+      alert((e as Error).message || 'Failed to create ticket');
+    } finally {
+      setNewTicketLoading(false);
+    }
+  };
+
+  const closeBusinessModal = () => {
+    setBusinessDetailModalId(null);
+    setBusinessDetailData(null);
+    setBusinessDetailError(null);
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.replace('/super-admin/login');
   };
 
   const getSubscriptionStatusBadge = (status: string, trialEndsAt: string | null) => {
@@ -414,7 +819,7 @@ export default function SuperAdminDashboard() {
                   </div>
                   <div className="hidden md:block text-left">
                     <p className="text-sm font-medium text-gray-900">Super Admin</p>
-                    <p className="text-xs text-gray-500">admin@orbytcrm.com</p>
+                    <p className="text-xs text-gray-500">{currentUserEmail || '…'}</p>
                   </div>
                   <ChevronDown className="h-4 w-4 text-gray-400" />
                 </button>
@@ -423,7 +828,7 @@ export default function SuperAdminDashboard() {
                   <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
                     <div className="p-3 border-b border-gray-200">
                       <p className="text-sm font-medium text-gray-900">Super Admin</p>
-                      <p className="text-xs text-gray-500">admin@orbytcrm.com</p>
+                      <p className="text-xs text-gray-500">{currentUserEmail || '…'}</p>
                     </div>
                     <div className="py-2">
                       <button className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center">
@@ -517,7 +922,11 @@ export default function SuperAdminDashboard() {
                     <Download className="h-4 w-4 mr-2" />
                     Export Report
                   </button>
-                  <button className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg text-sm font-medium hover:from-blue-700 hover:to-purple-700 flex items-center shadow-lg">
+                  <button
+                    type="button"
+                    onClick={() => fetchDashboardData()}
+                    className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg text-sm font-medium hover:from-blue-700 hover:to-purple-700 flex items-center shadow-lg"
+                  >
                     <RefreshCw className="h-4 w-4 mr-2" />
                     Refresh Data
                   </button>
@@ -525,7 +934,7 @@ export default function SuperAdminDashboard() {
               </div>
 
               {/* Key Metrics Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-lg transition-shadow duration-300">
                   <div className="flex items-center justify-between mb-4">
                     <div className="p-3 bg-blue-100 rounded-lg">
@@ -565,7 +974,7 @@ export default function SuperAdminDashboard() {
                   </div>
                   <h3 className="text-2xl font-bold text-gray-900">{stats.activeUsers.toLocaleString()}</h3>
                   <p className="text-sm text-gray-600 mt-1">Active Users</p>
-                  <p className="text-xs text-gray-500 mt-2">{((stats.activeUsers / stats.totalUsers) * 100).toFixed(1)}% engagement</p>
+                  <p className="text-xs text-gray-500 mt-2">{stats.totalUsers ? ((stats.activeUsers / stats.totalUsers) * 100).toFixed(1) : 0}% engagement</p>
                 </div>
 
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-lg transition-shadow duration-300">
@@ -581,6 +990,276 @@ export default function SuperAdminDashboard() {
                   <p className="text-sm text-gray-600 mt-1">Churn Rate</p>
                   <p className="text-xs text-gray-500 mt-2">Improving trend</p>
                 </div>
+
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-lg transition-shadow duration-300">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="p-3 bg-amber-100 rounded-lg">
+                      <DollarSign className="h-6 w-6 text-amber-600" />
+                    </div>
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900">${(stats.totalRevenue ?? 0).toLocaleString()}</h3>
+                  <p className="text-sm text-gray-600 mt-1">Total Revenue</p>
+                  <p className="text-xs text-gray-500 mt-2">All-time</p>
+                </div>
+
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-lg transition-shadow duration-300">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="p-3 bg-cyan-100 rounded-lg">
+                      <FileText className="h-6 w-6 text-cyan-600" />
+                    </div>
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900">{(stats.totalBookings ?? 0).toLocaleString()}</h3>
+                  <p className="text-sm text-gray-600 mt-1">Total Bookings</p>
+                  <p className="text-xs text-gray-500 mt-2">+{stats.bookingsThisMonth ?? 0} this month</p>
+                </div>
+
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-lg transition-shadow duration-300">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="p-3 bg-slate-100 rounded-lg">
+                      <DollarSign className="h-6 w-6 text-slate-600" />
+                    </div>
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900">${(stats.averageRevenuePerBusiness ?? 0).toLocaleString()}</h3>
+                  <p className="text-sm text-gray-600 mt-1">Avg revenue per business</p>
+                  <p className="text-xs text-gray-500 mt-2">All-time</p>
+                </div>
+
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-lg transition-shadow duration-300">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="p-3 bg-emerald-100 rounded-lg">
+                      <CreditCard className="h-6 w-6 text-emerald-600" />
+                    </div>
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900">{stats.stripeConnectedCount ?? 0} / {stats.totalBusinesses ?? 0}</h3>
+                  <p className="text-sm text-gray-600 mt-1">Stripe Connected</p>
+                  <p className="text-xs text-gray-500 mt-2">Businesses with payment gateway</p>
+                </div>
+              </div>
+
+              {/* Subscriptions overview */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                  <CreditCard className="h-5 w-5 mr-2 text-gray-500" />
+                  Subscriptions
+                </h3>
+                <p className="text-sm text-gray-500 mb-4">Account status breakdown (based on business active status until subscription billing is live)</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="bg-green-50 rounded-lg p-4 border border-green-100">
+                    <div className="flex items-center gap-2 mb-1">
+                      <CheckCircle className="h-5 w-5 text-green-600" />
+                      <span className="text-sm font-medium text-green-800">Active</span>
+                    </div>
+                    <p className="text-2xl font-bold text-green-900">{subscriptionsData.active}</p>
+                    <p className="text-xs text-green-700 mt-0.5">Paying / active accounts</p>
+                  </div>
+                  <div className="bg-red-50 rounded-lg p-4 border border-red-100">
+                    <div className="flex items-center gap-2 mb-1">
+                      <AlertCircle className="h-5 w-5 text-red-600" />
+                      <span className="text-sm font-medium text-red-800">Canceled</span>
+                    </div>
+                    <p className="text-2xl font-bold text-red-900">{subscriptionsData.canceled}</p>
+                    <p className="text-xs text-red-700 mt-0.5">Inactive / canceled</p>
+                  </div>
+                  <div className="bg-amber-50 rounded-lg p-4 border border-amber-100">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Clock className="h-5 w-5 text-amber-600" />
+                      <span className="text-sm font-medium text-amber-800">Trial</span>
+                    </div>
+                    <p className="text-2xl font-bold text-amber-900">{subscriptionsData.trial}</p>
+                    <p className="text-xs text-amber-700 mt-0.5">In trial period</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Building2 className="h-5 w-5 text-gray-600" />
+                      <span className="text-sm font-medium text-gray-800">Total</span>
+                    </div>
+                    <p className="text-2xl font-bold text-gray-900">{subscriptionsData.total}</p>
+                    <p className="text-xs text-gray-600 mt-0.5">All businesses</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Charts */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-4">Revenue by month</h3>
+                  <div className="h-[240px]">
+                    {chartData.revenueByMonth.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartData.revenueByMonth} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                          <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                          <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={(v) => `$${v}`} />
+                          <Tooltip formatter={(v: number) => [`$${v.toFixed(2)}`, 'Revenue']} labelFormatter={(_, payload) => payload?.[0]?.payload?.label} />
+                          <Line type="monotone" dataKey="revenue" stroke="#6366f1" strokeWidth={2} dot={{ fill: '#6366f1', r: 4 }} name="Revenue" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-gray-400 text-sm">No revenue data yet</div>
+                    )}
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-4">Bookings by status</h3>
+                  <div className="h-[240px]">
+                    {chartData.bookingsByStatus.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={chartData.bookingsByStatus} layout="vertical" margin={{ top: 5, right: 20, left: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                          <XAxis type="number" tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                          <YAxis type="category" dataKey="status" width={70} tick={{ fontSize: 10 }} stroke="#94a3b8" />
+                          <Tooltip formatter={(v: number) => [v, 'Count']} />
+                          <Bar dataKey="count" fill="#6366f1" radius={[0, 4, 4, 0]} name="Bookings" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-gray-400 text-sm">No bookings yet</div>
+                    )}
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-4">Businesses by plan</h3>
+                  <div className="h-[240px]">
+                    {chartData.businessesByPlan.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <RechartsPieChart>
+                          <Pie
+                            data={chartData.businessesByPlan}
+                            dataKey="count"
+                            nameKey="plan"
+                            cx="50%"
+                            cy="50%"
+                            outerRadius={80}
+                            label={({ plan, count }) => `${plan}: ${count}`}
+                            labelLine={false}
+                          >
+                            {chartData.businessesByPlan.map((_, i) => (
+                              <Cell key={i} fill={['#6366f1', '#8b5cf6', '#a78bfa', '#c4b5fd', '#e9d5ff'][i % 5]} />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(v: number) => [v, 'Businesses']} />
+                          <Legend />
+                        </RechartsPieChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-gray-400 text-sm">No businesses yet</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Billing & payments */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="p-6 border-b border-gray-200">
+                    <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                      <DollarSign className="h-5 w-5 mr-2 text-gray-500" />
+                      Subscription revenue by plan
+                    </h3>
+                    <p className="text-sm text-gray-500 mt-1">Subscription revenue from businesses by plan tier</p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    {billingData.revenueByPlan.length === 0 ? (
+                      <div className="p-8 text-center text-gray-500 text-sm">No subscription revenue by plan yet.</div>
+                    ) : (
+                      <table className="min-w-full divide-y divide-gray-200 text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Plan</th>
+                            <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Revenue</th>
+                            <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Businesses</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {billingData.revenueByPlan.map((row) => (
+                            <tr key={row.plan} className="hover:bg-gray-50">
+                              <td className="px-6 py-3 font-medium text-gray-900 capitalize">{row.plan}</td>
+                              <td className="px-6 py-3 text-right font-medium">${row.revenue.toLocaleString()}</td>
+                              <td className="px-6 py-3 text-right text-gray-600">{row.businessCount}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="p-6 border-b border-gray-200">
+                    <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                      <CreditCard className="h-5 w-5 mr-2 text-gray-500" />
+                      Recent subscription payments
+                    </h3>
+                    <p className="text-sm text-gray-500 mt-1">Latest subscription payments from businesses</p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    {billingData.recentPayments.length === 0 ? (
+                      <div className="p-8 text-center text-gray-500 text-sm">No subscription payments yet.</div>
+                    ) : (
+                      <table className="min-w-full divide-y divide-gray-200 text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Business</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Plan / Description</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                            <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {billingData.recentPayments.map((p, i) => (
+                            <tr key={p.id ?? i} className="hover:bg-gray-50">
+                              <td className="px-6 py-3 font-medium text-gray-900">{p.business_name}</td>
+                              <td className="px-6 py-3 text-gray-900">{p.service}</td>
+                              <td className="px-6 py-3 text-gray-600">{p.date ? new Date(p.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                              <td className="px-6 py-3 text-right font-medium">${p.amount.toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="p-6 border-b border-gray-200">
+                    <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                      <Calendar className="h-5 w-5 mr-2 text-gray-500" />
+                      Upcoming subscription renewals
+                    </h3>
+                    <p className="text-sm text-gray-500 mt-1">Next subscription renewal dates (next 10)</p>
+                    {billingData.upcomingPayments && (billingData.upcomingPayments.count > 0 || billingData.upcomingPayments.items.length > 0) && (
+                      <p className="text-sm font-medium text-amber-700 mt-1">
+                        {billingData.upcomingPayments.count} renewal{billingData.upcomingPayments.count !== 1 ? 's' : ''} · ${(billingData.upcomingPayments.totalAmount ?? 0).toFixed(2)} expected
+                      </p>
+                    )}
+                  </div>
+                  <div className="overflow-x-auto">
+                    {!billingData.upcomingPayments?.items?.length ? (
+                      <div className="p-8 text-center text-gray-500 text-sm">No upcoming subscription renewals.</div>
+                    ) : (
+                      <table className="min-w-full divide-y divide-gray-200 text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Business</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Plan</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Due date</th>
+                            <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {billingData.upcomingPayments.items.map((p, i) => (
+                            <tr key={p.id ?? i} className="hover:bg-gray-50">
+                              <td className="px-6 py-3 font-medium text-gray-900">{p.business_name}</td>
+                              <td className="px-6 py-3 text-gray-900">{p.service}</td>
+                              <td className="px-6 py-3 text-gray-600">
+                                {p.scheduled_date ? new Date(p.scheduled_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                              </td>
+                              <td className="px-6 py-3 text-right font-medium">${p.amount.toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Enhanced Charts and Tables */}
@@ -590,7 +1269,7 @@ export default function SuperAdminDashboard() {
                   <div className="p-6 border-b border-gray-200">
                     <div className="flex items-center justify-between">
                       <h3 className="text-lg font-semibold text-gray-900">Recent Businesses</h3>
-                      <button className="text-sm text-blue-600 hover:text-blue-800 font-medium">View All</button>
+                      <button type="button" onClick={() => setActiveTab('businesses')} className="text-sm text-blue-600 hover:text-blue-800 font-medium">View All</button>
                     </div>
                   </div>
                   <div className="p-6">
@@ -646,8 +1325,672 @@ export default function SuperAdminDashboard() {
             </div>
           )}
 
-          {/* Other tabs placeholder */}
-          {activeTab !== 'overview' && (
+          {/* Businesses Tab */}
+          {activeTab === 'businesses' && (
+            <div className="space-y-6 animate-fade-in">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900 flex items-center">
+                    <Building2 className="h-6 w-6 mr-2 text-blue-600" />
+                    Businesses
+                  </h2>
+                  <p className="text-gray-600 mt-1">All businesses on the platform ({businesses.length} total)</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search by name, owner..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCreateBusinessOpen(true)}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 flex items-center"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create business
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fetchDashboardData()}
+                    className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg text-sm font-medium hover:from-blue-700 hover:to-purple-700 flex items-center"
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Refresh
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Business</th>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Plan</th>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                        <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Bookings</th>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last active</th>
+                        <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {(() => {
+                        const q = searchTerm.trim().toLowerCase();
+                        const filtered = q
+                          ? businesses.filter(
+                              (b) =>
+                                b.name.toLowerCase().includes(q) ||
+                                b.owner_name.toLowerCase().includes(q) ||
+                                (b.owner_email && b.owner_email.toLowerCase().includes(q))
+                            )
+                          : businesses;
+                        if (filtered.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                                {businesses.length === 0 ? 'No businesses yet.' : 'No businesses match your search.'}
+                              </td>
+                            </tr>
+                          );
+                        }
+                        return filtered.map((business) => (
+                          <tr key={business.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center">
+                                <div className="h-10 w-10 bg-gradient-to-br from-blue-500 to-purple-500 rounded-lg flex items-center justify-center text-white font-bold flex-shrink-0">
+                                  {business.name.charAt(0)}
+                                </div>
+                                <div className="ml-4">
+                                  <p className="font-medium text-gray-900">{business.name}</p>
+                                  <p className="text-xs text-gray-500">Created {business.created_at ? new Date(business.created_at).toLocaleDateString() : '—'}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div>
+                                <p className="text-sm text-gray-900">{business.owner_name}</p>
+                                <p className="text-xs text-gray-500 flex items-center gap-1">
+                                  <Mail className="h-3 w-3" /> {business.owner_email || '—'}
+                                </p>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="text-sm text-gray-700 capitalize">{business.plan_name}</span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {getSubscriptionStatusBadge(business.subscription_status, business.trial_ends_at)}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-700">
+                              {business.total_bookings.toLocaleString()}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {business.last_active ? new Date(business.last_active).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setBusinessDetailModalId(business.id)}
+                                  className="inline-flex items-center px-2 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 rounded hover:bg-blue-100"
+                                >
+                                  <Eye className="h-3.5 w-3.5 mr-1" /> View
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditBusinessId(business.id)}
+                                  className="inline-flex items-center px-2 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200"
+                                >
+                                  <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    fetch(`/api/super-admin/businesses/${business.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ is_active: !(business.is_active !== false) }) })
+                                      .then((r) => r.ok && fetchDashboardData());
+                                  }}
+                                  className="inline-flex items-center px-2 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 rounded hover:bg-amber-100"
+                                >
+                                  {business.is_active !== false ? <UserX className="h-3.5 w-3.5 mr-1" /> : <UserCheck className="h-3.5 w-3.5 mr-1" />}
+                                  {business.is_active !== false ? 'Suspend' : 'Activate'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setImpersonateLoadingId(business.id);
+                                    fetch('/api/super-admin/impersonate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ businessId: business.id }) })
+                                      .then((r) => r.json())
+                                      .then(async (data) => {
+                                        setImpersonateLoadingId(null);
+                                        if (data.error) return;
+                                        if (data.access_token && data.refresh_token) {
+                                          await supabase.auth.setSession({ access_token: data.access_token, refresh_token: data.refresh_token });
+                                          window.location.href = '/admin';
+                                        }
+                                      })
+                                      .catch(() => setImpersonateLoadingId(null));
+                                  }}
+                                  disabled={!!impersonateLoadingId}
+                                  className="inline-flex items-center px-2 py-1.5 text-xs font-medium text-purple-700 bg-purple-50 rounded hover:bg-purple-100 disabled:opacity-50"
+                                >
+                                  {impersonateLoadingId === business.id ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <LogIn className="h-3.5 w-3.5 mr-1" />}
+                                  Log in as tenant
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeleteConfirmBusinessId(business.id)}
+                                  className="inline-flex items-center px-2 py-1.5 text-xs font-medium text-red-700 bg-red-50 rounded hover:bg-red-100"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ));
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Users Tab */}
+          {activeTab === 'users' && (
+            <div className="space-y-6 animate-fade-in">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900 flex items-center">
+                    <Users2 className="h-6 w-6 mr-2 text-purple-600" />
+                    Users
+                  </h2>
+                  <p className="text-gray-600 mt-1">People who have accounts on the platform ({platformUsers.length} total)</p>
+                  <p className="text-sm text-gray-500 mt-0.5 max-w-xl">
+                    Unlike Businesses (which lists each company), this lists each <strong>person</strong>. One person can own multiple businesses—use this to contact users or see who has more than one business.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search by name, email..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => fetchDashboardData()}
+                    className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg text-sm font-medium hover:from-blue-700 hover:to-purple-700 flex items-center"
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Refresh
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                        <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Businesses</th>
+                        <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {(() => {
+                        const q = searchTerm.trim().toLowerCase();
+                        const filtered = q
+                          ? platformUsers.filter(
+                              (u) =>
+                                (u.full_name && u.full_name.toLowerCase().includes(q)) ||
+                                (u.email && u.email.toLowerCase().includes(q))
+                            )
+                          : platformUsers;
+                        if (filtered.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                                {platformUsers.length === 0 ? 'No platform users yet.' : 'No users match your search.'}
+                              </td>
+                            </tr>
+                          );
+                        }
+                        return filtered.map((user) => (
+                          <tr key={user.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center">
+                                <div className="h-10 w-10 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0">
+                                  {(user.full_name || user.email || 'U').charAt(0).toUpperCase()}
+                                </div>
+                                <div className="ml-4">
+                                  <p className="font-medium text-gray-900">{user.full_name || '—'}</p>
+                                  <p className="text-xs text-gray-500">ID: {user.id.slice(0, 8)}…</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {user.email ? (
+                                <a href={`mailto:${user.email}`} className="text-blue-600 hover:underline flex items-center gap-1">
+                                  <Mail className="h-3 w-3" /> {user.email}
+                                </a>
+                              ) : (
+                                <span className="text-gray-400">—</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="text-sm text-gray-700 capitalize">{user.role || 'owner'}</span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-right">
+                              <span className="font-medium text-gray-900">{user.business_count}</span>
+                              {user.business_count > 1 && (
+                                <span className="ml-1.5 inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">multiple</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-right">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveTab('businesses');
+                                  setSearchTerm(user.email || user.full_name || '');
+                                }}
+                                className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors"
+                              >
+                                <Building2 className="h-4 w-4 mr-1" />
+                                View businesses
+                              </button>
+                            </td>
+                          </tr>
+                        ));
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Analytics Tab */}
+          {activeTab === 'analytics' && (() => {
+            const revByMonth = chartData.revenueByMonth ?? [];
+            const thisMonthRev = revByMonth.length > 0 ? revByMonth[revByMonth.length - 1]?.revenue ?? 0 : 0;
+            const lastMonthRev = revByMonth.length > 1 ? revByMonth[revByMonth.length - 2]?.revenue ?? 0 : 0;
+            const revChange = lastMonthRev > 0 ? ((thisMonthRev - lastMonthRev) / lastMonthRev) * 100 : (thisMonthRev > 0 ? 100 : 0);
+            const bestMonth = [...revByMonth].sort((a, b) => (b.revenue ?? 0) - (a.revenue ?? 0))[0];
+            const totalBookingsCount = stats.totalBookings ?? 0;
+            const avgOrderValue = totalBookingsCount > 0 ? (stats.totalRevenue ?? 0) / totalBookingsCount : 0;
+            const byStatus = chartData.bookingsByStatus ?? [];
+            const totalFromStatus = byStatus.reduce((s, x) => s + (x.count ?? 0), 0);
+            const completedCount = byStatus.find(x => (x.status || '').toLowerCase() === 'completed')?.count ?? 0;
+            const cancelledCount = byStatus.find(x => (x.status || '').toLowerCase() === 'cancelled')?.count ?? 0;
+            const completionRate = totalFromStatus > 0 ? (completedCount / totalFromStatus) * 100 : 0;
+            const cancellationRate = totalFromStatus > 0 ? (cancelledCount / totalFromStatus) * 100 : 0;
+            const topMonthsByRevenue = [...revByMonth].sort((a, b) => (b.revenue ?? 0) - (a.revenue ?? 0)).slice(0, 6);
+            return (
+            <div className="space-y-6 animate-fade-in">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900 flex items-center">
+                    <PieChart className="h-6 w-6 mr-2 text-indigo-600" />
+                    Analytics & reports
+                  </h2>
+                  <p className="text-gray-600 mt-1">Trends, comparisons, and performance metrics</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => fetchDashboardData()}
+                  className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg text-sm font-medium hover:from-blue-700 hover:to-purple-700 flex items-center"
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Refresh
+                </button>
+              </div>
+
+              {/* Trends & comparisons */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4 flex items-center">
+                  <TrendingUp className="h-4 w-4 mr-2 text-indigo-600" />
+                  Trends & period comparison
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
+                    <p className="text-xs font-medium text-gray-500 uppercase">Revenue this month vs last</p>
+                    <div className="flex items-baseline gap-2 mt-1">
+                      <span className="text-lg font-bold text-gray-900">${thisMonthRev.toFixed(2)}</span>
+                      <span className="text-sm text-gray-500">vs ${lastMonthRev.toFixed(2)}</span>
+                    </div>
+                    {lastMonthRev > 0 && (
+                      <div className={`flex items-center gap-1 mt-1 text-sm font-medium ${revChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {revChange >= 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+                        {revChange >= 0 ? '+' : ''}{revChange.toFixed(1)}% MoM
+                      </div>
+                    )}
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
+                    <p className="text-xs font-medium text-gray-500 uppercase">Best month (last 6)</p>
+                    <p className="text-lg font-bold text-gray-900 mt-1">{bestMonth?.label ?? '—'}</p>
+                    <p className="text-sm text-gray-600">${(bestMonth?.revenue ?? 0).toFixed(2)}</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
+                    <p className="text-xs font-medium text-gray-500 uppercase">Avg order value</p>
+                    <p className="text-lg font-bold text-gray-900 mt-1">${avgOrderValue.toFixed(2)}</p>
+                    <p className="text-xs text-gray-500">per booking</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
+                    <p className="text-xs font-medium text-gray-500 uppercase">Completion rate</p>
+                    <p className="text-lg font-bold text-green-700 mt-1">{completionRate.toFixed(1)}%</p>
+                    <p className="text-xs text-gray-500">{completedCount} of {totalFromStatus} bookings</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
+                    <p className="text-xs font-medium text-gray-500 uppercase">Cancellation rate</p>
+                    <p className="text-lg font-bold text-amber-700 mt-1">{cancellationRate.toFixed(1)}%</p>
+                    <p className="text-xs text-gray-500">{cancelledCount} cancelled</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Key metrics */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total revenue</p>
+                  <p className="text-2xl font-bold text-gray-900 mt-1">${(stats.totalRevenue ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                </div>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Monthly revenue</p>
+                  <p className="text-2xl font-bold text-gray-900 mt-1">${(stats.monthlyRevenue ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                </div>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total bookings</p>
+                  <p className="text-2xl font-bold text-gray-900 mt-1">{(stats.totalBookings ?? 0).toLocaleString()}</p>
+                </div>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">New businesses (MTD)</p>
+                  <p className="text-2xl font-bold text-gray-900 mt-1">{(stats.newBusinessesThisMonth ?? 0).toLocaleString()}</p>
+                </div>
+              </div>
+
+              {/* Charts row 1 */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-4">Revenue trend (last 6 months)</h3>
+                  <div className="h-[260px]">
+                    {chartData.revenueByMonth.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartData.revenueByMonth} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                          <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                          <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={(v) => `$${v}`} />
+                          <Tooltip formatter={(v: number) => [`$${v.toFixed(2)}`, 'Revenue']} labelFormatter={(_, payload) => payload?.[0]?.payload?.label} />
+                          <Line type="monotone" dataKey="revenue" stroke="#6366f1" strokeWidth={2} dot={{ fill: '#6366f1', r: 4 }} name="Revenue" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-gray-400 text-sm">No revenue data yet</div>
+                    )}
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-4">Bookings by status</h3>
+                  <div className="h-[260px]">
+                    {chartData.bookingsByStatus.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={chartData.bookingsByStatus} layout="vertical" margin={{ top: 5, right: 20, left: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                          <XAxis type="number" tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                          <YAxis type="category" dataKey="status" width={70} tick={{ fontSize: 10 }} stroke="#94a3b8" />
+                          <Tooltip formatter={(v: number) => [v, 'Count']} />
+                          <Bar dataKey="count" fill="#6366f1" radius={[0, 4, 4, 0]} name="Bookings" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-gray-400 text-sm">No bookings yet</div>
+                    )}
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-4">Businesses by plan</h3>
+                  <div className="h-[260px]">
+                    {chartData.businessesByPlan.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <RechartsPieChart>
+                          <Pie
+                            data={chartData.businessesByPlan}
+                            dataKey="count"
+                            nameKey="plan"
+                            cx="50%"
+                            cy="50%"
+                            outerRadius={80}
+                            label={({ plan, count }) => `${plan}: ${count}`}
+                            labelLine={false}
+                          >
+                            {chartData.businessesByPlan.map((_, i) => (
+                              <Cell key={i} fill={['#6366f1', '#8b5cf6', '#a78bfa', '#c4b5fd', '#e9d5ff'][i % 5]} />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(v: number) => [v, 'Businesses']} />
+                          <Legend />
+                        </RechartsPieChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-gray-400 text-sm">No businesses yet</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Subscription revenue by plan (bar) + Top months table */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-4">Subscription revenue by plan</h3>
+                  <div className="h-[240px]">
+                    {(billingData.revenueByPlan?.length ?? 0) > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={billingData.revenueByPlan} margin={{ top: 5, right: 5, left: 0, bottom: 20 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                          <XAxis dataKey="plan" tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                          <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={(v) => `$${v}`} />
+                          <Tooltip formatter={(v: number) => [`$${Number(v).toFixed(2)}`, 'Revenue']} />
+                          <Bar dataKey="revenue" fill="#8b5cf6" radius={[4, 4, 0, 0]} name="Revenue" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-gray-400 text-sm">No subscription revenue by plan yet</div>
+                    )}
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-4">Top months by revenue</h3>
+                  {topMonthsByRevenue.length > 0 ? (
+                    <div className="space-y-2">
+                      {topMonthsByRevenue.map((row, i) => (
+                        <div key={row.month ?? i} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                          <span className="font-medium text-gray-900">{row.label ?? row.month ?? '—'}</span>
+                          <span className="text-indigo-600 font-semibold">${(row.revenue ?? 0).toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 py-4">No monthly revenue data yet</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Booking funnel breakdown */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4">Booking funnel (by status)</h3>
+                {byStatus.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                    {byStatus.map((row) => {
+                      const pct = totalFromStatus > 0 ? ((row.count ?? 0) / totalFromStatus) * 100 : 0;
+                      return (
+                        <div key={row.status} className="bg-gray-50 rounded-lg p-3 text-center">
+                          <p className="text-xs font-medium text-gray-500 uppercase capitalize">{row.status}</p>
+                          <p className="text-xl font-bold text-gray-900 mt-0.5">{row.count ?? 0}</p>
+                          <p className="text-xs text-gray-600">{pct.toFixed(1)}%</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">No booking status data yet</p>
+                )}
+              </div>
+
+              {/* Subscription & billing summary */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4">Subscription & billing summary</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div>
+                    <p className="text-xs text-gray-500 uppercase tracking-wider">Avg revenue per business</p>
+                    <p className="text-lg font-semibold text-gray-900">${(billingData.averageRevenuePerBusiness ?? 0).toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 uppercase tracking-wider">Stripe connected</p>
+                    <p className="text-lg font-semibold text-gray-900">{billingData.stripeConnectedCount ?? 0} / {billingData.totalBusinessesForBilling ?? 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 uppercase tracking-wider">Active subscriptions</p>
+                    <p className="text-lg font-semibold text-gray-900">{subscriptionsData.active}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 uppercase tracking-wider">Total businesses</p>
+                    <p className="text-lg font-semibold text-gray-900">{subscriptionsData.total}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            );
+          })()}
+
+          {/* Support tab */}
+          {activeTab === 'support' && (
+            <div className="space-y-6 animate-fade-in">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                  <h2 className="text-xl font-bold text-gray-900">Support tickets</h2>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <select
+                      value={supportFilterStatus}
+                      onChange={(e) => setSupportFilterStatus(e.target.value)}
+                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="">All statuses</option>
+                      <option value="open">Open</option>
+                      <option value="in_progress">In progress</option>
+                      <option value="resolved">Resolved</option>
+                      <option value="closed">Closed</option>
+                    </select>
+                    <select
+                      value={supportFilterPriority}
+                      onChange={(e) => setSupportFilterPriority(e.target.value)}
+                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="">All priorities</option>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                    <button
+                      onClick={() => {
+                        setNewTicketBusinessId(businesses[0]?.id ?? '');
+                        setNewTicketSubject('');
+                        setNewTicketMessage('');
+                        setNewTicketPriority('medium');
+                        setSupportNewTicketOpen(true);
+                      }}
+                      className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 transition-colors"
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      New ticket
+                    </button>
+                    <button onClick={fetchDashboardData} className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg" title="Refresh">
+                      <RefreshCw className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+                {(() => {
+                  const filtered = supportTickets.filter((t) => {
+                    if (supportFilterStatus && t.status !== supportFilterStatus) return false;
+                    if (supportFilterPriority && t.priority !== supportFilterPriority) return false;
+                    return true;
+                  });
+                  return (
+                    <div className="border border-gray-200 rounded-lg overflow-hidden">
+                      {filtered.length === 0 ? (
+                        <div className="py-12 text-center text-gray-500">
+                          {supportTickets.length === 0 ? 'No support tickets yet.' : 'No tickets match the selected filters.'}
+                        </div>
+                      ) : (
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Subject</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Business</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned to</th>
+                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200 bg-white">
+                            {filtered.map((t) => (
+                              <tr key={t.id} className="hover:bg-gray-50">
+                                <td className="px-4 py-3 text-sm font-medium text-gray-900 max-w-[200px] truncate" title={t.subject}>{t.subject}</td>
+                                <td className="px-4 py-3 text-sm text-gray-600">{t.business_name}</td>
+                                <td className="px-4 py-3">
+                                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                    t.priority === 'high' ? 'bg-red-100 text-red-800' :
+                                    t.priority === 'medium' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-800'
+                                  }`}>{t.priority}</span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                    t.status === 'open' ? 'bg-blue-100 text-blue-800' :
+                                    t.status === 'in_progress' ? 'bg-amber-100 text-amber-800' :
+                                    t.status === 'resolved' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                                  }`}>{t.status.replace('_', ' ')}</span>
+                                </td>
+                                <td className="px-4 py-3 text-sm text-gray-500">{t.created_at ? new Date(t.created_at).toLocaleString() : '—'}</td>
+                                <td className="px-4 py-3 text-sm text-gray-500">{t.assigned_to || '—'}</td>
+                                <td className="px-4 py-3 text-right">
+                                  <button
+                                    onClick={() => {
+                                      setSupportTicketDetailId(t.id);
+                                      setTicketEditStatus(t.status);
+                                      setTicketEditAssignedTo(t.assigned_to || '');
+                                    }}
+                                    className="text-blue-600 hover:text-blue-800 font-medium text-sm"
+                                  >
+                                    View
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* Other tabs placeholder (e.g. Settings) */}
+          {activeTab !== 'overview' && activeTab !== 'businesses' && activeTab !== 'users' && activeTab !== 'analytics' && activeTab !== 'support' && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center animate-fade-in">
               <div className="mx-auto w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
                 {(() => {
@@ -669,6 +2012,502 @@ export default function SuperAdminDashboard() {
           )}
         </main>
       </div>
+
+      {/* Business detail modal */}
+      {businessDetailModalId != null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          onClick={closeBusinessModal}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="business-modal-title"
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-6xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10">
+              <h2 id="business-modal-title" className="text-lg font-semibold text-gray-900">Business details</h2>
+              <button
+                type="button"
+                onClick={closeBusinessModal}
+                className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="p-6">
+              {businessDetailLoading && (
+                <div className="py-12 flex flex-col items-center justify-center text-gray-500">
+                  <Loader2 className="h-10 w-10 animate-spin text-blue-600 mb-3" />
+                  <p>Loading...</p>
+                </div>
+              )}
+              {businessDetailError && !businessDetailLoading && (
+                <div className="py-8 text-center">
+                  <AlertCircle className="h-10 w-10 text-amber-500 mx-auto mb-3" />
+                  <p className="text-gray-700 font-medium">{businessDetailError}</p>
+                  <button
+                    type="button"
+                    onClick={closeBusinessModal}
+                    className="mt-4 text-blue-600 hover:underline font-medium"
+                  >
+                    Close
+                  </button>
+                </div>
+              )}
+              {businessDetailData && !businessDetailLoading && (() => {
+                const { business, counts, totalRevenue, storageUsedBytes = 0, storageLimitBytes = 1 * 1024 * 1024 * 1024, recentBookings, subscription, recentSubscriptionPayments } = businessDetailData;
+                const formatStorage = (bytes: number) => {
+                  if (bytes === 0) return '0 B';
+                  if (bytes < 1024) return `${bytes} B`;
+                  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+                  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+                  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+                };
+                const statusBadge = business.is_active !== false ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800';
+                return (
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-4">
+                      <div className="h-12 w-12 bg-gradient-to-br from-blue-500 to-purple-500 rounded-xl flex items-center justify-center text-white text-lg font-bold flex-shrink-0">
+                        {business.name.charAt(0)}
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold text-gray-900">{business.name}</h3>
+                        <p className="text-sm text-gray-500">
+                          Created {business.created_at ? new Date(business.created_at).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' }) : '—'}
+                        </p>
+                        <span className={`inline-flex mt-1 px-2 py-0.5 rounded-full text-xs font-medium ${statusBadge}`}>
+                          {business.is_active !== false ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                      <span className="ml-auto text-sm text-gray-500 capitalize">Plan: {business.plan ?? '—'}</span>
+                    </div>
+
+                    {/* Tenant & profile */}
+                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
+                      <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3 flex items-center">
+                        <Tag className="h-3.5 w-3.5 mr-1.5" /> Tenant & profile
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                        {business.category && (
+                          <div>
+                            <span className="text-gray-500">Category</span>
+                            <p className="font-medium text-gray-900 capitalize">{business.category}</p>
+                          </div>
+                        )}
+                        {(business.subdomain || business.domain) && (
+                          <div>
+                            <span className="text-gray-500">URLs</span>
+                            <div className="space-y-1">
+                              {business.subdomain && (
+                                <p className="font-medium text-gray-900">
+                                  Subdomain: <span className="font-mono text-xs">{business.subdomain}</span>
+                                </p>
+                              )}
+                              {business.domain && (
+                                <p className="font-medium text-gray-900">
+                                  Custom domain: <span className="font-mono text-xs">{business.domain}</span>
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        {business.updated_at && (
+                          <div>
+                            <span className="text-gray-500">Last updated</span>
+                            <p className="font-medium text-gray-900">{new Date(business.updated_at).toLocaleDateString(undefined, { dateStyle: 'medium' })}</p>
+                          </div>
+                        )}
+                        {business.description && (
+                          <div className="sm:col-span-2">
+                            <span className="text-gray-500">Description</span>
+                            <p className="text-gray-700 mt-0.5 whitespace-pre-wrap line-clamp-3">{business.description}</p>
+                          </div>
+                        )}
+                        {business.logo_url && (
+                          <div>
+                            <span className="text-gray-500">Logo</span>
+                            <img src={business.logo_url} alt="" className="mt-1 h-10 w-10 object-contain rounded border border-gray-200" />
+                          </div>
+                        )}
+                        {!business.category && !business.subdomain && !business.domain && !business.updated_at && !business.description && !business.logo_url && (
+                          <p className="text-gray-500 sm:col-span-2">No tenant profile details</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 flex items-center">
+                          <Building2 className="h-3.5 w-3.5 mr-1.5" /> Contact (business)
+                        </h4>
+                        <div className="space-y-1.5 text-sm">
+                          {business.business_email && (
+                            <div className="flex items-center gap-2"><Mail className="h-3.5 w-3.5 text-gray-400" /><span>{business.business_email}</span></div>
+                          )}
+                          {business.business_phone && (
+                            <div className="flex items-center gap-2"><Phone className="h-3.5 w-3.5 text-gray-400" /><span>{business.business_phone}</span></div>
+                          )}
+                          {(business.address || business.city) && (
+                            <div className="flex items-center gap-2"><MapPin className="h-3.5 w-3.5 text-gray-400" /><span>{[business.address, business.city, business.zip_code].filter(Boolean).join(', ')}</span></div>
+                          )}
+                          {business.website && (
+                            <div className="flex items-center gap-2">
+                              <Globe className="h-3.5 w-3.5 text-gray-400" />
+                              <a href={business.website.startsWith('http') ? business.website : `https://${business.website}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline truncate">{business.website}</a>
+                            </div>
+                          )}
+                          {!business.business_email && !business.business_phone && !business.address && !business.city && !business.website && <p className="text-gray-500">No contact details</p>}
+                        </div>
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 flex items-center">
+                          <User className="h-3.5 w-3.5 mr-1.5" /> Owner
+                        </h4>
+                        <div className="space-y-1.5 text-sm">
+                          <p className="font-medium text-gray-900">{business.owner_name || '—'}</p>
+                          {business.owner_email && (
+                            <a href={`mailto:${business.owner_email}`} className="text-blue-600 hover:underline flex items-center gap-2"><Mail className="h-3.5 w-3.5" />{business.owner_email}</a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Subscription & Billing */}
+                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
+                      <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3 flex items-center">
+                        <CreditCard className="h-3.5 w-3.5 mr-1.5" /> Subscription & Billing
+                      </h4>
+                      {subscription ? (
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                            <div>
+                              <span className="text-gray-500">Plan</span>
+                              <p className="font-medium text-gray-900 capitalize">{subscription.planName}</p>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Monthly amount</span>
+                              <p className="font-medium text-gray-900">
+                                {subscription.amountCents === 0 ? 'Free' : `$${(subscription.amountCents / 100).toFixed(2)}/mo`}
+                              </p>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Status</span>
+                              <p>
+                                <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium capitalize ${subscription.status === 'active' ? 'bg-green-100 text-green-800' : subscription.status === 'canceled' || subscription.status === 'cancelled' ? 'bg-gray-100 text-gray-800' : 'bg-amber-100 text-amber-800'}`}>
+                                  {subscription.status}
+                                </span>
+                              </p>
+                            </div>
+                            {subscription.currentPeriodEnd && (
+                              <div>
+                                <span className="text-gray-500">Next billing date</span>
+                                <p className="font-medium text-gray-900">{new Date(subscription.currentPeriodEnd).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                              </div>
+                            )}
+                          </div>
+                          {(recentSubscriptionPayments?.length ?? 0) > 0 && (
+                            <div className="pt-2 border-t border-gray-200">
+                              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Recent subscription payments</p>
+                              <ul className="space-y-1.5 text-sm">
+                                {recentSubscriptionPayments!.slice(0, 5).map((pay, i) => (
+                                  <li key={i} className="flex items-center justify-between">
+                                    <span className="text-gray-700">{pay.description ?? 'Subscription'}</span>
+                                    <span className="font-medium">${(pay.amount_cents / 100).toFixed(2)}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                              <p className="text-xs text-gray-500 mt-1">Last payment: {new Date(recentSubscriptionPayments![0].paid_at).toLocaleDateString(undefined, { dateStyle: 'medium' })}</p>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-500">Plan: {business.plan ?? '—'} (subscription details not available)</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 flex items-center">
+                        <TrendingUp className="h-3.5 w-3.5 mr-1.5" /> Tenant usage
+                      </h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                        <div className="bg-gray-50 rounded-lg p-3 flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-blue-600" />
+                          <div><p className="text-lg font-bold text-gray-900">{counts.bookings}</p><p className="text-xs text-gray-500">Bookings</p></div>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-3 flex items-center gap-2">
+                          <UserCheck className="h-4 w-4 text-purple-600" />
+                          <div><p className="text-lg font-bold text-gray-900">{counts.providers}</p><p className="text-xs text-gray-500">Providers</p></div>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-3 flex items-center gap-2">
+                          <Users2 className="h-4 w-4 text-green-600" />
+                          <div><p className="text-lg font-bold text-gray-900">{counts.customers}</p><p className="text-xs text-gray-500">Customers</p></div>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-3 flex items-center gap-2">
+                          <DollarSign className="h-4 w-4 text-amber-600" />
+                          <div><p className="text-lg font-bold text-gray-900">${totalRevenue.toLocaleString()}</p><p className="text-xs text-gray-500">Revenue</p></div>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-3 flex items-center gap-2">
+                          <Folder className="h-4 w-4 text-slate-600" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-lg font-bold text-gray-900">{formatStorage(storageUsedBytes)}</p>
+                            <p className="text-xs text-gray-500">Storage</p>
+                            {storageLimitBytes > 0 && (
+                              <>
+                                <div className="mt-2 h-2 w-full rounded-full bg-gray-200 overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full bg-slate-500 transition-all"
+                                    style={{ width: `${Math.min(100, (storageUsedBytes / storageLimitBytes) * 100)}%` }}
+                                  />
+                                </div>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {formatStorage(storageUsedBytes)} of {formatStorage(storageLimitBytes)} used
+                                  ({Math.min(100, Math.round((storageUsedBytes / storageLimitBytes) * 100))}%)
+                                </p>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center">
+                        <Calendar className="h-4 w-4 mr-2 text-gray-500" /> Recent bookings
+                      </h4>
+                      {recentBookings.length === 0 ? (
+                        <p className="text-sm text-gray-500 py-4">No bookings yet.</p>
+                      ) : (
+                        <div className="border border-gray-200 rounded-lg overflow-hidden">
+                          <table className="min-w-full divide-y divide-gray-200 text-sm">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Service / Customer</th>
+                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                              {recentBookings.map((b) => (
+                                <tr key={b.id}>
+                                  <td className="px-4 py-2"><p className="font-medium text-gray-900">{b.service ?? '—'}</p><p className="text-xs text-gray-500">{b.customer_name ?? '—'}</p></td>
+                                  <td className="px-4 py-2 text-gray-700">{b.scheduled_date ? new Date(b.scheduled_date).toLocaleDateString() : '—'}{b.scheduled_time ? ` ${String(b.scheduled_time).slice(0, 5)}` : ''}</td>
+                                  <td className="px-4 py-2">
+                                    <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${b.status === 'completed' ? 'bg-green-100 text-green-800' : b.status === 'cancelled' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>{b.status}</span>
+                                  </td>
+                                  <td className="px-4 py-2 text-right font-medium">${Number(b.total_price ?? 0).toFixed(2)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit business modal */}
+      {editBusinessId && (
+        <EditBusinessModalInline
+          businessId={editBusinessId}
+          onClose={() => setEditBusinessId(null)}
+          onSaved={() => { fetchDashboardData(); setEditBusinessId(null); }}
+          setSaveLoading={setSaveBusinessLoading}
+        />
+      )}
+
+      {/* Create business modal */}
+      {createBusinessOpen && (
+        <CreateBusinessModalInline
+          onClose={() => setCreateBusinessOpen(false)}
+          onCreated={() => { fetchDashboardData(); setCreateBusinessOpen(false); }}
+          setLoading={setCreateBusinessLoading}
+        />
+      )}
+
+      {/* New support ticket modal */}
+      {supportNewTicketOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-gray-900">New support ticket</h3>
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Business</label>
+                <select
+                  value={newTicketBusinessId}
+                  onChange={(e) => setNewTicketBusinessId(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select business</option>
+                  {businesses.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
+                <input
+                  type="text"
+                  value={newTicketSubject}
+                  onChange={(e) => setNewTicketSubject(e.target.value)}
+                  placeholder="Brief subject"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Message</label>
+                <textarea
+                  value={newTicketMessage}
+                  onChange={(e) => setNewTicketMessage(e.target.value)}
+                  rows={4}
+                  placeholder="Describe the issue or request..."
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                <select
+                  value={newTicketPriority}
+                  onChange={(e) => setNewTicketPriority(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6 justify-end">
+              <button type="button" onClick={() => setSupportNewTicketOpen(false)} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">Cancel</button>
+              <button type="button" onClick={handleCreateTicket} disabled={newTicketLoading} className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 flex items-center gap-2">
+                {newTicketLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Create ticket
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Support ticket detail modal */}
+      {supportTicketDetailId != null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={closeSupportTicketDetail} role="dialog" aria-modal="true">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Ticket details</h3>
+              <button type="button" onClick={closeSupportTicketDetail} className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="p-6">
+              {supportTicketDetailLoading && (
+                <div className="py-12 flex justify-center"><Loader2 className="h-10 w-10 animate-spin text-blue-600" /></div>
+              )}
+              {!supportTicketDetailLoading && supportTicketDetail && (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase">Subject</p>
+                    <p className="text-lg font-medium text-gray-900 mt-0.5">{supportTicketDetail.subject}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 uppercase">Business</p>
+                      <p className="text-gray-900 mt-0.5">{supportTicketDetail.business_name}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 uppercase">Priority</p>
+                      <p className="mt-0.5">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${supportTicketDetail.priority === 'high' ? 'bg-red-100 text-red-800' : supportTicketDetail.priority === 'medium' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-800'}`}>
+                          {supportTicketDetail.priority}
+                        </span>
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 uppercase">Requester</p>
+                      <p className="text-gray-900 mt-0.5">{supportTicketDetail.requester_email || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 uppercase">Created</p>
+                      <p className="text-gray-900 mt-0.5">{supportTicketDetail.created_at ? new Date(supportTicketDetail.created_at).toLocaleString() : '—'}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase">Message</p>
+                    <p className="text-gray-700 mt-1 whitespace-pre-wrap">{supportTicketDetail.message || '—'}</p>
+                  </div>
+                  <div className="border-t border-gray-200 pt-4 mt-4">
+                    <p className="text-sm font-medium text-gray-700 mb-2">Update ticket</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+                        <select
+                          value={ticketEditStatus}
+                          onChange={(e) => setTicketEditStatus(e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="open">Open</option>
+                          <option value="in_progress">In progress</option>
+                          <option value="resolved">Resolved</option>
+                          <option value="closed">Closed</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Assigned to</label>
+                        <input
+                          type="text"
+                          value={ticketEditAssignedTo}
+                          onChange={(e) => setTicketEditAssignedTo(e.target.value)}
+                          placeholder="Email or name"
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={handleUpdateTicket}
+                        disabled={ticketSaveLoading}
+                        className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 flex items-center gap-2"
+                      >
+                        {ticketSaveLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                        Save changes
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete business confirmation */}
+      {deleteConfirmBusinessId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900">Delete business?</h3>
+            <p className="text-sm text-gray-600 mt-2">This will permanently delete the business and its data. This cannot be undone.</p>
+            <div className="flex gap-3 mt-6 justify-end">
+              <button type="button" onClick={() => setDeleteConfirmBusinessId(null)} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">Cancel</button>
+              <button
+                type="button"
+                onClick={() => {
+                  fetch(`/api/super-admin/businesses/${deleteConfirmBusinessId}`, { method: 'DELETE', credentials: 'include' })
+                    .then((r) => { if (r.ok) { fetchDashboardData(); setDeleteConfirmBusinessId(null); } });
+                }}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style jsx>{`
         @keyframes fade-in {

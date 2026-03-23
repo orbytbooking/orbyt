@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Eye, EyeOff, Lock, Mail, Shield, AlertCircle, Sparkles, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function SuperAdminLogin() {
   const [email, setEmail] = useState('');
@@ -16,11 +17,14 @@ export default function SuperAdminLogin() {
   const router = useRouter();
 
   useEffect(() => {
-    // Check if already logged in
-    const token = localStorage.getItem('superAdminToken');
-    if (token) {
-      router.push('/super-admin/dashboard');
-    }
+    let mounted = true;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!mounted || !session) return;
+      const res = await fetch('/api/super-admin/me', { credentials: 'include' });
+      if (res.ok) router.replace('/super-admin/dashboard');
+    })();
+    return () => { mounted = false; };
   }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -28,25 +32,27 @@ export default function SuperAdminLogin() {
     setIsLoading(true);
     setError('');
 
-    // Mock authentication with enhanced feedback
-    setTimeout(() => {
-      if (email === 'admin@orbytcrm.com' && password === 'admin123') {
-        setIsSuccess(true);
-        setTimeout(() => {
-          localStorage.setItem('superAdminToken', 'mock-super-admin-token');
-          localStorage.setItem('superAdminUser', JSON.stringify({
-            id: 'admin-1',
-            name: 'Super Admin',
-            email: 'admin@orbytcrm.com',
-            role: 'super_admin'
-          }));
-          router.push('/super-admin/dashboard');
-        }, 1000);
-      } else {
-        setError('Invalid credentials. Use admin@orbytcrm.com / admin123 for demo');
-        setIsLoading(false);
-      }
-    }, 1500);
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+
+    if (signInError) {
+      setError(signInError.message === 'Invalid login credentials' ? 'Invalid email or password.' : signInError.message);
+      setIsLoading(false);
+      return;
+    }
+
+    const res = await fetch('/api/super-admin/me', { credentials: 'include' });
+    if (res.ok) {
+      setIsSuccess(true);
+      setTimeout(() => router.replace('/super-admin/dashboard'), 800);
+      return;
+    }
+    await supabase.auth.signOut();
+    if (res.status === 403) {
+      setError('This account is not authorized as a Super Admin.');
+    } else {
+      setError('Unable to verify access. Please try again.');
+    }
+    setIsLoading(false);
   };
 
   return (
@@ -110,7 +116,7 @@ export default function SuperAdminLogin() {
                     onFocus={() => setFocusedField('email')}
                     onBlur={() => setFocusedField('')}
                     className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300"
-                    placeholder="admin@orbytcrm.com"
+                    placeholder="your@email.com"
                     required
                   />
                 </div>
@@ -181,14 +187,13 @@ export default function SuperAdminLogin() {
             </form>
           )}
 
-          {/* Demo Credentials */}
+          {/* Info */}
           <div className="mt-6 p-4 bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-xl">
             <p className="text-xs text-blue-300 font-medium mb-1 flex items-center">
               <Sparkles className="w-3 h-3 mr-1" />
-              Demo Credentials:
+              Super Admin access:
             </p>
-            <p className="text-xs text-blue-200">Email: admin@orbytcrm.com</p>
-            <p className="text-xs text-blue-200">Password: admin123</p>
+            <p className="text-xs text-blue-200">Sign in with a Supabase user that is listed in the super_admins table.</p>
           </div>
         </div>
 

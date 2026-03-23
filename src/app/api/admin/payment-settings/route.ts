@@ -188,7 +188,14 @@ export async function PATCH(request: NextRequest) {
 
     if (updateErr) {
       console.error("Payment settings PATCH:", updateErr);
-      return NextResponse.json({ error: "Failed to update payment settings" }, { status: 500 });
+      const message =
+        typeof updateErr.message === "string"
+          ? updateErr.message
+          : "Failed to update payment settings";
+      return NextResponse.json(
+        { error: "Failed to update payment settings", details: message },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({

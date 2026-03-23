@@ -240,7 +240,9 @@ export default function GeneralSettingsPage() {
   const [integrationSaving, setIntegrationSaving] = useState(false);
   const [paymentGatewaysSheetOpen, setPaymentGatewaysSheetOpen] = useState(false);
   const [paymentGatewaysSelected, setPaymentGatewaysSelected] = useState<'stripe' | 'authorize_net'>('stripe');
-  const [authorizeNetApiKey, setAuthorizeNetApiKey] = useState('');
+  const [authorizeNetApiLoginId, setAuthorizeNetApiLoginId] = useState('');
+  const [authorizeNetTransactionKey, setAuthorizeNetTransactionKey] = useState('');
+  const [authorizeNetPublicClientKey, setAuthorizeNetPublicClientKey] = useState('');
   const [stripeConnecting, setStripeConnecting] = useState(false);
   const [authorizeNetSaving, setAuthorizeNetSaving] = useState(false);
   const [googleCalendarDisconnecting, setGoogleCalendarDisconnecting] = useState(false);
@@ -5507,7 +5509,8 @@ export default function GeneralSettingsPage() {
                                 if (stripeSecretKey.trim()) setStripeSecretKey('');
                                 toast.success('Stripe credentials saved');
                               } else {
-                                toast.error(data.error || 'Failed to save');
+                                const msg = data.details ? `${data.error || 'Failed to save'}: ${data.details}` : (data.error || 'Failed to save');
+                                toast.error(msg);
                               }
                             } catch {
                               toast.error('Failed to save');
@@ -5578,27 +5581,48 @@ export default function GeneralSettingsPage() {
                       </div>
                       <div className="rounded-lg border bg-card p-6 space-y-4">
                         <h4 className="text-base font-semibold">Authorize.Net</h4>
-                        <p className="text-sm text-muted-foreground">Enter your API key in the format: <strong>API Login ID : Transaction Key</strong> (from Merchant Dashboard → Account → API Credentials &amp; Keys).</p>
+                        <p className="text-sm text-muted-foreground">
+                          Enter your Authorize.Net API credentials from your Merchant Dashboard → Account → API Credentials &amp; Keys.
+                        </p>
                         <div className="space-y-2">
-                          <Label htmlFor="authorize-net-api-key-sheet">API Key</Label>
+                          <Label htmlFor="authorize-net-api-login-id-sheet">API Login ID</Label>
                           <Input
-                            id="authorize-net-api-key-sheet"
+                            id="authorize-net-api-login-id-sheet"
                             type="password"
-                            placeholder="API Login ID : Transaction Key"
-                            value={authorizeNetApiKey}
-                            onChange={(e) => setAuthorizeNetApiKey(e.target.value)}
+                            placeholder="Enter API Login ID"
+                            value={authorizeNetApiLoginId}
+                            onChange={(e) => setAuthorizeNetApiLoginId(e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="authorize-net-transaction-key-sheet">Transaction key</Label>
+                          <Input
+                            id="authorize-net-transaction-key-sheet"
+                            type="password"
+                            placeholder="Enter Transaction Key"
+                            value={authorizeNetTransactionKey}
+                            onChange={(e) => setAuthorizeNetTransactionKey(e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="authorize-net-public-client-key-sheet">Public Client Key</Label>
+                          <Input
+                            id="authorize-net-public-client-key-sheet"
+                            type="password"
+                            placeholder="Enter Public Client Key"
+                            value={authorizeNetPublicClientKey}
+                            onChange={(e) => setAuthorizeNetPublicClientKey(e.target.value)}
                           />
                         </div>
                         <Button
-                          disabled={authorizeNetSaving || !authorizeNetApiKey.trim()}
+                          disabled={authorizeNetSaving || !authorizeNetApiLoginId.trim() || !authorizeNetTransactionKey.trim()}
                           onClick={async () => {
                             if (!currentBusiness?.id) return;
-                            const trimmed = authorizeNetApiKey.trim();
-                            const colonIndex = trimmed.indexOf(':');
-                            const apiLoginId = colonIndex >= 0 ? trimmed.slice(0, colonIndex).trim() : trimmed;
-                            const transactionKey = colonIndex >= 0 ? trimmed.slice(colonIndex + 1).trim() : '';
-                            if (colonIndex < 0 || !transactionKey) {
-                              toast.error('Enter API key as: API Login ID : Transaction Key');
+                            const loginId = authorizeNetApiLoginId.trim();
+                            const txKey = authorizeNetTransactionKey.trim();
+                            const clientKey = authorizeNetPublicClientKey.trim();
+                            if (!loginId || !txKey) {
+                              toast.error('API Login ID and Transaction Key are required');
                               return;
                             }
                             setAuthorizeNetSaving(true);
@@ -5608,17 +5632,20 @@ export default function GeneralSettingsPage() {
                                 headers: { 'Content-Type': 'application/json', 'x-business-id': currentBusiness.id },
                                 body: JSON.stringify({
                                   paymentProvider: 'authorize_net',
-                                  authorizeNetApiLoginId: apiLoginId,
-                                  authorizeNetTransactionKey: transactionKey,
+                                  authorizeNetApiLoginId: loginId,
+                                  authorizeNetTransactionKey: txKey,
+                                  authorizeNetPublicClientKey: clientKey || undefined,
                                 }),
                                 credentials: 'include',
                               });
                               const data = await res.json().catch(() => ({}));
                               if (res.ok) {
                                 setIntegrationConfig((prev) => ({ ...prev, authorize_net: { enabled: true, configured: true } }));
-                                setAuthorizeNetApiKey('');
+                                setAuthorizeNetApiLoginId('');
+                                setAuthorizeNetTransactionKey('');
+                                setAuthorizeNetPublicClientKey('');
                                 setPaymentGatewaysSheetOpen(false);
-                                toast.success('Authorize.net credentials saved');
+                                toast.success('Authorize.Net credentials saved');
                               } else {
                                 toast.error(data.error || 'Failed to save');
                               }

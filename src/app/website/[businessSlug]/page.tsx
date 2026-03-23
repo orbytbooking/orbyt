@@ -72,6 +72,14 @@ export default function BusinessWebsite({ params }: BusinessWebsiteProps) {
     fetchBusinessData();
   }, [resolvedParams.businessSlug, searchParams]);
 
+  // Sync URL so ?business= is present when we have businessId from path (ensures Navigation "Book Now" and book-now page get business)
+  const urlBusinessId = searchParams.get('business');
+  useEffect(() => {
+    if (typeof window === 'undefined' || !businessId) return;
+    if (urlBusinessId) return;
+    router.replace(`/website/${resolvedParams.businessSlug}?business=${businessId}`, { scroll: false });
+  }, [businessId, urlBusinessId, resolvedParams.businessSlug, router]);
+
   if (isLoading) {
     return (
       <main>
@@ -121,7 +129,7 @@ export default function BusinessWebsite({ params }: BusinessWebsiteProps) {
           case 'header':
             return <Navigation key={section.id} branding={config.branding} headerData={section.data} />;
           case 'hero':
-            return <div key={section.id} id="hero"><Hero data={section.data} branding={config.branding} /></div>;
+            return <div key={section.id} id="hero"><Hero data={section.data} branding={config.branding} businessId={businessId || undefined} /></div>;
           case 'how-it-works':
             return <div key={section.id} id="how-it-works"><HowItWorks data={section.data} /></div>;
           case 'services':
