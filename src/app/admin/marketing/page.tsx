@@ -15,9 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
-import { supabase, supabaseAdmin } from '@/lib/supabaseClient';
 import { useBusiness } from '@/contexts/BusinessContext';
-import { useWebsiteConfig } from '@/hooks/useWebsiteConfig';
 import Link from "next/link";
 
 type Coupon = {
@@ -151,25 +149,28 @@ export default function MarketingPage() {
   useEffect(() => {
     if (!currentBusiness?.id) return;
     const fetchCoupons = async () => {
-      const client = supabaseAdmin || supabase;
-      if (!client) return;
-      
-      const { data, error } = await client
-        .from('marketing_coupons')
-        .select('*')
-        .eq('business_id', currentBusiness.id)
-        .order('created_at', { ascending: false });
-      if (!error && data) {
-        setCoupons(
-          data.map((c: any) => ({
-            id: c.id,
-            name: c.name || '',
-            code: c.code,
-            description: c.description,
-            discount: c.discount_type === 'percentage' ? `${c.discount_value}%` : `$${c.discount_value}`,
-            status: c.active ? 'active' : 'inactive',
-          }))
-        );
+      try {
+        const response = await fetch(`/api/marketing/coupons?business_id=${currentBusiness.id}`);
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to fetch coupons');
+        }
+
+        if (result.data) {
+          setCoupons(
+            result.data.map((c: any) => ({
+              id: c.id,
+              name: c.name || '',
+              code: c.code,
+              description: c.description || '',
+              discount: c.discount_type === 'percentage' ? `${c.discount_value}%` : `$${c.discount_value}`,
+              status: c.active ? 'active' : 'inactive',
+            }))
+          );
+        }
+      } catch (error: any) {
+        console.error('Error fetching coupons:', error);
       }
     };
     fetchCoupons();
@@ -276,37 +277,6 @@ export default function MarketingPage() {
     return coupon.status === couponTab && matchesSearch;
   });
 
-  // Add a new coupon to Supabase
-  const addCoupon = async (coupon: Omit<Coupon, 'id'>) => {
-    if (!currentBusiness?.id) return;
-    const discount_type = coupon.discount.includes('%') ? 'percentage' : 'fixed';
-    const discount_value = parseFloat(coupon.discount.replace(/[^\d.]/g, ''));
-    const { data, error } = await supabase
-      .from('marketing_coupons')
-      .insert({
-        business_id: currentBusiness.id,
-        code: coupon.code,
-        description: coupon.description,
-        discount_type,
-        discount_value,
-        active: coupon.status === 'active',
-      })
-      .select();
-    if (!error && data) {
-      setCoupons((prev) => [
-        {
-          id: data[0].id,
-          name: data[0].name || '',
-          code: data[0].code,
-          description: data[0].description,
-          discount: data[0].discount_type === 'percentage' ? `${data[0].discount_value}%` : `$${data[0].discount_value}`,
-          status: data[0].active ? 'active' : 'inactive',
-        },
-        ...prev,
-      ]);
-    }
-  };
-
   const handleEditCoupon = (id: string) => {
     const coupon = coupons.find(c => c.id === id);
     if (coupon) {
@@ -319,26 +289,25 @@ export default function MarketingPage() {
     if (!coupon) return;
     if (!confirm(`Are you sure you want to delete coupon "${coupon.code}"?`)) return;
     
-    // For DELETE operations, we need the admin client to bypass RLS
-    if (!supabaseAdmin) {
-      toast({
-        title: 'Configuration Error',
-        description: 'Service role key not configured. Please contact your administrator.',
-        variant: 'destructive',
+    try {
+      const response = await fetch(`/api/marketing/coupons?id=${id}&business_id=${currentBusiness?.id || ''}`, {
+        method: 'DELETE',
       });
-      return;
-    }
-    
-    const { error } = await supabaseAdmin
-      .from('marketing_coupons')
-      .delete()
-      .eq('id', id)
-      .eq('business_id', currentBusiness?.id || '');
-    if (!error) {
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to delete coupon');
+      }
+
       setCoupons((prev) => prev.filter(c => c.id !== id));
       toast({
         title: 'Coupon Deleted',
         description: `Coupon "${coupon.code}" has been deleted.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete coupon',
+        variant: 'destructive',
       });
     }
   };

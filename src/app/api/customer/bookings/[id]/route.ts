@@ -205,6 +205,13 @@ export async function PATCH(
       .select('settings')
       .eq('business_id', booking.business_id)
       .maybeSingle();
+    const cancelPayload = (cancelSettings?.settings as Record<string, unknown>) || {};
+    if (cancelPayload.allowCustomerSelfCancel === 'no') {
+      return NextResponse.json(
+        { error: 'Online cancellation is not available. Please contact the business to cancel your booking.' },
+        { status: 403 }
+      );
+    }
     let categoryFee = null;
     if (booking.service_id) {
       const { data: cat } = await supabase

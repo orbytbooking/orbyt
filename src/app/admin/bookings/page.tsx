@@ -38,6 +38,24 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import Link from "next/link";
 import {
   Search, 
@@ -56,6 +74,7 @@ import {
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   RotateCw,
   Send,
   UserPlus,
@@ -69,16 +88,24 @@ import {
   Receipt,
   CreditCard,
   ListChecks,
-  Image
+  Image,
+  PlusCircle,
+  Link2,
+  Trash2,
+  Info,
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
 import { supabase } from "@/lib/supabaseClient";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { SendScheduleDialog } from "@/components/admin/SendScheduleDialog";
+import { SendQuoteEmailFlow } from "@/components/admin/SendQuoteEmailFlow";
+import { DraftQuoteLogsDialog } from "@/components/admin/DraftQuoteLogsDialog";
 import { AdminBookingsCalendar } from "@/components/admin/AdminBookingsCalendar";
 import { getOccurrenceDatesForSeriesSync } from "@/lib/recurringBookings";
+import { differenceInCalendarDays, format, parseISO, startOfDay } from "date-fns";
 
 // Bookings are now loaded from Supabase only.
 
@@ -111,6 +138,7 @@ interface Booking {
   created_at?: string;
   updated_at?: string;
   customization?: BookingCustomization | null;
+  draft_quote_expires_on?: string | null;
 }
 
 // Provider type definition
@@ -133,6 +161,7 @@ const getStatusBadge = (status: string) => {
     cancelled: "bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400",
     draft: "bg-gray-100 text-gray-700 dark:bg-gray-900/20 dark:text-gray-400",
     quote: "bg-purple-100 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400",
+    expired: "bg-slate-200 text-slate-800 dark:bg-slate-800/40 dark:text-slate-300",
   };
 
   const icons = {
@@ -143,6 +172,7 @@ const getStatusBadge = (status: string) => {
     cancelled: XCircle,
     draft: FileText,
     quote: FileText,
+    expired: FileText,
   };
 
   const Icon = icons[status as keyof typeof icons] || AlertCircle;
@@ -200,6 +230,12 @@ const getStatusTone = (status: string) => {
         dark: "dark:bg-purple-900/60",
         chip: "linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%)",
       };
+    case "expired":
+      return {
+        light: "bg-slate-100",
+        dark: "dark:bg-slate-900/60",
+        chip: "linear-gradient(135deg, #94a3b8 0%, #64748b 100%)",
+      };
     default:
       return {
         light: "bg-muted",
@@ -229,6 +265,16 @@ export default function BookingsPage() {
   const [showSendScheduleDialog, setShowSendScheduleDialog] = useState(false);
   const [sendInvitationLoading, setSendInvitationLoading] = useState(false);
   const [frequencyFilter, setFrequencyFilter] = useState("all");
+  const [draftQuoteDeleteTarget, setDraftQuoteDeleteTarget] = useState<Booking | null>(null);
+  const [draftQuoteDeleting, setDraftQuoteDeleting] = useState(false);
+  const [sendQuoteFlowOpen, setSendQuoteFlowOpen] = useState(false);
+  const [sendQuoteFlowBooking, setSendQuoteFlowBooking] = useState<Booking | null>(null);
+  const [draftQuoteLogsOpen, setDraftQuoteLogsOpen] = useState(false);
+  const [draftQuoteLogsBookingId, setDraftQuoteLogsBookingId] = useState<string | null>(null);
+  const [changeExpiryOpen, setChangeExpiryOpen] = useState(false);
+  const [changeExpiryBooking, setChangeExpiryBooking] = useState<Booking | null>(null);
+  const [changeExpiryDate, setChangeExpiryDate] = useState("");
+  const [changeExpirySaving, setChangeExpirySaving] = useState(false);
 
   // Sync activeTab with URL
   useEffect(() => {
@@ -366,6 +412,21 @@ export default function BookingsPage() {
       }
       
       setLoading(true);
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (token && currentBusiness?.id) {
+          await fetch("/api/admin/bookings/expire-draft-quotes", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "x-business-id": currentBusiness.id,
+            },
+          }).catch(() => {});
+        }
+      } catch {
+        /* ignore */
+      }
       // Extend recurring series (create next occurrences as needed).
       // If you delete all bookings in DB but recurring_series rows still exist, this will re-create bookings on load. See docs/BOOKINGS_DELETED_COME_BACK.md.
       try {
@@ -532,9 +593,7 @@ export default function BookingsPage() {
   };
 
   const getDraftQuoteBookings = () => {
-    return bookings.filter(booking => 
-      ['draft', 'quote'].includes(booking.status)
-    );
+    return bookings.filter((booking) => ["draft", "quote", "expired"].includes(booking.status));
   };
 
   const getCancelledBookings = () => {
@@ -591,9 +650,195 @@ export default function BookingsPage() {
     });
   }, [bookings, activeTab, searchTerm, statusFilter, frequencyFilter]);
 
+  const changeExpiryCreatedOnDisplay = useMemo(() => {
+    const raw = changeExpiryBooking?.created_at;
+    if (!raw) return "—";
+    try {
+      const d = parseISO(String(raw));
+      if (Number.isNaN(d.getTime())) return "—";
+      return format(d, "EEEE MMMM do, yyyy hh:mm a");
+    } catch {
+      return "—";
+    }
+  }, [changeExpiryBooking?.created_at]);
+
+  const changeExpiryDaysHelper = useMemo(() => {
+    if (!changeExpiryDate) return null;
+    const d = parseISO(changeExpiryDate.slice(0, 10) + "T12:00:00");
+    if (Number.isNaN(d.getTime())) return null;
+    const days = Math.max(0, differenceInCalendarDays(startOfDay(d), startOfDay(new Date())));
+    return `at 11:59 PM (${days} day(s))`;
+  }, [changeExpiryDate]);
+
   const handleViewDetails = (booking: Booking) => {
     setSelectedBooking(booking);
     setShowDetails(true);
+  };
+
+  const formatDraftQuoteTableDate = (booking: Booking) => {
+    const raw = String((booking as any).scheduled_date ?? booking.date ?? "").trim();
+    if (raw.length < 8) return "—";
+    const d = new Date(raw.slice(0, 10) + "T12:00:00");
+    if (Number.isNaN(d.getTime())) return "—";
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    const yyyy = d.getFullYear();
+    return `${mm}/${dd}/${yyyy}`;
+  };
+
+  const draftQuoteLocationLine = (booking: Booking) => {
+    const apt = (booking as any).apt_no ? `Apt ${String((booking as any).apt_no).trim()}` : "";
+    const addr = (booking.address || "").trim();
+    return [apt, addr].filter(Boolean).join(addr ? ", " : "") || "—";
+  };
+
+  const draftQuoteExpiresCell = (booking: Booking) => {
+    const raw = booking.draft_quote_expires_on;
+    if (!raw) {
+      return <span className="text-muted-foreground">—</span>;
+    }
+    const dStr = String(raw).slice(0, 10);
+    const d = parseISO(`${dStr}T12:00:00`);
+    if (Number.isNaN(d.getTime())) {
+      return <span className="text-muted-foreground">—</span>;
+    }
+    const line1 = format(d, "MM/dd/yyyy");
+    const today = startOfDay(new Date());
+    const end = startOfDay(d);
+    const days = differenceInCalendarDays(end, today);
+    const line2 =
+      booking.status === "expired"
+        ? "Expired"
+        : days >= 0
+          ? `at 11:59 PM (${days} day(s))`
+          : "Past deadline";
+    return (
+      <div className="min-w-[140px]">
+        <div className="text-foreground">{line1}</div>
+        <div className="text-xs text-muted-foreground mt-0.5">{line2}</div>
+      </div>
+    );
+  };
+
+  const draftQuoteTypeLabel = (booking: Booking) => {
+    if (booking.status === "expired") return "Expired";
+    return booking.status === "quote" ? "Quote" : "Draft";
+  };
+
+  const draftQuoteStatusLabel = (booking: Booking) => {
+    if (booking.status === "expired") return "Expired";
+    return "Saved";
+  };
+
+  const draftQuotePriceLine = (booking: Booking) => {
+    const raw = (booking as any).total_price ?? booking.amount;
+    const n = typeof raw === "string" ? parseFloat(raw) : Number(raw);
+    if (!Number.isFinite(n)) return "";
+    return `$${n.toFixed(2)}`;
+  };
+
+  const openSendQuoteFlow = (booking: Booking) => {
+    setSendQuoteFlowBooking(booking);
+    setSendQuoteFlowOpen(true);
+  };
+
+  const openDraftQuoteLogs = (booking: Booking) => {
+    setDraftQuoteLogsBookingId(booking.id);
+    setDraftQuoteLogsOpen(true);
+  };
+
+  const handleSaveChangeExpiry = async () => {
+    if (!changeExpiryBooking?.id || !currentBusiness?.id) return;
+    setChangeExpirySaving(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) {
+        toast({ title: "Sign in required", variant: "destructive" });
+        return;
+      }
+      const res = await fetch(
+        `/api/admin/bookings/${encodeURIComponent(changeExpiryBooking.id)}/draft-quote-expiry`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+            "x-business-id": currentBusiness.id,
+          },
+          body: JSON.stringify({
+            draft_quote_expires_on: changeExpiryDate.trim() ? changeExpiryDate.trim().slice(0, 10) : null,
+          }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({
+          title: "Could not update expiry",
+          description: typeof data.error === "string" ? data.error : "Request failed",
+          variant: "destructive",
+        });
+        return;
+      }
+      toast({
+        title: data.unchanged ? "No change" : "Expiry updated",
+        description: data.unchanged ? "The date was already set to this value." : "The new date is saved and recorded in history.",
+      });
+      setChangeExpiryOpen(false);
+      setChangeExpiryBooking(null);
+      const nextExp = changeExpiryDate.trim() ? changeExpiryDate.trim().slice(0, 10) : null;
+      setSendQuoteFlowBooking((prev) =>
+        prev && prev.id === changeExpiryBooking.id ? { ...prev, draft_quote_expires_on: nextExp } : prev
+      );
+      setRefreshKey((k) => k + 1);
+    } finally {
+      setChangeExpirySaving(false);
+    }
+  };
+
+  const copyDraftQuoteShareLink = async (booking: Booking) => {
+    if (!currentBusiness?.id) return;
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const url = `${origin}/book-now?business=${encodeURIComponent(currentBusiness.id)}&bookingId=${encodeURIComponent(booking.id)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({
+        title: "Link copied",
+        description: "Paste this link to your customer. They may need to sign in for book-now to load this booking.",
+      });
+    } catch {
+      toast({
+        title: "Could not copy",
+        description: url,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleConfirmDeleteDraftQuote = async () => {
+    if (!draftQuoteDeleteTarget?.id || !currentBusiness?.id) return;
+    setDraftQuoteDeleting(true);
+    const { error } = await supabase
+      .from("bookings")
+      .delete()
+      .eq("id", draftQuoteDeleteTarget.id)
+      .eq("business_id", currentBusiness.id);
+    setDraftQuoteDeleting(false);
+    if (error) {
+      toast({
+        title: "Delete failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      return;
+    }
+    setBookings((prev) => prev.filter((b) => b.id !== draftQuoteDeleteTarget.id));
+    if (selectedBooking?.id === draftQuoteDeleteTarget.id) {
+      setShowDetails(false);
+      setSelectedBooking(null);
+    }
+    setDraftQuoteDeleteTarget(null);
+    toast({ title: "Deleted", description: "Draft or quote was removed." });
   };
 
   const createBookingNotification = async (title: string, description: string) => {
@@ -866,6 +1111,7 @@ export default function BookingsPage() {
               <SelectItem value="cancelled" className="text-foreground hover:bg-accent">Cancelled</SelectItem>
               <SelectItem value="draft" className="text-foreground hover:bg-accent">Draft</SelectItem>
               <SelectItem value="quote" className="text-foreground hover:bg-accent">Quote</SelectItem>
+              <SelectItem value="expired" className="text-foreground hover:bg-accent">Expired</SelectItem>
             </SelectContent>
           </Select>
           {/* View Toggle Buttons - Only show for tabs that benefit from calendar view */}
@@ -1034,8 +1280,178 @@ export default function BookingsPage() {
             </Card>
           </div>
 
-      {/* List View */}
-      {viewMode === "list" && (
+      {/* List View — Draft/Quote tab: dedicated table + Options menu */}
+      {viewMode === "list" && activeTab === "draft" && (
+        <Card className="border-border shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold">
+              Draft/Quote ({filteredBookings.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <TooltipProvider delayDuration={300}>
+              <div className="overflow-x-auto rounded-md border border-border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-slate-100/90 dark:bg-slate-900/40">
+                      <th className="text-left py-3 px-4 font-medium text-foreground">Date</th>
+                      <th className="text-left py-3 px-4 font-medium text-foreground">Customer name</th>
+                      <th className="text-left py-3 px-4 font-medium text-foreground">Location</th>
+                      <th className="text-left py-3 px-4 font-medium text-foreground">Phone</th>
+                      <th className="text-left py-3 px-4 font-medium text-foreground">Type</th>
+                      <th className="text-left py-3 px-4 font-medium text-foreground">Expires</th>
+                      <th className="text-left py-3 px-4 font-medium text-foreground">
+                        <span className="inline-flex items-center gap-1">
+                          Status
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                className="text-amber-600 hover:text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500/30 rounded"
+                                aria-label="About draft status"
+                              >
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              Drafts and quotes are saved but not confirmed bookings. Use Options to finalize, share, or delete.
+                            </TooltipContent>
+                          </Tooltip>
+                        </span>
+                      </th>
+                      <th className="text-left py-3 px-4 font-medium text-foreground">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredBookings.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-10 px-4 text-center text-muted-foreground">
+                          No draft or quote bookings yet.
+                        </td>
+                      </tr>
+                    ) : (
+                    filteredBookings.map((booking, idx) => (
+                      <tr
+                        key={`${booking.id}-${booking.date ?? ""}-${idx}`}
+                        className="border-b border-border bg-background hover:bg-slate-50/80 dark:hover:bg-slate-900/30 transition-colors"
+                      >
+                        <td className="py-3 px-4 text-foreground whitespace-nowrap">
+                          {formatDraftQuoteTableDate(booking)}
+                        </td>
+                        <td className="py-3 px-4 min-w-[160px]">
+                          <div className="font-semibold text-foreground">{booking.customer_name || "—"}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">{booking.customer_email || "—"}</div>
+                        </td>
+                        <td className="py-3 px-4 text-muted-foreground max-w-[200px] truncate" title={draftQuoteLocationLine(booking)}>
+                          {draftQuoteLocationLine(booking)}
+                        </td>
+                        <td className="py-3 px-4 text-muted-foreground whitespace-nowrap">
+                          {(booking.customer_phone || "").trim() || "—"}
+                        </td>
+                        <td className="py-3 px-4 text-foreground">{draftQuoteTypeLabel(booking)}</td>
+                        <td className="py-3 px-4 text-muted-foreground align-top">{draftQuoteExpiresCell(booking)}</td>
+                        <td className="py-3 px-4 text-foreground">{draftQuoteStatusLabel(booking)}</td>
+                        <td className="py-3 px-4">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 text-primary hover:underline font-medium text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 rounded px-1"
+                              >
+                                Options
+                                <ChevronDown className="h-4 w-4 opacity-80" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-56 z-50">
+                              <DropdownMenuItem
+                                className="gap-2 cursor-pointer"
+                                onSelect={() => router.push(`/admin/add-booking?bookingId=${encodeURIComponent(booking.id)}`)}
+                              >
+                                <PlusCircle className="h-4 w-4 shrink-0 text-primary" />
+                                Create Booking
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="gap-2 cursor-pointer"
+                                onSelect={(e) => {
+                                  e.preventDefault();
+                                  setTimeout(() => openSendQuoteFlow(booking), 0);
+                                }}
+                              >
+                                <Send className="h-4 w-4 shrink-0 text-primary" />
+                                Send Quote
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="gap-2 cursor-pointer"
+                                onSelect={() => void copyDraftQuoteShareLink(booking)}
+                              >
+                                <Link2 className="h-4 w-4 shrink-0 text-primary" />
+                                Share Quote Link
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="gap-2 cursor-pointer"
+                                onSelect={(e) => {
+                                  e.preventDefault();
+                                  setTimeout(() => openSendQuoteFlow(booking), 0);
+                                }}
+                              >
+                                <Mail className="h-4 w-4 shrink-0 text-primary" />
+                                Send Email
+                              </DropdownMenuItem>
+                              {booking.draft_quote_expires_on ? (
+                                <DropdownMenuItem
+                                  className="gap-2 cursor-pointer"
+                                  onSelect={(e) => {
+                                    e.preventDefault();
+                                    setChangeExpiryBooking(booking);
+                                    setChangeExpiryDate(String(booking.draft_quote_expires_on).slice(0, 10));
+                                    setTimeout(() => setChangeExpiryOpen(true), 0);
+                                  }}
+                                >
+                                  <CalendarIcon className="h-4 w-4 shrink-0 text-primary" />
+                                  Change expiry date
+                                </DropdownMenuItem>
+                              ) : null}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="gap-2 cursor-pointer"
+                                onSelect={() => router.push(`/admin/add-booking?bookingId=${encodeURIComponent(booking.id)}`)}
+                              >
+                                <Pencil className="h-4 w-4 shrink-0 text-primary" />
+                                Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="gap-2 cursor-pointer"
+                                onSelect={(e) => {
+                                  e.preventDefault();
+                                  setTimeout(() => openDraftQuoteLogs(booking), 0);
+                                }}
+                              >
+                                <Eye className="h-4 w-4 shrink-0 text-primary" />
+                                View History
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="gap-2 cursor-pointer text-destructive focus:text-destructive"
+                                onSelect={() => setDraftQuoteDeleteTarget(booking)}
+                              >
+                                <Trash2 className="h-4 w-4 shrink-0" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </td>
+                      </tr>
+                    ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </TooltipProvider>
+          </CardContent>
+        </Card>
+      )}
+
+      {viewMode === "list" && activeTab !== "draft" && (
         <Card>
         <CardHeader>
           <CardTitle>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} Bookings ({filteredBookings.length})</CardTitle>
@@ -1132,6 +1548,130 @@ export default function BookingsPage() {
       )}
         </TabsContent>
       </Tabs>
+
+      <AlertDialog
+        open={draftQuoteDeleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !draftQuoteDeleting) setDraftQuoteDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this draft or quote?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This cannot be undone.
+              {draftQuoteDeleteTarget
+                ? ` ${draftQuoteDeleteTarget.customer_name ? `${draftQuoteDeleteTarget.customer_name} — ` : ""}BK${String(draftQuoteDeleteTarget.id).slice(-6).toUpperCase()} will be removed.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={draftQuoteDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={draftQuoteDeleting}
+              onClick={(e) => {
+                e.preventDefault();
+                void handleConfirmDeleteDraftQuote();
+              }}
+            >
+              {draftQuoteDeleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
+        open={changeExpiryOpen}
+        onOpenChange={(open) => {
+          setChangeExpiryOpen(open);
+          if (!open) setChangeExpiryBooking(null);
+        }}
+      >
+        <DialogContent
+          className={cn(
+            "sm:max-w-lg p-0 gap-0 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 shadow-lg",
+            "[&>button]:text-slate-500 [&>button]:hover:text-slate-700 dark:[&>button]:text-slate-400"
+          )}
+        >
+          <DialogHeader className="px-6 py-4 text-center border-b border-slate-200/90 bg-slate-50/95 dark:bg-slate-900/70 dark:border-slate-800">
+            <DialogTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+              Change expiration date
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="px-6 py-6 space-y-8 bg-background">
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Created on</p>
+              <p className="text-sm text-muted-foreground">{changeExpiryCreatedOnDisplay}</p>
+            </div>
+
+            <div className="space-y-3">
+              <Label htmlFor="change-expiry-date" className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                Expires on
+              </Label>
+              <div className="flex flex-wrap items-center gap-3">
+                <Input
+                  id="change-expiry-date"
+                  type="date"
+                  value={changeExpiryDate}
+                  onChange={(e) => setChangeExpiryDate(e.target.value)}
+                  className="max-w-[240px] border-sky-500/60 focus-visible:ring-sky-500/40 dark:border-sky-500/50"
+                />
+                {changeExpiryDaysHelper ? (
+                  <span className="text-sm text-muted-foreground">{changeExpiryDaysHelper}</span>
+                ) : null}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Clear the date and use Save Changes to remove the expiry. Updates are recorded in View History.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="px-6 py-4 flex-row justify-between gap-3 border-t border-slate-200/90 bg-slate-50/95 dark:bg-slate-900/70 dark:border-slate-800 sm:justify-between">
+            <Button
+              type="button"
+              className="bg-sky-600 hover:bg-sky-700 text-white"
+              onClick={() => void handleSaveChangeExpiry()}
+              disabled={changeExpirySaving}
+            >
+              {changeExpirySaving ? "Saving…" : "Save Changes"}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => setChangeExpiryOpen(false)}
+              disabled={changeExpirySaving}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <SendQuoteEmailFlow
+        open={sendQuoteFlowOpen}
+        onOpenChange={(o) => {
+          setSendQuoteFlowOpen(o);
+          if (!o) setSendQuoteFlowBooking(null);
+        }}
+        booking={sendQuoteFlowBooking}
+        businessId={currentBusiness?.id ?? ""}
+        businessName={currentBusiness?.name ?? ""}
+        businessEmail={currentBusiness?.business_email ?? null}
+        businessWebsite={currentBusiness?.website ?? null}
+        industryName={industries[0]?.name ?? null}
+      />
+
+      <DraftQuoteLogsDialog
+        open={draftQuoteLogsOpen}
+        onOpenChange={(o) => {
+          setDraftQuoteLogsOpen(o);
+          if (!o) setDraftQuoteLogsBookingId(null);
+        }}
+        bookingId={draftQuoteLogsBookingId}
+        businessId={currentBusiness?.id ?? ""}
+      />
 
       {/* Booking Summary - right side panel */}
       <Sheet open={showDetails} onOpenChange={setShowDetails}>

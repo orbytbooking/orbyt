@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Calendar, Clock, DollarSign, LayoutDashboard, MapPin, Search, User } from "lucide-react";
@@ -54,6 +54,8 @@ const statusLabels: Record<string, string> = {
   cancelled: "Canceled",
 };
 
+const DEFAULT_SELF_CANCEL_BLOCKED_HTML = "<p>Please contact admin to cancel your booking.</p>";
+
 const CustomerAppointmentsPage = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -69,6 +71,31 @@ const CustomerAppointmentsPage = () => {
   const [cancellationPolicyLoading, setCancellationPolicyLoading] = useState(false);
   const [detailsCancellationDisclaimer, setDetailsCancellationDisclaimer] = useState<string | null>(null);
   const [rescheduleSettingsLoading, setRescheduleSettingsLoading] = useState(false);
+  const [selfCancelAllowed, setSelfCancelAllowed] = useState<boolean | null>(null);
+  const [selfCancelBlockedMessageHtml, setSelfCancelBlockedMessageHtml] = useState(DEFAULT_SELF_CANCEL_BLOCKED_HTML);
+  const [cancelBlockedBooking, setCancelBlockedBooking] = useState<Booking | null>(null);
+
+  useEffect(() => {
+    if (!businessId) {
+      setSelfCancelAllowed(null);
+      setSelfCancelBlockedMessageHtml(DEFAULT_SELF_CANCEL_BLOCKED_HTML);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/customer/cancellation-settings?businessId=${encodeURIComponent(businessId)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled || data.error) return;
+        setSelfCancelAllowed(data.allow_customer_self_cancel !== false);
+        if (typeof data.customer_self_cancel_blocked_message === "string") {
+          setSelfCancelBlockedMessageHtml(data.customer_self_cancel_blocked_message);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId]);
 
   const upcomingBookings = useMemo(
     () => bookings.filter((b) => !["completed", "canceled", "cancelled"].includes(b.status?.toLowerCase() ?? "")),
@@ -103,7 +130,33 @@ const CustomerAppointmentsPage = () => {
       .join("") || "PP"
   ), [customerName]);
 
-  const handleCancelBookingClick = (booking: Booking) => {
+  const handleCancelBookingClick = async (booking: Booking) => {
+    if (businessId) {
+      let allowed = selfCancelAllowed;
+      if (allowed === null) {
+        try {
+          const res = await fetch(
+            `/api/customer/cancellation-settings?businessId=${encodeURIComponent(businessId)}`
+          );
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.error) {
+            allowed = true;
+          } else {
+            allowed = data.allow_customer_self_cancel !== false;
+            if (typeof data.customer_self_cancel_blocked_message === "string") {
+              setSelfCancelBlockedMessageHtml(data.customer_self_cancel_blocked_message);
+            }
+            setSelfCancelAllowed(allowed);
+          }
+        } catch {
+          allowed = true;
+        }
+      }
+      if (allowed === false) {
+        setCancelBlockedBooking(booking);
+        return;
+      }
+    }
     setCancelDialogBooking(booking);
     setCancellationDisclaimer(null);
     if (businessId) {
@@ -298,6 +351,30 @@ const CustomerAppointmentsPage = () => {
                       </Button>
                       <Button variant="destructive" onClick={handleCancelBookingConfirm} disabled={cancellingId === cancelDialogBooking.id}>
                         {cancellingId === cancelDialogBooking.id ? "Canceling…" : "Cancel booking"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={!!cancelBlockedBooking} onOpenChange={(open) => !open && setCancelBlockedBooking(null)}>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Unable to cancel online</DialogTitle>
+                </DialogHeader>
+                {cancelBlockedBooking && (
+                  <div className="space-y-4 py-2">
+                    <p className="text-sm text-muted-foreground">
+                      Online cancellation is turned off for this business. You can still view your appointment details below.
+                    </p>
+                    <div
+                      className="rounded-lg border bg-muted/50 p-4 text-sm prose prose-sm max-w-none dark:prose-invert [&_a]:text-primary"
+                      dangerouslySetInnerHTML={{ __html: selfCancelBlockedMessageHtml }}
+                    />
+                    <div className="flex justify-end pt-2">
+                      <Button variant="outline" onClick={() => setCancelBlockedBooking(null)}>
+                        Close
                       </Button>
                     </div>
                   </div>

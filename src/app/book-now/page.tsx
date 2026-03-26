@@ -110,6 +110,12 @@ type PricingTier = {
   serviceCategoryFilter?: string | null;
 };
 
+type AppliedCoupon = {
+  code: string;
+  discountType: "percentage" | "fixed";
+  discountValue: number;
+};
+
 const toIndustryKey = (label: string) =>
   label
     .trim()
@@ -347,6 +353,7 @@ function BookingPageContent() {
   const summaryTotalRef = useRef<number>(0);
   const paymentConfirmSentRef = useRef(false);
   const [cancellationPolicyDisclaimer, setCancellationPolicyDisclaimer] = useState<string | null>(null);
+  const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null);
 
   // Handle phone number input to ensure it's a valid number
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>, field: any) => {
@@ -1244,6 +1251,14 @@ function BookingPageContent() {
     }
   }, [currentStep, router, searchParams]);
 
+  function getCouponDiscountAmount(subtotal: number) {
+    if (!appliedCoupon || subtotal <= 0) return 0;
+    if (appliedCoupon.discountType === "percentage") {
+      return Math.max(0, Math.min(subtotal, (subtotal * appliedCoupon.discountValue) / 100));
+    }
+    return Math.max(0, Math.min(subtotal, appliedCoupon.discountValue));
+  }
+
   const addBookingToStorage = useCallback(async (paymentMethod: "cash" | "online" = "cash") => {
     if (!bookingData || !serviceCustomization || !selectedService) {
       toast({
@@ -1344,7 +1359,23 @@ function BookingPageContent() {
           payment_method: paymentMethod,
           provider_id: selectedProviderId || undefined,
           provider_name: selectedProviderObj?.name ?? undefined,
-          customization: newBooking.customization ?? undefined,
+          customization: {
+            ...(newBooking.customization ?? {}),
+            ...(appliedCoupon
+              ? {
+                  coupon: {
+                    code: appliedCoupon.code,
+                    discount_type: appliedCoupon.discountType,
+                    discount_value: appliedCoupon.discountValue,
+                    discount_amount: getCouponDiscountAmount(tot.subtotal),
+                  },
+                }
+              : {}),
+          },
+          coupon_code: appliedCoupon?.code,
+          coupon_discount_type: appliedCoupon?.discountType,
+          coupon_discount_value: appliedCoupon?.discountValue,
+          coupon_discount_amount: appliedCoupon ? getCouponDiscountAmount(tot.subtotal) : undefined,
           ...(isRecurringFreq
             ? { create_recurring: true, recurring_occurrences_ahead: 8 }
             : {}),
@@ -1411,7 +1442,7 @@ function BookingPageContent() {
       });
     }
     return null;
-  }, [bookingData, serviceCustomization, selectedService, toast, searchParams, form, availableProviders, showProviderStep]);
+  }, [bookingData, serviceCustomization, selectedService, toast, searchParams, form, availableProviders, showProviderStep, appliedCoupon, getCouponDiscountAmount]);
 
   // Handle service selection (persist to card customizations so selection survives re-renders)
   const handleServiceSelect = (serviceName: string, customization?: ServiceCustomization) => {
@@ -1591,6 +1622,133 @@ function BookingPageContent() {
     return service?.price ?? 0;
   };
 
+  const applyCustomerCoupon = useCallback(async () => {
+    const codeRaw = (form.getValues("couponCode") || "").trim();
+    const currentBusinessId = searchParams.get("business") ?? null;
+    if (!currentBusinessId) {
+      toast({ title: "Business required", description: "Missing business context.", variant: "destructive" });
+      return;
+    }
+    if (!codeRaw) {
+      toast({ title: "Missing coupon", description: "Enter a coupon code first.", variant: "destructive" });
+      return;
+    }
+
+    const { data, error } = await getSupabaseCustomerClient()
+      .from("marketing_coupons")
+      .select("code, discount_type, discount_value, active, start_date, end_date, min_order, coupon_config")
+      .eq("business_id", currentBusinessId)
+      .ilike("code", codeRaw)
+      .eq("active", true)
+      .maybeSingle();
+
+    if (error || !data) {
+      setAppliedCoupon(null);
+      toast({ title: "Invalid coupon", description: "Coupon not found or inactive.", variant: "destructive" });
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    if (data.start_date && data.start_date > today) {
+      setAppliedCoupon(null);
+      toast({ title: "Coupon not started", description: "This coupon is not active yet.", variant: "destructive" });
+      return;
+    }
+    if (data.end_date && data.end_date < today) {
+      setAppliedCoupon(null);
+      toast({ title: "Coupon expired", description: "This coupon has expired.", variant: "destructive" });
+      return;
+    }
+
+    const serviceName = bookingData?.service || selectedService?.name;
+    const variableSubtotal = serviceName ? getVariableCategoriesSubtotal(serviceName) : 0;
+    const extrasSubtotal = getExtrasSubtotal();
+    let subtotalNow = variableSubtotal + extrasSubtotal;
+    if (subtotalNow === 0 && serviceName) subtotalNow = getServicePrice(serviceName);
+    if (subtotalNow === 0 && selectedService?.price != null && selectedService.price > 0) subtotalNow = selectedService.price;
+
+    if (data.min_order != null && Number(data.min_order) > Number(subtotalNow || 0)) {
+      setAppliedCoupon(null);
+      toast({
+        title: "Minimum order not met",
+        description: `Coupon requires at least $${Number(data.min_order).toFixed(2)} subtotal.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const couponConfig = data.coupon_config as
+      | {
+          formEnabled?: boolean;
+          formEnabledByIndustry?: Record<string, boolean>;
+          selectedServices?: string[];
+          selectedServicesByIndustry?: Record<string, string[]>;
+          selectedLocations?: string[];
+        }
+      | null
+      | undefined;
+
+    const formEnabledByIndustry = couponConfig?.formEnabledByIndustry;
+    const hasAnyEnabledIndustry =
+      formEnabledByIndustry && typeof formEnabledByIndustry === "object"
+        ? Object.values(formEnabledByIndustry).some((value) => value === true)
+        : true;
+    if (couponConfig?.formEnabled === false || hasAnyEnabledIndustry === false) {
+      setAppliedCoupon(null);
+      toast({
+        title: "Coupon unavailable",
+        description: "This coupon is currently disabled.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const selectedServices = Array.isArray(couponConfig?.selectedServices)
+      ? couponConfig?.selectedServices.filter((s) => typeof s === "string" && s.trim().length > 0)
+      : [];
+    const selectedServicesByIndustry = couponConfig?.selectedServicesByIndustry;
+    const aggregatedIndustryServices =
+      selectedServicesByIndustry && typeof selectedServicesByIndustry === "object"
+        ? Object.values(selectedServicesByIndustry).flatMap((services) =>
+            Array.isArray(services) ? services.filter((s) => typeof s === "string" && s.trim().length > 0) : []
+          )
+        : [];
+    const applicableServices = Array.from(new Set([...selectedServices, ...aggregatedIndustryServices]));
+    if (applicableServices.length > 0) {
+      const normalizedService = String(serviceName || "").trim().toLowerCase();
+      const matchesService = applicableServices.some(
+        (service) => service.trim().toLowerCase() === normalizedService
+      );
+      if (!matchesService) {
+        setAppliedCoupon(null);
+        toast({
+          title: "Coupon not valid for this service",
+          description: "This coupon cannot be applied to the selected service.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    const discountType: "percentage" | "fixed" = data.discount_type === "percentage" ? "percentage" : "fixed";
+    const discountValue = Number(data.discount_value) || 0;
+    if (discountValue <= 0) {
+      setAppliedCoupon(null);
+      toast({ title: "Invalid coupon", description: "Coupon discount value is invalid.", variant: "destructive" });
+      return;
+    }
+
+    const normalizedCode = (data.code || codeRaw).trim();
+    setAppliedCoupon({ code: normalizedCode, discountType, discountValue });
+    const discountAmount = discountType === "percentage"
+      ? Math.max(0, Math.min(subtotalNow, (subtotalNow * discountValue) / 100))
+      : Math.max(0, Math.min(subtotalNow, discountValue));
+    toast({
+      title: "Coupon applied",
+      description: `${normalizedCode} applied: -$${discountAmount.toFixed(2)}`,
+    });
+  }, [form, searchParams, toast, bookingData, selectedService, getVariableCategoriesSubtotal, getExtrasSubtotal]);
+
   // Calculate total from pricing parameters: sum all variable categories + extras; fallback to single-tier or service category price
   const calculateTotal = () => {
     if (!bookingData) return { subtotal: 0, tax: 0, total: 0 };
@@ -1604,9 +1762,11 @@ function BookingPageContent() {
     if (subtotal === 0 && selectedService?.price != null && selectedService.price > 0) {
       subtotal = selectedService.price;
     }
-    const tax = subtotal * 0.08; // 8% tax
-    const total = subtotal + tax;
-    return { subtotal, tax, total };
+    const couponDiscount = getCouponDiscountAmount(subtotal);
+    const discountedSubtotal = Math.max(0, subtotal - couponDiscount);
+    const tax = discountedSubtotal * 0.08; // 8% tax
+    const total = discountedSubtotal + tax;
+    return { subtotal, couponDiscount, discountedSubtotal, tax, total };
   };
 
   // Handle cash payment
@@ -1707,7 +1867,23 @@ function BookingPageContent() {
         payment_method: "online",
         provider_id: selectedProviderId || undefined,
         provider_name: selectedProviderObj?.name ?? undefined,
-        customization: newBooking.customization ?? undefined,
+        customization: {
+          ...(newBooking.customization ?? {}),
+          ...(appliedCoupon
+            ? {
+                coupon: {
+                  code: appliedCoupon.code,
+                  discount_type: appliedCoupon.discountType,
+                  discount_value: appliedCoupon.discountValue,
+                  discount_amount: getCouponDiscountAmount(tot.subtotal),
+                },
+              }
+            : {}),
+        },
+        coupon_code: appliedCoupon?.code,
+        coupon_discount_type: appliedCoupon?.discountType,
+        coupon_discount_value: appliedCoupon?.discountValue,
+        coupon_discount_amount: appliedCoupon ? getCouponDiscountAmount(tot.subtotal) : undefined,
         ...(isRecurringFreq ? { create_recurring: true, recurring_occurrences_ahead: 8 } : {}),
       };
       const res = await fetch(apiUrl, { method: "POST", headers, body: JSON.stringify(payload) });
@@ -1735,7 +1911,7 @@ function BookingPageContent() {
       toast({ title: "Error", description: "Failed to create booking. Please try again.", variant: "destructive" });
       return null;
     }
-  }, [bookingData, serviceCustomization, selectedService, searchParams, form, availableProviders, showProviderStep]);
+  }, [bookingData, serviceCustomization, selectedService, searchParams, form, availableProviders, showProviderStep, appliedCoupon, getCouponDiscountAmount]);
 
   // Handle online payment via Stripe Checkout (redirect)
   const handleOnlinePayment = async (_values?: z.infer<typeof paymentSchema>) => {
@@ -1902,7 +2078,7 @@ function BookingPageContent() {
 
   // Payment Screen
   if (currentStep === "payment" && bookingData && selectedService && serviceCustomization) {
-    const { subtotal, tax, total } = calculateTotal();
+    const { subtotal, couponDiscount, tax, total } = calculateTotal();
     summaryTotalRef.current = total;
     const bid = searchParams.get("business");
 
@@ -2012,6 +2188,12 @@ function BookingPageContent() {
                     <span>Service Fee:</span>
                     <span>${subtotal.toFixed(2)}</span>
                   </div>
+                  {couponDiscount > 0 && (
+                    <div className={styles.priceRow}>
+                      <span>Coupon Discount:</span>
+                      <span className="text-green-600">-${couponDiscount.toFixed(2)}</span>
+                    </div>
+                  )}
                   <div className={styles.priceRow}>
                     <span>Service Charge:</span>
                     <span>${tax.toFixed(2)}</span>
@@ -2764,14 +2946,20 @@ function BookingPageContent() {
                           <div className="flex space-x-4 mb-4 border-b border-gray-200">
                             <button
                               type="button"
-                              onClick={() => form.setValue("couponCodeTab", "coupon-code")}
+                              onClick={() => {
+                                setAppliedCoupon(null);
+                                form.setValue("couponCodeTab", "coupon-code");
+                              }}
                               className={`pb-2 text-base font-semibold ${form.watch("couponCodeTab") === "coupon-code" ? "text-blue-600 border-b-2 border-blue-600" : "text-gray-500 hover:text-gray-700"}`}
                             >
                               Coupon Code
                             </button>
                             <button
                               type="button"
-                              onClick={() => form.setValue("couponCodeTab", "gift-card")}
+                              onClick={() => {
+                                setAppliedCoupon(null);
+                                form.setValue("couponCodeTab", "gift-card");
+                              }}
                               className={`pb-2 text-base font-semibold ${form.watch("couponCodeTab") === "gift-card" ? "text-blue-600 border-b-2 border-blue-600" : "text-gray-500 hover:text-gray-700"}`}
                             >
                               Gift Cards
@@ -2803,6 +2991,10 @@ function BookingPageContent() {
                                               id="coupon-code-input"
                                               placeholder="Enter coupon code"
                                               {...field}
+                                              onChange={(e) => {
+                                                setAppliedCoupon(null);
+                                                field.onChange(e);
+                                              }}
                                               className="border-gray-300"
                                             />
                                           </FormControl>
@@ -2812,17 +3004,17 @@ function BookingPageContent() {
                                     />
                                     <Button
                                       type="button"
-                                      onClick={() => {
-                                        toast({
-                                          title: "Coupon Code Applied",
-                                          description: `Coupon code "${form.getValues("couponCode")}" has been applied.`,
-                                        });
-                                      }}
+                                      onClick={applyCustomerCoupon}
                                       className="bg-sky-400 hover:bg-sky-500 text-white px-6"
                                     >
                                       Apply
                                     </Button>
                                   </div>
+                                  {appliedCoupon && (
+                                    <p className="mt-2 text-sm text-green-700">
+                                      Applied {appliedCoupon.code}
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                             ) : (

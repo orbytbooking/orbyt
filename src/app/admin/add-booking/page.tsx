@@ -25,6 +25,7 @@ import { Plus, Minus, Search, X, User, Shirt, Sofa, Droplets, Wind, Trash2, Flow
 import Image from "next/image";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { getTodayLocalDate, formatDateLocal } from "@/lib/date-utils";
+import { differenceInCalendarDays, startOfDay } from "date-fns";
 
 type Extra = {
   id: string;
@@ -56,6 +57,14 @@ type FrequencyRow = {
   exclude_first_appointment?: boolean;
   frequency_discount?: "all" | "exclude-first";
   charge_one_time_price?: boolean;
+};
+
+type AppliedCoupon = {
+  mode: "coupon-code" | "amount" | "percent";
+  code?: string;
+  discountType: "fixed" | "percentage";
+  discountValue: number;
+  discountAmount: number;
 };
 
 type Provider = {
@@ -161,6 +170,7 @@ const createEmptyBookingForm = () => ({
   createRecurring: false,
   recurringEndDate: "",
   recurringOccurrencesAhead: 8,
+  draftQuoteExpiresOn: "",
 });
 
 function AddBookingPage() {
@@ -214,6 +224,7 @@ function AddBookingPage() {
   const [specificProviderForAdmin, setSpecificProviderForAdmin] = useState(true);
   const [priceAdjustmentNoteEnabled, setPriceAdjustmentNoteEnabled] = useState(false);
   const [timeAdjustmentNoteEnabled, setTimeAdjustmentNoteEnabled] = useState(false);
+  const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null);
 
   // Load store options (specific_provider_for_admin, price/time adjustment note settings)
   useEffect(() => {
@@ -650,6 +661,28 @@ function AddBookingPage() {
         const firstName = nameParts[0] || '';
         const lastName = nameParts.slice(1).join(' ') || '';
         const cust = (b.customization && typeof b.customization === 'object') ? b.customization : {};
+        const couponFromCustomization = (cust && typeof cust === 'object' && cust.coupon && typeof cust.coupon === 'object')
+          ? cust.coupon as Record<string, unknown>
+          : null;
+        const savedCouponCode = typeof b.coupon_code === 'string'
+          ? b.coupon_code.trim()
+          : (typeof couponFromCustomization?.code === 'string' ? couponFromCustomization.code.trim() : '');
+        const savedCouponModeRaw = typeof b.coupon_mode === 'string'
+          ? b.coupon_mode.trim()
+          : (typeof couponFromCustomization?.mode === 'string' ? couponFromCustomization.mode.trim() : '');
+        const savedCouponTypeRaw = typeof b.coupon_discount_type === 'string'
+          ? b.coupon_discount_type.trim().toLowerCase()
+          : (typeof couponFromCustomization?.discount_type === 'string' ? couponFromCustomization.discount_type.trim().toLowerCase() : '');
+        const savedCouponValueRaw = b.coupon_discount_value ?? couponFromCustomization?.discount_value ?? null;
+        const savedCouponAmountRaw = b.coupon_discount_amount ?? couponFromCustomization?.discount_amount ?? null;
+        const savedCouponValue = savedCouponValueRaw != null ? Number(savedCouponValueRaw) : NaN;
+        const savedCouponAmount = savedCouponAmountRaw != null ? Number(savedCouponAmountRaw) : NaN;
+        const savedCouponMode = (savedCouponModeRaw === 'coupon-code' || savedCouponModeRaw === 'amount' || savedCouponModeRaw === 'percent')
+          ? savedCouponModeRaw
+          : null;
+        const savedCouponType = (savedCouponTypeRaw === 'fixed' || savedCouponTypeRaw === 'percentage')
+          ? savedCouponTypeRaw
+          : null;
         const selectedExtras = Array.isArray(cust.selectedExtras) ? cust.selectedExtras : [];
         const extraQuantities = cust.extraQuantities && typeof cust.extraQuantities === 'object' ? cust.extraQuantities : {};
         const categoryValues = cust.categoryValues && typeof cust.categoryValues === 'object' ? cust.categoryValues : {};
@@ -682,6 +715,8 @@ function AddBookingPage() {
           selectedDate: (b.scheduled_date || b.date || '').toString().trim(),
           selectedTime: (b.scheduled_time || b.time || '').toString().trim(),
           paymentMethod,
+          couponCode: savedCouponCode || "",
+          couponType: savedCouponMode === "amount" ? "amount" : (savedCouponMode === "percent" ? "percent" : "coupon-code"),
           notes: (b.notes || '').trim(),
           selectedExtras,
           extraQuantities,
@@ -710,10 +745,22 @@ function AddBookingPage() {
             : '00',
           priceAdjustmentNote: (b.price_adjustment_note ?? '').toString().trim(),
           timeAdjustmentNote: (b.time_adjustment_note ?? '').toString().trim(),
+          draftQuoteExpiresOn: b.draft_quote_expires_on ? String(b.draft_quote_expires_on).slice(0, 10) : "",
         }));
         setCustomerSearch((b.customer_name || '').trim());
         setIsPartialCleaning(Boolean(cust.isPartialCleaning));
         setSelectedExcludeParams(excludedAreas);
+        if (savedCouponType && Number.isFinite(savedCouponValue) && savedCouponValue > 0) {
+          setAppliedCoupon({
+            mode: savedCouponMode ?? (savedCouponCode ? 'coupon-code' : (savedCouponType === 'percentage' ? 'percent' : 'amount')),
+            code: savedCouponCode || undefined,
+            discountType: savedCouponType,
+            discountValue: savedCouponValue,
+            discountAmount: Number.isFinite(savedCouponAmount) ? Math.max(0, savedCouponAmount) : 0,
+          });
+        } else {
+          setAppliedCoupon(null);
+        }
         setProviderWage(b.provider_wage != null ? String(b.provider_wage) : '');
         setProviderWageType((b.provider_wage_type === 'percentage' || b.provider_wage_type === 'fixed' || b.provider_wage_type === 'hourly') ? b.provider_wage_type : 'hourly');
         if (b.industry_id) setSelectedIndustryId(String(b.industry_id));
@@ -919,7 +966,27 @@ const handleAddBooking = async (status: string = 'pending') => {
       time_adjustment_note: newBooking.adjustTime && newBooking.timeAdjustmentNote ? newBooking.timeAdjustmentNote : undefined,
       industry_id: selectedIndustryId || undefined,
       frequency_repeats: frequencies.find(f => f.name === newBooking.frequency)?.frequency_repeats ?? undefined,
+      coupon_code: appliedCoupon?.code ?? (newBooking.couponType === "coupon-code" ? (newBooking.couponCode || "").trim() || undefined : undefined),
+      coupon_discount_type: appliedCoupon?.discountType,
+      coupon_discount_value: appliedCoupon?.discountValue,
+      coupon_discount_amount: calculatedCouponDiscount > 0 ? calculatedCouponDiscount : undefined,
+      coupon_mode: appliedCoupon?.mode,
+      customization: appliedCoupon
+        ? {
+            coupon: {
+              mode: appliedCoupon.mode,
+              code: appliedCoupon.code ?? null,
+              discount_type: appliedCoupon.discountType,
+              discount_value: appliedCoupon.discountValue,
+              discount_amount: calculatedCouponDiscount,
+            },
+          }
+        : undefined,
     };
+    if (status === "draft" || status === "quote") {
+      const dq = newBooking.draftQuoteExpiresOn?.trim();
+      body.draft_quote_expires_on = dq && /^\d{4}-\d{2}-\d{2}$/.test(dq) ? dq : null;
+    }
     if (!editingBookingId) {
       body.create_recurring = newBooking.createRecurring || undefined;
       body.recurring_end_date = newBooking.createRecurring ? newBooking.recurringEndDate || null : undefined;
@@ -1575,11 +1642,25 @@ const handleAddBooking = async (status: string = 'pending') => {
     }
   }, [newBooking.frequency, frequencies, effectiveServiceTotal, calculateExtrasTotal, calculatePartialCleaningDiscount, isFirstAppointment]);
 
+  const baseTotalBeforeCoupon = useMemo(() => {
+    const subtotal = effectiveServiceTotal + calculateExtrasTotal;
+    const totalDiscount = calculatePartialCleaningDiscount + calculateFrequencyDiscount;
+    return Math.max(0, subtotal - totalDiscount);
+  }, [effectiveServiceTotal, calculateExtrasTotal, calculatePartialCleaningDiscount, calculateFrequencyDiscount]);
+
+  const calculatedCouponDiscount = useMemo(() => {
+    if (!appliedCoupon) return 0;
+    if (appliedCoupon.discountType === "percentage") {
+      return Math.max(0, Math.min(baseTotalBeforeCoupon, (baseTotalBeforeCoupon * appliedCoupon.discountValue) / 100));
+    }
+    return Math.max(0, Math.min(baseTotalBeforeCoupon, appliedCoupon.discountValue));
+  }, [appliedCoupon, baseTotalBeforeCoupon]);
+
   // Calculate total amount (Booking Koala style: service total before discounts, then price adjustment overrides final after discounts)
   const calculateTotalAmount = useMemo(() => {
     const subtotal = effectiveServiceTotal + calculateExtrasTotal;
     const totalDiscount = calculatePartialCleaningDiscount + calculateFrequencyDiscount;
-    let finalAmount = Math.max(0, subtotal - totalDiscount);
+    let finalAmount = Math.max(0, subtotal - totalDiscount - calculatedCouponDiscount);
 
     // Adjust Price: override final amount after coupons/discounts, before tax (Booking Koala)
     if (newBooking.adjustPrice && newBooking.adjustmentAmount) {
@@ -1590,7 +1671,164 @@ const handleAddBooking = async (status: string = 'pending') => {
     }
 
     return finalAmount;
-  }, [effectiveServiceTotal, calculateExtrasTotal, calculatePartialCleaningDiscount, calculateFrequencyDiscount, newBooking.adjustPrice, newBooking.adjustmentAmount]);
+  }, [effectiveServiceTotal, calculateExtrasTotal, calculatePartialCleaningDiscount, calculateFrequencyDiscount, calculatedCouponDiscount, newBooking.adjustPrice, newBooking.adjustmentAmount]);
+
+  const applyCouponSelection = async () => {
+    const rawInput = (newBooking.couponCode || "").trim();
+    if (!rawInput) {
+      toast({
+        title: "Missing value",
+        description: newBooking.couponType === "coupon-code" ? "Enter a coupon code first." : "Enter a discount value first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (newBooking.couponType === "coupon-code") {
+      if (!currentBusiness?.id) {
+        toast({ title: "Business required", description: "Select a business before applying coupon.", variant: "destructive" });
+        return;
+      }
+      const today = getTodayLocalDate();
+      const { data, error } = await supabase
+        .from("marketing_coupons")
+        .select("code, discount_type, discount_value, active, start_date, end_date, min_order, coupon_config")
+        .eq("business_id", currentBusiness.id)
+        .ilike("code", rawInput)
+        .eq("active", true)
+        .maybeSingle();
+
+      if (error || !data) {
+        toast({ title: "Invalid coupon", description: "Coupon not found or inactive.", variant: "destructive" });
+        return;
+      }
+      if (data.start_date && data.start_date > today) {
+        toast({ title: "Coupon not started", description: "This coupon is not active yet.", variant: "destructive" });
+        return;
+      }
+      if (data.end_date && data.end_date < today) {
+        toast({ title: "Coupon expired", description: "This coupon has expired.", variant: "destructive" });
+        return;
+      }
+      if (data.min_order != null && Number(data.min_order) > baseTotalBeforeCoupon) {
+        toast({
+          title: "Minimum order not met",
+          description: `Coupon requires at least $${Number(data.min_order).toFixed(2)} before tax.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const couponConfig = data.coupon_config as
+        | {
+            formEnabled?: boolean;
+            formEnabledByIndustry?: Record<string, boolean>;
+            selectedServices?: string[];
+            selectedServicesByIndustry?: Record<string, string[]>;
+            selectedLocations?: string[];
+          }
+        | null
+        | undefined;
+
+      const formEnabledByIndustry = couponConfig?.formEnabledByIndustry;
+      const hasAnyEnabledIndustry =
+        formEnabledByIndustry && typeof formEnabledByIndustry === "object"
+          ? Object.values(formEnabledByIndustry).some((value) => value === true)
+          : true;
+      if (couponConfig?.formEnabled === false || hasAnyEnabledIndustry === false) {
+        toast({
+          title: "Coupon unavailable",
+          description: "This coupon is currently disabled.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const selectedServices = Array.isArray(couponConfig?.selectedServices)
+        ? couponConfig?.selectedServices.filter((s) => typeof s === "string" && s.trim().length > 0)
+        : [];
+      const selectedServicesByIndustry = couponConfig?.selectedServicesByIndustry;
+      const aggregatedIndustryServices =
+        selectedServicesByIndustry && typeof selectedServicesByIndustry === "object"
+          ? Object.values(selectedServicesByIndustry).flatMap((services) =>
+              Array.isArray(services) ? services.filter((s) => typeof s === "string" && s.trim().length > 0) : []
+            )
+          : [];
+      const applicableServices = Array.from(new Set([...selectedServices, ...aggregatedIndustryServices]));
+      if (applicableServices.length > 0) {
+        const bookingService = String(newBooking.service || "").trim().toLowerCase();
+        const matchesService = applicableServices.some(
+          (service) => service.trim().toLowerCase() === bookingService
+        );
+        if (!matchesService) {
+          toast({
+            title: "Coupon not valid for this service",
+            description: "This coupon cannot be applied to the selected service.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
+      const discountType = data.discount_type === "percentage" ? "percentage" : "fixed";
+      const discountValue = Number(data.discount_value) || 0;
+      if (discountValue <= 0) {
+        toast({ title: "Invalid coupon", description: "Coupon discount value is not valid.", variant: "destructive" });
+        return;
+      }
+      const discountAmount = discountType === "percentage"
+        ? Math.max(0, Math.min(baseTotalBeforeCoupon, (baseTotalBeforeCoupon * discountValue) / 100))
+        : Math.max(0, Math.min(baseTotalBeforeCoupon, discountValue));
+
+      setAppliedCoupon({
+        mode: "coupon-code",
+        code: data.code,
+        discountType,
+        discountValue,
+        discountAmount,
+      });
+      toast({
+        title: "Coupon applied",
+        description: `${data.code} applied: -$${discountAmount.toFixed(2)}`,
+      });
+      return;
+    }
+
+    const value = parseFloat(rawInput);
+    if (!Number.isFinite(value) || value <= 0) {
+      toast({ title: "Invalid value", description: "Enter a number greater than 0.", variant: "destructive" });
+      return;
+    }
+
+    if (newBooking.couponType === "percent") {
+      const pct = Math.min(100, value);
+      const discountAmount = Math.max(0, Math.min(baseTotalBeforeCoupon, (baseTotalBeforeCoupon * pct) / 100));
+      setAppliedCoupon({
+        mode: "percent",
+        discountType: "percentage",
+        discountValue: pct,
+        discountAmount,
+      });
+      toast({
+        title: "Percentage discount applied",
+        description: `${pct}% applied: -$${discountAmount.toFixed(2)}`,
+      });
+      return;
+    }
+
+    const fixed = Math.max(0, value);
+    const discountAmount = Math.max(0, Math.min(baseTotalBeforeCoupon, fixed));
+    setAppliedCoupon({
+      mode: "amount",
+      discountType: "fixed",
+      discountValue: fixed,
+      discountAmount,
+    });
+    toast({
+      title: "Amount discount applied",
+      description: `-$${discountAmount.toFixed(2)} applied`,
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -1744,6 +1982,12 @@ const handleAddBooking = async (status: string = 'pending') => {
                 }
                 return null;
               })()}
+              {calculatedCouponDiscount > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Coupon Discount</span>
+                  <span className="font-medium text-green-600">-${calculatedCouponDiscount.toFixed(2)}</span>
+                </div>
+              )}
               {newBooking.adjustPrice && newBooking.adjustmentAmount && !isNaN(parseFloat(newBooking.adjustmentAmount)) && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Adjusted Amount</span>
@@ -1941,6 +2185,29 @@ const handleAddBooking = async (status: string = 'pending') => {
                 onCheckedChange={(checked) => setNewBooking({ ...newBooking, excludeProviderNotification: !!checked })}
               />
               <Label htmlFor="exclude-provider-notification" className="text-sm text-white">Exclude provider notification</Label>
+            </div>
+          </div>
+
+          <div className="space-y-2 rounded-md border border-white/20 p-3 bg-white/5">
+            <Label className="text-sm text-white">Expires on (optional)</Label>
+            <p className="text-xs text-white/70">Last day the draft or quote stays valid (ends 11:59 PM that day).</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                type="date"
+                className="bg-white text-slate-900 max-w-[200px]"
+                value={newBooking.draftQuoteExpiresOn}
+                onChange={(e) => setNewBooking({ ...newBooking, draftQuoteExpiresOn: e.target.value })}
+              />
+              {newBooking.draftQuoteExpiresOn ? (
+                <span className="text-sm text-white/80">
+                  {(() => {
+                    const d = new Date(newBooking.draftQuoteExpiresOn + "T12:00:00");
+                    if (Number.isNaN(d.getTime())) return null;
+                    const days = Math.max(0, differenceInCalendarDays(startOfDay(d), startOfDay(new Date())));
+                    return `at 11:59 PM (${days} day(s))`;
+                  })()}
+                </span>
+              ) : null}
             </div>
           </div>
 
@@ -3311,7 +3578,10 @@ const handleAddBooking = async (status: string = 'pending') => {
                     {/* Radio Buttons */}
                     <RadioGroup
                       value={newBooking.couponType}
-                      onValueChange={(value) => setNewBooking({ ...newBooking, couponType: value })}
+                      onValueChange={(value) => {
+                        setAppliedCoupon(null);
+                        setNewBooking({ ...newBooking, couponType: value, couponCode: "" });
+                      }}
                       className="flex space-x-6"
                     >
                       <div className="flex items-center space-x-2">
@@ -3341,7 +3611,13 @@ const handleAddBooking = async (status: string = 'pending') => {
                     {/* Input Section */}
                     <div>
                       <div className="flex items-center space-x-2 mb-2">
-                        <Label htmlFor="coupon-code-input" className="text-sm font-medium text-gray-900">Enter Coupon Code</Label>
+                        <Label htmlFor="coupon-code-input" className="text-sm font-medium text-gray-900">
+                          {newBooking.couponType === "coupon-code"
+                            ? "Enter Coupon Code"
+                            : newBooking.couponType === "amount"
+                              ? "Enter Amount"
+                              : "Enter % Amount"}
+                        </Label>
                         <div className="w-4 h-4 rounded-full bg-gray-200 flex items-center justify-center">
                           <span className="text-gray-500 text-xs">i</span>
                         </div>
@@ -3349,23 +3625,33 @@ const handleAddBooking = async (status: string = 'pending') => {
                       <div className="flex space-x-2">
                         <Input
                           id="coupon-code-input"
-                          placeholder="Enter coupon code"
+                          placeholder={
+                            newBooking.couponType === "coupon-code"
+                              ? "Enter coupon code"
+                              : newBooking.couponType === "amount"
+                                ? "Enter amount"
+                                : "Enter percent"
+                          }
                           value={newBooking.couponCode}
-                          onChange={(e) => setNewBooking({ ...newBooking, couponCode: e.target.value })}
+                          onChange={(e) => {
+                            setAppliedCoupon(null);
+                            setNewBooking({ ...newBooking, couponCode: e.target.value });
+                          }}
                           className="flex-1 border-gray-300"
                         />
                         <Button
-                          onClick={() => {
-                            toast({
-                              title: "Coupon Code Applied",
-                              description: `Coupon code "${newBooking.couponCode}" has been applied.`,
-                            });
-                          }}
+                          type="button"
+                          onClick={applyCouponSelection}
                           className="bg-sky-400 hover:bg-sky-500 text-white px-6"
                         >
                           Apply
                         </Button>
                       </div>
+                      {appliedCoupon && (
+                        <p className="mt-2 text-sm text-green-700">
+                          Applied: -${calculatedCouponDiscount.toFixed(2)}
+                        </p>
+                      )}
                     </div>
                   </div>
                 ) : (

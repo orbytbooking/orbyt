@@ -4,6 +4,7 @@ import { MultiTenantHelper } from '@/lib/multiTenantSupabase';
 import { createAdminNotification } from '@/lib/adminProviderSync';
 import { syncBookingCreated, createRecurringCalendarEvent } from '@/lib/googleCalendar';
 import { getStoreOptionsScheduling, isDateHoliday } from '@/lib/schedulingFilters';
+import { logNewDraftOrQuote } from '@/lib/draftQuoteLogs';
 
 export async function GET(request: Request) {
   try {
@@ -304,6 +305,37 @@ export async function POST(request: Request) {
       }
     }
 
+    // Coupon metadata (persist independently from customization JSON)
+    if (typeof bookingData.coupon_code === 'string') {
+      bookingWithBusiness.coupon_code = bookingData.coupon_code.trim() || null;
+    } else if (bookingData.coupon_code == null) {
+      bookingWithBusiness.coupon_code = null;
+    }
+    if (typeof bookingData.coupon_mode === 'string') {
+      const mode = bookingData.coupon_mode.trim();
+      bookingWithBusiness.coupon_mode = mode || null;
+    } else if (bookingData.coupon_mode == null) {
+      bookingWithBusiness.coupon_mode = null;
+    }
+    if (typeof bookingData.coupon_discount_type === 'string') {
+      const discountType = bookingData.coupon_discount_type.trim().toLowerCase();
+      bookingWithBusiness.coupon_discount_type = (discountType === 'fixed' || discountType === 'percentage') ? discountType : null;
+    } else if (bookingData.coupon_discount_type == null) {
+      bookingWithBusiness.coupon_discount_type = null;
+    }
+    if (bookingData.coupon_discount_value != null) {
+      const couponValue = parseFloat(String(bookingData.coupon_discount_value));
+      bookingWithBusiness.coupon_discount_value = Number.isFinite(couponValue) ? couponValue : null;
+    } else {
+      bookingWithBusiness.coupon_discount_value = null;
+    }
+    if (bookingData.coupon_discount_amount != null) {
+      const couponAmount = parseFloat(String(bookingData.coupon_discount_amount));
+      bookingWithBusiness.coupon_discount_amount = Number.isFinite(couponAmount) ? couponAmount : null;
+    } else {
+      bookingWithBusiness.coupon_discount_amount = null;
+    }
+
     // Private booking notes, private customer notes, notes for service provider (arrays stored as jsonb)
     const privateBookingNotes = Array.isArray(bookingData.private_booking_notes) ? bookingData.private_booking_notes.filter((n: unknown) => typeof n === 'string') : [];
     const privateCustomerNotes = Array.isArray(bookingData.private_customer_notes) ? bookingData.private_customer_notes.filter((n: unknown) => typeof n === 'string') : [];
@@ -311,6 +343,23 @@ export async function POST(request: Request) {
     bookingWithBusiness.private_booking_notes = privateBookingNotes;
     bookingWithBusiness.private_customer_notes = privateCustomerNotes;
     bookingWithBusiness.service_provider_notes = serviceProviderNotes;
+
+    const statusStr = String(finalStatus || '');
+    if (['draft', 'quote'].includes(statusStr)) {
+      if (bookingData.draft_quote_expires_on === null) {
+        bookingWithBusiness.draft_quote_expires_on = null;
+      } else if (typeof bookingData.draft_quote_expires_on === 'string') {
+        const dq = bookingData.draft_quote_expires_on.trim().slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dq)) {
+          bookingWithBusiness.draft_quote_expires_on = dq;
+        } else if (dq === '') {
+          bookingWithBusiness.draft_quote_expires_on = null;
+        }
+      }
+    }
+    if (statusStr && !['draft', 'quote', 'expired'].includes(statusStr)) {
+      bookingWithBusiness.draft_quote_expires_on = null;
+    }
 
     // Convert duration + duration_unit to duration_minutes
     const durationVal = parseFloat(bookingData.duration);
@@ -374,6 +423,9 @@ export async function POST(request: Request) {
           message: `Recurring booking ${bkRef} created with ${bookingIds.length} occurrences.`,
           link: '/admin/bookings',
         });
+        if (firstBooking && (firstBooking.status === 'draft' || firstBooking.status === 'quote')) {
+          await logNewDraftOrQuote(supabase, request, user, businessId, firstBooking.id, firstBooking.status);
+        }
         return NextResponse.json({
           success: true,
           data: firstBooking,
@@ -452,6 +504,15 @@ export async function POST(request: Request) {
         delete bookingWithBusiness.adjust_time;
         didStrip = true;
       }
+      if (msg.includes('coupon_code') || msg.includes('coupon_mode') || msg.includes('coupon_discount_type') || msg.includes('coupon_discount_value') || msg.includes('coupon_discount_amount')) {
+        console.log('⚠️ coupon columns not found, retrying without them...');
+        delete bookingWithBusiness.coupon_code;
+        delete bookingWithBusiness.coupon_mode;
+        delete bookingWithBusiness.coupon_discount_type;
+        delete bookingWithBusiness.coupon_discount_value;
+        delete bookingWithBusiness.coupon_discount_amount;
+        didStrip = true;
+      }
       if (didStrip) {
         const { data: retryBooking, error: retryError } = await supabase
           .from('bookings')
@@ -467,10 +528,15 @@ export async function POST(request: Request) {
         }
         const warning = msg.includes('customization')
           ? 'Customization column not found. Run migration 018 to save exclude quantities and partial cleaning.'
-          : (msg.includes('provider_wage') ? 'Run migration 012 for provider wage.' : '');
+          : (msg.includes('provider_wage')
+              ? 'Run migration 012 for provider wage.'
+              : (msg.includes('coupon_') ? 'Run migration 074 for coupon metadata.' : ''));
         const eventIdRetry = await syncBookingCreated(businessId, retryBooking).catch(() => null);
         if (eventIdRetry) {
           await supabase.from('bookings').update({ google_calendar_event_id: eventIdRetry }).eq('id', retryBooking.id).eq('business_id', businessId);
+        }
+        if (retryBooking.status === 'draft' || retryBooking.status === 'quote') {
+          await logNewDraftOrQuote(supabase, request, user, businessId, retryBooking.id, retryBooking.status);
         }
         const bkRef = `BK${String(retryBooking.id).slice(-6).toUpperCase()}`;
         const assignMsg = retryBooking.provider_id ? ' and assigned to provider' : '';
@@ -500,6 +566,10 @@ export async function POST(request: Request) {
       provider_id: booking.provider_id,
       status: booking.status
     });
+
+    if (booking.status === 'draft' || booking.status === 'quote') {
+      await logNewDraftOrQuote(supabase, request, user, businessId, booking.id, booking.status);
+    }
 
     console.log('[googleCalendar] Attempting sync for booking', booking.id, 'business', businessId, { scheduled_date: booking.scheduled_date ?? booking.date, scheduled_time: booking.scheduled_time ?? booking.time });
     const eventId = await syncBookingCreated(businessId, booking).catch((err) => {

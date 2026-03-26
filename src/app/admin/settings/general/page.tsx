@@ -314,6 +314,25 @@ export default function GeneralSettingsPage() {
   const [customerGeneralExpanded, setCustomerGeneralExpanded] = useState(false);
   const [customerRescheduleExpanded, setCustomerRescheduleExpanded] = useState(false);
   const [customerCancellationExpanded, setCustomerCancellationExpanded] = useState(false);
+  const [allowPostponeBookings, setAllowPostponeBookings] = useState<'yes' | 'no'>('yes');
+  const [allowPostponePrecharged, setAllowPostponePrecharged] = useState<'yes' | 'no'>('no');
+  const [postponePrechargedAction, setPostponePrechargedAction] = useState<'refund' | 'no_refund'>('no_refund');
+  const [allowCustomerSelfCancel, setAllowCustomerSelfCancel] = useState<'yes' | 'no'>('yes');
+  const [customerCancelOneTime, setCustomerCancelOneTime] = useState(true);
+  const [customerCancelRecurring, setCustomerCancelRecurring] = useState(true);
+  const [recurringCancelSingleBooking, setRecurringCancelSingleBooking] = useState(true);
+  const [recurringCancelFromPointOnward, setRecurringCancelFromPointOnward] = useState(true);
+  const [recurringCancelEntireSeries, setRecurringCancelEntireSeries] = useState(false);
+  const [customerCancelCategoryIds, setCustomerCancelCategoryIds] = useState<Record<string, boolean>>({});
+  const [customerCancelAllCategories, setCustomerCancelAllCategories] = useState(false);
+  const [adminConfirmCancellation, setAdminConfirmCancellation] = useState<'yes' | 'no'>('yes');
+  const [adminConfirmCancellationScope, setAdminConfirmCancellationScope] = useState<
+    'one_time' | 'recurring' | 'both'
+  >('recurring');
+  const [refundPrechargedOnCustomerCancel, setRefundPrechargedOnCustomerCancel] = useState<'yes' | 'no'>('yes');
+  const [customerSelfCancelBlockedMessage, setCustomerSelfCancelBlockedMessage] = useState(
+    '<p>Please contact admin to cancel your booking.</p>'
+  );
   const [providerBookingsExpanded, setProviderBookingsExpanded] = useState(false);
   const [providerSchedulingExpanded, setProviderSchedulingExpanded] = useState(false);
   const [providerGpsExpanded, setProviderGpsExpanded] = useState(false);
@@ -860,6 +879,29 @@ export default function GeneralSettingsPage() {
       if (s.afterAmPm !== undefined) setCancellationAfterAmPm(s.afterAmPm === 'AM' ? 'AM' : 'PM');
       if (s.hoursBefore !== undefined) setCancellationHoursBefore(s.hoursBefore || '1');
       if (s.excludeSameDay !== undefined) setCancellationExcludeSameDay(!!s.excludeSameDay);
+      if (s.allowPostponeBookings !== undefined) setAllowPostponeBookings(s.allowPostponeBookings === 'no' ? 'no' : 'yes');
+      if (s.allowPostponePrecharged !== undefined) setAllowPostponePrecharged(s.allowPostponePrecharged === 'yes' ? 'yes' : 'no');
+      if (s.postponePrechargedAction !== undefined) setPostponePrechargedAction(s.postponePrechargedAction === 'refund' ? 'refund' : 'no_refund');
+      if (s.allowCustomerSelfCancel !== undefined) setAllowCustomerSelfCancel(s.allowCustomerSelfCancel === 'no' ? 'no' : 'yes');
+      if (s.customerCancelOneTime !== undefined) setCustomerCancelOneTime(!!s.customerCancelOneTime);
+      if (s.customerCancelRecurring !== undefined) setCustomerCancelRecurring(!!s.customerCancelRecurring);
+      if (s.recurringCancelSingleBooking !== undefined) setRecurringCancelSingleBooking(!!s.recurringCancelSingleBooking);
+      if (s.recurringCancelFromPointOnward !== undefined) setRecurringCancelFromPointOnward(!!s.recurringCancelFromPointOnward);
+      if (s.recurringCancelEntireSeries !== undefined) setRecurringCancelEntireSeries(!!s.recurringCancelEntireSeries);
+      if (s.customerCancelCategoryIds && typeof s.customerCancelCategoryIds === 'object') {
+        setCustomerCancelCategoryIds(s.customerCancelCategoryIds as Record<string, boolean>);
+      }
+      if (s.customerCancelAllCategories !== undefined) setCustomerCancelAllCategories(!!s.customerCancelAllCategories);
+      if (s.adminConfirmCancellation !== undefined) setAdminConfirmCancellation(s.adminConfirmCancellation === 'no' ? 'no' : 'yes');
+      if (s.adminConfirmCancellationScope === 'one_time' || s.adminConfirmCancellationScope === 'recurring' || s.adminConfirmCancellationScope === 'both') {
+        setAdminConfirmCancellationScope(s.adminConfirmCancellationScope);
+      }
+      if (s.refundPrechargedOnCustomerCancel !== undefined) {
+        setRefundPrechargedOnCustomerCancel(s.refundPrechargedOnCustomerCancel === 'no' ? 'no' : 'yes');
+      }
+      if (typeof s.customerSelfCancelBlockedMessage === 'string') {
+        setCustomerSelfCancelBlockedMessage(s.customerSelfCancelBlockedMessage);
+      }
     } catch (e) {
       console.error(e);
       toast.error(e instanceof Error ? e.message : 'Failed to load cancellation settings');
@@ -888,6 +930,21 @@ export default function GeneralSettingsPage() {
           afterAmPm: cancellationAfterAmPm,
           hoursBefore: cancellationHoursBefore,
           excludeSameDay: cancellationExcludeSameDay,
+          allowPostponeBookings: allowPostponeBookings,
+          allowPostponePrecharged: allowPostponePrecharged,
+          postponePrechargedAction: postponePrechargedAction,
+          allowCustomerSelfCancel,
+          customerCancelOneTime,
+          customerCancelRecurring,
+          recurringCancelSingleBooking,
+          recurringCancelFromPointOnward,
+          recurringCancelEntireSeries,
+          customerCancelCategoryIds,
+          customerCancelAllCategories,
+          adminConfirmCancellation,
+          adminConfirmCancellationScope,
+          refundPrechargedOnCustomerCancel,
+          customerSelfCancelBlockedMessage,
         }),
       });
       const data = await res.json();
@@ -902,11 +959,11 @@ export default function GeneralSettingsPage() {
   };
 
   useEffect(() => {
-    if (cancellationExpanded && currentBusiness?.id) {
+    if ((cancellationExpanded || customerCancellationExpanded) && currentBusiness?.id) {
       fetchCancellationServiceCategories();
       fetchCancellationSettings();
     }
-  }, [cancellationExpanded, currentBusiness?.id]);
+  }, [cancellationExpanded, customerCancellationExpanded, currentBusiness?.id]);
 
   useEffect(() => {
     const fetchTaxSettings = async () => {
@@ -3548,7 +3605,576 @@ export default function GeneralSettingsPage() {
                   </div>
                   {customerCancellationExpanded && (
                     <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
-                      <p className="text-sm text-muted-foreground">Customer cancellation and postponement settings will be available here.</p>
+                      {cancellationSettingsLoading ? (
+                        <div className="flex items-center justify-center py-12">
+                          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                        </div>
+                      ) : (
+                        <TooltipProvider>
+                          <div className="space-y-4">
+                            <div className="rounded-lg border bg-card overflow-hidden shadow-sm bg-gradient-to-b from-sky-50/80 via-background to-muted/30 dark:from-sky-950/30 dark:via-card dark:to-card">
+                              <div className="p-5 space-y-4">
+                                <div className="flex items-start gap-2">
+                                  <Label className="font-semibold text-base leading-tight shrink-0">
+                                    Would you like to give your customers the ability to postpone bookings?
+                                  </Label>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="inline-flex text-muted-foreground hover:text-foreground border border-destructive/50 rounded-full p-0.5 shrink-0 mt-0.5"
+                                        aria-label="More info"
+                                      >
+                                        <Info className="h-4 w-4" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-xs">
+                                      <p>Allow customers to postpone their bookings to a later date instead of cancelling them.</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </div>
+                                <RadioGroup
+                                  value={allowPostponeBookings}
+                                  onValueChange={(v) => setAllowPostponeBookings(v as 'yes' | 'no')}
+                                  className="flex items-center gap-6"
+                                >
+                                  <div className="flex items-center space-x-2">
+                                    <RadioGroupItem value="yes" id="postpone-yes" />
+                                    <Label htmlFor="postpone-yes" className="font-normal cursor-pointer">
+                                      Yes
+                                    </Label>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    <RadioGroupItem value="no" id="postpone-no" />
+                                    <Label htmlFor="postpone-no" className="font-normal cursor-pointer">
+                                      No
+                                    </Label>
+                                  </div>
+                                </RadioGroup>
+
+                                {allowPostponeBookings === 'yes' && (
+                                  <>
+                                    <div className="space-y-4">
+                                      <Label className="font-semibold text-base">Can customer postpone pre-charged bookings?</Label>
+                                      <RadioGroup
+                                        value={allowPostponePrecharged}
+                                        onValueChange={(v) => setAllowPostponePrecharged(v as 'yes' | 'no')}
+                                        className="flex items-center gap-6"
+                                      >
+                                        <div className="flex items-center space-x-2">
+                                          <RadioGroupItem value="yes" id="postpone-precharged-yes" />
+                                          <Label htmlFor="postpone-precharged-yes" className="font-normal cursor-pointer">
+                                            Yes
+                                          </Label>
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                          <RadioGroupItem value="no" id="postpone-precharged-no" />
+                                          <Label htmlFor="postpone-precharged-no" className="font-normal cursor-pointer">
+                                            No
+                                          </Label>
+                                        </div>
+                                      </RadioGroup>
+                                    </div>
+
+                                    {allowPostponePrecharged === 'yes' && (
+                                      <div className="space-y-4 pl-6 border-l-2 border-primary/20">
+                                        <Label className="font-semibold text-base">
+                                          What action should perform on postpone pre-charged booking?
+                                        </Label>
+                                        <RadioGroup
+                                          value={postponePrechargedAction}
+                                          onValueChange={(v) => setPostponePrechargedAction(v as 'refund' | 'no_refund')}
+                                          className="flex flex-col gap-3"
+                                        >
+                                          <div className="flex items-center space-x-2">
+                                            <RadioGroupItem value="refund" id="postpone-action-refund" />
+                                            <Label htmlFor="postpone-action-refund" className="font-normal cursor-pointer">
+                                              Refund & postpone
+                                            </Label>
+                                          </div>
+                                          <div className="flex items-center space-x-2">
+                                            <RadioGroupItem value="no_refund" id="postpone-action-no-refund" />
+                                            <Label htmlFor="postpone-action-no-refund" className="font-normal cursor-pointer">
+                                              Postpone without refund
+                                            </Label>
+                                          </div>
+                                        </RadioGroup>
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="rounded-lg border bg-card overflow-hidden shadow-sm bg-gradient-to-b from-sky-50/80 via-background to-muted/30 dark:from-sky-950/30 dark:via-card dark:to-card">
+                              <div className="divide-y divide-border/80">
+                            <div className="px-5 py-5 space-y-4">
+                              <div className="flex items-start gap-2">
+                                <Label className="font-semibold text-base leading-tight shrink-0">
+                                  Would you like to allow customers to be able to cancel services on their own?
+                                </Label>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="inline-flex text-muted-foreground hover:text-foreground border border-destructive/50 rounded-full p-0.5 shrink-0 mt-0.5"
+                                      aria-label="More info"
+                                    >
+                                      <Info className="h-4 w-4" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-xs">
+                                    When enabled, customers can cancel eligible bookings from their dashboard according to the rules you set below. When disabled, they see the message you configure below instead.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </div>
+                              <RadioGroup
+                                value={allowCustomerSelfCancel}
+                                onValueChange={(v) => setAllowCustomerSelfCancel(v as 'yes' | 'no')}
+                                className="flex gap-4 pt-1"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <RadioGroupItem value="yes" id="customer-self-cancel-yes" />
+                                  <Label htmlFor="customer-self-cancel-yes" className="font-normal cursor-pointer">
+                                    Yes
+                                  </Label>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <RadioGroupItem value="no" id="customer-self-cancel-no" />
+                                  <Label htmlFor="customer-self-cancel-no" className="font-normal cursor-pointer">
+                                    No
+                                  </Label>
+                                </div>
+                              </RadioGroup>
+                              {allowCustomerSelfCancel === 'yes' && (
+                                <div className="pl-4 sm:pl-6 border-l-2 border-primary/25 space-y-2 pt-1">
+                                  <Label className="text-sm font-medium text-muted-foreground">Applies to</Label>
+                                  <div className="flex flex-wrap gap-4">
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                      <Checkbox
+                                        checked={customerCancelOneTime}
+                                        onCheckedChange={(c) => setCustomerCancelOneTime(!!c)}
+                                      />
+                                      <span className="text-sm">One time</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                      <Checkbox
+                                        checked={customerCancelRecurring}
+                                        onCheckedChange={(c) => setCustomerCancelRecurring(!!c)}
+                                      />
+                                      <span className="text-sm">Recurring</span>
+                                    </label>
+                                  </div>
+                                </div>
+                              )}
+                              {allowCustomerSelfCancel === 'no' && (
+                                <div className="space-y-2 pt-2">
+                                  <Label className="font-semibold">Message</Label>
+                                  <p className="text-sm text-muted-foreground">
+                                    This message is shown to customers when they cannot cancel on their own (when &quot;No&quot; is selected above).
+                                  </p>
+                                  <RescheduleMessageEditor
+                                    value={customerSelfCancelBlockedMessage}
+                                    onChange={setCustomerSelfCancelBlockedMessage}
+                                  />
+                                </div>
+                              )}
+                            </div>
+
+                            {allowCustomerSelfCancel === 'yes' && customerCancelRecurring && (
+                              <div className="px-5 py-5 space-y-4">
+                                <div className="flex items-start gap-2">
+                                  <Label className="font-semibold text-base leading-tight shrink-0">
+                                    What options would you like to offer your customers if they are canceling a recurring service?
+                                  </Label>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="inline-flex text-muted-foreground hover:text-foreground border border-destructive/50 rounded-full p-0.5 shrink-0 mt-0.5"
+                                        aria-label="More info"
+                                      >
+                                        <Info className="h-4 w-4" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="max-w-xs">
+                                      Choose which kinds of recurring cancellations customers can start (single occurrence, future occurrences, or the whole series).
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </div>
+                                <div className="space-y-3">
+                                  <div className="flex items-start gap-2">
+                                    <Checkbox
+                                      id="recurring-cancel-single"
+                                      className="mt-0.5"
+                                      checked={recurringCancelSingleBooking}
+                                      onCheckedChange={(c) => setRecurringCancelSingleBooking(!!c)}
+                                    />
+                                    <label htmlFor="recurring-cancel-single" className="text-sm leading-snug flex-1 cursor-pointer pt-0.5">
+                                      Cancel a single booking from a recurring series.
+                                    </label>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0 mt-0.5" aria-label="More info">
+                                          <Info className="h-4 w-4" />
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" className="max-w-xs">
+                                        Removes one occurrence from the series; other future dates stay booked.
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </div>
+                                  <div className="flex items-start gap-2">
+                                    <Checkbox
+                                      id="recurring-cancel-from-point"
+                                      className="mt-0.5"
+                                      checked={recurringCancelFromPointOnward}
+                                      onCheckedChange={(c) => setRecurringCancelFromPointOnward(!!c)}
+                                    />
+                                    <label htmlFor="recurring-cancel-from-point" className="text-sm leading-snug flex-1 cursor-pointer pt-0.5">
+                                      Cancel bookings from a specific point onward.
+                                    </label>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0 mt-0.5" aria-label="More info">
+                                          <Info className="h-4 w-4" />
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" className="max-w-xs">
+                                        Stops the series from a chosen date forward.
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </div>
+                                  <div className="flex items-start gap-2">
+                                    <Checkbox
+                                      id="recurring-cancel-entire"
+                                      className="mt-0.5"
+                                      checked={recurringCancelEntireSeries}
+                                      onCheckedChange={(c) => setRecurringCancelEntireSeries(!!c)}
+                                    />
+                                    <label htmlFor="recurring-cancel-entire" className="text-sm leading-snug flex-1 cursor-pointer pt-0.5">
+                                      Cancel the entire recurring service.
+                                    </label>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0 mt-0.5" aria-label="More info">
+                                          <Info className="h-4 w-4" />
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" className="max-w-xs">
+                                        Ends the full recurring plan, not just one visit.
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {allowCustomerSelfCancel === 'yes' && (
+                              <div className="px-5 py-5 space-y-4">
+                                <div className="flex items-start gap-2">
+                                  <Label className="font-semibold text-base leading-tight shrink-0">
+                                    What service categories can customers cancel for?
+                                  </Label>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="inline-flex text-muted-foreground hover:text-foreground border border-destructive/50 rounded-full p-0.5 shrink-0 mt-0.5"
+                                        aria-label="More info"
+                                      >
+                                        <Info className="h-4 w-4" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="max-w-xs">
+                                      Limit self-service cancellation to certain services, or use All to include every category.
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </div>
+                                {cancellationServiceCategoriesLoading ? (
+                                  <div className="flex items-center gap-2 py-4 text-muted-foreground">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    <span className="text-sm">Loading service categories…</span>
+                                  </div>
+                                ) : cancellationServiceCategories.length === 0 ? (
+                                  <p className="text-sm text-muted-foreground py-2">
+                                    No service categories added yet. Add categories in Settings → Industries.
+                                  </p>
+                                ) : (
+                                  <div className="space-y-4">
+                                    {(() => {
+                                      const OTHER_TAB = '__other_uncategorized__';
+                                      const byIndustry =
+                                        cancellationIndustries.length > 0
+                                          ? cancellationIndustries.map((ind) => ({
+                                              industry: ind,
+                                              categories: cancellationServiceCategories.filter((c) => c.industry_id === ind.id),
+                                            }))
+                                          : [];
+                                      const uncategorized = cancellationServiceCategories.filter(
+                                        (c) => !c.industry_id || !cancellationIndustries.some((i) => i.id === c.industry_id)
+                                      );
+                                      const hasGroups = byIndustry.length > 0 || uncategorized.length > 0;
+                                      const allBusinessCategoryIds = cancellationServiceCategories.map((c) => c.id);
+                                      const syncGlobalAllFlag = (next: Record<string, boolean>) =>
+                                        allBusinessCategoryIds.length > 0 &&
+                                        allBusinessCategoryIds.every((id) => !!next[id]);
+                                      const updateCategoryIds = (
+                                        updater: (prev: Record<string, boolean>) => Record<string, boolean>
+                                      ) => {
+                                        setCustomerCancelCategoryIds((prev) => {
+                                          const next = updater(prev);
+                                          setCustomerCancelAllCategories(syncGlobalAllFlag(next));
+                                          return next;
+                                        });
+                                      };
+                                      const industryAllChecked = (categories: typeof cancellationServiceCategories) =>
+                                        categories.length > 0 && categories.every((c) => customerCancelCategoryIds[c.id]);
+                                      const toggleIndustryAll = (
+                                        categories: typeof cancellationServiceCategories,
+                                        on: boolean
+                                      ) => {
+                                        updateCategoryIds((prev) => {
+                                          const next = { ...prev };
+                                          for (const cat of categories) {
+                                            if (on) next[cat.id] = true;
+                                            else delete next[cat.id];
+                                          }
+                                          return next;
+                                        });
+                                      };
+                                      const categoryCheckbox = (cat: { id: string; name: string }) => (
+                                        <label key={cat.id} className="flex items-center gap-2 cursor-pointer">
+                                          <Checkbox
+                                            checked={customerCancelCategoryIds[cat.id] ?? false}
+                                            onCheckedChange={(c) => {
+                                              updateCategoryIds((prev) => {
+                                                const next = { ...prev };
+                                                if (c) next[cat.id] = true;
+                                                else delete next[cat.id];
+                                                return next;
+                                              });
+                                            }}
+                                          />
+                                          <span className="text-sm">{cat.name}</span>
+                                        </label>
+                                      );
+                                      const categoryBlockWithAll = (categories: typeof cancellationServiceCategories) =>
+                                        categories.length === 0 ? (
+                                          <p className="text-sm text-muted-foreground py-3">
+                                            No service categories in this industry yet. Add them under Settings → Industries.
+                                          </p>
+                                        ) : (
+                                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                              <Checkbox
+                                                checked={industryAllChecked(categories)}
+                                                onCheckedChange={(c) => toggleIndustryAll(categories, !!c)}
+                                              />
+                                              <span className="text-sm font-medium">All</span>
+                                            </label>
+                                            {categories.map((cat) => categoryCheckbox(cat))}
+                                          </div>
+                                        );
+                                      if (!hasGroups) {
+                                        const cats = cancellationServiceCategories;
+                                        return categoryBlockWithAll(cats);
+                                      }
+                                      const useIndustryTabs = cancellationIndustries.length >= 2;
+                                      if (useIndustryTabs) {
+                                        const defaultTab =
+                                          byIndustry[0]?.industry.id ??
+                                          (uncategorized.length > 0 ? OTHER_TAB : '');
+                                        return (
+                                          <Tabs defaultValue={defaultTab} className="w-full">
+                                            <TabsList className="h-auto w-full flex-wrap justify-start gap-1 bg-muted/50 p-1">
+                                              {byIndustry.map(({ industry }) => (
+                                                <TabsTrigger
+                                                  key={industry.id}
+                                                  value={industry.id}
+                                                  className="text-sm shrink-0 data-[state=active]:bg-background"
+                                                >
+                                                  {industry.name}
+                                                </TabsTrigger>
+                                              ))}
+                                              {uncategorized.length > 0 && (
+                                                <TabsTrigger
+                                                  value={OTHER_TAB}
+                                                  className="text-sm shrink-0 data-[state=active]:bg-background"
+                                                >
+                                                  Other
+                                                </TabsTrigger>
+                                              )}
+                                            </TabsList>
+                                            {byIndustry.map(({ industry, categories }) => (
+                                              <TabsContent key={industry.id} value={industry.id} className="mt-3 focus-visible:outline-none">
+                                                {categoryBlockWithAll(categories)}
+                                              </TabsContent>
+                                            ))}
+                                            {uncategorized.length > 0 && (
+                                              <TabsContent value={OTHER_TAB} className="mt-3 focus-visible:outline-none">
+                                                {categoryBlockWithAll(uncategorized)}
+                                              </TabsContent>
+                                            )}
+                                          </Tabs>
+                                        );
+                                      }
+                                      return (
+                                        <>
+                                          {byIndustry.map(({ industry, categories }) => (
+                                            <div key={industry.id}>
+                                              <p className="font-medium text-sm mb-2">{industry.name}</p>
+                                              {categoryBlockWithAll(categories)}
+                                            </div>
+                                          ))}
+                                          {uncategorized.length > 0 && (
+                                            <div>
+                                              <p className="font-medium text-sm mb-2">Other</p>
+                                              {categoryBlockWithAll(uncategorized)}
+                                            </div>
+                                          )}
+                                        </>
+                                      );
+                                    })()}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {allowCustomerSelfCancel === 'yes' && (
+                              <div className="px-5 py-5 space-y-4">
+                                <div className="flex items-start gap-2">
+                                  <Label className="font-semibold text-base leading-tight shrink-0">
+                                    Do you need to confirm the cancellation request before it leaves the customers dashboard?
+                                  </Label>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="inline-flex text-muted-foreground hover:text-foreground border border-destructive/50 rounded-full p-0.5 shrink-0 mt-0.5"
+                                        aria-label="More info"
+                                      >
+                                        <Info className="h-4 w-4" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="max-w-xs">
+                                      When Yes, the customer&apos;s request can stay pending until you approve it in admin.
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </div>
+                                <RadioGroup
+                                  value={adminConfirmCancellation}
+                                  onValueChange={(v) => setAdminConfirmCancellation(v as 'yes' | 'no')}
+                                  className="flex gap-4 pt-1 flex-wrap"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <RadioGroupItem value="yes" id="admin-confirm-cancel-yes" />
+                                    <Label htmlFor="admin-confirm-cancel-yes" className="font-normal cursor-pointer">
+                                      Yes
+                                    </Label>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <RadioGroupItem value="no" id="admin-confirm-cancel-no" />
+                                    <Label htmlFor="admin-confirm-cancel-no" className="font-normal cursor-pointer">
+                                      No
+                                    </Label>
+                                  </div>
+                                </RadioGroup>
+                                {adminConfirmCancellation === 'yes' && (
+                                  <div className="pl-4 sm:pl-6 border-l-2 border-primary/25 pt-3 space-y-3">
+                                    <RadioGroup
+                                      value={adminConfirmCancellationScope}
+                                      onValueChange={(v) =>
+                                        setAdminConfirmCancellationScope(v as 'one_time' | 'recurring' | 'both')
+                                      }
+                                      className="flex flex-col sm:flex-row sm:flex-wrap gap-3 sm:gap-6"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <RadioGroupItem value="one_time" id="admin-confirm-scope-onetime" />
+                                        <Label htmlFor="admin-confirm-scope-onetime" className="font-normal cursor-pointer text-sm">
+                                          One time appointments only.
+                                        </Label>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <RadioGroupItem value="recurring" id="admin-confirm-scope-recurring" />
+                                        <Label htmlFor="admin-confirm-scope-recurring" className="font-normal cursor-pointer text-sm">
+                                          Recurring appointments only.
+                                        </Label>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <RadioGroupItem value="both" id="admin-confirm-scope-both" />
+                                        <Label htmlFor="admin-confirm-scope-both" className="font-normal cursor-pointer text-sm">
+                                          Both
+                                        </Label>
+                                      </div>
+                                    </RadioGroup>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {allowCustomerSelfCancel === 'yes' && (
+                              <div className="px-5 py-5 space-y-4">
+                                <div className="flex items-start gap-2">
+                                  <Label className="font-semibold text-base leading-tight shrink-0">
+                                    Do you want to refund the booking if the customer cancels a pre-charged booking?
+                                  </Label>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="inline-flex text-muted-foreground hover:text-foreground border border-destructive/50 rounded-full p-0.5 shrink-0 mt-0.5"
+                                        aria-label="More info"
+                                      >
+                                        <Info className="h-4 w-4" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="max-w-xs">
+                                      Controls whether a prepaid charge is refunded when the customer cancels in line with your policy.
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </div>
+                                <RadioGroup
+                                  value={refundPrechargedOnCustomerCancel}
+                                  onValueChange={(v) => setRefundPrechargedOnCustomerCancel(v as 'yes' | 'no')}
+                                  className="flex gap-4 pt-1"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <RadioGroupItem value="yes" id="refund-precharged-yes" />
+                                    <Label htmlFor="refund-precharged-yes" className="font-normal cursor-pointer">
+                                      Yes
+                                    </Label>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <RadioGroupItem value="no" id="refund-precharged-no" />
+                                    <Label htmlFor="refund-precharged-no" className="font-normal cursor-pointer">
+                                      No
+                                    </Label>
+                                  </div>
+                                </RadioGroup>
+                              </div>
+                            )}
+
+                              </div>
+                            </div>
+
+                            <Button
+                              onClick={saveCancellationSettings}
+                              disabled={cancellationSettingsSaving || cancellationSettingsLoading}
+                              className="w-full sm:w-auto"
+                            >
+                              {cancellationSettingsSaving ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                  Saving…
+                                </>
+                              ) : (
+                                'Save cancellation settings'
+                              )}
+                            </Button>
+                          </div>
+                        </TooltipProvider>
+                      )}
                     </div>
                   )}
                 </div>

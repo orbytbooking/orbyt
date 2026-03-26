@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
 import { useBusiness } from '@/contexts/BusinessContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,16 +14,6 @@ import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ArrowLeft } from 'lucide-react';
-
-type Coupon = {
-  id: string;
-  code: string;
-  description: string;
-  discount: string;
-  status: 'active' | 'inactive';
-};
-
-const COUPONS_KEY = 'marketingCoupons';
 
 export default function EditCouponPage() {
   const { toast } = useToast();
@@ -48,26 +37,69 @@ export default function EditCouponPage() {
     allowGiftCards: false,
     allowReferrals: false,
   });
-  const [serviceEnabled, setServiceEnabled] = useState(true);
-  const [formEnabled, setFormEnabled] = useState(true);
-  const [selectedLocations, setSelectedLocations] = useState<string[]>(['Illinois']);
-  const [selectedServices, setSelectedServices] = useState<string[]>(['Deep Clean', 'Basic Cleaning', 'Move In/Out Clean', 'Construction Clean Up', 'Hourly Deep Clean', 'Hourly Basic Clean']);
+  const [formEnabledByIndustry, setFormEnabledByIndustry] = useState<Record<string, boolean>>({});
+  const [selectedLocationsByIndustry, setSelectedLocationsByIndustry] = useState<Record<string, string[]>>({});
+  const [selectedServicesByIndustry, setSelectedServicesByIndustry] = useState<Record<string, string[]>>({});
+  const [serviceCategoryOptions, setServiceCategoryOptions] = useState<string[]>([]);
+  const [locationOptions, setLocationOptions] = useState<string[]>([]);
   const [discountUnit, setDiscountUnit] = useState<'amount' | 'percent'>('amount');
   const [industries, setIndustries] = useState<string[]>(['Home Cleaning']);
   const [activeIndustry, setActiveIndustry] = useState<string>('');
   const [industryEnabled, setIndustryEnabled] = useState<Record<string, boolean>>({});
+  const [industryIdByName, setIndustryIdByName] = useState<Record<string, string>>({});
+  const [limitations, setLimitations] = useState({
+    applicableDays: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as string[],
+    singleUsePerUser: false,
+    orderMaximum: '',
+    minMaxApplyWhenManuallyAdjusted: true,
+    customerScope: 'all' as 'all' | 'new' | 'existing',
+    applyOneTime: true,
+    applyRecurring: true,
+    recurringDiscountScope: 'all' as 'all' | 'first' | 'next',
+    recurringNextCount: '2',
+    frequencyDiscountWithCoupons: true,
+    couponPriorityOverFrequencyCancellation: false,
+    requirePrepayForRecurring: false,
+    useSpecificDate: false,
+    specificDates: [] as string[],
+  });
+  const toggleDay = (day: string, checked: boolean) => {
+    setLimitations((prev) => {
+      const next = checked
+        ? Array.from(new Set([...prev.applicableDays, day]))
+        : prev.applicableDays.filter((d) => d !== day);
+      return { ...prev, applicableDays: next };
+    });
+  };
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem('industries') || 'null');
-      if (Array.isArray(stored) && stored.length > 0) {
-        setIndustries(stored);
+    const fetchIndustries = async () => {
+      if (!currentBusiness?.id) return;
+      try {
+        const response = await fetch(`/api/industries?business_id=${encodeURIComponent(currentBusiness.id)}`);
+        const result = await response.json();
+        if (!response.ok) return;
+        const rows = (result.industries || []);
+        const names = rows
+          .map((industry: any) => String(industry?.name || '').trim())
+          .filter((name: string) => name.length > 0);
+        const nextMap: Record<string, string> = {};
+        rows.forEach((industry: any) => {
+          const name = String(industry?.name || '').trim();
+          const id = String(industry?.id || '').trim();
+          if (name && id) nextMap[name] = id;
+        });
+        setIndustryIdByName(nextMap);
+        if (names.length > 0) {
+          setIndustries(Array.from(new Set(names)));
+        }
+      } catch {
+        // fail silently and keep fallback industry
       }
-    } catch {
-      // ignore malformed localStorage, keep default
-    }
-  }, []);
+    };
+    fetchIndustries();
+  }, [currentBusiness?.id]);
 
   useEffect(() => {
     // initialize activeIndustry once industries are known
@@ -83,22 +115,97 @@ export default function EditCouponPage() {
       });
       return next;
     });
+
+    setFormEnabledByIndustry((prev) => {
+      const next = { ...prev };
+      industries.forEach((ind) => {
+        if (!(ind in next)) next[ind] = true;
+      });
+      return next;
+    });
   }, [industries, activeIndustry]);
+
+  useEffect(() => {
+    const fetchServiceCategories = async () => {
+      if (!currentBusiness?.id || !activeIndustry) return;
+      try {
+        const activeIndustryId = industryIdByName[activeIndustry];
+        const url = activeIndustryId
+          ? `/api/service-categories?industryId=${encodeURIComponent(activeIndustryId)}&businessId=${encodeURIComponent(currentBusiness.id)}`
+          : `/api/service-categories?businessId=${encodeURIComponent(currentBusiness.id)}`;
+        const response = await fetch(url);
+        const result = await response.json();
+        if (!response.ok) return;
+        const rawServiceCategories = Array.isArray((result as any)?.serviceCategories)
+          ? (result as any).serviceCategories
+          : [];
+        const names: string[] = rawServiceCategories
+          .filter((category: any) => category?.is_active !== false)
+          .map((category: any) => String(category?.name || '').trim())
+          .filter((name: string) => name.length > 0);
+        const uniqueNames: string[] = Array.from(new Set(names));
+        setServiceCategoryOptions(uniqueNames);
+        setSelectedServicesByIndustry((prev) => {
+          const existing = prev[activeIndustry];
+          return {
+            ...prev,
+            [activeIndustry]: existing?.length ? existing : uniqueNames,
+          };
+        });
+      } catch {
+        // fail silently and keep empty categories list
+      }
+    };
+    fetchServiceCategories();
+  }, [currentBusiness?.id, activeIndustry, industryIdByName]);
+
+  useEffect(() => {
+    const fetchLocations = async () => {
+      if (!currentBusiness?.id || !activeIndustry) return;
+      try {
+        const activeIndustryId = industryIdByName[activeIndustry];
+        const url = activeIndustryId
+          ? `/api/industry-locations?business_id=${encodeURIComponent(currentBusiness.id)}&industry_id=${encodeURIComponent(activeIndustryId)}`
+          : `/api/locations?business_id=${encodeURIComponent(currentBusiness.id)}`;
+        const response = await fetch(url);
+        const result = await response.json();
+        if (!response.ok) return;
+        const rawLocations = Array.isArray((result as any)?.locations) ? (result as any).locations : [];
+        const names: string[] = rawLocations
+          .map((location: any) =>
+            String(location?.name || location?.state || location?.city || '').trim()
+          )
+          .filter((name: string) => name.length > 0);
+        const uniqueNames: string[] = Array.from(new Set(names));
+        setLocationOptions(uniqueNames);
+        setSelectedLocationsByIndustry((prev) => {
+          const existing = prev[activeIndustry];
+          return {
+            ...prev,
+            [activeIndustry]: existing?.length ? existing : uniqueNames,
+          };
+        });
+      } catch {
+        // fail silently and keep empty locations list
+      }
+    };
+    fetchLocations();
+  }, [currentBusiness?.id, activeIndustry, industryIdByName]);
 
   useEffect(() => {
     // Load coupon data from Supabase
     const fetchCoupon = async () => {
       if (!currentBusiness?.id) return;
       setLoading(true);
-      const { data, error } = await supabase
-        .from('marketing_coupons')
-        .select('*')
-        .eq('id', couponId)
-        .eq('business_id', currentBusiness.id)
-        .single();
-      if (!error && data) {
+      const response = await fetch(
+        `/api/marketing/coupons?id=${couponId}&business_id=${currentBusiness.id}`
+      );
+      const result = await response.json();
+      const data = result.data;
+
+      if (response.ok && data) {
         let discountValue = '';
-        let discountType = data.discount_type;
+        const discountType = data.discount_type;
         let discountUnit: 'amount' | 'percent' = 'percent';
         if (data.discount_type === 'percentage') {
           discountValue = data.discount_value.toString();
@@ -108,9 +215,9 @@ export default function EditCouponPage() {
           discountUnit = 'amount';
         }
         setForm({
-          name: data.name,
+          name: data.name || '',
           code: data.code,
-          description: data.description,
+          description: data.description || '',
           discountType,
           discountValue,
           startDate: data.start_date || '',
@@ -123,6 +230,46 @@ export default function EditCouponPage() {
           allowReferrals: data.allow_referrals || false,
         });
         setDiscountUnit(discountUnit);
+
+        const config = data.coupon_config;
+        if (config && typeof config === 'object') {
+          if (typeof config.activeIndustry === 'string') {
+            setActiveIndustry(config.activeIndustry);
+          }
+          if (config.industryEnabled && typeof config.industryEnabled === 'object') {
+            setIndustryEnabled(config.industryEnabled);
+          }
+          if (config.formEnabledByIndustry && typeof config.formEnabledByIndustry === 'object') {
+            setFormEnabledByIndustry(config.formEnabledByIndustry);
+          } else if (typeof config.formEnabled === 'boolean') {
+            setFormEnabledByIndustry((prev) => {
+              const next = { ...prev };
+              industries.forEach((ind) => {
+                next[ind] = config.formEnabled;
+              });
+              return next;
+            });
+          }
+          if (config.selectedLocationsByIndustry && typeof config.selectedLocationsByIndustry === 'object') {
+            setSelectedLocationsByIndustry(config.selectedLocationsByIndustry);
+          } else if (Array.isArray(config.selectedLocations) && activeIndustry) {
+            setSelectedLocationsByIndustry((prev) => ({ ...prev, [activeIndustry]: config.selectedLocations }));
+          }
+          if (config.selectedServicesByIndustry && typeof config.selectedServicesByIndustry === 'object') {
+            setSelectedServicesByIndustry(config.selectedServicesByIndustry);
+          } else if (Array.isArray(config.selectedServices) && activeIndustry) {
+            setSelectedServicesByIndustry((prev) => ({ ...prev, [activeIndustry]: config.selectedServices }));
+          }
+          if (config.limitations && typeof config.limitations === 'object') {
+            setLimitations((prev) => ({
+              ...prev,
+              ...config.limitations,
+              applicableDays: Array.isArray(config.limitations.applicableDays)
+                ? config.limitations.applicableDays
+                : prev.applicableDays,
+            }));
+          }
+        }
       } else {
         toast({
           title: 'Error',
@@ -150,11 +297,19 @@ export default function EditCouponPage() {
       return;
     }
     try {
-      const discount_type = form.discountType;
+      const discount_type = discountUnit === 'percent' ? 'percentage' : 'fixed';
       const discount_value = parseFloat(form.discountValue);
-      const { error } = await supabase
-        .from('marketing_coupons')
-        .update({
+      if (!Number.isFinite(discount_value)) {
+        toast({ title: 'Error', description: 'Discount amount is required', variant: 'destructive' });
+        return;
+      }
+
+      const response = await fetch('/api/marketing/coupons', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: couponId,
+          business_id: currentBusiness.id,
           name: form.name,
           code: form.code,
           description: form.description,
@@ -168,11 +323,21 @@ export default function EditCouponPage() {
           facebook_coupon: form.facebookCoupon,
           allow_gift_cards: form.allowGiftCards,
           allow_referrals: form.allowReferrals,
-        })
-        .eq('id', couponId)
-        .eq('business_id', currentBusiness.id);
-      if (error) {
-        toast({ title: 'Error', description: error.message, variant: 'destructive' });
+          coupon_config: {
+            industries,
+            activeIndustry,
+            industryEnabled,
+            formEnabledByIndustry,
+            selectedLocationsByIndustry,
+            selectedServicesByIndustry,
+            limitations,
+          },
+        }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        toast({ title: 'Error', description: result.error || 'Failed to update coupon', variant: 'destructive' });
         return;
       }
       toast({ 
@@ -272,7 +437,7 @@ export default function EditCouponPage() {
           </div>
 
           <div className="space-y-6">
-            <div className="rounded-md border p-4">
+            <div className="rounded-md border bg-white p-4">
               <Tabs value={activeIndustry} onValueChange={(v) => setActiveIndustry(v)}>
                 <TabsList className="bg-transparent p-0 h-auto">
                   {industries.map((ind) => (
@@ -288,7 +453,7 @@ export default function EditCouponPage() {
 
                 {industries.map((ind) => (
                   <TabsContent key={ind} value={ind} className="mt-4">
-                    <div className="rounded-md border p-4">
+                    <div className="rounded-md border bg-white p-4">
                       <div className="flex flex-col items-start gap-2 mb-4">
                         <Switch
                           checked={industryEnabled[ind]}
@@ -302,40 +467,61 @@ export default function EditCouponPage() {
                       <div className="flex items-center justify-between mb-3">
                         <div className="text-sm font-medium">Form 1</div>
                         <div className="flex flex-col items-end gap-2">
-                          <Switch checked={formEnabled} onCheckedChange={(v) => setFormEnabled(!!v)} />
-                          <span className={`px-2 py-0.5 rounded-full text-xs ${formEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                            {formEnabled ? 'Enabled' : 'Disabled'}
+                          <Switch
+                            checked={!!formEnabledByIndustry[ind]}
+                            onCheckedChange={(v) => setFormEnabledByIndustry((prev) => ({ ...prev, [ind]: !!v }))}
+                          />
+                          <span className={`px-2 py-0.5 rounded-full text-xs ${formEnabledByIndustry[ind] ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                            {formEnabledByIndustry[ind] ? 'Enabled' : 'Disabled'}
                           </span>
                         </div>
                       </div>
 
-                      <div className={`space-y-4 ${(industryEnabled[ind] && formEnabled) ? '' : 'opacity-50 pointer-events-none'}`} aria-disabled={!(industryEnabled[ind] && formEnabled)}>
+                      <div className={`space-y-4 ${(industryEnabled[ind] && formEnabledByIndustry[ind]) ? '' : 'opacity-50 pointer-events-none'}`} aria-disabled={!(industryEnabled[ind] && formEnabledByIndustry[ind])}>
                         <div className="space-y-2">
                           <div className="text-sm font-medium">Select locations</div>
                           <div className="flex flex-col gap-2">
-                            {['Illinois'].map((loc) => (
+                            {locationOptions.map((loc) => (
                               <label key={loc} className="inline-flex items-center gap-3">
                                 <Checkbox
-                                  checked={selectedLocations.includes(loc)}
-                                  onCheckedChange={(v) => setSelectedLocations((prev) => v ? Array.from(new Set([...prev, loc])) : prev.filter(x => x !== loc))}
+                                  checked={(selectedLocationsByIndustry[ind] || []).includes(loc)}
+                                  onCheckedChange={(v) => setSelectedLocationsByIndustry((prev) => {
+                                    const existing = prev[ind] || [];
+                                    return {
+                                      ...prev,
+                                      [ind]: v ? Array.from(new Set([...existing, loc])) : existing.filter((x) => x !== loc),
+                                    };
+                                  })}
                                 />
                                 <span className="text-sm">{loc}</span>
                               </label>
                             ))}
+                            {locationOptions.length === 0 && (
+                              <span className="text-sm text-muted-foreground">No locations found for this industry.</span>
+                            )}
                           </div>
                         </div>
                         <div className="space-y-2">
                           <div className="text-sm font-medium">Select services</div>
                           <div className="flex flex-wrap gap-3">
-                            {['Deep Clean', 'Basic Cleaning', 'Move In/Out Clean', 'Construction Clean Up', 'Hourly Deep Clean', 'Hourly Basic Clean'].map((srv) => (
+                            {serviceCategoryOptions.map((srv) => (
                               <label key={srv} className="inline-flex items-center gap-2">
                                 <Checkbox
-                                  checked={selectedServices.includes(srv)}
-                                  onCheckedChange={(v) => setSelectedServices((prev) => v ? Array.from(new Set([...prev, srv])) : prev.filter(x => x !== srv))}
+                                  checked={(selectedServicesByIndustry[ind] || []).includes(srv)}
+                                  onCheckedChange={(v) => setSelectedServicesByIndustry((prev) => {
+                                    const existing = prev[ind] || [];
+                                    return {
+                                      ...prev,
+                                      [ind]: v ? Array.from(new Set([...existing, srv])) : existing.filter((x) => x !== srv),
+                                    };
+                                  })}
                                 />
                                 <span className="text-sm">{srv}</span>
                               </label>
                             ))}
+                            {serviceCategoryOptions.length === 0 && (
+                              <span className="text-sm text-muted-foreground">No service categories found.</span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -355,7 +541,7 @@ export default function EditCouponPage() {
               <TabsTrigger value="advanced" className="data-[state=active]:bg-transparent data-[state=active]:text-primary relative after:absolute after:left-0 after:-bottom-2 after:h-0.5 after:w-full after:bg-primary data-[state=active]:after:opacity-100">Advanced settings</TabsTrigger>
             </TabsList>
             <TabsContent value="discount">
-              <div className="rounded-md border p-4 space-y-6">
+              <div className="rounded-md border bg-white p-4 space-y-6">
                 <div className="space-y-2">
                   <div className="text-sm font-medium">Discount for customers</div>
                   <div className="flex items-center gap-3 max-w-md">
@@ -382,10 +568,148 @@ export default function EditCouponPage() {
               </div>
             </TabsContent>
             <TabsContent value="limitations">
-              <div className="rounded-md border p-4 text-sm text-muted-foreground">Add limitation rules here.</div>
+              <div className="rounded-md border bg-white p-4 space-y-4">
+                <div className="space-y-2 md:flex md:items-start md:gap-4 md:space-y-0">
+                  <div className="space-y-1.5 md:flex-1">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="startDate">Start date</Label>
+                        <Input id="startDate" name="startDate" type="date" value={form.startDate} onChange={onChange} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="endDate">End date</Label>
+                        <Input id="endDate" name="endDate" type="date" value={form.endDate} onChange={onChange} />
+                      </div>
+                    </div>
+                    <label className="inline-flex items-center gap-2 text-sm">
+                      <Checkbox checked={limitations.useSpecificDate} onCheckedChange={(v) => setLimitations((prev) => ({ ...prev, useSpecificDate: !!v }))} />
+                      <span>Use on specific date</span>
+                    </label>
+                    {limitations.useSpecificDate && (
+                      <div className="space-y-2">
+                        {limitations.specificDates.map((date, index) => (
+                          <div key={`${date}-${index}`} className="flex items-center gap-2 md:max-w-md">
+                            <Input type="date" value={date} onChange={(e) => setLimitations((prev) => ({ ...prev, specificDates: prev.specificDates.map((d, i) => i === index ? e.target.value : d) }))} />
+                            <Button type="button" variant="outline" size="sm" onClick={() => setLimitations((prev) => ({ ...prev, specificDates: prev.specificDates.filter((_, i) => i !== index) }))}>Remove</Button>
+                          </div>
+                        ))}
+                        <Button type="button" variant="outline" size="sm" onClick={() => setLimitations((prev) => ({ ...prev, specificDates: [...prev.specificDates, form.startDate || ''] }))}>Add date</Button>
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <div className="space-y-2 md:col-span-2">
+                          <Label htmlFor="usageLimit">Max usage</Label>
+                          <Input id="usageLimit" name="usageLimit" type="number" min={0} value={form.usageLimit} onChange={onChange} />
+                        </div>
+                        <label className="inline-flex items-center gap-2 text-sm md:col-span-2">
+                          <Checkbox
+                            checked={limitations.singleUsePerUser}
+                            onCheckedChange={(v) => setLimitations((prev) => ({ ...prev, singleUsePerUser: !!v }))}
+                          />
+                          <span>Single use per users</span>
+                        </label>
+                        <div className="space-y-2 md:col-span-2">
+                          <Label htmlFor="minOrder">Is there an order minimum?</Label>
+                          <Input id="minOrder" name="minOrder" type="number" min={0} value={form.minOrder} onChange={onChange} />
+                        </div>
+                        <div className="space-y-2 md:col-span-2">
+                          <Label htmlFor="orderMaximum">Is there an order maximum?</Label>
+                          <Input
+                            id="orderMaximum"
+                            type="number"
+                            min={0}
+                            value={limitations.orderMaximum}
+                            onChange={(e) => setLimitations((prev) => ({ ...prev, orderMaximum: e.target.value }))}
+                          />
+                        </div>
+                        <div className="space-y-2 md:col-span-2">
+                          <div className="text-sm font-medium">Should minimum/maximum still apply if booking is manually adjusted?</div>
+                          <div className="flex items-center gap-4 text-sm">
+                            <label className="inline-flex items-center gap-2">
+                              <input
+                                type="radio"
+                                checked={limitations.minMaxApplyWhenManuallyAdjusted}
+                                onChange={() => setLimitations((prev) => ({ ...prev, minMaxApplyWhenManuallyAdjusted: true }))}
+                              />
+                              <span>Yes</span>
+                            </label>
+                            <label className="inline-flex items-center gap-2">
+                              <input
+                                type="radio"
+                                checked={!limitations.minMaxApplyWhenManuallyAdjusted}
+                                onChange={() => setLimitations((prev) => ({ ...prev, minMaxApplyWhenManuallyAdjusted: false }))}
+                              />
+                              <span>No</span>
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <div className="text-sm font-medium">Apply to customers</div>
+                          <div className="flex flex-wrap gap-4 text-sm">
+                            <label className="inline-flex items-center gap-2"><input type="radio" checked={limitations.customerScope === 'all'} onChange={() => setLimitations((prev) => ({ ...prev, customerScope: 'all' }))} />All</label>
+                            <label className="inline-flex items-center gap-2"><input type="radio" checked={limitations.customerScope === 'new'} onChange={() => setLimitations((prev) => ({ ...prev, customerScope: 'new' }))} />New customers only</label>
+                            <label className="inline-flex items-center gap-2"><input type="radio" checked={limitations.customerScope === 'existing'} onChange={() => setLimitations((prev) => ({ ...prev, customerScope: 'existing' }))} />Existing customers only</label>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="text-sm font-medium">Apply to booking types</div>
+                          <div className="flex items-center gap-4 text-sm">
+                            <label className="inline-flex items-center gap-2"><Checkbox checked={limitations.applyOneTime} onCheckedChange={(v) => setLimitations((prev) => ({ ...prev, applyOneTime: !!v }))} /><span>One time</span></label>
+                            <label className="inline-flex items-center gap-2"><Checkbox checked={limitations.applyRecurring} onCheckedChange={(v) => setLimitations((prev) => ({ ...prev, applyRecurring: !!v }))} /><span>Recurring</span></label>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="text-sm font-medium">Recurring discount scope</div>
+                          <div className="flex flex-wrap items-center gap-4 text-sm">
+                            <label className="inline-flex items-center gap-2"><input type="radio" checked={limitations.recurringDiscountScope === 'all'} onChange={() => setLimitations((prev) => ({ ...prev, recurringDiscountScope: 'all' }))} />All recurring</label>
+                            <label className="inline-flex items-center gap-2"><input type="radio" checked={limitations.recurringDiscountScope === 'first'} onChange={() => setLimitations((prev) => ({ ...prev, recurringDiscountScope: 'first' }))} />First booking only</label>
+                            <label className="inline-flex items-center gap-2"><input type="radio" checked={limitations.recurringDiscountScope === 'next'} onChange={() => setLimitations((prev) => ({ ...prev, recurringDiscountScope: 'next' }))} />Next</label>
+                            <Select value={limitations.recurringNextCount} onValueChange={(value) => setLimitations((prev) => ({ ...prev, recurringNextCount: value }))}>
+                              <SelectTrigger className="w-20"><SelectValue /></SelectTrigger>
+                              <SelectContent>{['1', '2', '3', '4', '5'].map((n) => <SelectItem key={n} value={n}>{n}</SelectItem>)}</SelectContent>
+                            </Select>
+                            <span>bookings</span>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="text-sm font-medium">Will frequency discount also apply with coupon?</div>
+                          <div className="flex items-center gap-4 text-sm">
+                            <label className="inline-flex items-center gap-2"><input type="radio" checked={limitations.frequencyDiscountWithCoupons} onChange={() => setLimitations((prev) => ({ ...prev, frequencyDiscountWithCoupons: true }))} />Yes</label>
+                            <label className="inline-flex items-center gap-2"><input type="radio" checked={!limitations.frequencyDiscountWithCoupons} onChange={() => setLimitations((prev) => ({ ...prev, frequencyDiscountWithCoupons: false }))} />No</label>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="text-sm font-medium">Coupon settings priority over frequency cancellation settings?</div>
+                          <div className="flex items-center gap-4 text-sm">
+                            <label className="inline-flex items-center gap-2"><input type="radio" checked={limitations.couponPriorityOverFrequencyCancellation} onChange={() => setLimitations((prev) => ({ ...prev, couponPriorityOverFrequencyCancellation: true }))} />Yes</label>
+                            <label className="inline-flex items-center gap-2"><input type="radio" checked={!limitations.couponPriorityOverFrequencyCancellation} onChange={() => setLimitations((prev) => ({ ...prev, couponPriorityOverFrequencyCancellation: false }))} />No</label>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-2 md:w-56 md:shrink-0">
+                    <div className="text-sm font-medium">Applicable on following days</div>
+                    <div className="flex flex-col gap-2">
+                      {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((day) => (
+                        <label key={day} className="inline-flex items-center gap-2 text-sm">
+                          <Checkbox checked={limitations.applicableDays.includes(day)} onCheckedChange={(v) => toggleDay(day, !!v)} />
+                          <span>{day}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+              </div>
             </TabsContent>
             <TabsContent value="advanced">
-              <div className="rounded-md border p-4 text-sm text-muted-foreground">Advanced settings go here.</div>
+              <div className="rounded-md border bg-white p-4 text-sm text-muted-foreground">Advanced settings go here.</div>
             </TabsContent>
           </Tabs>
         </div>

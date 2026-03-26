@@ -3,6 +3,14 @@ import { NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
 import { getCancellationFeeForBooking } from '@/lib/cancellationFee';
 import { syncBookingCancelled, syncBookingUpdated } from '@/lib/googleCalendar';
+import { describeDraftQuoteExpiryChange, normalizeExpiryDateValue } from '@/lib/draftQuoteExpiryUtils';
+import {
+  describeDraftQuoteStatusChange,
+  formatQuoteLogActorName,
+  getRequestClientIp,
+  insertQuoteActivityLog,
+  shortBookingRefForLogs,
+} from '@/lib/draftQuoteLogs';
 
 export async function GET(
   request: Request,
@@ -261,6 +269,35 @@ export async function PUT(
       built.time_adjustment_note = bookingData.adjust_time === true && bookingData.time_adjustment_note != null && typeof bookingData.time_adjustment_note === 'string'
         ? (bookingData.time_adjustment_note.trim() || null)
         : null;
+      if (typeof bookingData.coupon_code === 'string') {
+        built.coupon_code = bookingData.coupon_code.trim() || null;
+      } else if (bookingData.coupon_code == null) {
+        built.coupon_code = null;
+      }
+      if (typeof bookingData.coupon_mode === 'string') {
+        const mode = bookingData.coupon_mode.trim();
+        built.coupon_mode = mode || null;
+      } else if (bookingData.coupon_mode == null) {
+        built.coupon_mode = null;
+      }
+      if (typeof bookingData.coupon_discount_type === 'string') {
+        const discountType = bookingData.coupon_discount_type.trim().toLowerCase();
+        built.coupon_discount_type = (discountType === 'fixed' || discountType === 'percentage') ? discountType : null;
+      } else if (bookingData.coupon_discount_type == null) {
+        built.coupon_discount_type = null;
+      }
+      if (bookingData.coupon_discount_value != null) {
+        const couponValue = parseFloat(String(bookingData.coupon_discount_value));
+        built.coupon_discount_value = Number.isFinite(couponValue) ? couponValue : null;
+      } else {
+        built.coupon_discount_value = null;
+      }
+      if (bookingData.coupon_discount_amount != null) {
+        const couponAmount = parseFloat(String(bookingData.coupon_discount_amount));
+        built.coupon_discount_amount = Number.isFinite(couponAmount) ? couponAmount : null;
+      } else {
+        built.coupon_discount_amount = null;
+      }
       built.private_booking_notes = Array.isArray(bookingData.private_booking_notes) ? bookingData.private_booking_notes.filter((n: unknown) => typeof n === 'string') : [];
       built.private_customer_notes = Array.isArray(bookingData.private_customer_notes) ? bookingData.private_customer_notes.filter((n: unknown) => typeof n === 'string') : [];
       built.service_provider_notes = Array.isArray(bookingData.service_provider_notes) ? bookingData.service_provider_notes.filter((n: unknown) => typeof n === 'string') : [];
@@ -269,6 +306,20 @@ export async function PUT(
       if (!isNaN(durationVal) && durationVal >= 0) {
         const durationMinutes = durationUnit.toLowerCase().includes('hour') ? Math.round(durationVal * 60) : Math.round(durationVal);
         if (durationMinutes > 0) built.duration_minutes = durationMinutes;
+      }
+      if (bookingData.draft_quote_expires_on === null) {
+        built.draft_quote_expires_on = null;
+      } else if (typeof bookingData.draft_quote_expires_on === 'string') {
+        const dq = bookingData.draft_quote_expires_on.trim().slice(0, 10);
+        if (dq === '' || dq === 'null') {
+          built.draft_quote_expires_on = null;
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(dq)) {
+          built.draft_quote_expires_on = dq;
+        }
+      }
+      const fs = String(finalStatus || '');
+      if (fs && !['draft', 'quote', 'expired'].includes(fs)) {
+        built.draft_quote_expires_on = null;
       }
       updateData = built;
     }
@@ -338,6 +389,15 @@ export async function PUT(
       }
     }
 
+    const { data: priorBooking } = await supabase
+      .from('bookings')
+      .select('status, draft_quote_expires_on')
+      .eq('id', bookingId)
+      .eq('business_id', businessId)
+      .maybeSingle();
+    const priorStatus = priorBooking?.status ?? null;
+    const priorExpiryRaw = (priorBooking as { draft_quote_expires_on?: string | null } | null)?.draft_quote_expires_on;
+
     // Update booking
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
@@ -349,6 +409,49 @@ export async function PUT(
 
     if (bookingError) {
       return NextResponse.json({ error: bookingError.message }, { status: 500 });
+    }
+
+    const actorName = formatQuoteLogActorName(user);
+    const transitionText = describeDraftQuoteStatusChange(priorStatus, booking.status, bookingId, actorName);
+    const newExpiryRaw = (booking as { draft_quote_expires_on?: string | null }).draft_quote_expires_on;
+    const expiryChanged =
+      normalizeExpiryDateValue(priorExpiryRaw) !== normalizeExpiryDateValue(newExpiryRaw);
+
+    if (transitionText) {
+      await insertQuoteActivityLog(supabase, {
+        business_id: businessId,
+        booking_id: bookingId,
+        actor_user_id: user.id,
+        actor_name: actorName,
+        activity_text: transitionText,
+        event_key: 'draft_quote_status_change',
+        ip_address: getRequestClientIp(request),
+      });
+    } else if (
+      expiryChanged &&
+      (booking.status === 'draft' || booking.status === 'quote' || booking.status === 'expired')
+    ) {
+      await insertQuoteActivityLog(supabase, {
+        business_id: businessId,
+        booking_id: bookingId,
+        actor_user_id: user.id,
+        actor_name: actorName,
+        activity_text: describeDraftQuoteExpiryChange(bookingId, priorExpiryRaw, newExpiryRaw, actorName),
+        event_key: 'draft_quote_expiry_changed',
+        ip_address: getRequestClientIp(request),
+      });
+    } else if (booking.status === 'draft' || booking.status === 'quote') {
+      const ref = shortBookingRefForLogs(bookingId);
+      const kind = booking.status === 'quote' ? 'quote' : 'draft';
+      await insertQuoteActivityLog(supabase, {
+        business_id: businessId,
+        booking_id: bookingId,
+        actor_user_id: user.id,
+        actor_name: actorName,
+        activity_text: `#${ref} - ${kind} updated by ${actorName}`,
+        event_key: `${kind}_updated`,
+        ip_address: getRequestClientIp(request),
+      });
     }
 
     if (booking.status === 'cancelled') {
