@@ -8,32 +8,137 @@ import { getStoreOptionsScheduling, isDateHoliday } from './schedulingFilters';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-/** Frequency name or frequency_repeats -> days to add for next occurrence */
+/**
+ * `frequency_repeats` values from admin (see frequencies/new/page.tsx) map to JS getDay():
+ * 0 Sun … 6 Sat.
+ */
+const WEEKDAY_REPEAT_PATTERNS: Record<string, number[]> = {
+  'every-mon-fri': [1, 5],
+  'every-mon-wed-fri': [1, 3, 5],
+  'every-tue-thu': [2, 4],
+  'sat-sun': [0, 6],
+  'every-tue-wed-fri': [2, 3, 5],
+  'every-mon-wed': [1, 3],
+  'every-mon-thu': [1, 4],
+};
+
+/** Next calendar date strictly after lastDate whose weekday is in allowed (Mon–Fri, Mon & Fri, etc.). */
+function nextAllowedWeekdayAfter(lastDate: string, allowed: number[]): string {
+  const d = new Date(lastDate + 'T12:00:00');
+  for (let i = 0; i < 14; i++) {
+    d.setDate(d.getDate() + 1);
+    if (allowed.includes(d.getDay())) {
+      return d.toISOString().split('T')[0];
+    }
+  }
+  return lastDate;
+}
+
+/** Frequency name or frequency_repeats -> days to add (fallback when pattern is unknown). */
 function getDaysToAdd(frequencyName: string, frequencyRepeats?: string | null): number {
   const name = (frequencyName || '').toLowerCase().replace(/\s+/g, '-');
   const repeats = (frequencyRepeats || '').toLowerCase().replace(/\s+/g, '-');
 
-  if (repeats.includes('daily')) return 1;
+  const weeksMatch = /^every-(\d+)-weeks$/.exec(repeats);
+  if (weeksMatch) {
+    const n = Math.max(1, parseInt(weeksMatch[1], 10));
+    return n * 7;
+  }
+  if (repeats === 'every-week') return 7;
+
+  if (repeats === 'daily') return 1;
+  if (repeats === 'daily-no-sat-sun' || repeats === 'daily-no-sun') return 1;
+
   if (repeats.includes('weekly') && !repeats.includes('bi') && !repeats.includes('every-2')) return 7;
   if (
-    repeats.includes('bi') ||
-    repeats.includes('every-other') ||
-    repeats.includes('every-2') ||
+    repeats.includes('bi-weekly') ||
+    repeats.includes('every-other-week') ||
+    (repeats.includes('every-2-weeks') && /^every-2-weeks$/.test(repeats)) ||
     name.includes('bi-weekly') ||
     name.includes('biweekly') ||
     name.includes('every-other')
   )
     return 14;
-  if (repeats.includes('monthly')) return 0; // special: add 1 month
-  if (repeats.includes('yearly')) return 0; // special: add 1 year
+  if (repeats.includes('monthly')) return 0;
+  if (repeats.includes('yearly')) return 0;
 
-  if (name.includes('daily')) return 1;
+  if (name.includes('daily') && !repeats.includes('daily-no')) return 1;
   if (name.includes('weekly') && !name.includes('bi')) return 7;
   if (name.includes('bi-weekly') || name.includes('biweekly')) return 14;
   if (name.includes('monthly')) return 0;
   if (name.includes('yearly')) return 0;
 
-  return 7; // default weekly
+  return 7;
+}
+
+/**
+ * Next occurrence date for recurring_series / bookings. Uses `frequency_repeats` (kebab-case) when set.
+ */
+export function getNextOccurrenceDateSync(
+  lastDate: string,
+  frequencyName: string,
+  frequencyRepeats?: string | null
+): string {
+  const repeats = (frequencyRepeats || '').toLowerCase().trim();
+  const name = (frequencyName || '').toLowerCase().replace(/\s+/g, '-');
+
+  if (repeats.includes('monthly') || name.includes('monthly')) {
+    return addInterval(new Date(lastDate + 'T12:00:00'), 0, 'monthly').toISOString().split('T')[0];
+  }
+  if (repeats.includes('yearly') || name.includes('yearly')) {
+    return addInterval(new Date(lastDate + 'T12:00:00'), 0, 'yearly').toISOString().split('T')[0];
+  }
+
+  const weeksMatch = /^every-(\d+)-weeks$/.exec(repeats);
+  if (weeksMatch) {
+    const n = Math.max(1, parseInt(weeksMatch[1], 10));
+    const d = new Date(lastDate + 'T12:00:00');
+    d.setDate(d.getDate() + n * 7);
+    return d.toISOString().split('T')[0];
+  }
+
+  if (repeats === 'every-week') {
+    const d = new Date(lastDate + 'T12:00:00');
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().split('T')[0];
+  }
+
+  if (
+    repeats.includes('bi-weekly') ||
+    repeats.includes('every-other-week') ||
+    name.includes('bi-weekly') ||
+    name.includes('biweekly') ||
+    name.includes('every-other')
+  ) {
+    const d = new Date(lastDate + 'T12:00:00');
+    d.setDate(d.getDate() + 14);
+    return d.toISOString().split('T')[0];
+  }
+
+  if (repeats === 'daily') {
+    const d = new Date(lastDate + 'T12:00:00');
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split('T')[0];
+  }
+
+  if (repeats === 'daily-no-sat-sun') {
+    return nextAllowedWeekdayAfter(lastDate, [1, 2, 3, 4, 5]);
+  }
+
+  if (repeats === 'daily-no-sun') {
+    let d = new Date(lastDate + 'T12:00:00');
+    d.setDate(d.getDate() + 1);
+    if (d.getDay() === 0) d.setDate(d.getDate() + 1);
+    return d.toISOString().split('T')[0];
+  }
+
+  const weekdays = WEEKDAY_REPEAT_PATTERNS[repeats];
+  if (weekdays) {
+    return nextAllowedWeekdayAfter(lastDate, weekdays);
+  }
+
+  const days = getDaysToAdd(frequencyName, frequencyRepeats);
+  return addInterval(new Date(lastDate + 'T12:00:00'), days, frequencyRepeats).toISOString().split('T')[0];
 }
 
 /** Add days or months to a date */
@@ -60,19 +165,18 @@ export async function computeNextOccurrenceDate(
   frequencyRepeats?: string | null,
   skipHolidays?: boolean
 ): Promise<string> {
-  const days = getDaysToAdd(frequencyName, frequencyRepeats);
-  const d = new Date(lastDate + 'T12:00:00');
-  let next = addInterval(d, days, frequencyRepeats);
-  let dateStr = next.toISOString().split('T')[0];
+  let dateStr = getNextOccurrenceDateSync(lastDate, frequencyName, frequencyRepeats);
+  const next = new Date(dateStr + 'T12:00:00');
 
   if (skipHolidays) {
     const opts = await getStoreOptionsScheduling(businessId);
     const skip = opts?.holiday_skip_to_next ?? false;
     if (skip) {
       let attempts = 0;
+      let d = next;
       while (await isDateHoliday(businessId, dateStr) && attempts < 31) {
-        next.setDate(next.getDate() + 1);
-        dateStr = next.toISOString().split('T')[0];
+        d.setDate(d.getDate() + 1);
+        dateStr = d.toISOString().split('T')[0];
         attempts++;
       }
     }
@@ -90,15 +194,13 @@ export function getOccurrenceDatesForSeriesSync(series: {
 }): string[] {
   const start = series.start_date;
   const N = series.occurrences_ahead ?? 8;
-  const days = getDaysToAdd(series.frequency ?? '', series.frequency_repeats);
   const dates: string[] = [start];
-  let current = new Date(start + 'T12:00:00');
+  let current = start;
   for (let i = 1; i < N; i++) {
-    const next = addInterval(current, days, series.frequency_repeats);
-    const nextStr = next.toISOString().split('T')[0];
+    const nextStr = getNextOccurrenceDateSync(current, series.frequency ?? '', series.frequency_repeats);
     if (series.end_date && nextStr > series.end_date) break;
     dates.push(nextStr);
-    current = next;
+    current = nextStr;
   }
   return dates;
 }
