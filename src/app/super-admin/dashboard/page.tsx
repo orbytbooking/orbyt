@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { 
   Building2, 
   DollarSign, 
@@ -44,9 +44,21 @@ import {
   Trash2,
   LogIn,
   UserX,
-  Plus
+  Plus,
+  Layers
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
+import { supabaseSuperAdmin } from '@/lib/supabase-super-admin';
+import { openStripeHostedPopup } from '@/lib/stripe/openStripeHostedPopup';
+import { SuperAdminSupportPlaybook } from '@/components/super-admin/SuperAdminSupportPlaybook';
+import { SuperAdminBillingPlaybook } from '@/components/super-admin/SuperAdminBillingPlaybook';
+import { SuperAdminPlatformPlansPanel } from '@/components/super-admin/SuperAdminPlatformPlansPanel';
+import { SuperAdminNotificationInboxPanel } from '@/components/super-admin/SuperAdminNotificationInboxPanel';
+import {
+  NotificationDetailDialog,
+  type NotificationDetailItem,
+} from '@/components/notifications/NotificationDetailDialog';
+import { PLATFORM_NOTIF_ID_PREFIX, parseSupportNotificationId } from '@/lib/platform-announcement-notifications';
 import {
   LineChart,
   Line,
@@ -62,6 +74,45 @@ import {
   Cell,
   Legend,
 } from 'recharts';
+
+function formatRelativeTime(iso: string | undefined) {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return '';
+  let diff = Date.now() - t;
+  if (diff < 0) diff = 0;
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return 'just now';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} min ago`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`;
+  const d = Math.floor(h / 24);
+  return `${d} day${d === 1 ? '' : 's'} ago`;
+}
+
+const VALID_SUPER_ADMIN_DASHBOARD_TABS = new Set([
+  'overview',
+  'businesses',
+  'billing',
+  'plans',
+  'users',
+  'analytics',
+  'notifications',
+  'support',
+  'settings',
+]);
+
+type SuperAdminHeaderNotification = {
+  id: string;
+  title: string;
+  description: string;
+  read: boolean;
+  created_at?: string;
+  source?: 'platform' | 'support' | 'admin';
+  level?: string | null;
+  audience?: string | null;
+};
 
 interface DashboardStats {
   totalBusinesses: number;
@@ -92,6 +143,21 @@ interface SubscriptionsData {
   total: number;
 }
 
+interface PlatformSubscriptionRow {
+  id: string;
+  business_id: string;
+  business_name: string;
+  plan_name: string;
+  plan_slug: string;
+  amount_cents: number;
+  status: string;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  updated_at: string | null;
+}
+
 interface BillingData {
   averageRevenuePerBusiness: number;
   stripeConnectedCount: number;
@@ -103,6 +169,8 @@ interface BillingData {
     count: number;
     items: { id?: string; business_id?: string; business_name: string; amount: number; scheduled_date?: string; scheduled_time?: string; service: string; customer_name: string }[];
   };
+  platformSubscriptions?: PlatformSubscriptionRow[];
+  paymentIssueCounts?: { failed: number; refunded: number; pending: number };
 }
 
 interface ChartData {
@@ -137,6 +205,19 @@ interface PlatformUser {
   created_at: string;
   business_count: number;
 }
+
+type PeopleKind = 'owner' | 'provider' | 'customer';
+
+type PeopleRow = {
+  kind: PeopleKind;
+  id: string;
+  full_name: string;
+  email: string;
+  business_name: string;
+  business_id?: string;
+  status: string;
+  created_at?: string;
+};
 
 interface SupportTicket {
   id: string;
@@ -174,7 +255,7 @@ interface BusinessDetailData {
     owner_name?: string;
     owner_email?: string;
   };
-  counts: { bookings: number; providers: number; customers: number };
+  counts: { bookings: number; providers: number; customers: number; team_profiles?: number };
   totalRevenue: number;
   storageUsedBytes?: number;
   storageLimitBytes?: number;
@@ -194,9 +275,37 @@ interface BusinessDetailData {
     amountCents: number;
     currentPeriodStart?: string;
     currentPeriodEnd?: string;
+    stripeCustomerId?: string | null;
+    stripeSubscriptionId?: string | null;
   };
   recentSubscriptionPayments?: Array<{ paid_at: string; amount_cents: number; description?: string }>;
+  paymentIssueCounts?: { failed: number; refunded: number; pending: number };
+  recentPlatformPayments?: Array<{
+    id?: string;
+    paid_at: string;
+    amount_cents: number;
+    description?: string;
+    status: string;
+    plan_slug?: string | null;
+  }>;
 }
+
+interface PlatformSettingsData {
+  platform_display_name: string;
+  support_email: string;
+  status_page_url: string;
+  maintenance_mode_enabled: boolean;
+  enforce_admin_mfa: boolean;
+  send_incident_alerts: boolean;
+  send_weekly_digest: boolean;
+  session_timeout_hours: number;
+}
+
+const FALLBACK_PLAN_OPTIONS: { slug: string; name: string; is_active: boolean; amount_cents: number }[] = [
+  { slug: 'starter', name: 'Starter', is_active: true, amount_cents: 0 },
+  { slug: 'growth', name: 'Growth', is_active: true, amount_cents: 0 },
+  { slug: 'premium', name: 'Premium', is_active: true, amount_cents: 0 },
+];
 
 function EditBusinessModalInline({
   businessId,
@@ -212,6 +321,22 @@ function EditBusinessModalInline({
   const [form, setForm] = useState<{ name: string; plan: string; is_active: boolean; business_email: string; business_phone: string; address: string; city: string; zip_code: string; website: string; description: string }>({ name: '', plan: 'starter', is_active: true, business_email: '', business_phone: '', address: '', city: '', zip_code: '', website: '', description: '' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [planOptions, setPlanOptions] = useState<typeof FALLBACK_PLAN_OPTIONS>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    fetch('/api/super-admin/platform-plans', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((j) => {
+        if (!mounted) return;
+        const rows = (j.plans ?? []) as typeof FALLBACK_PLAN_OPTIONS;
+        setPlanOptions(rows.length ? rows : FALLBACK_PLAN_OPTIONS);
+      })
+      .catch(() => {
+        if (mounted) setPlanOptions(FALLBACK_PLAN_OPTIONS);
+      });
+    return () => { mounted = false; };
+  }, [businessId]);
 
   useEffect(() => {
     let mounted = true;
@@ -271,9 +396,14 @@ function EditBusinessModalInline({
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Plan</label>
                 <select value={form.plan} onChange={(e) => setForm((f) => ({ ...f, plan: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                  <option value="starter">Starter</option>
-                  <option value="pro">Pro</option>
-                  <option value="enterprise">Enterprise</option>
+                  {(planOptions.length ? planOptions : FALLBACK_PLAN_OPTIONS)
+                    .filter((p) => p.is_active !== false || p.slug === form.plan)
+                    .sort((a, b) => a.amount_cents - b.amount_cents)
+                    .map((p) => (
+                      <option key={p.slug} value={p.slug}>
+                        {p.name} ({p.slug}){p.is_active === false ? ' — inactive' : ''}
+                      </option>
+                    ))}
                 </select>
               </div>
               <div className="flex items-center gap-2">
@@ -337,6 +467,28 @@ function CreateBusinessModalInline({
   const [plan, setPlan] = useState('starter');
   const [ownerEmail, setOwnerEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [planOptions, setPlanOptions] = useState<typeof FALLBACK_PLAN_OPTIONS>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    fetch('/api/super-admin/platform-plans', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((j) => {
+        if (!mounted) return;
+        const rows = (j.plans ?? []) as typeof FALLBACK_PLAN_OPTIONS;
+        const list = rows.length ? rows : FALLBACK_PLAN_OPTIONS;
+        setPlanOptions(list);
+        const active = list.filter((p) => p.is_active !== false).sort((a, b) => a.amount_cents - b.amount_cents);
+        setPlan((cur) => {
+          if (active.length && !active.some((p) => p.slug === cur)) return active[0].slug;
+          return cur;
+        });
+      })
+      .catch(() => {
+        if (mounted) setPlanOptions(FALLBACK_PLAN_OPTIONS);
+      });
+    return () => { mounted = false; };
+  }, []);
 
   const handleCreate = () => {
     if (!name.trim()) { setError('Name is required'); return; }
@@ -373,9 +525,16 @@ function CreateBusinessModalInline({
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Plan</label>
             <select value={plan} onChange={(e) => setPlan(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
-              <option value="starter">Starter</option>
-              <option value="pro">Pro</option>
-              <option value="enterprise">Enterprise</option>
+              {(() => {
+                const base = planOptions.length ? planOptions : FALLBACK_PLAN_OPTIONS;
+                const active = base.filter((p) => p.is_active !== false).sort((a, b) => a.amount_cents - b.amount_cents);
+                const opts = active.length ? active : base;
+                return opts.map((p) => (
+                  <option key={p.slug} value={p.slug}>
+                    {p.name} ({p.slug})
+                  </option>
+                ));
+              })()}
             </select>
           </div>
           <div>
@@ -392,7 +551,7 @@ function CreateBusinessModalInline({
   );
 }
 
-export default function SuperAdminDashboard() {
+function SuperAdminDashboardInner() {
   const router = useRouter();
   const [stats, setStats] = useState<DashboardStats>({
     totalBusinesses: 0,
@@ -423,7 +582,10 @@ export default function SuperAdminDashboard() {
     revenueByPlan: [],
     recentPayments: [],
     upcomingPayments: { totalAmount: 0, count: 0, items: [] },
+    platformSubscriptions: [],
+    paymentIssueCounts: { failed: 0, refunded: 0, pending: 0 },
   });
+  const [billingTableFilter, setBillingTableFilter] = useState<'all' | 'attention' | 'active' | 'past_due' | 'canceled'>('all');
 
   const [subscriptionsData, setSubscriptionsData] = useState<SubscriptionsData>({
     active: 0,
@@ -434,18 +596,49 @@ export default function SuperAdminDashboard() {
 
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [platformUsers, setPlatformUsers] = useState<PlatformUser[]>([]);
+  const [providers, setProviders] = useState<
+    { id: string; business_id: string; business_name: string; full_name: string; email: string; status: string; created_at: string }[]
+  >([]);
+  const [customers, setCustomers] = useState<
+    { id: string; business_id: string; business_name: string; full_name: string; email: string; status: string; created_at: string }[]
+  >([]);
   const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [peopleTypeFilter, setPeopleTypeFilter] = useState<PeopleKind | 'all'>('all');
+  const [peopleStatusFilter, setPeopleStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [personDetailOpen, setPersonDetailOpen] = useState(false);
+  const [personDetailLoading, setPersonDetailLoading] = useState(false);
+  const [personDetailError, setPersonDetailError] = useState<string | null>(null);
+  const [personDetail, setPersonDetail] = useState<any>(null);
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [notifTab, setNotifTab] = useState<'announcements' | 'templates' | 'inbox'>('announcements');
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [notifError, setNotifError] = useState<string | null>(null);
+  const [newAnnouncement, setNewAnnouncement] = useState({
+    title: '',
+    body: '',
+    level: 'info',
+    is_active: true,
+    audience: 'all' as 'all' | 'owners' | 'providers' | 'customers',
+  });
+  const [newTemplate, setNewTemplate] = useState({ key: '', name: '', subject: '', body_text: '', body_html: '', is_active: true });
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [headerNotifications, setHeaderNotifications] = useState<SuperAdminHeaderNotification[]>([]);
+  const [headerNotificationsLoading, setHeaderNotificationsLoading] = useState(false);
+  const [headerNotifDetail, setHeaderNotifDetail] = useState<NotificationDetailItem | null>(null);
+  const notifDropdownRef = useRef<HTMLDivElement>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
   const [businessDetailModalId, setBusinessDetailModalId] = useState<string | null>(null);
   const [businessDetailData, setBusinessDetailData] = useState<BusinessDetailData | null>(null);
   const [businessDetailLoading, setBusinessDetailLoading] = useState(false);
   const [businessDetailError, setBusinessDetailError] = useState<string | null>(null);
+  const [billingPortalLoadingId, setBillingPortalLoadingId] = useState<string | null>(null);
   const [editBusinessId, setEditBusinessId] = useState<string | null>(null);
   const [createBusinessOpen, setCreateBusinessOpen] = useState(false);
   const [deleteConfirmBusinessId, setDeleteConfirmBusinessId] = useState<string | null>(null);
@@ -466,11 +659,41 @@ export default function SuperAdminDashboard() {
   const [ticketSaveLoading, setTicketSaveLoading] = useState(false);
   const [supportTicketDetail, setSupportTicketDetail] = useState<SupportTicket | null>(null);
   const [supportTicketDetailLoading, setSupportTicketDetailLoading] = useState(false);
+  const [platformDisplayName, setPlatformDisplayName] = useState('Orbyt Service Platform');
+  const [platformSupportEmail, setPlatformSupportEmail] = useState('support@orbyt.com');
+  const [platformStatusPageUrl, setPlatformStatusPageUrl] = useState('https://status.orbyt.com');
+  const [maintenanceModeEnabled, setMaintenanceModeEnabled] = useState(false);
+  const [enforceAdminMfa, setEnforceAdminMfa] = useState(true);
+  const [sendIncidentAlerts, setSendIncidentAlerts] = useState(true);
+  const [sendWeeklyDigest, setSendWeeklyDigest] = useState(false);
+  const [sessionTimeoutHours, setSessionTimeoutHours] = useState('8');
+  const [settingsSaveMessage, setSettingsSaveMessage] = useState('');
+  const [settingsMessageType, setSettingsMessageType] = useState<'success' | 'error'>('success');
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [chartData, setChartData] = useState<ChartData>({
     revenueByMonth: [],
     bookingsByStatus: [],
     businessesByPlan: [],
   });
+
+  const fetchHeaderNotifications = useCallback(async () => {
+    setHeaderNotificationsLoading(true);
+    try {
+      const res = await fetch('/api/super-admin/notifications', { credentials: 'include' });
+      if (!res.ok) {
+        setHeaderNotifications([]);
+        return;
+      }
+      const data = await res.json();
+      setHeaderNotifications(data.notifications ?? []);
+    } catch {
+      setHeaderNotifications([]);
+    } finally {
+      setHeaderNotificationsLoading(false);
+    }
+  }, []);
 
   const fetchDashboardData = useCallback(async () => {
     try {
@@ -514,6 +737,8 @@ export default function SuperAdminDashboard() {
       });
       setBusinesses(data.businesses ?? []);
       setPlatformUsers(data.platformUsers ?? []);
+      setProviders(data.providers ?? []);
+      setCustomers(data.customers ?? []);
       setSupportTickets(data.supportTickets ?? []);
       setChartData(data.charts ?? { revenueByMonth: [], bookingsByStatus: [], businessesByPlan: [] });
       setSubscriptionsData(data.subscriptions ?? { active: 0, canceled: 0, trial: 0, total: 0 });
@@ -524,17 +749,280 @@ export default function SuperAdminDashboard() {
         revenueByPlan: [],
         recentPayments: [],
         upcomingPayments: { totalAmount: 0, count: 0, items: [] },
+        platformSubscriptions: [],
+        paymentIssueCounts: { failed: 0, refunded: 0, pending: 0 },
       });
+      void fetchHeaderNotifications();
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     } finally {
       setLoading(false);
     }
+  }, [router, fetchHeaderNotifications]);
+
+  useEffect(() => {
+    if (!notificationsOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (notifDropdownRef.current && !notifDropdownRef.current.contains(e.target as Node)) {
+        setNotificationsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [notificationsOpen]);
+
+  const headerUnreadCount = headerNotifications.filter((n) => !n.read).length;
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    const ticket = searchParams.get('ticket');
+    if (tab && VALID_SUPER_ADMIN_DASHBOARD_TABS.has(tab)) setActiveTab(tab);
+    if (searchParams.get('notif_inbox') === '1') {
+      setActiveTab('notifications');
+      setNotifTab('inbox');
+    }
+    if (ticket && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ticket)) {
+      setSupportTicketDetailId(ticket);
+    }
+  }, [searchParams]);
+
+  /**
+   * Auth listener: sign-out only + light email refresh on token rotation.
+   * Do NOT call fetchDashboardData on SIGNED_IN / USER_UPDATED — Supabase fires those on tab focus and
+   * cross-tab sync, which was forcing a full dashboard reload every time you switched tabs.
+   * Initial data loads via the mount effect below; use the Refresh buttons to pull latest manually.
+   */
+  useEffect(() => {
+    const { data: { subscription } } = supabaseSuperAdmin.auth.onAuthStateChange((event, session) => {
+      if (event === 'INITIAL_SESSION') return;
+
+      if (event === 'SIGNED_OUT' || !session) {
+        router.replace('/super-admin/login');
+        return;
+      }
+
+      if (event === 'TOKEN_REFRESHED') {
+        if (session?.user?.email) setCurrentUserEmail(session.user.email);
+        return;
+      }
+    });
+    return () => subscription.unsubscribe();
   }, [router]);
+
+  const peopleRows: PeopleRow[] = (() => {
+    const owners: PeopleRow[] = platformUsers.map((u) => ({
+      kind: 'owner',
+      id: u.id,
+      full_name: u.full_name,
+      email: u.email,
+      business_name: u.business_count === 1 ? '1 business' : `${u.business_count} businesses`,
+      status: u.is_active ? 'active' : 'inactive',
+      created_at: u.created_at,
+    }));
+    const prov: PeopleRow[] = providers.map((p) => ({
+      kind: 'provider',
+      id: p.id,
+      full_name: p.full_name,
+      email: p.email,
+      business_name: p.business_name,
+      business_id: p.business_id,
+      status: (p.status || 'active').toLowerCase(),
+      created_at: p.created_at,
+    }));
+    const cust: PeopleRow[] = customers.map((c) => ({
+      kind: 'customer',
+      id: c.id,
+      full_name: c.full_name,
+      email: c.email,
+      business_name: c.business_name,
+      business_id: c.business_id,
+      status: (c.status || 'active').toLowerCase(),
+      created_at: c.created_at,
+    }));
+    return [...owners, ...prov, ...cust];
+  })();
+
+  const filteredPeople = (() => {
+    const q = searchTerm.trim().toLowerCase();
+    const matchesSearch = (p: PeopleRow) => {
+      if (!q) return true;
+      return (
+        (p.full_name || '').toLowerCase().includes(q) ||
+        (p.email || '').toLowerCase().includes(q) ||
+        (p.business_name || '').toLowerCase().includes(q)
+      );
+    };
+    const matchesType = (p: PeopleRow) => (peopleTypeFilter === 'all' ? true : p.kind === peopleTypeFilter);
+    const matchesStatus = (p: PeopleRow) => {
+      if (peopleStatusFilter === 'all') return true;
+      const st = (p.status || '').toLowerCase();
+      if (peopleStatusFilter === 'active') return st === 'active';
+      return st === 'inactive';
+    };
+    const kindOrder = (k: PeopleKind) => (k === 'owner' ? 0 : k === 'provider' ? 1 : 2);
+    return peopleRows
+      .filter(matchesSearch)
+      .filter(matchesType)
+      .filter(matchesStatus)
+      .sort((a, b) => {
+        const dk = kindOrder(a.kind) - kindOrder(b.kind);
+        if (dk !== 0) return dk;
+        return (a.full_name || '').localeCompare(b.full_name || '');
+      });
+  })();
+
+  const openPersonDetail = async (p: PeopleRow) => {
+    setPersonDetailOpen(true);
+    setPersonDetailLoading(true);
+    setPersonDetailError(null);
+    setPersonDetail(null);
+    try {
+      const res = await fetch(`/api/super-admin/people/${encodeURIComponent(p.kind)}/${encodeURIComponent(p.id)}`, {
+        credentials: 'include',
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j?.error || 'Failed to load details');
+      setPersonDetail(j);
+    } catch (e) {
+      setPersonDetailError(e instanceof Error ? e.message : 'Failed to load details');
+    } finally {
+      setPersonDetailLoading(false);
+    }
+  };
+
+  const loadNotifications = async () => {
+    setNotifLoading(true);
+    setNotifError(null);
+    try {
+      const [aRes, tRes] = await Promise.all([
+        fetch('/api/super-admin/announcements', { credentials: 'include' }),
+        fetch('/api/super-admin/email-templates', { credentials: 'include' }),
+      ]);
+      const aJson = await aRes.json().catch(() => ({}));
+      const tJson = await tRes.json().catch(() => ({}));
+      if (aRes.status === 401 || aRes.status === 403) {
+        router.replace('/super-admin/login');
+        return;
+      }
+      if (tRes.status === 401 || tRes.status === 403) {
+        router.replace('/super-admin/login');
+        return;
+      }
+      if (!aRes.ok) throw new Error(aJson.error || 'Failed to load announcements');
+      if (!tRes.ok) throw new Error(tJson.error || 'Failed to load templates');
+      setAnnouncements(aJson.announcements ?? []);
+      setTemplates(tJson.templates ?? []);
+    } catch (e) {
+      setNotifError(e instanceof Error ? e.message : 'Failed to load');
+    } finally {
+      setNotifLoading(false);
+    }
+  };
+
+  const loadPlatformSettings = useCallback(async () => {
+    setSettingsLoading(true);
+    setSettingsSaveMessage('');
+    try {
+      const res = await fetch('/api/super-admin/settings', { credentials: 'include' });
+      const json = await res.json().catch(() => ({}));
+      if (res.status === 401 || res.status === 403) {
+        router.replace('/super-admin/login');
+        return;
+      }
+      if (!res.ok) {
+        throw new Error(json.error || 'Failed to load platform settings');
+      }
+      const settings = (json.settings ?? {}) as PlatformSettingsData;
+      setPlatformDisplayName(settings.platform_display_name ?? 'Orbyt Service Platform');
+      setPlatformSupportEmail(settings.support_email ?? 'support@orbyt.com');
+      setPlatformStatusPageUrl(settings.status_page_url ?? '');
+      setMaintenanceModeEnabled(settings.maintenance_mode_enabled === true);
+      setEnforceAdminMfa(settings.enforce_admin_mfa !== false);
+      setSendIncidentAlerts(settings.send_incident_alerts !== false);
+      setSendWeeklyDigest(settings.send_weekly_digest === true);
+      setSessionTimeoutHours(String(settings.session_timeout_hours ?? 8));
+      setSettingsLoaded(true);
+    } catch (e) {
+      setSettingsMessageType('error');
+      setSettingsSaveMessage(e instanceof Error ? e.message : 'Failed to load settings');
+    } finally {
+      setSettingsLoading(false);
+    }
+  }, [router]);
+
+  const handleSavePlatformSettings = useCallback(async () => {
+    const timeout = Number(sessionTimeoutHours);
+    if (!Number.isFinite(timeout) || timeout <= 0) {
+      setSettingsMessageType('error');
+      setSettingsSaveMessage('Session timeout must be a valid number of hours.');
+      return;
+    }
+
+    setSettingsSaving(true);
+    setSettingsSaveMessage('');
+    try {
+      const payload: PlatformSettingsData = {
+        platform_display_name: platformDisplayName.trim() || 'Orbyt Service Platform',
+        support_email: platformSupportEmail.trim(),
+        status_page_url: platformStatusPageUrl.trim(),
+        maintenance_mode_enabled: maintenanceModeEnabled,
+        enforce_admin_mfa: enforceAdminMfa,
+        send_incident_alerts: sendIncidentAlerts,
+        send_weekly_digest: sendWeeklyDigest,
+        session_timeout_hours: timeout,
+      };
+
+      const res = await fetch('/api/super-admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.status === 401 || res.status === 403) {
+        router.replace('/super-admin/login');
+        return;
+      }
+      if (!res.ok) throw new Error(json.error || 'Failed to save settings');
+
+      const settings = (json.settings ?? payload) as PlatformSettingsData;
+      setPlatformDisplayName(settings.platform_display_name ?? payload.platform_display_name);
+      setPlatformSupportEmail(settings.support_email ?? payload.support_email);
+      setPlatformStatusPageUrl(settings.status_page_url ?? payload.status_page_url);
+      setMaintenanceModeEnabled(settings.maintenance_mode_enabled === true);
+      setEnforceAdminMfa(settings.enforce_admin_mfa !== false);
+      setSendIncidentAlerts(settings.send_incident_alerts !== false);
+      setSendWeeklyDigest(settings.send_weekly_digest === true);
+      setSessionTimeoutHours(String(settings.session_timeout_hours ?? payload.session_timeout_hours));
+      setSettingsMessageType('success');
+      setSettingsSaveMessage('Settings saved successfully.');
+      setSettingsLoaded(true);
+    } catch (e) {
+      setSettingsMessageType('error');
+      setSettingsSaveMessage(e instanceof Error ? e.message : 'Failed to save settings');
+    } finally {
+      setSettingsSaving(false);
+    }
+  }, [
+    sessionTimeoutHours,
+    platformDisplayName,
+    platformSupportEmail,
+    platformStatusPageUrl,
+    maintenanceModeEnabled,
+    enforceAdminMfa,
+    sendIncidentAlerts,
+    sendWeeklyDigest,
+    router,
+  ]);
 
   useEffect(() => {
     fetchDashboardData();
   }, [fetchDashboardData]);
+
+  useEffect(() => {
+    if (activeTab !== 'settings' || settingsLoaded || settingsLoading) return;
+    void loadPlatformSettings();
+  }, [activeTab, settingsLoaded, settingsLoading, loadPlatformSettings]);
 
   useEffect(() => {
     if (!businessDetailModalId) {
@@ -667,8 +1155,34 @@ export default function SuperAdminDashboard() {
     setBusinessDetailError(null);
   };
 
+  const openBillingPortal = async (businessId: string) => {
+    setBillingPortalLoadingId(businessId);
+    try {
+      const res = await fetch("/api/super-admin/billing/portal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ businessId }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(json.error || "Failed to open billing portal");
+        return;
+      }
+      if (json.url) {
+        openStripeHostedPopup(json.url as string, "stripe_super_admin_portal");
+      } else {
+        alert("Stripe portal URL missing");
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to open billing portal");
+    } finally {
+      setBillingPortalLoadingId(null);
+    }
+  };
+
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await supabaseSuperAdmin.auth.signOut();
     router.replace('/super-admin/login');
   };
 
@@ -721,16 +1235,13 @@ export default function SuperAdminDashboard() {
   const navigationItems = [
     { id: 'overview', name: 'Overview', icon: Home, description: 'Platform overview' },
     { id: 'businesses', name: 'Businesses', icon: Building2, description: 'Manage businesses' },
+    { id: 'billing', name: 'Billing', icon: CreditCard, description: 'Subscriptions & revenue' },
+    { id: 'plans', name: 'Plans', icon: Layers, description: 'Plans & feature limits' },
     { id: 'users', name: 'Users', icon: Users2, description: 'User management' },
     { id: 'analytics', name: 'Analytics', icon: PieChart, description: 'Analytics & reports' },
+    { id: 'notifications', name: 'Notifications', icon: Bell, description: 'Announcements & templates' },
     { id: 'support', name: 'Support', icon: MessageSquare, description: 'Support tickets' },
     { id: 'settings', name: 'Settings', icon: Settings, description: 'Platform settings' },
-  ];
-
-  const notifications = [
-    { id: 1, title: 'New business registration', description: 'Tech Startup Inc joined', time: '2 min ago', read: false },
-    { id: 2, title: 'High priority ticket', description: 'Payment processing issue', time: '15 min ago', read: false },
-    { id: 3, title: 'System update completed', description: 'Version 2.1.0 deployed', time: '1 hour ago', read: true },
   ];
 
   return (
@@ -772,37 +1283,133 @@ export default function SuperAdminDashboard() {
                 />
               </div>
 
-              {/* Notifications */}
-              <div className="relative">
+              {/* Notifications (live: platform announcements + support tickets) */}
+              <div className="relative" ref={notifDropdownRef}>
                 <button
-                  onClick={() => setNotificationsOpen(!notificationsOpen)}
+                  type="button"
+                  onClick={() => {
+                    setNotificationsOpen((o) => {
+                      if (!o) void fetchHeaderNotifications();
+                      return !o;
+                    });
+                  }}
                   className="relative p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                  aria-label="Notifications"
                 >
                   <Bell className="h-5 w-5" />
-                  <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full animate-pulse"></span>
+                  {headerUnreadCount > 0 && (
+                    <span className="absolute top-1 right-1 min-h-[8px] min-w-[8px] px-1 bg-red-500 rounded-full text-[10px] leading-none text-white flex items-center justify-center font-medium">
+                      {headerUnreadCount > 99 ? '99+' : headerUnreadCount}
+                    </span>
+                  )}
                 </button>
-                
+
                 {notificationsOpen && (
                   <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
-                    <div className="p-4 border-b border-gray-200">
+                    <div className="p-4 border-b border-gray-200 flex items-center justify-between gap-2">
                       <h3 className="text-sm font-semibold text-gray-900">Notifications</h3>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setHeaderNotificationsLoading(true);
+                          try {
+                            const res = await fetch('/api/super-admin/notifications', {
+                              method: 'PATCH',
+                              credentials: 'include',
+                            });
+                            if (res.ok) await fetchHeaderNotifications();
+                          } finally {
+                            setHeaderNotificationsLoading(false);
+                          }
+                        }}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50"
+                        disabled={headerNotificationsLoading || headerUnreadCount === 0}
+                      >
+                        Mark all read
+                      </button>
                     </div>
                     <div className="max-h-96 overflow-y-auto">
-                      {notifications.map((notification) => (
-                        <div key={notification.id} className={`p-4 hover:bg-gray-50 border-b border-gray-100 ${!notification.read ? 'bg-blue-50' : ''}`}>
+                      {headerNotificationsLoading && headerNotifications.length === 0 && (
+                        <div className="p-4 text-sm text-gray-500">Loading…</div>
+                      )}
+                      {!headerNotificationsLoading && headerNotifications.length === 0 && (
+                        <div className="p-4 text-sm text-gray-500">No notifications</div>
+                      )}
+                      {headerNotifications.map((notification) => (
+                        <button
+                          type="button"
+                          key={notification.id}
+                          className={`w-full text-left p-4 hover:bg-gray-50 border-b border-gray-100 ${!notification.read ? 'bg-blue-50' : ''}`}
+                          onClick={async () => {
+                            const ticketUuid = parseSupportNotificationId(notification.id);
+                            if (ticketUuid) {
+                              setNotificationsOpen(false);
+                              setActiveTab('support');
+                              setSupportTicketDetailId(ticketUuid);
+                              return;
+                            }
+                            if (notification.id.startsWith(PLATFORM_NOTIF_ID_PREFIX)) {
+                              if (!notification.read) {
+                                await fetch(`/api/super-admin/notifications/${encodeURIComponent(notification.id)}`, {
+                                  method: 'PATCH',
+                                  credentials: 'include',
+                                });
+                                setHeaderNotifications((prev) =>
+                                  prev.map((x) => (x.id === notification.id ? { ...x, read: true } : x))
+                                );
+                              }
+                              setHeaderNotifDetail({
+                                id: notification.id,
+                                title: notification.title,
+                                description: notification.description,
+                                read: true,
+                                source: 'platform',
+                                created_at: notification.created_at,
+                                level: notification.level,
+                                audience: notification.audience,
+                              });
+                            }
+                          }}
+                        >
                           <div className="flex items-start">
-                            <div className={`flex-shrink-0 w-2 h-2 rounded-full mt-2 ${!notification.read ? 'bg-blue-600' : 'bg-gray-300'}`}></div>
-                            <div className="ml-3 flex-1">
+                            <div
+                              className={`flex-shrink-0 w-2 h-2 rounded-full mt-2 ${!notification.read ? 'bg-blue-600' : 'bg-gray-300'}`}
+                            />
+                            <div className="ml-3 flex-1 min-w-0">
                               <p className="text-sm font-medium text-gray-900">{notification.title}</p>
-                              <p className="text-xs text-gray-500 mt-1">{notification.description}</p>
-                              <p className="text-xs text-gray-400 mt-1">{notification.time}</p>
+                              <p className="text-xs text-gray-500 mt-1 line-clamp-3 whitespace-pre-wrap">{notification.description}</p>
+                              <p className="text-xs text-gray-400 mt-1">
+                                {formatRelativeTime(notification.created_at)}
+                                {notification.source === 'support' ? ' · Support' : ''}
+                                {notification.source === 'platform' ? ' · Announcement' : ''}
+                              </p>
                             </div>
                           </div>
-                        </div>
+                        </button>
                       ))}
                     </div>
-                    <div className="p-3 border-t border-gray-200">
-                      <button className="text-sm text-blue-600 hover:text-blue-800 font-medium">View all notifications</button>
+                    <div className="p-3 border-t border-gray-200 flex flex-wrap items-center gap-x-4 gap-y-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNotificationsOpen(false);
+                          setActiveTab('notifications');
+                          setNotifTab('inbox');
+                        }}
+                        className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                      >
+                        Activity inbox
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNotificationsOpen(false);
+                          setActiveTab('support');
+                        }}
+                        className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                      >
+                        Support tab
+                      </button>
                     </div>
                   </div>
                 )}
@@ -838,6 +1445,17 @@ export default function SuperAdminDashboard() {
                       <button className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center">
                         <HelpCircle className="h-4 w-4 mr-3 text-gray-400" />
                         Help & Support
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUserMenuOpen(false);
+                          router.push('/super-admin/session-diagnostics');
+                        }}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                      >
+                        <Shield className="h-4 w-4 mr-3 text-gray-400" />
+                        Session diagnostics
                       </button>
                       <button 
                         onClick={handleLogout}
@@ -1366,6 +1984,8 @@ export default function SuperAdminDashboard() {
                 </div>
               </div>
 
+              <SuperAdminSupportPlaybook />
+
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
@@ -1510,9 +2130,11 @@ export default function SuperAdminDashboard() {
                     <Users2 className="h-6 w-6 mr-2 text-purple-600" />
                     Users
                   </h2>
-                  <p className="text-gray-600 mt-1">People who have accounts on the platform ({platformUsers.length} total)</p>
+                  <p className="text-gray-600 mt-1">
+                    People across your platform ({filteredPeople.length} shown)
+                  </p>
                   <p className="text-sm text-gray-500 mt-0.5 max-w-xl">
-                    Unlike Businesses (which lists each company), this lists each <strong>person</strong>. One person can own multiple businesses—use this to contact users or see who has more than one business.
+                    Includes <strong>owners</strong> (platform accounts), plus tenant <strong>providers</strong> and <strong>customers</strong>.
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -1520,12 +2142,33 @@ export default function SuperAdminDashboard() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <input
                       type="text"
-                      placeholder="Search by name, email..."
+                      placeholder="Search name, email, business..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
+                  <select
+                    value={peopleTypeFilter}
+                    onChange={(e) => setPeopleTypeFilter(e.target.value as any)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                    title="Filter by type"
+                  >
+                    <option value="all">All</option>
+                    <option value="owner">Owners</option>
+                    <option value="provider">Providers</option>
+                    <option value="customer">Customers</option>
+                  </select>
+                  <select
+                    value={peopleStatusFilter}
+                    onChange={(e) => setPeopleStatusFilter(e.target.value as any)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                    title="Filter by status"
+                  >
+                    <option value="all">All statuses</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
                   <button
                     type="button"
                     onClick={() => fetchDashboardData()}
@@ -1544,79 +2187,274 @@ export default function SuperAdminDashboard() {
                       <tr>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
-                        <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Businesses</th>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Business</th>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                         <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {(() => {
-                        const q = searchTerm.trim().toLowerCase();
-                        const filtered = q
-                          ? platformUsers.filter(
-                              (u) =>
-                                (u.full_name && u.full_name.toLowerCase().includes(q)) ||
-                                (u.email && u.email.toLowerCase().includes(q))
-                            )
-                          : platformUsers;
-                        if (filtered.length === 0) {
-                          return (
-                            <tr>
-                              <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
-                                {platformUsers.length === 0 ? 'No platform users yet.' : 'No users match your search.'}
-                              </td>
-                            </tr>
-                          );
-                        }
-                        return filtered.map((user) => (
-                          <tr key={user.id} className="hover:bg-gray-50 transition-colors">
+                      {filteredPeople.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                            {peopleRows.length === 0 ? 'No people yet.' : 'No results match your filters.'}
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredPeople.map((p) => (
+                          <tr key={`${p.kind}-${p.id}`} className="hover:bg-gray-50 transition-colors">
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div className="flex items-center">
                                 <div className="h-10 w-10 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0">
-                                  {(user.full_name || user.email || 'U').charAt(0).toUpperCase()}
+                                  {(p.full_name || p.email || 'U').charAt(0).toUpperCase()}
                                 </div>
                                 <div className="ml-4">
-                                  <p className="font-medium text-gray-900">{user.full_name || '—'}</p>
-                                  <p className="text-xs text-gray-500">ID: {user.id.slice(0, 8)}…</p>
+                                  <p className="font-medium text-gray-900">{p.full_name || '—'}</p>
+                                  <p className="text-xs text-gray-500">ID: {p.id.slice(0, 8)}…</p>
                                 </div>
                               </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
-                              {user.email ? (
-                                <a href={`mailto:${user.email}`} className="text-blue-600 hover:underline flex items-center gap-1">
-                                  <Mail className="h-3 w-3" /> {user.email}
+                              {p.email ? (
+                                <a href={`mailto:${p.email}`} className="text-blue-600 hover:underline flex items-center gap-1">
+                                  <Mail className="h-3 w-3" /> {p.email}
                                 </a>
                               ) : (
                                 <span className="text-gray-400">—</span>
                               )}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
-                              <span className="text-sm text-gray-700 capitalize">{user.role || 'owner'}</span>
+                              <span className="text-sm text-gray-700 capitalize">{p.kind}</span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="text-sm text-gray-700">{p.business_name || '—'}</span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={`text-xs font-medium px-2 py-1 rounded-full ${p.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>
+                                {p.status || '—'}
+                              </span>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-right">
-                              <span className="font-medium text-gray-900">{user.business_count}</span>
-                              {user.business_count > 1 && (
-                                <span className="ml-1.5 inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">multiple</span>
-                              )}
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => openPersonDetail(p)}
+                                  className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors"
+                                >
+                                  <Eye className="h-4 w-4 mr-1" />
+                                  View details
+                                </button>
+                                {p.kind === 'owner' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveTab('businesses');
+                                      setSearchTerm(p.email || p.full_name || '');
+                                    }}
+                                    className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors"
+                                  >
+                                    <Building2 className="h-4 w-4 mr-1" />
+                                    View businesses
+                                  </button>
+                                ) : p.business_id ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setBusinessDetailModalId(p.business_id!)}
+                                    className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+                                  >
+                                    <Building2 className="h-4 w-4 mr-1" />
+                                    View business
+                                  </button>
+                                ) : null}
+                              </div>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-right">
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {personDetailOpen && (
+            <div
+              className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50"
+              role="dialog"
+              aria-modal="true"
+              onClick={() => !personDetailLoading && setPersonDetailOpen(false)}
+            >
+              <div
+                className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-6 py-4 border-b border-gray-200 flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">Account details</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">Owners, providers, and customers</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={personDetailLoading}
+                    onClick={() => setPersonDetailOpen(false)}
+                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Close
+                  </button>
+                </div>
+                <div className="p-6">
+                  {personDetailLoading ? (
+                    <div className="flex items-center justify-center py-12 text-gray-500">
+                      <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                      Loading…
+                    </div>
+                  ) : personDetailError ? (
+                    <div className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg p-3">
+                      {personDetailError}
+                    </div>
+                  ) : personDetail ? (
+                    <div className="space-y-4">
+                      <div className="grid sm:grid-cols-2 gap-3">
+                        <div className="rounded-lg border border-gray-200 p-3">
+                          <p className="text-xs text-gray-500">Type</p>
+                          <p className="text-sm font-medium text-gray-900 capitalize">{personDetail.kind ?? '—'}</p>
+                        </div>
+                        <div className="rounded-lg border border-gray-200 p-3">
+                          <p className="text-xs text-gray-500">ID</p>
+                          <p className="text-sm font-mono text-gray-900">{personDetail.person?.id ?? '—'}</p>
+                        </div>
+                        <div className="rounded-lg border border-gray-200 p-3">
+                          <p className="text-xs text-gray-500">Name</p>
+                          <p className="text-sm font-medium text-gray-900">{personDetail.person?.full_name ?? '—'}</p>
+                        </div>
+                        <div className="rounded-lg border border-gray-200 p-3">
+                          <p className="text-xs text-gray-500">Email</p>
+                          <p className="text-sm text-gray-900">{personDetail.person?.email ?? '—'}</p>
+                        </div>
+                      </div>
+
+                      {/* Extra details for providers/customers */}
+                      {personDetail.person ? (
+                        <div className="rounded-lg border border-gray-200 p-3">
+                          <p className="text-xs text-gray-500 mb-2">Details</p>
+                          <div className="grid sm:grid-cols-2 gap-3 text-sm">
+                            {personDetail.kind === 'provider' ? (
+                              <>
+                                <div><span className="text-gray-500">Phone:</span> <span className="text-gray-900">{personDetail.person?.phone ?? '—'}</span></div>
+                                <div><span className="text-gray-500">Availability:</span> <span className="text-gray-900">{personDetail.person?.availability_status ?? '—'}</span></div>
+                                <div><span className="text-gray-500">Status:</span> <span className="text-gray-900">{personDetail.person?.status ?? '—'}</span></div>
+                                <div><span className="text-gray-500">Blocked:</span> <span className="text-gray-900">{personDetail.person?.access_blocked ? 'Yes' : 'No'}</span></div>
+                                <div><span className="text-gray-500">Type:</span> <span className="text-gray-900">{personDetail.person?.provider_type ?? '—'}</span></div>
+                                <div><span className="text-gray-500">Specialization:</span> <span className="text-gray-900">{personDetail.person?.specialization ?? '—'}</span></div>
+                                <div><span className="text-gray-500">Rating:</span> <span className="text-gray-900">{personDetail.person?.rating ?? '—'}</span></div>
+                                <div><span className="text-gray-500">Completed jobs:</span> <span className="text-gray-900">{personDetail.person?.completed_jobs ?? '—'}</span></div>
+                                <div><span className="text-gray-500">Payout method:</span> <span className="text-gray-900">{personDetail.person?.payout_method ?? '—'}</span></div>
+                                <div><span className="text-gray-500">Stripe connected:</span> <span className="text-gray-900">{personDetail.person?.stripe_is_connected ? 'Yes' : 'No'}</span></div>
+                                <div><span className="text-gray-500">Total earned:</span> <span className="text-gray-900">{personDetail.person?.total_earned ?? '—'}</span></div>
+                                <div><span className="text-gray-500">Current balance:</span> <span className="text-gray-900">{personDetail.person?.current_balance ?? '—'}</span></div>
+                              </>
+                            ) : personDetail.kind === 'customer' ? (
+                              <>
+                                <div><span className="text-gray-500">Phone:</span> <span className="text-gray-900">{personDetail.person?.phone ?? '—'}</span></div>
+                                <div><span className="text-gray-500">Status:</span> <span className="text-gray-900">{personDetail.person?.status ?? '—'}</span></div>
+                                <div><span className="text-gray-500">Blocked:</span> <span className="text-gray-900">{personDetail.person?.access_blocked ? 'Yes' : 'No'}</span></div>
+                                <div><span className="text-gray-500">Booking blocked:</span> <span className="text-gray-900">{personDetail.person?.booking_blocked ? 'Yes' : 'No'}</span></div>
+                                <div><span className="text-gray-500">Company:</span> <span className="text-gray-900">{personDetail.person?.company ?? '—'}</span></div>
+                                <div><span className="text-gray-500">Gender:</span> <span className="text-gray-900">{personDetail.person?.gender ?? '—'}</span></div>
+                                <div><span className="text-gray-500">Join date:</span> <span className="text-gray-900">{personDetail.person?.join_date ?? '—'}</span></div>
+                                <div><span className="text-gray-500">Last booking:</span> <span className="text-gray-900">{personDetail.person?.last_booking ?? '—'}</span></div>
+                                <div><span className="text-gray-500">Total bookings:</span> <span className="text-gray-900">{personDetail.person?.total_bookings ?? '—'}</span></div>
+                                <div><span className="text-gray-500">Total spent:</span> <span className="text-gray-900">{personDetail.person?.total_spent ?? '—'}</span></div>
+                                <div><span className="text-gray-500">Email notifications:</span> <span className="text-gray-900">{personDetail.person?.email_notifications ? 'On' : 'Off'}</span></div>
+                                <div><span className="text-gray-500">SMS notifications:</span> <span className="text-gray-900">{personDetail.person?.sms_notifications ? 'On' : 'Off'}</span></div>
+                              </>
+                            ) : (
+                              <div className="text-gray-600">—</div>
+                            )}
+                          </div>
+                          {Array.isArray(personDetail.person?.tags) && personDetail.person.tags.length ? (
+                            <div className="mt-3">
+                              <p className="text-xs text-gray-500 mb-1">Tags</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {personDetail.person.tags.slice(0, 30).map((t: string) => (
+                                  <span key={t} className="inline-flex px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700">
+                                    {t}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                          {personDetail.kind === 'customer' && personDetail.person?.notes ? (
+                            <div className="mt-3">
+                              <p className="text-xs text-gray-500 mb-1">Notes</p>
+                              <div className="text-sm text-gray-800 whitespace-pre-wrap">{String(personDetail.person.notes)}</div>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {personDetail.business ? (
+                        <div className="rounded-lg border border-gray-200 p-3">
+                          <p className="text-xs text-gray-500">Business</p>
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">{personDetail.business?.name ?? '—'}</p>
+                              <p className="text-xs text-gray-500">
+                                Plan: {personDetail.business?.plan ?? '—'} • {personDetail.business?.is_active ? 'Active' : 'Suspended'}
+                              </p>
+                            </div>
+                            {personDetail.business?.id ? (
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setActiveTab('businesses');
-                                  setSearchTerm(user.email || user.full_name || '');
+                                  setPersonDetailOpen(false);
+                                  setBusinessDetailModalId(personDetail.business.id);
                                 }}
-                                className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors"
+                                className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
                               >
                                 <Building2 className="h-4 w-4 mr-1" />
-                                View businesses
+                                View business
                               </button>
-                            </td>
-                          </tr>
-                        ));
-                      })()}
-                    </tbody>
-                  </table>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {Array.isArray(personDetail.businesses) ? (
+                        <div className="rounded-lg border border-gray-200 p-3">
+                          <p className="text-xs text-gray-500 mb-2">Businesses owned</p>
+                          {personDetail.businesses.length === 0 ? (
+                            <p className="text-sm text-gray-600">—</p>
+                          ) : (
+                            <div className="space-y-2">
+                              {personDetail.businesses.slice(0, 25).map((b: any) => (
+                                <div key={b.id} className="flex items-center justify-between gap-3">
+                                  <div>
+                                    <p className="text-sm font-medium text-gray-900">{b.name}</p>
+                                    <p className="text-xs text-gray-500">Plan: {b.plan ?? '—'} • {b.is_active ? 'Active' : 'Suspended'}</p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPersonDetailOpen(false);
+                                      setBusinessDetailModalId(b.id);
+                                    }}
+                                    className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+                                  >
+                                    <Building2 className="h-4 w-4 mr-1" />
+                                    View
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-gray-600">—</div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1874,6 +2712,711 @@ export default function SuperAdminDashboard() {
             );
           })()}
 
+          {/* Notifications & Announcements Tab */}
+          {activeTab === 'notifications' && (
+            <div className="space-y-6 animate-fade-in">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900 flex items-center">
+                    <Bell className="h-6 w-6 mr-2 text-indigo-600" />
+                    Notifications & announcements
+                  </h2>
+                  <p className="text-gray-600 mt-1">Broadcast platform announcements and manage system email templates</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => loadNotifications()}
+                    className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg text-sm font-medium hover:from-blue-700 hover:to-purple-700 flex items-center"
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Refresh
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNotifTab('announcements');
+                      if (announcements.length === 0 && templates.length === 0) void loadNotifications();
+                    }}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium ${notifTab === 'announcements' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                  >
+                    Announcements
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNotifTab('templates');
+                      if (announcements.length === 0 && templates.length === 0) void loadNotifications();
+                    }}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium ${notifTab === 'templates' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                  >
+                    System email templates
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNotifTab('inbox')}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium ${notifTab === 'inbox' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                  >
+                    Activity inbox
+                  </button>
+                </div>
+              </div>
+
+              {notifError && (
+                <div className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg p-3">
+                  {notifError}
+                </div>
+              )}
+
+              {notifTab === 'announcements' && (
+                <div className="grid lg:grid-cols-2 gap-6">
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-4">Send announcement</h3>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Title</label>
+                        <input
+                          value={newAnnouncement.title}
+                          onChange={(e) => setNewAnnouncement((s) => ({ ...s, title: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                          placeholder="Maintenance window, product update…"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Body</label>
+                        <textarea
+                          value={newAnnouncement.body}
+                          onChange={(e) => setNewAnnouncement((s) => ({ ...s, body: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                          rows={5}
+                          placeholder="Write the announcement…"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Send to</label>
+                        <select
+                          value={newAnnouncement.audience}
+                          onChange={(e) =>
+                            setNewAnnouncement((s) => ({
+                              ...s,
+                              audience: e.target.value as 'all' | 'owners' | 'providers' | 'customers',
+                            }))
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                        >
+                          <option value="all">All users (owners, providers &amp; customers)</option>
+                          <option value="owners">Business owners only</option>
+                          <option value="providers">Service providers only</option>
+                          <option value="customers">Customers only</option>
+                        </select>
+                        <p className="text-xs text-gray-500 mt-1">
+                          In-app announcement visibility is matched to each signed-in user&apos;s role (from their account).
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Level</label>
+                          <select
+                            value={newAnnouncement.level}
+                            onChange={(e) => setNewAnnouncement((s) => ({ ...s, level: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                          >
+                            <option value="info">Info</option>
+                            <option value="warning">Warning</option>
+                            <option value="maintenance">Maintenance</option>
+                            <option value="success">Success</option>
+                          </select>
+                        </div>
+                        <label className="flex items-center gap-2 text-sm text-gray-700 mt-6">
+                          <input
+                            type="checkbox"
+                            checked={newAnnouncement.is_active}
+                            onChange={(e) => setNewAnnouncement((s) => ({ ...s, is_active: e.target.checked }))}
+                          />
+                          Active
+                        </label>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={notifLoading}
+                        onClick={async () => {
+                          setNotifLoading(true);
+                          setNotifError(null);
+                          try {
+                            const res = await fetch('/api/super-admin/announcements', {
+                              method: 'POST',
+                              credentials: 'include',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify(newAnnouncement),
+                            });
+                            const j = await res.json().catch(() => ({}));
+                            if (res.status === 401 || res.status === 403) {
+                              setNotifError('Session no longer valid for Super Admin. Redirecting to login…');
+                              router.replace('/super-admin/login');
+                              return;
+                            }
+                            if (!res.ok) throw new Error(j.error || 'Failed');
+                            setNewAnnouncement({
+                              title: '',
+                              body: '',
+                              level: 'info',
+                              is_active: true,
+                              audience: 'all',
+                            });
+                            await loadNotifications();
+                          } catch (e) {
+                            setNotifError(e instanceof Error ? e.message : 'Failed');
+                          } finally {
+                            setNotifLoading(false);
+                          }
+                        }}
+                        className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Send
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                      <h3 className="text-sm font-semibold text-gray-900">Recent announcements</h3>
+                      <button
+                        type="button"
+                        onClick={() => loadNotifications()}
+                        className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                      >
+                        Reload
+                      </button>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Title</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Audience</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Level</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Active</th>
+                            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {(announcements ?? []).length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="px-4 py-10 text-center text-sm text-gray-500">
+                                No announcements yet.
+                              </td>
+                            </tr>
+                          ) : (
+                            (announcements ?? []).slice(0, 50).map((a: any) => (
+                              <tr key={a.id} className="hover:bg-gray-50">
+                                <td className="px-4 py-3 text-sm text-gray-900">
+                                  <div className="font-medium">{a.title}</div>
+                                  <div className="text-xs text-gray-500 line-clamp-2">{a.body}</div>
+                                </td>
+                                <td className="px-4 py-3 text-sm text-gray-700 capitalize">
+                                  {a.audience === 'owners'
+                                    ? 'Owners'
+                                    : a.audience === 'providers'
+                                      ? 'Providers'
+                                      : a.audience === 'customers'
+                                        ? 'Customers'
+                                        : 'All'}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-gray-700">{a.level}</td>
+                                <td className="px-4 py-3 text-sm text-gray-700">{a.is_active ? 'Yes' : 'No'}</td>
+                                <td className="px-4 py-3 text-right">
+                                  <div className="inline-flex flex-wrap items-center justify-end gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        setNotifLoading(true);
+                                        setNotifError(null);
+                                        try {
+                                          const res = await fetch(`/api/super-admin/announcements/${a.id}`, {
+                                            method: 'PATCH',
+                                            credentials: 'include',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ is_active: !a.is_active }),
+                                          });
+                                          const j = await res.json().catch(() => ({}));
+                                          if (res.status === 401 || res.status === 403) {
+                                            router.replace('/super-admin/login');
+                                            return;
+                                          }
+                                          if (!res.ok) throw new Error(j.error || 'Failed');
+                                          await loadNotifications();
+                                        } catch (e) {
+                                          setNotifError(e instanceof Error ? e.message : 'Failed');
+                                        } finally {
+                                          setNotifLoading(false);
+                                        }
+                                      }}
+                                      className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                                    >
+                                      {a.is_active ? 'Deactivate' : 'Activate'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        if (!window.confirm('Delete this announcement permanently? It will be removed from all users’ notification history.')) return;
+                                        setNotifLoading(true);
+                                        setNotifError(null);
+                                        try {
+                                          const res = await fetch(`/api/super-admin/announcements/${a.id}`, {
+                                            method: 'DELETE',
+                                            credentials: 'include',
+                                          });
+                                          const j = await res.json().catch(() => ({}));
+                                          if (res.status === 401 || res.status === 403) {
+                                            router.replace('/super-admin/login');
+                                            return;
+                                          }
+                                          if (!res.ok) throw new Error(j.error || 'Failed to delete');
+                                          await loadNotifications();
+                                        } catch (e) {
+                                          setNotifError(e instanceof Error ? e.message : 'Failed');
+                                        } finally {
+                                          setNotifLoading(false);
+                                        }
+                                      }}
+                                      className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5 mr-1" />
+                                      Delete
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {notifTab === 'templates' && (
+                <div className="grid lg:grid-cols-2 gap-6">
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-2">Create template</h3>
+                    <p className="text-xs text-gray-600 mb-4 leading-relaxed">
+                      <span className="font-medium text-gray-800">Built-in keys</span> (when Active, these override the default email):{' '}
+                      <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-[11px]">booking_confirmation</code> for customer booking confirmations,{' '}
+                      <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-[11px]">invoice_email</code> for invoice emails. Use placeholders like{' '}
+                      <code className="rounded bg-gray-100 px-1 font-mono text-[11px]">{'{{customer_name}}'}</code>,{' '}
+                      <code className="rounded bg-gray-100 px-1 font-mono text-[11px]">{'{{business_name}}'}</code> in subject and body. Booking:{' '}
+                      <code className="font-mono text-[10px]">date</code>, <code className="font-mono text-[10px]">time</code>, <code className="font-mono text-[10px]">service</code>,{' '}
+                      <code className="font-mono text-[10px]">address</code>, <code className="font-mono text-[10px]">booking_ref</code>,{' '}
+                      <code className="font-mono text-[10px]">total_price</code>, <code className="font-mono text-[10px]">total_price_formatted</code>. Invoice:{' '}
+                      <code className="font-mono text-[10px]">invoice_number</code>, <code className="font-mono text-[10px]">total_amount</code>,{' '}
+                      <code className="font-mono text-[10px]">due_date</code>, <code className="font-mono text-[10px]">issue_date</code>,{' '}
+                      <code className="font-mono text-[10px]">description</code>, <code className="font-mono text-[10px]">line_summary</code>,{' '}
+                      <code className="font-mono text-[10px]">view_url</code>.
+                    </p>
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Key</label>
+                          <input
+                            value={newTemplate.key}
+                            onChange={(e) => setNewTemplate((s) => ({ ...s, key: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"
+                            placeholder="booking_confirmation"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Name</label>
+                          <input
+                            value={newTemplate.name}
+                            onChange={(e) => setNewTemplate((s) => ({ ...s, name: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                            placeholder="Welcome email"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Subject</label>
+                        <input
+                          value={newTemplate.subject}
+                          onChange={(e) => setNewTemplate((s) => ({ ...s, subject: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                          placeholder="Subject line…"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Body (text)</label>
+                        <textarea
+                          value={newTemplate.body_text}
+                          onChange={(e) => setNewTemplate((s) => ({ ...s, body_text: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"
+                          rows={5}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Body (HTML, optional)</label>
+                        <textarea
+                          value={newTemplate.body_html}
+                          onChange={(e) => setNewTemplate((s) => ({ ...s, body_html: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"
+                          rows={4}
+                          placeholder="If set, this is sent instead of plain text (same placeholders)."
+                        />
+                      </div>
+                      <label className="flex items-center gap-2 text-sm text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={newTemplate.is_active}
+                          onChange={(e) => setNewTemplate((s) => ({ ...s, is_active: e.target.checked }))}
+                        />
+                        Active
+                      </label>
+                      <button
+                        type="button"
+                        disabled={notifLoading}
+                        onClick={async () => {
+                          setNotifLoading(true);
+                          setNotifError(null);
+                          try {
+                            const res = await fetch('/api/super-admin/email-templates', {
+                              method: 'POST',
+                              credentials: 'include',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify(newTemplate),
+                            });
+                            const j = await res.json().catch(() => ({}));
+                            if (!res.ok) throw new Error(j.error || 'Failed');
+                            setNewTemplate({ key: '', name: '', subject: '', body_text: '', body_html: '', is_active: true });
+                            await loadNotifications();
+                          } catch (e) {
+                            setNotifError(e instanceof Error ? e.message : 'Failed');
+                          } finally {
+                            setNotifLoading(false);
+                          }
+                        }}
+                        className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Create
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                      <h3 className="text-sm font-semibold text-gray-900">Templates</h3>
+                      <button type="button" onClick={() => loadNotifications()} className="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                        Reload
+                      </button>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Key</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Active</th>
+                            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {(templates ?? []).length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="px-4 py-10 text-center text-sm text-gray-500">
+                                No templates yet.
+                              </td>
+                            </tr>
+                          ) : (
+                            (templates ?? []).slice(0, 200).map((t: any) => (
+                              <tr key={t.id} className="hover:bg-gray-50">
+                                <td className="px-4 py-3 text-sm font-mono text-gray-900">{t.key}</td>
+                                <td className="px-4 py-3 text-sm text-gray-900">{t.name}</td>
+                                <td className="px-4 py-3 text-sm text-gray-700">{t.is_active ? 'Yes' : 'No'}</td>
+                                <td className="px-4 py-3 text-right">
+                                  <div className="inline-flex flex-wrap items-center justify-end gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        setNotifLoading(true);
+                                        setNotifError(null);
+                                        try {
+                                          const res = await fetch(`/api/super-admin/email-templates/${t.id}`, {
+                                            method: 'PATCH',
+                                            credentials: 'include',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ is_active: !t.is_active }),
+                                          });
+                                          const j = await res.json().catch(() => ({}));
+                                          if (res.status === 401 || res.status === 403) {
+                                            router.replace('/super-admin/login');
+                                            return;
+                                          }
+                                          if (!res.ok) throw new Error(j.error || 'Failed');
+                                          await loadNotifications();
+                                        } catch (e) {
+                                          setNotifError(e instanceof Error ? e.message : 'Failed');
+                                        } finally {
+                                          setNotifLoading(false);
+                                        }
+                                      }}
+                                      className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                                    >
+                                      {t.is_active ? 'Deactivate' : 'Activate'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        if (!window.confirm('Delete this email template permanently?')) return;
+                                        setNotifLoading(true);
+                                        setNotifError(null);
+                                        try {
+                                          const res = await fetch(`/api/super-admin/email-templates/${t.id}`, {
+                                            method: 'DELETE',
+                                            credentials: 'include',
+                                          });
+                                          const j = await res.json().catch(() => ({}));
+                                          if (res.status === 401 || res.status === 403) {
+                                            router.replace('/super-admin/login');
+                                            return;
+                                          }
+                                          if (!res.ok) throw new Error(j.error || 'Failed to delete');
+                                          await loadNotifications();
+                                        } catch (e) {
+                                          setNotifError(e instanceof Error ? e.message : 'Failed');
+                                        } finally {
+                                          setNotifLoading(false);
+                                        }
+                                      }}
+                                      className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5 mr-1" />
+                                      Delete
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {notifTab === 'inbox' && (
+                <SuperAdminNotificationInboxPanel
+                  onSelectSupportTicket={(ticketId) => {
+                    setActiveTab('support');
+                    setSupportTicketDetailId(ticketId);
+                  }}
+                  onAnnouncementsMarkedRead={() => void fetchHeaderNotifications()}
+                />
+              )}
+            </div>
+          )}
+
+          {/* Billing & subscriptions tab */}
+          {activeTab === 'billing' && (
+            <div className="space-y-6 animate-fade-in">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900 flex items-center">
+                    <CreditCard className="h-6 w-6 mr-2 text-emerald-600" />
+                    Billing &amp; subscriptions
+                  </h2>
+                  <p className="text-gray-600 mt-1">
+                    Platform plans, payment health, and revenue — pair with Stripe for refunds and failed charges
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void fetchDashboardData()}
+                  className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg text-sm font-medium hover:from-emerald-700 hover:to-teal-700"
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Refresh
+                </button>
+              </div>
+
+              <SuperAdminBillingPlaybook />
+
+              {(() => {
+                const subs = billingData.platformSubscriptions ?? [];
+                const issue = billingData.paymentIssueCounts ?? { failed: 0, refunded: 0, pending: 0 };
+                const mrrCents = subs
+                  .filter((s) => s.status === 'active')
+                  .reduce((acc, s) => acc + (s.amount_cents ?? 0), 0);
+                const filteredSubs = subs.filter((s) => {
+                  if (billingTableFilter === 'all') return true;
+                  if (billingTableFilter === 'attention') return s.status === 'past_due';
+                  return s.status === billingTableFilter;
+                });
+                const statusClass = (st: string) => {
+                  if (st === 'active') return 'bg-green-100 text-green-800';
+                  if (st === 'past_due') return 'bg-red-100 text-red-800';
+                  if (st === 'trialing') return 'bg-amber-100 text-amber-800';
+                  if (st === 'canceled') return 'bg-gray-100 text-gray-700';
+                  return 'bg-gray-100 text-gray-800';
+                };
+                return (
+                  <>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Est. MRR (plan list)</p>
+                        <p className="text-2xl font-bold text-gray-900 mt-1">${(mrrCents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        <p className="text-xs text-gray-500 mt-1">Sum of active rows × plan price</p>
+                      </div>
+                      <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Subscriptions</p>
+                        <p className="text-2xl font-bold text-gray-900 mt-1">{subs.length}</p>
+                        <p className="text-xs text-gray-500 mt-1">Rows in platform_subscriptions</p>
+                      </div>
+                      <div className="bg-white rounded-xl border border-amber-200 p-4 shadow-sm bg-amber-50/50">
+                        <p className="text-xs font-medium text-amber-800 uppercase tracking-wide">Failed / pending pays</p>
+                        <p className="text-2xl font-bold text-amber-900 mt-1">
+                          {issue.failed} <span className="text-base font-normal text-amber-700">/ {issue.pending} pending</span>
+                        </p>
+                        <p className="text-xs text-amber-800/80 mt-1">From platform_payments</p>
+                      </div>
+                      <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Refunds recorded</p>
+                        <p className="text-2xl font-bold text-gray-900 mt-1">{issue.refunded}</p>
+                        <p className="text-xs text-gray-500 mt-1">status = refunded</p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                      <div className="p-4 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <h3 className="font-semibold text-gray-900">All platform subscriptions</h3>
+                        <div className="flex flex-wrap gap-2">
+                          {(['all', 'attention', 'active', 'past_due', 'canceled'] as const).map((f) => (
+                            <button
+                              key={f}
+                              type="button"
+                              onClick={() => setBillingTableFilter(f)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                                billingTableFilter === f
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                              }`}
+                            >
+                              {f === 'all'
+                                ? 'All'
+                                : f === 'attention'
+                                  ? 'Needs attention'
+                                  : f.replace('_', ' ')}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Business</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Plan</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period end</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stripe</th>
+                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200 bg-white">
+                            {filteredSubs.length === 0 ? (
+                              <tr>
+                                <td colSpan={6} className="px-4 py-12 text-center text-gray-500 text-sm">
+                                  {subs.length === 0 ? 'No platform subscriptions yet.' : 'No rows match this filter.'}
+                                </td>
+                              </tr>
+                            ) : (
+                              filteredSubs.map((row) => (
+                                <tr key={row.id} className="hover:bg-gray-50">
+                                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{row.business_name}</td>
+                                  <td className="px-4 py-3 text-sm text-gray-700 capitalize">
+                                    {row.plan_name}{' '}
+                                    <span className="text-gray-400">(${((row.amount_cents ?? 0) / 100).toFixed(2)}/mo)</span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium capitalize ${statusClass(row.status)}`}>
+                                      {row.status.replace(/_/g, ' ')}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-gray-600">
+                                    {row.current_period_end
+                                      ? new Date(row.current_period_end).toLocaleDateString(undefined, { dateStyle: 'medium' })
+                                      : '—'}
+                                  </td>
+                                  <td className="px-4 py-3 text-xs text-gray-500 font-mono max-w-[140px] truncate" title={row.stripe_subscription_id ?? ''}>
+                                    {row.stripe_subscription_id ? `${row.stripe_subscription_id.slice(0, 14)}…` : '—'}
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <button
+                                      type="button"
+                                      onClick={() => setBusinessDetailModalId(row.business_id)}
+                                      className="text-blue-600 hover:text-blue-800 text-xs font-medium mr-2"
+                                    >
+                                      Details
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={!!billingPortalLoadingId}
+                                      onClick={() => void openBillingPortal(row.business_id)}
+                                      className="inline-flex items-center text-emerald-700 hover:text-emerald-900 text-xs font-medium disabled:opacity-50"
+                                    >
+                                      Stripe portal
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+                        <h3 className="text-sm font-semibold text-gray-900 mb-4">Revenue by plan (cash in)</h3>
+                        {billingData.revenueByPlan.length === 0 ? (
+                          <p className="text-sm text-gray-500">No subscription payment history yet.</p>
+                        ) : (
+                          <ul className="space-y-2">
+                            {billingData.revenueByPlan.map((r) => (
+                              <li key={r.plan} className="flex justify-between text-sm">
+                                <span className="text-gray-700 capitalize">{r.plan}</span>
+                                <span className="font-medium text-gray-900">${r.revenue.toFixed(2)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+                        <h3 className="text-sm font-semibold text-gray-900 mb-4">Recent subscription payments</h3>
+                        {billingData.recentPayments.length === 0 ? (
+                          <p className="text-sm text-gray-500">No recent platform payments.</p>
+                        ) : (
+                          <ul className="space-y-2 max-h-48 overflow-y-auto">
+                            {billingData.recentPayments.slice(0, 8).map((p, i) => (
+                              <li key={p.id ?? i} className="flex justify-between text-sm border-b border-gray-100 pb-2">
+                                <span className="text-gray-700 truncate mr-2">{p.business_name}</span>
+                                <span className="font-medium text-gray-900 shrink-0">${p.amount.toFixed(2)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+
           {/* Support tab */}
           {activeTab === 'support' && (
             <div className="space-y-6 animate-fade-in">
@@ -1989,8 +3532,161 @@ export default function SuperAdminDashboard() {
             </div>
           )}
 
+          {activeTab === 'plans' && <SuperAdminPlatformPlansPanel />}
+
+          {activeTab === 'settings' && (
+            <div className="space-y-6 animate-fade-in">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-lg font-semibold text-gray-900">Platform Settings</h2>
+                    <p className="text-sm text-gray-500 mt-1">Configure global defaults for all businesses and admins.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSavePlatformSettings}
+                    disabled={settingsSaving || settingsLoading}
+                    className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {settingsSaving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+                {settingsSaveMessage && (
+                  <div className={`mt-4 flex items-center gap-2 text-sm rounded-lg px-3 py-2 border ${
+                    settingsMessageType === 'error'
+                      ? 'text-red-700 bg-red-50 border-red-200'
+                      : 'text-green-700 bg-green-50 border-green-200'
+                  }`}>
+                    {settingsMessageType === 'error' ? <AlertCircle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
+                    <span>{settingsSaveMessage}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
+                  <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                    <Globe className="h-4 w-4 text-blue-600" />
+                    General
+                  </h3>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Platform display name</label>
+                    <input
+                      type="text"
+                      value={platformDisplayName}
+                      onChange={(e) => setPlatformDisplayName(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Support email</label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <input
+                        type="email"
+                        value={platformSupportEmail}
+                        onChange={(e) => setPlatformSupportEmail(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Status page URL</label>
+                    <input
+                      type="url"
+                      value={platformStatusPageUrl}
+                      onChange={(e) => setPlatformStatusPageUrl(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
+                  <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                    <Shield className="h-4 w-4 text-purple-600" />
+                    Security
+                  </h3>
+                  <label className="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">Maintenance mode</p>
+                      <p className="text-xs text-gray-500">Temporarily restrict access for platform updates.</p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={maintenanceModeEnabled}
+                      onChange={(e) => setMaintenanceModeEnabled(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                    />
+                  </label>
+                  <label className="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">Require MFA for admins</p>
+                      <p className="text-xs text-gray-500">Enforce multi-factor authentication on admin login.</p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={enforceAdminMfa}
+                      onChange={(e) => setEnforceAdminMfa(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                    />
+                  </label>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                      <Clock className="h-4 w-4 text-gray-500" />
+                      Session timeout
+                    </label>
+                    <select
+                      value={sessionTimeoutHours}
+                      onChange={(e) => setSessionTimeoutHours(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="4">4 hours</option>
+                      <option value="8">8 hours</option>
+                      <option value="12">12 hours</option>
+                      <option value="24">24 hours</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2 mb-4">
+                  <Bell className="h-4 w-4 text-amber-600" />
+                  Notification Defaults
+                </h3>
+                <div className="space-y-3">
+                  <label className="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">Incident alerts</p>
+                      <p className="text-xs text-gray-500">Notify admins immediately for outages and critical issues.</p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={sendIncidentAlerts}
+                      onChange={(e) => setSendIncidentAlerts(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                    />
+                  </label>
+                  <label className="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">Weekly operations digest</p>
+                      <p className="text-xs text-gray-500">Send weekly metrics and billing highlights to admins.</p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={sendWeeklyDigest}
+                      onChange={(e) => setSendWeeklyDigest(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Other tabs placeholder (e.g. Settings) */}
-          {activeTab !== 'overview' && activeTab !== 'businesses' && activeTab !== 'users' && activeTab !== 'analytics' && activeTab !== 'support' && (
+
+          {activeTab !== 'overview' && activeTab !== 'businesses' && activeTab !== 'billing' && activeTab !== 'plans' && activeTab !== 'users' && activeTab !== 'analytics' && activeTab !== 'support' && activeTab !== 'notifications' && activeTab !== 'settings' && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center animate-fade-in">
               <div className="mx-auto w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
                 {(() => {
@@ -2059,6 +3755,7 @@ export default function SuperAdminDashboard() {
               )}
               {businessDetailData && !businessDetailLoading && (() => {
                 const { business, counts, totalRevenue, storageUsedBytes = 0, storageLimitBytes = 1 * 1024 * 1024 * 1024, recentBookings, subscription, recentSubscriptionPayments } = businessDetailData;
+                const teamProfiles = counts.team_profiles ?? 0;
                 const formatStorage = (bytes: number) => {
                   if (bytes === 0) return '0 B';
                   if (bytes < 1024) return `${bytes} B`;
@@ -2208,6 +3905,43 @@ export default function SuperAdminDashboard() {
                               </div>
                             )}
                           </div>
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-2">
+                            <button
+                              type="button"
+                              className="inline-flex items-center justify-center px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                              disabled={billingPortalLoadingId === business.id}
+                              onClick={() => void openBillingPortal(business.id)}
+                            >
+                              {billingPortalLoadingId === business.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                              ) : null}
+                              Open Stripe portal
+                            </button>
+                            <button
+                              type="button"
+                              className="inline-flex items-center justify-center px-3 py-2 bg-gray-100 text-gray-800 rounded-lg text-sm font-medium hover:bg-gray-200"
+                              onClick={() => {
+                                setEditBusinessId(business.id);
+                                closeBusinessModal();
+                              }}
+                            >
+                              Change plan
+                            </button>
+                            {(subscription.stripeCustomerId || subscription.stripeSubscriptionId) && (
+                              <div className="text-xs text-gray-500 sm:text-right flex flex-col sm:items-end">
+                                {subscription.stripeCustomerId ? (
+                                  <div className="break-all">
+                                    Stripe customer: <span className="font-mono">{subscription.stripeCustomerId}</span>
+                                  </div>
+                                ) : null}
+                                {subscription.stripeSubscriptionId ? (
+                                  <div className="break-all">
+                                    Stripe subscription: <span className="font-mono">{subscription.stripeSubscriptionId}</span>
+                                  </div>
+                                ) : null}
+                              </div>
+                            )}
+                          </div>
                           {(recentSubscriptionPayments?.length ?? 0) > 0 && (
                             <div className="pt-2 border-t border-gray-200">
                               <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Recent subscription payments</p>
@@ -2222,6 +3956,60 @@ export default function SuperAdminDashboard() {
                               <p className="text-xs text-gray-500 mt-1">Last payment: {new Date(recentSubscriptionPayments![0].paid_at).toLocaleDateString(undefined, { dateStyle: 'medium' })}</p>
                             </div>
                           )}
+
+                          {/* Payment health & billing events */}
+                          <div className="pt-3 border-t border-gray-200 space-y-3">
+                            <div>
+                              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Payment health</p>
+                              <div className="flex flex-wrap gap-2">
+                                <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${((businessDetailData?.paymentIssueCounts?.failed ?? 0) > 0) ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>
+                                  Failed: {businessDetailData?.paymentIssueCounts?.failed ?? 0}
+                                </span>
+                                <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${((businessDetailData?.paymentIssueCounts?.pending ?? 0) > 0) ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-800'}`}>
+                                  Pending: {businessDetailData?.paymentIssueCounts?.pending ?? 0}
+                                </span>
+                                <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${((businessDetailData?.paymentIssueCounts?.refunded ?? 0) > 0) ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
+                                  Refunded: {businessDetailData?.paymentIssueCounts?.refunded ?? 0}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div>
+                              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Recent billing events</p>
+                              {((businessDetailData?.recentPlatformPayments?.length ?? 0) === 0) ? (
+                                <p className="text-sm text-gray-500">No billing events recorded yet.</p>
+                              ) : (
+                                <ul className="space-y-1.5 text-sm">
+                                  {businessDetailData!.recentPlatformPayments!.slice(0, 6).map((row, i) => (
+                                    <li key={row.id ?? i} className="flex items-center justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <p className="text-gray-700 truncate">{row.description ?? 'Subscription'}</p>
+                                        <p className="text-xs text-gray-500">{new Date(row.paid_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</p>
+                                      </div>
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        <span className="font-medium">${(row.amount_cents / 100).toFixed(2)}</span>
+                                        <span
+                                          className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
+                                            row.status === 'paid'
+                                              ? 'bg-green-100 text-green-800'
+                                              : row.status === 'failed'
+                                                ? 'bg-red-100 text-red-800'
+                                                : row.status === 'pending'
+                                                  ? 'bg-amber-100 text-amber-800'
+                                                  : row.status === 'refunded'
+                                                    ? 'bg-blue-100 text-blue-800'
+                                                    : 'bg-gray-100 text-gray-800'
+                                          }`}
+                                        >
+                                          {row.status}
+                                        </span>
+                                      </div>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       ) : (
                         <p className="text-sm text-gray-500">Plan: {business.plan ?? '—'} (subscription details not available)</p>
@@ -2232,7 +4020,7 @@ export default function SuperAdminDashboard() {
                       <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 flex items-center">
                         <TrendingUp className="h-3.5 w-3.5 mr-1.5" /> Tenant usage
                       </h4>
-                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                         <div className="bg-gray-50 rounded-lg p-3 flex items-center gap-2">
                           <FileText className="h-4 w-4 text-blue-600" />
                           <div><p className="text-lg font-bold text-gray-900">{counts.bookings}</p><p className="text-xs text-gray-500">Bookings</p></div>
@@ -2244,6 +4032,10 @@ export default function SuperAdminDashboard() {
                         <div className="bg-gray-50 rounded-lg p-3 flex items-center gap-2">
                           <Users2 className="h-4 w-4 text-green-600" />
                           <div><p className="text-lg font-bold text-gray-900">{counts.customers}</p><p className="text-xs text-gray-500">Customers</p></div>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-3 flex items-center gap-2">
+                          <User className="h-4 w-4 text-cyan-600" />
+                          <div><p className="text-lg font-bold text-gray-900">{teamProfiles}</p><p className="text-xs text-gray-500">Team (profiles)</p></div>
                         </div>
                         <div className="bg-gray-50 rounded-lg p-3 flex items-center gap-2">
                           <DollarSign className="h-4 w-4 text-amber-600" />
@@ -2509,6 +4301,15 @@ export default function SuperAdminDashboard() {
         </div>
       )}
 
+      <NotificationDetailDialog
+        open={!!headerNotifDetail}
+        onOpenChange={(open) => {
+          if (!open) setHeaderNotifDetail(null);
+        }}
+        item={headerNotifDetail}
+        theme="light"
+      />
+
       <style jsx>{`
         @keyframes fade-in {
           from { opacity: 0; transform: translateY(10px); }
@@ -2517,5 +4318,19 @@ export default function SuperAdminDashboard() {
         .animate-fade-in { animation: fade-in 0.5s ease-out; }
       `}</style>
     </div>
+  );
+}
+
+export default function SuperAdminDashboard() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100 flex items-center justify-center">
+          <p className="text-gray-600 font-medium">Loading…</p>
+        </div>
+      }
+    >
+      <SuperAdminDashboardInner />
+    </Suspense>
   );
 }

@@ -35,6 +35,7 @@ interface AnalyticsData {
   arr: number;
   averageRevenuePerBusiness: number;
   conversionRate: number;
+  usagePerTenant: number;
 }
 
 interface MonthlyData {
@@ -66,41 +67,14 @@ export default function SuperAdminAnalytics() {
 
   const fetchAnalyticsData = async () => {
     try {
-      // Mock analytics data matching the schema structure
-      const mockAnalyticsData: AnalyticsData = {
-        totalBusinesses: 156,
-        activeBusinesses: 142,
-        totalRevenue: 45890,
-        monthlyRevenue: 12450,
-        totalUsers: 892,
-        activeUsers: 654,
-        newBusinessesThisMonth: 23,
-        churnRate: 2.3,
-        mrr: 12450,
-        arr: 149400,
-        averageRevenuePerBusiness: 87.68,
-        conversionRate: 68.5,
-      };
+      setLoading(true);
+      const res = await fetch(`/api/super-admin/analytics?timeRange=${encodeURIComponent(timeRange)}`);
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j?.error || "Failed to load analytics");
 
-      const mockMonthlyData: MonthlyData[] = [
-        { month: 'Jan', newBusinesses: 15, revenue: 8500, activeUsers: 450, churnRate: 2.1 },
-        { month: 'Feb', newBusinesses: 23, revenue: 12450, activeUsers: 654, churnRate: 2.3 },
-        { month: 'Mar', newBusinesses: 18, revenue: 11200, activeUsers: 620, churnRate: 1.8 },
-        { month: 'Apr', newBusinesses: 31, revenue: 15800, activeUsers: 720, churnRate: 2.5 },
-        { month: 'May', newBusinesses: 27, revenue: 14300, activeUsers: 690, churnRate: 2.0 },
-        { month: 'Jun', newBusinesses: 22, revenue: 13100, activeUsers: 665, churnRate: 2.2 },
-      ];
-
-      const mockPlanDistribution: PlanDistribution[] = [
-        { planName: 'Starter', count: 45, revenue: 0, percentage: 28.8 },
-        { planName: 'Professional', count: 67, revenue: 1943, percentage: 42.9 },
-        { planName: 'Business', count: 32, revenue: 2528, percentage: 20.5 },
-        { planName: 'Enterprise', count: 12, revenue: 2388, percentage: 7.7 },
-      ];
-
-      setAnalyticsData(mockAnalyticsData);
-      setMonthlyData(mockMonthlyData);
-      setPlanDistribution(mockPlanDistribution);
+      setAnalyticsData(j.analyticsData as AnalyticsData);
+      setMonthlyData(j.monthlyData as MonthlyData[]);
+      setPlanDistribution(j.planDistribution as PlanDistribution[]);
       setLoading(false);
     } catch (error) {
       console.error('Error fetching analytics data:', error);
@@ -276,6 +250,19 @@ export default function SuperAdminAnalytics() {
             <div className="text-2xl font-bold">{formatCurrency(analyticsData.averageRevenuePerBusiness)}</div>
             <p className="text-xs text-muted-foreground">
               Per active business
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Usage per Tenant</CardTitle>
+            <Activity className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{analyticsData.usagePerTenant}</div>
+            <p className="text-xs text-muted-foreground">
+              Avg bookings per active tenant (approx)
             </p>
           </CardContent>
         </Card>

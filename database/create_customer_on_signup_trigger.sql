@@ -6,38 +6,43 @@ DECLARE
 BEGIN
   -- Only proceed if the user has role 'customer' in metadata
   IF NEW.raw_user_meta_data->>'role' = 'customer' THEN
-    -- Get the first active business (you can modify this logic as needed)
     SELECT id INTO default_business_id
     FROM public.businesses
     WHERE is_active = true
     LIMIT 1;
 
-    -- Insert the customer record
-    INSERT INTO public.customers (
-      auth_user_id,
-      email,
-      name,
-      phone,
-      address,
-      business_id,
-      status,
-      avatar,
-      email_notifications,
-      sms_notifications,
-      push_notifications
-    ) VALUES (
-      NEW.id,
-      NEW.email,
-      COALESCE(NEW.raw_user_meta_data->>'full_name', 'Customer'),
-      COALESCE(NEW.raw_user_meta_data->>'phone', ''),
-      COALESCE(NEW.raw_user_meta_data->>'address', ''),
-      default_business_id,
-      'active',
-      NULL,
-      true,
-      true,
-      true
-    );
+    -- No active business yet; do not fail user signup (customers.business_id may be NOT NULL)
+    IF default_business_id IS NULL THEN
+      RETURN NEW;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM public.customers WHERE auth_user_id = NEW.id) THEN
+      INSERT INTO public.customers (
+        auth_user_id,
+        email,
+        name,
+        phone,
+        address,
+        business_id,
+        status,
+        avatar,
+        email_notifications,
+        sms_notifications,
+        push_notifications
+      ) VALUES (
+        NEW.id,
+        NEW.email,
+        COALESCE(NEW.raw_user_meta_data->>'full_name', 'Customer'),
+        COALESCE(NEW.raw_user_meta_data->>'phone', ''),
+        COALESCE(NEW.raw_user_meta_data->>'address', ''),
+        default_business_id,
+        'active',
+        NULL,
+        true,
+        true,
+        true
+      );
+    END IF;
   END IF;
 
   RETURN NEW;

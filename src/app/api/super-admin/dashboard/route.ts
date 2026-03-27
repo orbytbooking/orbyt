@@ -1,20 +1,13 @@
 import { NextResponse } from 'next/server';
-import { getSuperAdminUser, getAuthenticatedUser, createServiceRoleClient, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import { requireSuperAdminGate } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const user = await getSuperAdminUser();
-  if (!user) {
-    const authUser = await getAuthenticatedUser();
-    if (!authUser) return createUnauthorizedResponse();
-    return createForbiddenResponse('Not a super admin');
-  }
+  const gate = await requireSuperAdminGate();
+  if (!gate.ok) return gate.response;
 
-  const admin = createServiceRoleClient();
-  if (!admin) {
-    return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
-  }
+  const { admin } = gate;
 
   const now = new Date();
   const thisMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -339,6 +332,63 @@ export async function GET() {
       business_count: businesses.filter((b: { owner_id: string | null }) => b.owner_id === id).length,
     }));
 
+    // Providers + customers (for super-admin Users view)
+    let providers: {
+      id: string;
+      business_id: string;
+      business_name: string;
+      full_name: string;
+      email: string;
+      status: string;
+      created_at: string;
+    }[] = [];
+    let customers: {
+      id: string;
+      business_id: string;
+      business_name: string;
+      full_name: string;
+      email: string;
+      status: string;
+      created_at: string;
+    }[] = [];
+    try {
+      const businessIdToName = Object.fromEntries(businesses.map((b: { id: string; name: string }) => [b.id, b.name]));
+      const [{ data: providersRows }, { data: customersRows }] = await Promise.all([
+        admin
+          .from("service_providers")
+          .select("id, business_id, first_name, last_name, email, status, created_at")
+          .order("created_at", { ascending: false })
+          .limit(2000),
+        admin
+          .from("customers")
+          .select("id, business_id, name, email, status, created_at")
+          .order("created_at", { ascending: false })
+          .limit(2000),
+      ]);
+
+      providers = (providersRows ?? []).map((p: any) => ({
+        id: p.id,
+        business_id: p.business_id,
+        business_name: businessIdToName[p.business_id] ?? "—",
+        full_name: [p.first_name, p.last_name].filter(Boolean).join(" ") || "—",
+        email: p.email ?? "—",
+        status: p.status ?? "active",
+        created_at: p.created_at ?? "",
+      }));
+
+      customers = (customersRows ?? []).map((c: any) => ({
+        id: c.id,
+        business_id: c.business_id,
+        business_name: businessIdToName[c.business_id] ?? "—",
+        full_name: c.name ?? "—",
+        email: c.email ?? "—",
+        status: c.status ?? "active",
+        created_at: c.created_at ?? "",
+      }));
+    } catch (e) {
+      console.warn("Super admin providers/customers load:", e);
+    }
+
     // Support tickets (table may not exist yet)
     let supportTicketsList: { id: string; subject: string; business_id: string; business_name: string; priority: string; status: string; requester_email?: string; assigned_to?: string; created_at: string; updated_at: string }[] = [];
     try {
@@ -367,10 +417,86 @@ export async function GET() {
     const supportTicketsCount = supportTicketsList.length;
     const statsWithSupport = { ...stats, supportTickets: supportTicketsCount };
 
+    let platformSubscriptionsList: {
+      id: string;
+      business_id: string;
+      business_name: string;
+      plan_name: string;
+      plan_slug: string;
+      amount_cents: number;
+      status: string;
+      current_period_start: string | null;
+      current_period_end: string | null;
+      stripe_customer_id: string | null;
+      stripe_subscription_id: string | null;
+      updated_at: string | null;
+    }[] = [];
+    let paymentIssueCounts = { failed: 0, refunded: 0, pending: 0 };
+
+    try {
+      const { data: psRows } = await admin
+        .from("platform_subscriptions")
+        .select(
+          "id, business_id, plan_id, status, current_period_start, current_period_end, stripe_customer_id, stripe_subscription_id, updated_at"
+        )
+        .order("updated_at", { ascending: false });
+      const { data: planRowsForSubs } = await admin
+        .from("platform_subscription_plans")
+        .select("id, name, slug, amount_cents");
+      const planById: Record<string, { name: string; slug: string; amount_cents: number }> = {};
+      (planRowsForSubs ?? []).forEach((p: { id: string; name: string; slug: string; amount_cents: number }) => {
+        planById[p.id] = { name: p.name, slug: p.slug, amount_cents: p.amount_cents ?? 0 };
+      });
+      platformSubscriptionsList = (psRows ?? []).map(
+        (s: {
+          id: string;
+          business_id: string;
+          plan_id: string;
+          status: string;
+          current_period_start: string | null;
+          current_period_end: string | null;
+          stripe_customer_id: string | null;
+          stripe_subscription_id: string | null;
+          updated_at: string | null;
+        }) => {
+          const pl = planById[s.plan_id];
+          return {
+            id: s.id,
+            business_id: s.business_id,
+            business_name: businessIdToName[s.business_id] ?? "—",
+            plan_name: pl?.name ?? "—",
+            plan_slug: pl?.slug ?? "",
+            amount_cents: pl?.amount_cents ?? 0,
+            status: s.status,
+            current_period_start: s.current_period_start,
+            current_period_end: s.current_period_end,
+            stripe_customer_id: s.stripe_customer_id,
+            stripe_subscription_id: s.stripe_subscription_id,
+            updated_at: s.updated_at,
+          };
+        }
+      );
+
+      const [{ count: failedC }, { count: refundedC }, { count: pendingC }] = await Promise.all([
+        admin.from("platform_payments").select("*", { count: "exact", head: true }).eq("status", "failed"),
+        admin.from("platform_payments").select("*", { count: "exact", head: true }).eq("status", "refunded"),
+        admin.from("platform_payments").select("*", { count: "exact", head: true }).eq("status", "pending"),
+      ]);
+      paymentIssueCounts = {
+        failed: failedC ?? 0,
+        refunded: refundedC ?? 0,
+        pending: pendingC ?? 0,
+      };
+    } catch (e) {
+      console.warn("Super admin platform subscriptions / payment counts:", e);
+    }
+
     return NextResponse.json({
       stats: statsWithSupport,
       businesses: businessesList,
       platformUsers,
+      providers,
+      customers,
       supportTickets: supportTicketsList,
       charts: {
         revenueByMonth,
@@ -384,6 +510,8 @@ export async function GET() {
         revenueByPlan,
         recentPayments,
         upcomingPayments,
+        platformSubscriptions: platformSubscriptionsList,
+        paymentIssueCounts,
       },
       subscriptions: {
         active: activeSubscriptions,

@@ -183,8 +183,8 @@ export default function SubscriptionsManagement() {
         },
         {
           id: 'plan-4',
-          name: 'Enterprise',
-          slug: 'enterprise',
+          name: 'Premium',
+          slug: 'premium',
           description: 'Custom solution for large organizations',
           price: 199,
           billing_cycle: 'monthly',
@@ -299,6 +299,7 @@ export default function SubscriptionsManagement() {
         return <Star className="w-5 h-5" />;
       case 'business':
         return <Crown className="w-5 h-5" />;
+      case 'premium':
       case 'enterprise':
         return <Settings className="w-5 h-5" />;
       default:

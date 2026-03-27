@@ -49,6 +49,8 @@ import { supabase } from "@/lib/supabaseClient";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { addIndustryChangeListener, removeIndustryChangeListener } from "@/lib/industryEvents";
 import { ReceptionistChat } from "@/components/ReceptionistChat";
+import { PLATFORM_NOTIF_ID_PREFIX } from "@/lib/platform-announcement-notifications";
+import { NotificationDetailDialog } from "@/components/notifications/NotificationDetailDialog";
 
 interface Industry {
   id: string;
@@ -88,9 +90,20 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
     if (pathname?.startsWith("/admin/booking")) setBookingsOpen(true);
     if (pathname?.startsWith("/admin/provider")) setProvidersOpen(true);
   }, [pathname]);
-  type NotificationItem = { id: string; title: string; description: string; read?: boolean; link?: string | null };
+  type NotificationItem = {
+    id: string;
+    title: string;
+    description: string;
+    read?: boolean;
+    link?: string | null;
+    source?: 'admin' | 'platform';
+    created_at?: string;
+    level?: string | null;
+    audience?: string | null;
+  };
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationDetail, setNotificationDetail] = useState<NotificationItem | null>(null);
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const notificationsBaseUrl = currentBusiness
@@ -108,13 +121,29 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
       }
       const data = await res.json();
       setNotifications(
-        (data.notifications || []).map((n: { id: string; title: string; description: string; read: boolean; link?: string | null }) => ({
-          id: n.id,
-          title: n.title,
-          description: n.description ?? '',
-          read: !!n.read,
-          link: n.link ?? null,
-        }))
+        (data.notifications || []).map(
+          (n: {
+            id: string;
+            title: string;
+            description: string;
+            read: boolean;
+            link?: string | null;
+            source?: 'admin' | 'platform';
+            created_at?: string;
+            level?: string | null;
+            audience?: string | null;
+          }) => ({
+            id: n.id,
+            title: n.title,
+            description: n.description ?? '',
+            read: !!n.read,
+            link: n.link ?? null,
+            source: n.source,
+            created_at: n.created_at,
+            level: n.level,
+            audience: n.audience,
+          })
+        )
       );
     } catch {
       setNotifications([]);
@@ -150,7 +179,14 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
         ? `/api/admin/notifications/${id}?business_id=${encodeURIComponent(currentBusiness.id)}`
         : `/api/admin/notifications/${id}`;
       const res = await fetch(url, { method: 'DELETE' });
-      if (res.ok) setNotifications(prev => prev.filter(n => n.id !== id));
+      if (res.ok) {
+        if (id.startsWith(PLATFORM_NOTIF_ID_PREFIX)) {
+          setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+        } else {
+          setNotifications((prev) => prev.filter((n) => n.id !== id));
+        }
+        setNotificationDetail((d) => (d?.id === id ? null : d));
+      }
     } catch {
       // keep state unchanged on error
     }
@@ -159,7 +195,10 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   const clearAllNotifications = async () => {
     try {
       const res = await fetch(notificationsBaseUrl, { method: 'DELETE' });
-      if (res.ok) setNotifications([]);
+      if (res.ok) {
+        setNotificationDetail(null);
+        await fetchNotifications();
+      }
     } catch {
       // keep state unchanged on error
     }
@@ -890,14 +929,14 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                         key={n.id}
                         className="flex items-start gap-2 py-3 cursor-pointer"
                         onSelect={() => {
-                          if (!n.read) markNotificationAsRead(n.id);
-                          if (n.link) router.push(n.link);
+                          if (!n.read) void markNotificationAsRead(n.id);
+                          setNotificationDetail(n);
                         }}
                       >
                         <div className={`mt-1 h-2 w-2 rounded-full flex-shrink-0 ${n.read ? 'bg-gray-500/30' : 'bg-cyan-400 neon-cyan'}`} />
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-medium">{n.title}</div>
-                          <div className="text-xs text-muted-foreground">{n.description}</div>
+                          <div className="text-xs text-muted-foreground line-clamp-2">{n.description}</div>
                         </div>
                         <button
                           type="button"
@@ -934,6 +973,15 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
           {children}
         </main>
       </div>
+
+      <NotificationDetailDialog
+        open={!!notificationDetail}
+        onOpenChange={(open) => {
+          if (!open) setNotificationDetail(null);
+        }}
+        item={notificationDetail}
+        theme={theme}
+      />
 
       {/* AI receptionist chat – always visible in admin CRM */}
       <Suspense fallback={null}>

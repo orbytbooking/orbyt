@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import { getSupabaseProviderClient } from "@/lib/supabaseProviderClient";
 import { Providers } from "@/app/providers";
+import { PlatformNotificationBell } from "@/components/notifications/PlatformNotificationBell";
 
 const navigation = [
   { name: "Dashboard", href: "/provider/dashboard", icon: LayoutDashboard },
@@ -174,12 +175,25 @@ export default function ProviderLayout({
           <div className="flex flex-col h-full">
             {/* Logo */}
             <div className="p-6 border-b border-border">
-              <div className="flex items-center gap-3">
-                <img src="/images/orbit.png" alt="Orbyt Service" className="h-10 w-10" />
-                <div>
-                  <h1 className="text-lg font-bold" style={{ color: '#0C2B4E' }}>Orbyt Service</h1>
-                  <p className="text-xs text-muted-foreground">Provider Portal</p>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-3 min-w-0">
+                  <img src="/images/orbit.png" alt="Orbyt Service" className="h-10 w-10 shrink-0" />
+                  <div className="min-w-0">
+                    <h1 className="text-lg font-bold" style={{ color: '#0C2B4E' }}>Orbyt Service</h1>
+                    <p className="text-xs text-muted-foreground">Provider Portal</p>
+                  </div>
                 </div>
+                <PlatformNotificationBell
+                  apiBase="/api/provider/notifications"
+                  getAuthHeaders={async () => {
+                    const {
+                      data: { session },
+                    } = await getSupabaseProviderClient().auth.getSession();
+                    if (!session?.access_token) return undefined;
+                    return { Authorization: `Bearer ${session.access_token}` };
+                  }}
+                  variant="muted"
+                />
               </div>
             </div>
 

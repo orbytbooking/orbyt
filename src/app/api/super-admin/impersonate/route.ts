@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSuperAdminUser, getAuthenticatedUser, createServiceRoleClient, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import { requireSuperAdminGate } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,17 +9,10 @@ export const dynamic = 'force-dynamic';
  * so the client can setSession and redirect to /admin. No magic link or redirect needed.
  */
 export async function POST(request: NextRequest) {
-  const user = await getSuperAdminUser();
-  if (!user) {
-    const authUser = await getAuthenticatedUser();
-    if (!authUser) return createUnauthorizedResponse();
-    return createForbiddenResponse('Not a super admin');
-  }
+  const gate = await requireSuperAdminGate();
+  if (!gate.ok) return gate.response;
 
-  const admin = createServiceRoleClient();
-  if (!admin) {
-    return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
-  }
+  const { admin } = gate;
 
   try {
     const body = await request.json();

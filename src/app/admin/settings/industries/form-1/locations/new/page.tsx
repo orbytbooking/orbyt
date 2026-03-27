@@ -297,12 +297,30 @@ export default function AddLocationPage() {
         await persistDependencies(editId);
         toast({ title: "Location updated." });
       } else {
-        const { data: loc, error } = await supabase
-          .from("locations")
-          .insert([{ business_id: businessId, name: name.trim(), postal_code: firstZip, drawn_shape_json: drawnShapeJson, excluded_provider_ids: excludedProviderIds, active: true }])
-          .select()
-          .single();
-        if (error) throw error;
+        const res = await fetch("/api/locations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            business_id: businessId,
+            name: name.trim(),
+            postalCode: firstZip,
+            drawn_shape_json: drawnShapeJson,
+            excluded_provider_ids: excludedProviderIds,
+            active: true,
+          }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg =
+            typeof payload?.error === "string"
+              ? payload.error
+              : res.status === 403 && payload?.code === "PLAN_LOCATION_LIMIT"
+                ? "You have reached your plan’s location limit. Upgrade your plan in billing or remove a location."
+                : "Failed to create location";
+          throw new Error(msg);
+        }
+        const loc = payload.location as { id: string };
+        if (!loc?.id) throw new Error("Invalid response from server");
         const locId = loc.id;
         if (zips.length > 0) {
           await supabase.from("location_zip_codes").insert(

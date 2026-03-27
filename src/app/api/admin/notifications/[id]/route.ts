@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import {
+  markPlatformAnnouncementReadForUser,
+  parsePlatformNotificationId,
+} from '@/lib/platform-announcement-notifications';
 
 async function getBusinessId(supabase: ReturnType<typeof createClient>, userId: string) {
   const { data: business, error } = await supabase
@@ -41,6 +45,12 @@ export async function PATCH(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
+
+    const platformAnnId = parsePlatformNotificationId(id);
+    if (platformAnnId) {
+      await markPlatformAnnouncementReadForUser(supabase, user.id, platformAnnId);
+      return NextResponse.json({ ok: true });
+    }
 
     const { searchParams } = new URL(request.url);
     const businessIdParam = searchParams.get('business_id');
@@ -101,6 +111,12 @@ export async function DELETE(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
+
+    const platformAnnId = parsePlatformNotificationId(id);
+    if (platformAnnId) {
+      await markPlatformAnnouncementReadForUser(supabase, user.id, platformAnnId);
+      return NextResponse.json({ ok: true });
+    }
 
     const { searchParams } = new URL(request.url);
     const businessIdParam = searchParams.get('business_id');

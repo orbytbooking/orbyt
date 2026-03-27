@@ -5,7 +5,7 @@ import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { 
+import {
   DollarSign, 
   Calendar, 
   Users, 
@@ -30,7 +30,8 @@ import {
   Receipt,
   FileText,
   ListChecks,
-  Image
+  Image,
+  Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -165,6 +166,11 @@ const Dashboard = () => {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** Set when API reports NO_BUSINESS (e.g. session is Super Admin, not a business owner). */
+  const [accountMismatch, setAccountMismatch] = useState<{
+    isSuperAdmin: boolean;
+    message: string;
+  } | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [showProviderDialog, setShowProviderDialog] = useState(false);
@@ -184,6 +190,7 @@ const Dashboard = () => {
     try {
       setIsRefreshing(true);
       setError(null);
+      setAccountMismatch(null);
       
       const url = currentBusiness?.id
         ? `/api/admin/dashboard?business_id=${encodeURIComponent(currentBusiness.id)}`
@@ -193,6 +200,14 @@ const Dashboard = () => {
         const contentType = response.headers.get('content-type');
         if (contentType?.includes('application/json')) {
           const json = await response.json();
+          if (response.status === 404 && json.code === 'NO_BUSINESS') {
+            setAccountMismatch({
+              isSuperAdmin: !!json.is_super_admin,
+              message: typeof json.error === 'string' ? json.error : 'No business linked to this account.',
+            });
+            setData(null);
+            return;
+          }
           throw new Error(json.error || 'Failed to fetch dashboard data');
         }
         throw new Error('Failed to fetch dashboard data');
@@ -482,6 +497,73 @@ const Dashboard = () => {
         <div className="text-center py-8">
           <div className="text-muted-foreground">Loading dashboard...</div>
         </div>
+      </div>
+    );
+  }
+
+  if (accountMismatch) {
+    return (
+      <div className="max-w-xl mx-auto py-10 px-4">
+        <Card className="glass-card border-amber-500/30 bg-amber-500/5">
+          <CardHeader>
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-lg bg-amber-500/20 border border-amber-500/30">
+                {accountMismatch.isSuperAdmin ? (
+                  <Shield className="h-6 w-6 text-amber-400" />
+                ) : (
+                  <AlertCircle className="h-6 w-6 text-amber-400" />
+                )}
+              </div>
+              <div>
+                <CardTitle className="text-xl text-white">
+                  {accountMismatch.isSuperAdmin ? 'Super Admin session' : 'No business for this account'}
+                </CardTitle>
+                <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+                  {accountMismatch.message}
+                </p>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {accountMismatch.isSuperAdmin ? (
+              <div className="text-sm text-muted-foreground border-t border-border/50 pt-4 space-y-3">
+                <p className="leading-relaxed">
+                  <span className="font-medium text-foreground">How platform staff use the business dashboard:</span>{' '}
+                  Stay in Super Admin, open <strong>Businesses</strong>, then use{' '}
+                  <strong>Log in as tenant</strong> next to a business. That switches this browser to the owner&apos;s session
+                  and sends you to <code className="text-xs bg-muted px-1 rounded">/admin</code> — no owner password needed.
+                </p>
+                <p className="leading-relaxed">
+                  You still can&apos;t have <em>two different</em> Supabase users active in one normal window; that&apos;s a browser limit.
+                  For side‑by‑side testing, use a <strong>private window</strong> or <strong>second browser profile</strong>.
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground border-t border-border/50 pt-4">
+                Only one account can be signed in per browser at a time. Use a private window or another browser profile if you need a second login at once.
+              </p>
+            )}
+            <div className="flex flex-col sm:flex-row gap-2">
+              {accountMismatch.isSuperAdmin && (
+                <Button
+                  className="bg-gradient-to-r from-indigo-600 to-purple-600"
+                  onClick={() => router.push('/super-admin/dashboard')}
+                >
+                  Open Super Admin (use &quot;Log in as tenant&quot;)
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  await supabase.auth.signOut();
+                  router.push('/auth/login');
+                }}
+              >
+                Sign out and use business login
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }

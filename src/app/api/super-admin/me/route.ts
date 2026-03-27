@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
-import { getAuthenticatedUser, createServiceRoleClient, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import { getAuthenticatedSuperAdminUser, createServiceRoleClient, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
 /** Verify the current session belongs to a super admin. Returns user info if yes. */
 export async function GET() {
-  const user = await getAuthenticatedUser();
+  const user = await getAuthenticatedSuperAdminUser();
   if (!user) {
     return createUnauthorizedResponse();
   }

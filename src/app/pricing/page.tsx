@@ -1,59 +1,17 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
 import { Check, X } from 'lucide-react';
+import { PRICING_FEATURES, type FeatureValue } from '@/lib/pricing/pricingFeatures';
 
-type FeatureValue = boolean | string;
-
-type PlanFeature = {
+type PricingPlanRow = {
+  id?: string;
+  slug: string;
   name: string;
-  category?: string;
-  starter: FeatureValue;
-  growth: FeatureValue;
-  premium: FeatureValue;
+  amount_cents: number | null;
+  pricing_features: Record<string, FeatureValue> | null;
 };
-
-const features: PlanFeature[] = [
-  { name: 'Providers / Managers', category: 'Team', starter: true, growth: true, premium: true },
-  { name: 'Provider accounts', category: 'Team', starter: '3', growth: '10', premium: 'Unlimited' },
-  { name: 'Campaigns', category: 'Marketing', starter: '1 campaign', growth: '5 campaigns', premium: 'Unlimited' },
-  { name: 'Hiring workspace', category: 'Team', starter: false, growth: true, premium: true },
-  { name: 'Website builder', category: 'Branding', starter: 'Basic', growth: 'Advanced', premium: 'Advanced + custom' },
-  { name: 'Custom domain', category: 'Branding', starter: false, growth: true, premium: true },
-  { name: 'SSL protection', category: 'Security', starter: true, growth: true, premium: true },
-  { name: 'Booking forms & customization', category: 'Booking', starter: '1 form', growth: 'Custom forms', premium: 'Unlimited' },
-  { name: 'Import tool', category: 'Data', starter: false, growth: true, premium: true },
-  { name: 'Export bookings', category: 'Data', starter: true, growth: true, premium: true },
-  { name: 'Mobile access', category: 'Access', starter: true, growth: true, premium: true },
-  { name: 'Customer dashboard', category: 'Dashboards', starter: true, growth: true, premium: true },
-  { name: 'Provider / Team dashboard', category: 'Dashboards', starter: true, growth: true, premium: true },
-  { name: 'Admin / Business dashboard', category: 'Dashboards', starter: true, growth: true, premium: true },
-  { name: 'Smart scheduling', category: 'Booking', starter: true, growth: true, premium: true },
-  { name: 'Calendar', category: 'Booking', starter: true, growth: true, premium: true },
-  { name: 'Unassigned bookings & drafts', category: 'Booking', starter: true, growth: true, premium: true },
-  { name: 'Online payments', category: 'Payments', starter: true, growth: true, premium: true },
-  { name: 'Invoicing', category: 'Payments', starter: false, growth: true, premium: true },
-  { name: 'Cancellation fees', category: 'Booking', starter: false, growth: true, premium: true },
-  { name: 'Third party integrations', category: 'Integrations', starter: false, growth: 'Limited', premium: 'Full API' },
-  { name: 'Cart abandonment & email lists', category: 'Marketing', starter: 'Basic via third party', growth: 'Basic via third party', premium: 'Leads module + advanced' },
-  { name: 'Remove Orbyt branding', category: 'Branding', starter: false, growth: true, premium: true },
-  { name: 'Schedule automatically', category: 'Booking', starter: true, growth: true, premium: true },
-  { name: 'Email / analytics tracking', category: 'Reports', starter: false, growth: true, premium: true },
-  { name: 'Team alerts', category: 'Notifications', starter: false, growth: true, premium: true },
-  { name: 'Team & clock in/out', category: 'Team', starter: false, growth: true, premium: true },
-  { name: 'Referral & rating system', category: 'Marketing', starter: false, growth: true, premium: true },
-  { name: 'Automatic reviews', category: 'Marketing', starter: false, growth: true, premium: true },
-  { name: 'Team logs & history', category: 'Reports', starter: false, growth: true, premium: true },
-  { name: 'Location & time zones', category: 'Settings', starter: true, growth: true, premium: true },
-  { name: 'Translation', category: 'Settings', starter: '1 language', growth: '1 language', premium: 'Multilingual' },
-  { name: 'Coupons', category: 'Marketing', starter: true, growth: true, premium: true },
-  { name: 'Daily discounts', category: 'Marketing', starter: false, growth: true, premium: true },
-  { name: 'Email notifications', category: 'Notifications', starter: true, growth: true, premium: true },
-  { name: 'SMS notifications', category: 'Notifications', starter: false, growth: true, premium: true },
-  { name: 'AI Virtual Receptionist', category: 'AI', starter: false, growth: true, premium: true },
-  { name: 'Advanced reports', category: 'Reports', starter: false, growth: 'Basic', premium: 'Full' },
-  { name: 'Support', category: 'Support', starter: 'Email', growth: 'Email + chat', premium: 'Priority' },
-];
 
 function FeatureCell({ value }: { value: FeatureValue }) {
   if (value === true) {
@@ -82,6 +40,47 @@ function FeatureCell({ value }: { value: FeatureValue }) {
 }
 
 export default function PricingDetailsPage() {
+  const [plans, setPlans] = useState<PricingPlanRow[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/platform/pricing-plans');
+        const j = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok) return;
+        setPlans((j?.plans ?? []) as PricingPlanRow[]);
+      } catch {
+        // Non-fatal: pricing page will fall back to hardcoded defaults.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const planBySlug = useMemo(() => {
+    const out: Record<string, PricingPlanRow> = {};
+    for (const p of plans ?? []) out[p.slug] = p;
+    return out;
+  }, [plans]);
+
+  const formatPrice = (slug: string, fallbackDollars: number) => {
+    const cents = planBySlug[slug]?.amount_cents ?? null;
+    if (cents === null || cents === undefined) return fallbackDollars;
+    return Math.round((cents / 100) * 100) / 100;
+  };
+
+  const getFeatureValue = (planSlug: string, featureName: string, fallback: FeatureValue): FeatureValue => {
+    const v = planBySlug[planSlug]?.pricing_features?.[featureName];
+    return v !== undefined ? v : fallback;
+  };
+
+  const priceStarter = formatPrice('starter', 19);
+  const priceGrowth = formatPrice('growth', 49);
+  const pricePremium = formatPrice('premium', 110);
+
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Header */}
@@ -128,7 +127,7 @@ export default function PricingDetailsPage() {
             <h2 className="text-xl font-bold text-slate-800 mb-1">Starter</h2>
             <p className="text-sm text-slate-600 mb-4">Solo operators and small teams</p>
             <div className="mb-4">
-              <span className="text-3xl font-bold text-sky-500">$19</span>
+              <span className="text-3xl font-bold text-sky-500">${priceStarter}</span>
               <span className="text-slate-600 text-sm ml-1">/mo</span>
             </div>
             <a
@@ -146,7 +145,7 @@ export default function PricingDetailsPage() {
             <h2 className="text-xl font-bold text-slate-800 mb-1">Growth</h2>
             <p className="text-sm text-slate-600 mb-4">Growing teams that need more</p>
             <div className="mb-4">
-              <span className="text-3xl font-bold text-sky-500">$49</span>
+              <span className="text-3xl font-bold text-sky-500">${priceGrowth}</span>
               <span className="text-slate-600 text-sm ml-1">/mo</span>
             </div>
             <a
@@ -161,7 +160,7 @@ export default function PricingDetailsPage() {
             <h2 className="text-xl font-bold text-slate-800 mb-1">Premium</h2>
             <p className="text-sm text-slate-600 mb-4">Everything unlocked</p>
             <div className="mb-4">
-              <span className="text-3xl font-bold text-sky-500">$110</span>
+              <span className="text-3xl font-bold text-sky-500">${pricePremium}</span>
               <span className="text-slate-600 text-sm ml-1">/mo</span>
             </div>
             <a
@@ -186,7 +185,7 @@ export default function PricingDetailsPage() {
                 </tr>
               </thead>
               <tbody>
-                {features.map((feature, i) => (
+                {PRICING_FEATURES.map((feature, i) => (
                   <tr
                     key={feature.name}
                     className={`border-b border-slate-100 ${i % 2 === 1 ? 'bg-slate-50/50' : ''}`}
@@ -194,9 +193,15 @@ export default function PricingDetailsPage() {
                     <td className="px-4 py-3 text-sm text-slate-700">
                       {feature.name}
                     </td>
-                    <FeatureCell value={feature.starter} />
-                    <FeatureCell value={feature.growth} />
-                    <FeatureCell value={feature.premium} />
+                    <FeatureCell
+                      value={getFeatureValue('starter', feature.name, feature.starter)}
+                    />
+                    <FeatureCell
+                      value={getFeatureValue('growth', feature.name, feature.growth)}
+                    />
+                    <FeatureCell
+                      value={getFeatureValue('premium', feature.name, feature.premium)}
+                    />
                   </tr>
                 ))}
               </tbody>

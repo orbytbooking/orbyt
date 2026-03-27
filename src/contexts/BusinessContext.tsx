@@ -1,5 +1,5 @@
 'use client';
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useState, ReactNode } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import { useAuth } from './AuthContext';
@@ -140,7 +140,8 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
               domain: b.domain,
               created_at: b.created_at || new Date().toISOString(),
               updated_at: b.updated_at || new Date().toISOString(),
-              is_active: b.is_active !== undefined ? b.is_active : true,
+              // Only explicit true = active (null/false = blocked until payment / migration 073)
+              is_active: (b as { is_active?: boolean | null }).is_active === true,
               business_email: b.business_email,
               business_phone: b.business_phone,
               city: b.city,
@@ -181,7 +182,8 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
           plan: b.plan || 'starter',
           created_at: b.created_at || new Date().toISOString(),
           updated_at: b.updated_at || new Date().toISOString(),
-          is_active: b.is_active !== undefined ? b.is_active : true,
+          // Only explicit DB true = active. NULL must not unlock admin (run migration 073 for legacy NULL → true).
+          is_active: (b as { is_active?: boolean | null }).is_active === true,
         };
         return mapped;
       });
@@ -242,6 +244,19 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     }
   }, [user, authLoading, businesses.length]);
+
+  /** Block all /admin usage until platform subscription payment activates the business (is_active true). */
+  useLayoutEffect(() => {
+    if (authLoading || loading) return;
+    if (!user || !currentBusiness) return;
+    if (currentBusiness.role !== "owner") return;
+    // Block unless explicitly active (fixes NULL vs false: both must redirect until paid + webhook).
+    if (currentBusiness.is_active === true) return;
+    if (typeof window === "undefined") return;
+    const path = window.location.pathname || "";
+    if (path.startsWith("/auth/onboarding")) return;
+    router.replace("/auth/onboarding?payment=pending");
+  }, [authLoading, loading, user, currentBusiness, router]);
 
   const value: BusinessContextType = {
     businesses,

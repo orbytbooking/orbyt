@@ -1,5 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
+import {
+  getActivePlatformEmailTemplateByKey,
+  plainTextToEmailHtml,
+  substituteEmailPlaceholders,
+  PLATFORM_EMAIL_TEMPLATE_KEYS,
+} from '@/lib/platformEmailTemplates';
 
 interface ProviderInvitationData {
   email: string;
@@ -275,7 +281,54 @@ export class EmailService {
   }): Promise<boolean> {
     try {
       const { to, customerName, businessName, invoiceNumber, totalAmount, dueDate, issueDate, description, viewUrl, lineSummary } = data;
-      const emailSubject = `Invoice ${invoiceNumber} from ${businessName}`;
+      const defaultSubject = `Invoice ${invoiceNumber} from ${businessName}`;
+
+      const tpl = await getActivePlatformEmailTemplateByKey(PLATFORM_EMAIL_TEMPLATE_KEYS.invoice);
+      if (tpl) {
+        const vars = {
+          customer_name: customerName,
+          business_name: businessName,
+          invoice_number: invoiceNumber,
+          total_amount: totalAmount.toFixed(2),
+          total_amount_formatted: `$${totalAmount.toFixed(2)}`,
+          due_date: dueDate || '',
+          issue_date: issueDate,
+          description: description || '',
+          line_summary: lineSummary || '',
+          view_url: viewUrl,
+        };
+        const emailSubject =
+          substituteEmailPlaceholders((tpl.subject || '').trim(), vars).trim() || defaultSubject;
+        const bodyHtmlRaw = (tpl.body_html || '').trim();
+        const bodyTextRaw = tpl.body_text || '';
+        let emailHtml: string;
+        if (bodyHtmlRaw) {
+          emailHtml = substituteEmailPlaceholders(bodyHtmlRaw, vars);
+        } else if (bodyTextRaw) {
+          emailHtml = plainTextToEmailHtml(substituteEmailPlaceholders(bodyTextRaw, vars));
+        } else {
+          emailHtml = '';
+        }
+        if (emailHtml) {
+          if (!this.resendClient) {
+            console.log('[Email] Invoice (template, Resend not configured):', to, invoiceNumber);
+            return true;
+          }
+          const { error } = await this.resendClient.emails.send({
+            from: process.env.RESEND_FROM_EMAIL || 'noreply@yourdomain.com',
+            to: [to],
+            subject: emailSubject,
+            html: emailHtml,
+          });
+          if (error) {
+            console.error('Resend error (invoice template):', error);
+            return false;
+          }
+          return true;
+        }
+      }
+
+      const emailSubject = defaultSubject;
 
       const emailHtml = `
         <!DOCTYPE html>
@@ -370,7 +423,53 @@ export class EmailService {
       const dateStr = scheduledDate ? new Date(scheduledDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : 'TBD';
       const timeStr = scheduledTime ? (String(scheduledTime).includes(':') ? String(scheduledTime).slice(0, 5) : String(scheduledTime)) : '';
 
-      const emailSubject = `Booking Confirmed - ${businessName}`;
+      const defaultSubject = `Booking Confirmed - ${businessName}`;
+
+      const tpl = await getActivePlatformEmailTemplateByKey(PLATFORM_EMAIL_TEMPLATE_KEYS.bookingConfirmation);
+      if (tpl) {
+        const vars = {
+          customer_name: customerName,
+          business_name: businessName,
+          service: service || '',
+          date: dateStr,
+          time: timeStr,
+          address: address || '',
+          total_price: Number(totalPrice || 0).toFixed(2),
+          total_price_formatted: `$${Number(totalPrice || 0).toFixed(2)}`,
+          booking_ref: bookingRef,
+        };
+        const emailSubject =
+          substituteEmailPlaceholders((tpl.subject || '').trim(), vars).trim() || defaultSubject;
+        const bodyHtmlRaw = (tpl.body_html || '').trim();
+        const bodyTextRaw = tpl.body_text || '';
+        let emailHtml: string;
+        if (bodyHtmlRaw) {
+          emailHtml = substituteEmailPlaceholders(bodyHtmlRaw, vars);
+        } else if (bodyTextRaw) {
+          emailHtml = plainTextToEmailHtml(substituteEmailPlaceholders(bodyTextRaw, vars));
+        } else {
+          emailHtml = '';
+        }
+        if (emailHtml) {
+          if (!this.resendClient) {
+            console.log('[Email] Booking confirmation (template, Resend not configured):', to, bookingRef);
+            return true;
+          }
+          const { error } = await this.resendClient.emails.send({
+            from: process.env.RESEND_FROM_EMAIL || 'noreply@yourdomain.com',
+            to: [to],
+            subject: emailSubject,
+            html: emailHtml,
+          });
+          if (error) {
+            console.error('Booking confirmation email error (template):', error);
+            return false;
+          }
+          return true;
+        }
+      }
+
+      const emailSubject = defaultSubject;
       const emailHtml = `
         <!DOCTYPE html>
         <html>

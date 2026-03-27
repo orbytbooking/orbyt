@@ -56,7 +56,24 @@ export async function GET(request: NextRequest) {
     }
 
     if (!businessId) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+      const { data: superAdminRow } = await supabase
+        .from('super_admins')
+        .select('user_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      const isSuperAdmin = !!superAdminRow;
+      return NextResponse.json(
+        {
+          success: false,
+          code: 'NO_BUSINESS',
+          is_super_admin: isSuperAdmin,
+          error: isSuperAdmin
+            ? 'This login is your platform Super Admin account. It is not linked to a tenant business, so the business dashboard cannot load. Use Super Admin for platform work, or sign out and sign in with your business owner account for this dashboard.'
+            : 'No business is linked to this account. Complete onboarding or sign in with a business owner account.',
+        },
+        { status: 404 }
+      );
     }
 
     // Get current date and previous month for comparisons (using UTC for consistency)

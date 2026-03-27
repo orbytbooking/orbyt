@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
+import { getPlatformPlanLimitsForBusiness } from '@/lib/platform-billing/resolvePlanLimits';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,8 +17,28 @@ const locationSchema = z.object({
   longitude: z.number().optional(),
   address: z.string().optional(),
   active: z.boolean().default(true),
-  business_id: z.string()
+  business_id: z.string(),
+  drawn_shape_json: z.unknown().nullable().optional(),
+  excluded_provider_ids: z.array(z.string()).optional(),
 });
+
+function toLocationInsertRow(
+  v: z.infer<typeof locationSchema>
+): Record<string, unknown> {
+  return {
+    business_id: v.business_id,
+    name: v.name,
+    city: v.city ?? null,
+    state: v.state ?? null,
+    postal_code: v.postalCode ?? null,
+    latitude: v.latitude ?? null,
+    longitude: v.longitude ?? null,
+    address: v.address ?? null,
+    active: v.active,
+    drawn_shape_json: v.drawn_shape_json ?? null,
+    excluded_provider_ids: v.excluded_provider_ids ?? [],
+  };
+}
 
 // Get all locations for a business (uses service role; no auth required so server-side fetch works)
 export async function GET(request: NextRequest) {
@@ -53,9 +74,35 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const validatedData = locationSchema.parse(body);
 
+    const limits = await getPlatformPlanLimitsForBusiness(supabase, validatedData.business_id);
+    const maxCalendars = limits.max_calendars;
+    if (maxCalendars !== null && maxCalendars >= 0) {
+      const { count, error: countError } = await supabase
+        .from('locations')
+        .select('*', { count: 'exact', head: true })
+        .eq('business_id', validatedData.business_id);
+
+      if (countError) {
+        console.error('Location limit count error:', countError);
+      } else {
+        const current = count ?? 0;
+        if (current >= maxCalendars) {
+          return NextResponse.json(
+            {
+              error: `Your plan allows up to ${maxCalendars} location${maxCalendars === 1 ? '' : 's'} (calendars). Upgrade your plan or remove a location to add another.`,
+              code: 'PLAN_LOCATION_LIMIT',
+              max_calendars: maxCalendars,
+              current,
+            },
+            { status: 403 }
+          );
+        }
+      }
+    }
+
     const { data: location, error } = await supabase
       .from('locations')
-      .insert([validatedData])
+      .insert([toLocationInsertRow(validatedData)])
       .select()
       .single();
 

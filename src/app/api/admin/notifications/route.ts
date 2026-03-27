@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import {
+  mergeAdminNotificationsWithPlatformAnnouncements,
+  markAllVisiblePlatformAnnouncementsReadForUser,
+  platformViewerKindFromUser,
+} from '@/lib/platform-announcement-notifications';
 
 async function getBusinessId(supabase: ReturnType<typeof createClient>, userId: string) {
   const { data: business, error } = await supabase
@@ -60,14 +65,25 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    const viewer = platformViewerKindFromUser(user);
+    const merged = await mergeAdminNotificationsWithPlatformAnnouncements(
+      supabase,
+      user.id,
+      viewer,
+      notifications || []
+    );
+
     return NextResponse.json({
-      notifications: (notifications || []).map((n) => ({
+      notifications: merged.map((n) => ({
         id: n.id,
         title: n.title,
-        description: n.description ?? '',
-        read: !!n.read,
+        description: n.description,
+        read: n.read,
         created_at: n.created_at,
-        link: typeof (n as { link?: string }).link === 'string' ? (n as { link: string }).link : null,
+        link: n.link,
+        source: n.source,
+        level: n.level ?? null,
+        audience: n.audience ?? null,
       })),
     });
   } catch (err) {
@@ -110,6 +126,9 @@ export async function PATCH(request: NextRequest) {
       console.error('Error marking admin notifications read:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    const viewer = platformViewerKindFromUser(user);
+    await markAllVisiblePlatformAnnouncementsReadForUser(supabase, user.id, viewer);
 
     return NextResponse.json({ ok: true });
   } catch (err) {
@@ -205,6 +224,9 @@ export async function DELETE(request: NextRequest) {
       console.error('Error clearing admin notifications:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    const viewer = platformViewerKindFromUser(user);
+    await markAllVisiblePlatformAnnouncementsReadForUser(supabase, user.id, viewer);
 
     return NextResponse.json({ ok: true });
   } catch (err) {

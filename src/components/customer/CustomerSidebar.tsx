@@ -18,6 +18,8 @@ import {
   CircleOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PlatformNotificationBell } from "@/components/notifications/PlatformNotificationBell";
+import { getSupabaseCustomerClient } from "@/lib/supabaseCustomerClient";
 
 type NavItem = {
   label: string;
@@ -76,9 +78,22 @@ export const CustomerSidebar = ({ customerName, customerEmail, initials, busines
 
   return (
     <aside className="order-2 bg-background/90 border-t border-border px-6 py-6 lg:order-1 lg:border-t-0 lg:border-r lg:min-h-screen flex flex-col">
-      <div className="mb-6">
-        <p className="text-sm font-bold uppercase tracking-[0.4em] text-foreground">{businessName}</p>
-        <p className="text-sm text-muted-foreground">Customer Portal</p>
+      <div className="mb-6 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-bold uppercase tracking-[0.4em] text-foreground">{businessName}</p>
+          <p className="text-sm text-muted-foreground">Customer Portal</p>
+        </div>
+        <PlatformNotificationBell
+          apiBase="/api/customer/notifications"
+          getAuthHeaders={async () => {
+            const {
+              data: { session },
+            } = await getSupabaseCustomerClient().auth.getSession();
+            if (!session?.access_token) return undefined;
+            return { Authorization: `Bearer ${session.access_token}` };
+          }}
+          variant="muted"
+        />
       </div>
       <nav className="flex flex-row gap-2 overflow-x-auto pb-4 lg:flex-col lg:gap-3 lg:pb-6 flex-1">
         {customerNavItems.map((item) => {

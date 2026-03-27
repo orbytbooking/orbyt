@@ -1,10 +1,35 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { TENANT_AUTH_STORAGE_KEY } from '@/lib/auth-storage-keys'
+import { SUPER_ADMIN_AUTH_STORAGE_KEY } from '@/lib/supabase-super-admin'
+
+/** Keep rotated session cookies when returning a redirect (otherwise refresh tokens are dropped and the next request looks logged out). */
+function redirectWithSupabaseCookies(from: NextResponse, to: NextResponse) {
+  from.cookies.getAll().forEach((c) => {
+    to.cookies.set(c.name, c.value, c)
+  })
+  return to
+}
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   })
+
+  /** Merge cookie writes from both default and Super Admin Supabase clients into one response. */
+  function sharedSetAll(
+    cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]
+  ) {
+    cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
+    const newResponse = NextResponse.next({ request })
+    supabaseResponse.cookies.getAll().forEach((c) => {
+      newResponse.cookies.set(c.name, c.value, c)
+    })
+    cookiesToSet.forEach(({ name, value, options }) =>
+      newResponse.cookies.set(name, value, options)
+    )
+    supabaseResponse = newResponse
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,15 +39,32 @@ export async function proxy(request: NextRequest) {
         getAll() {
           return request.cookies.getAll()
         },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
-          supabaseResponse = NextResponse.next({
-            request,
-          })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          )
+        setAll: sharedSetAll,
+      },
+      cookieOptions: {
+        name: TENANT_AUTH_STORAGE_KEY,
+        path: '/',
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+      },
+    }
+  )
+
+  const supabaseSuperAdmin = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
         },
+        setAll: sharedSetAll,
+      },
+      cookieOptions: {
+        name: SUPER_ADMIN_AUTH_STORAGE_KEY,
+        path: '/',
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
       },
     }
   )
@@ -30,6 +72,14 @@ export async function proxy(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser()
+
+  const path = request.nextUrl.pathname
+  if (
+    path.startsWith('/super-admin') ||
+    path.startsWith('/api/super-admin')
+  ) {
+    await supabaseSuperAdmin.auth.getUser()
+  }
 
   // IMPORTANT: DO NOT REMOVE THE FOLLOWING LINE!
   // This is required for the middleware to work properly
@@ -51,13 +101,13 @@ export async function proxy(request: NextRequest) {
   // If user is not signed in and trying to access admin routes, redirect to /auth/login
   if (!user && isAdminRoute && !request.nextUrl.pathname.startsWith('/_next') && !request.nextUrl.pathname.startsWith('/api')) {
     url.pathname = '/auth/login'
-    return NextResponse.redirect(url)
+    return redirectWithSupabaseCookies(supabaseResponse, NextResponse.redirect(url))
   }
 
   // If user is signed in and the current path is /auth/*, redirect to /admin
   if (user && request.nextUrl.pathname.startsWith('/auth')) {
     url.pathname = '/admin'
-    return NextResponse.redirect(url)
+    return redirectWithSupabaseCookies(supabaseResponse, NextResponse.redirect(url))
   }
 
   return supabaseResponse

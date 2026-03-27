@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createBrowserClient } from '@supabase/ssr';
+import { TENANT_AUTH_STORAGE_KEY } from '@/lib/auth-storage-keys';
 
 // Environment variables
 const supabaseUrl: string = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -13,7 +14,15 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // Browser client - handles cookies automatically using SSR helpers
 export const supabase = createBrowserClient(
   supabaseUrl,
-  supabaseAnonKey
+  supabaseAnonKey,
+  {
+    cookieOptions: {
+      name: TENANT_AUTH_STORAGE_KEY,
+      path: '/',
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+    },
+  }
 );
 
 // Server-side admin client for API routes

@@ -1,13 +1,17 @@
 'use client';
 import { useState } from 'react';
 import React from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabaseClient';
 import { FiUser, FiMail, FiPhone, FiBriefcase, FiMapPin, FiCheck, FiArrowRight, FiArrowLeft, FiStar, FiCheckCircle } from 'react-icons/fi';
 import { FaBusinessTime, FaClipboardList, FaCrown } from 'react-icons/fa';
 import { GiCommercialAirplane } from 'react-icons/gi';
 import Image from 'next/image';
+import { EmbeddedPlatformCheckoutDialog } from '@/components/billing/EmbeddedPlatformCheckoutDialog';
+
+const stripeEmbeddedEnabled =
+  typeof process !== 'undefined' && Boolean(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim());
 
 const steps = [
   { title: 'Personal Info', icon: <FiUser className="w-5 h-5" /> },
@@ -19,6 +23,7 @@ const steps = [
 
 export default function Onboarding() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -35,6 +40,79 @@ export default function Onboarding() {
     plan: 'starter',
   });
   const [signupCredentials, setSignupCredentials] = useState<{email: string, password: string} | null>(null);
+  const [existingPendingBusiness, setExistingPendingBusiness] = useState<{ id: string; plan: string } | null>(null);
+  /** Payment cancelled after pending registration — retry Stripe without signing in */
+  const [pendingRetryId, setPendingRetryId] = useState<string | null>(null);
+  const [pendingRetryPlan, setPendingRetryPlan] = useState('starter');
+  const [embeddedCheckoutSecret, setEmbeddedCheckoutSecret] = useState<string | null>(null);
+  const [embeddedCheckoutOpen, setEmbeddedCheckoutOpen] = useState(false);
+
+  const redirectToStripeCheckout = async (businessId: string, planSlug: string) => {
+    const origin = window.location.origin;
+    const checkoutRes = await fetch(`${origin}/api/platform/billing/create-checkout`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        businessId,
+        planSlug,
+        embedded: stripeEmbeddedEnabled,
+        successUrl: `${origin}/admin/dashboard?welcome=1&platform_sub=success`,
+        cancelUrl: `${origin}/auth/onboarding?payment=cancel`,
+      }),
+    });
+    const checkoutJson = await checkoutRes.json().catch(() => ({}));
+    if (!checkoutRes.ok) {
+      const j = checkoutJson as { error?: string; details?: string };
+      const detail = j.details ? ` ${j.details}` : "";
+      throw new Error(
+        (j.error || "Could not start secure checkout. Configure Stripe Price IDs (price_...) in .env and restart the dev server.") + detail
+      );
+    }
+    const j = checkoutJson as { url?: string; clientSecret?: string };
+    if (stripeEmbeddedEnabled && j.clientSecret) {
+      setEmbeddedCheckoutSecret(j.clientSecret);
+      setEmbeddedCheckoutOpen(true);
+      return;
+    }
+    const url = j.url;
+    if (!url) {
+      throw new Error('Checkout did not return a checkout link. Please try again.');
+    }
+    window.location.href = url;
+  };
+
+  const redirectToStripeCheckoutPending = async (pendingId: string, planSlug: string) => {
+    const origin = window.location.origin;
+    const checkoutRes = await fetch(`${origin}/api/platform/billing/create-checkout-pending`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pendingId,
+        planSlug,
+        embedded: stripeEmbeddedEnabled,
+      }),
+    });
+    const checkoutJson = await checkoutRes.json().catch(() => ({}));
+    if (!checkoutRes.ok) {
+      const j = checkoutJson as { error?: string; details?: string };
+      const detail = j.details ? ` ${j.details}` : '';
+      throw new Error(
+        (j.error || 'Could not start secure checkout. Configure Stripe Price IDs (price_...) in .env.') + detail
+      );
+    }
+    const j = checkoutJson as { url?: string; clientSecret?: string };
+    if (stripeEmbeddedEnabled && j.clientSecret) {
+      setEmbeddedCheckoutSecret(j.clientSecret);
+      setEmbeddedCheckoutOpen(true);
+      return;
+    }
+    const url = j.url;
+    if (!url) {
+      throw new Error('Checkout did not return a checkout link. Please try again.');
+    }
+    window.location.href = url;
+  };
 
   // Check authentication on component mount
   React.useEffect(() => {
@@ -43,9 +121,19 @@ export default function Onboarding() {
         // Check if coming from signup with credentials
         const signupEmail = sessionStorage.getItem('signup_email');
         const signupPassword = sessionStorage.getItem('signup_password');
+
+        const urlPending = searchParams.get('pending');
+        const paymentState = searchParams.get('payment');
+        if (urlPending && paymentState === 'cancel') {
+          setPendingRetryId(urlPending);
+          const storedPlan = sessionStorage.getItem('pending_owner_plan');
+          if (storedPlan) setPendingRetryPlan(storedPlan);
+          setAuthChecked(true);
+          return;
+        }
         
         if (signupEmail && signupPassword) {
-          // New signup flow - no account created yet
+          // New signup flow — auth user is created only after successful Stripe payment
           setSignupCredentials({ email: signupEmail, password: signupPassword });
           setForm(prev => ({
             ...prev,
@@ -65,7 +153,7 @@ export default function Onboarding() {
         // Check if user has already completed onboarding by looking for their business
         const { data: existingBusiness, error: businessError } = await supabase
           .from('businesses')
-          .select('id')
+          .select('id, plan, is_active')
           .eq('owner_id', user.id)
           .single();
         
@@ -77,8 +165,19 @@ export default function Onboarding() {
         }
         
         if (existingBusiness?.id) {
-          // User already completed onboarding, redirect to dashboard
-          router.push('/admin/dashboard');
+          const isActive = (existingBusiness as { is_active?: boolean | null }).is_active === true;
+          if (isActive) {
+            // User already completed onboarding + payment
+            router.push('/admin/dashboard');
+            return;
+          }
+
+          // Payment pending: keep user in onboarding and let them retry checkout
+          const pending = existingBusiness as { id: string; plan?: string | null };
+          const pendingPlan = (pending.plan ?? 'starter').toString().toLowerCase();
+          setExistingPendingBusiness({ id: pending.id, plan: pendingPlan });
+          setError('Payment is still pending. Complete Stripe checkout to activate your account.');
+          setAuthChecked(true);
           return;
         }
         
@@ -102,7 +201,16 @@ export default function Onboarding() {
     };
 
     checkAuth();
-  }, [router]);
+  }, [router, searchParams]);
+
+  React.useEffect(() => {
+    const payment = searchParams.get('payment');
+    if (payment === 'cancel') {
+      setError('Payment was cancelled. Complete checkout to activate your account.');
+    } else if (payment === 'pending') {
+      setError('Your account is pending payment. Please complete Stripe checkout.');
+    }
+  }, [searchParams]);
 
   // Don't render until auth is checked
   if (!authChecked) {
@@ -135,47 +243,62 @@ export default function Onboarding() {
     setError('');
     
     try {
+      if (pendingRetryId) {
+        await redirectToStripeCheckoutPending(pendingRetryId, pendingRetryPlan);
+        return;
+      }
+
+      // Existing owner with pending payment: retry checkout only (do not create duplicate account/business)
+      if (existingPendingBusiness && !signupCredentials) {
+        await redirectToStripeCheckout(existingPendingBusiness.id, existingPendingBusiness.plan);
+        return;
+      }
+
       // Validate required fields
       if (!form.fullName || !form.businessName || !form.businessCategory) {
         throw new Error('Please fill in all required fields');
       }
 
-      let userId: string;
-      
-      // Check if this is a new signup (credentials stored in state)
+      // New signup: no Supabase auth user until Stripe payment succeeds (webhook creates user + business)
       if (signupCredentials) {
-        console.log('Creating new account with email:', signupCredentials.email);
-        
-        // Create the account now with all the onboarding data
-        const { data: authData, error: signUpError } = await supabase.auth.signUp({ 
-          email: signupCredentials.email, 
-          password: signupCredentials.password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/admin/dashboard`,
-            data: {
-              full_name: form.fullName,
+        const origin = window.location.origin;
+        const regRes = await fetch(`${origin}/api/auth/pending-owner-register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: signupCredentials.email,
+            password: signupCredentials.password,
+            payload: {
+              fullName: form.fullName,
               phone: form.phone,
-              signup_stage: 'completed',
-              role: 'owner'
-            }
-          }
+              businessName: form.businessName,
+              businessAddress: form.businessAddress || null,
+              businessCategory: form.businessCategory,
+              plan: form.plan,
+            },
+          }),
         });
-        
-        if (signUpError) throw signUpError;
-        if (!authData.user) throw new Error('Failed to create user account');
-        
-        userId = authData.user.id;
-        console.log('Account created successfully:', userId);
-        
-        // Clear the stored credentials
+        const regJson = await regRes.json().catch(() => ({}));
+        if (!regRes.ok) {
+          throw new Error(
+            (regJson as { error?: string }).error || 'Could not save onboarding. Try again.'
+          );
+        }
+        const pendingId = (regJson as { pendingId?: string }).pendingId;
+        if (!pendingId) {
+          throw new Error('Server did not return a pending registration id.');
+        }
         sessionStorage.removeItem('signup_email');
         sessionStorage.removeItem('signup_password');
-      } else {
-        // Existing flow - user already authenticated
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error('User not authenticated');
-        userId = user.id;
+        sessionStorage.setItem('pending_owner_id', pendingId);
+        sessionStorage.setItem('pending_owner_plan', form.plan);
+        await redirectToStripeCheckoutPending(pendingId, form.plan);
+        return;
       }
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+      const userId = user.id;
       
       console.log('Creating business with data:', {
         name: form.businessName,
@@ -183,7 +306,7 @@ export default function Onboarding() {
         category: form.businessCategory,
         owner_id: userId,
         plan: form.plan,
-        is_active: true
+        is_active: false
       });
       
       // Create business
@@ -194,7 +317,8 @@ export default function Onboarding() {
           address: form.businessAddress || null,
           category: form.businessCategory,
           owner_id: userId,
-          plan: form.plan
+          plan: form.plan,
+          is_active: false
         }])
         .select()
         .single();
@@ -207,10 +331,10 @@ export default function Onboarding() {
       
       console.log('Business created successfully:', businessData);
       
-      // Update user metadata to mark onboarding complete
+      // Mark onboarding state as payment pending; it becomes complete after successful Stripe payment.
       const { error: metadataError } = await supabase.auth.updateUser({
         data: {
-          signup_stage: 'completed',
+          signup_stage: 'payment_pending',
           business_id: businessData.id,
           full_name: form.fullName,
           phone: form.phone,
@@ -226,10 +350,28 @@ export default function Onboarding() {
       // Store current business in localStorage for context
       localStorage.setItem('currentBusinessId', businessData.id);
       
-      console.log('Onboarding completed successfully, redirecting to dashboard');
-      
-      // Success - account is now fully created in database
-      router.push('/admin/dashboard');
+      console.log('Onboarding completed successfully, syncing platform subscription');
+
+      // Keep platform_subscriptions in sync with businesses.plan (required for Stripe + dashboard)
+      const ensureRes = await fetch(`${window.location.origin}/api/platform/billing/ensure-subscription`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          businessId: businessData.id,
+          planSlug: form.plan,
+        }),
+      });
+      if (!ensureRes.ok) {
+        const j = await ensureRes.json().catch(() => ({}));
+        throw new Error(
+          (j as { error?: string }).error || 'Could not set up your subscription record. Please try again.'
+        );
+      }
+
+      // All tiers require payment. Redirect to Stripe Checkout and only allow dashboard after webhook activation.
+      await redirectToStripeCheckout(businessData.id, form.plan);
+      return;
       
     } catch (err: any) {
       console.error('Onboarding error:', err);
@@ -518,6 +660,10 @@ export default function Onboarding() {
             >
               <h3 className="text-2xl font-bold text-gray-900">Choose Your Plan</h3>
               <p className="text-gray-500">Select the plan that fits your business needs</p>
+              <p className="text-sm text-gray-600 mt-3 max-w-2xl mx-auto">
+                After your business is created, you&apos;ll complete secure <strong>Stripe</strong> checkout for the plan you chose
+                (Starter <strong>$19</strong>/mo, Growth <strong>$49</strong>/mo, Premium <strong>$110</strong>/mo). Same billing as Settings → Account → Plans.
+              </p>
             </motion.div>
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
@@ -525,46 +671,39 @@ export default function Onboarding() {
                 { 
                   id: 'starter', 
                   name: 'Starter', 
-                  price: 0, 
+                  price: 19, 
                   popular: false,
-                  description: 'Perfect for small businesses getting started',
+                  description: 'Solo or small crew. Get in Orbyt without the bloat.',
                   features: [
-                    'Up to 100 bookings/month',
-                    'Basic features',
-                    'Email support',
-                    '1 user account',
-                    'Basic reporting'
-                  ] 
-                },
-                { 
-                  id: 'pro', 
-                  name: 'Professional', 
-                  price: 29, 
-                  popular: true,
-                  description: 'For growing businesses with more needs',
-                  features: [
+                    'Core scheduling & calendar',
                     'Unlimited bookings',
-                    'All starter features',
-                    'Priority support',
-                    'Up to 5 user accounts',
-                    'Advanced reporting',
-                    'Email & phone support'
+                    'Email support',
                   ] 
                 },
                 { 
-                  id: 'enterprise', 
-                  name: 'Enterprise', 
-                  price: 99, 
-                  popular: false,
-                  description: 'For large businesses with custom needs',
+                  id: 'growth', 
+                  name: 'Growth', 
+                  price: 49, 
+                  popular: true,
+                  description: 'Bigger team, more automation. The loop gets smarter.',
                   features: [
-                    'All professional features',
-                    '24/7 priority support',
-                    'Unlimited user accounts',
-                    'Custom solutions',
-                    'Dedicated account manager',
+                    'Advanced scheduling & routing',
+                    'Unlimited bookings',
+                    'Email & chat support',
+                    'Custom branding',
+                  ] 
+                },
+                { 
+                  id: 'premium', 
+                  name: 'Premium', 
+                  price: 110, 
+                  popular: false,
+                  description: 'Full Orbyt. API, priority support, no limits.',
+                  features: [
+                    'Everything in Growth',
+                    'Unlimited bookings',
+                    'Priority support',
                     'API access',
-                    'Custom integrations'
                   ] 
                 },
               ].map((plan) => (
@@ -572,7 +711,7 @@ export default function Onboarding() {
                   key={plan.id}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 + (0.1 * ['starter', 'pro', 'enterprise'].indexOf(plan.id)) }}
+                  transition={{ delay: 0.2 + (0.1 * ['starter', 'growth', 'premium'].indexOf(plan.id)) }}
                   className={`relative rounded-xl border-2 overflow-hidden transition-all duration-200 ${
                     form.plan === plan.id 
                       ? 'border-blue-500 shadow-lg scale-[1.02]' 
@@ -607,12 +746,12 @@ export default function Onboarding() {
                     
                     <div className="mt-4">
                       <div className="flex items-baseline">
-                        <span className="text-3xl font-extrabold text-gray-900">
-                          {plan.price === 0 ? 'Free' : `$${plan.price}`}
+                        <span className="text-3xl font-extrabold text-blue-600">
+                          ${plan.price}
                         </span>
-                        {plan.price > 0 && <span className="ml-1 text-gray-500">/month</span>}
+                        <span className="ml-1 text-gray-500">/month</span>
                       </div>
-                      <p className="text-xs text-gray-500 mt-1">Billed annually or ${plan.price * 1.2} month-to-month</p>
+                      <p className="text-xs text-gray-500 mt-1">Billed monthly via Stripe</p>
                     </div>
                     
                     <ul className="mt-6 space-y-3">
@@ -744,13 +883,13 @@ export default function Onboarding() {
                     <div className="opacity-90">
                       <p className="font-medium capitalize">
                         {form.plan === 'starter' ? 'Starter' : 
-                         form.plan === 'pro' ? 'Professional' : 'Enterprise'}
+                         form.plan === 'growth' ? 'Growth' : 'Premium'}
                       </p>
                     </div>
                     <div className="opacity-75 text-xs">
                       <p>
-                        {form.plan === 'starter' ? 'Free' : 
-                         form.plan === 'pro' ? '$29/mo' : '$99/mo'}
+                        {form.plan === 'starter' ? '$19/mo' : 
+                         form.plan === 'growth' ? '$49/mo' : '$110/mo'}
                       </p>
                     </div>
                   </div>
@@ -853,15 +992,15 @@ export default function Onboarding() {
                           <div>
                             <h5 className="font-bold text-sm text-gray-900 capitalize">
                               {form.plan === 'starter' ? 'Starter' : 
-                               form.plan === 'pro' ? 'Professional' : 'Enterprise'}
+                               form.plan === 'growth' ? 'Growth' : 'Premium'}
                             </h5>
                             <p className="text-base font-bold text-orange-600">
-                              {form.plan === 'starter' ? 'Free' : 
-                               form.plan === 'pro' ? '$29' : '$99'}
+                              {form.plan === 'starter' ? '$19' : 
+                               form.plan === 'growth' ? '$49' : '$110'}
                               <span className="text-xs font-normal text-gray-500">/month</span>
                             </p>
                           </div>
-                          {form.plan === 'pro' && (
+                          {form.plan === 'growth' && (
                             <div className="bg-orange-100 text-orange-600 px-2 py-1 rounded-full text-xs font-medium">
                               POPULAR
                             </div>
@@ -877,23 +1016,51 @@ export default function Onboarding() {
                                   <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                   </svg>
-                                  Up to 100 bookings/mo
+                                  Core scheduling &amp; calendar
                                 </div>
-                                <div className="flex items-center">
-                                  <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                  </svg>
-                                  Basic features
-                                </div>
-                              </>
-                            )}
-                            {form.plan === 'pro' && (
-                              <>
                                 <div className="flex items-center">
                                   <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                   </svg>
                                   Unlimited bookings
+                                </div>
+                                <div className="flex items-center">
+                                  <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  Email support
+                                </div>
+                              </>
+                            )}
+                            {form.plan === 'growth' && (
+                              <>
+                                <div className="flex items-center">
+                                  <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  Advanced scheduling &amp; routing
+                                </div>
+                                <div className="flex items-center">
+                                  <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  Email &amp; chat support
+                                </div>
+                                <div className="flex items-center">
+                                  <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  Custom branding
+                                </div>
+                              </>
+                            )}
+                            {form.plan === 'premium' && (
+                              <>
+                                <div className="flex items-center">
+                                  <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  Everything in Growth
                                 </div>
                                 <div className="flex items-center">
                                   <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -905,29 +1072,7 @@ export default function Onboarding() {
                                   <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                   </svg>
-                                  Up to 5 users
-                                </div>
-                              </>
-                            )}
-                            {form.plan === 'enterprise' && (
-                              <>
-                                <div className="flex items-center">
-                                  <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                  </svg>
-                                  All features
-                                </div>
-                                <div className="flex items-center">
-                                  <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                  </svg>
-                                  24/7 support
-                                </div>
-                                <div className="flex items-center">
-                                  <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                  </svg>
-                                  Custom solutions
+                                  API access
                                 </div>
                               </>
                             )}
@@ -1000,6 +1145,33 @@ export default function Onboarding() {
           </div>
           <p className="mt-3 text-lg text-gray-600">Let's set up your business account in just a few steps</p>
         </div>
+
+        {pendingRetryId && (
+          <div className="mb-8 p-4 bg-amber-50 border border-amber-200 rounded-xl text-left max-w-2xl mx-auto">
+            <p className="text-sm text-amber-900 font-medium">Payment was cancelled</p>
+            <p className="text-sm text-amber-800 mt-1">
+              Your Orbyt account is created only after a successful payment. Continue to Stripe to finish setup.
+            </p>
+            <button
+              type="button"
+              onClick={async () => {
+                setLoading(true);
+                setError('');
+                try {
+                  await redirectToStripeCheckoutPending(pendingRetryId, pendingRetryPlan);
+                } catch (e: unknown) {
+                  setError(e instanceof Error ? e.message : 'Checkout failed');
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              disabled={loading}
+              className="mt-3 px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-60"
+            >
+              {loading ? 'Opening checkout…' : 'Continue to secure checkout'}
+            </button>
+          </div>
+        )}
         
         {/* Progress Steps */}
         <div className="mb-12 relative">
@@ -1113,6 +1285,15 @@ export default function Onboarding() {
           </p>
         </div>
       </div>
+
+      <EmbeddedPlatformCheckoutDialog
+        open={embeddedCheckoutOpen}
+        onOpenChange={(open) => {
+          setEmbeddedCheckoutOpen(open);
+          if (!open) setEmbeddedCheckoutSecret(null);
+        }}
+        clientSecret={embeddedCheckoutSecret}
+      />
     </div>
   );
 }

@@ -93,6 +93,17 @@ export default function LoginPage() {
           return;
         }
 
+        // Owner has a business but payment not completed/activated yet.
+        if (business && userRole === 'owner' && business.is_active !== true) {
+          toast({
+            title: "Payment Required",
+            description: "Complete your Stripe subscription checkout to activate your account.",
+            variant: "destructive",
+          });
+          window.location.href = "/auth/onboarding?payment=pending";
+          return;
+        }
+
         // For providers, always allow access to their dashboard
         if (businessError) {
           console.warn('Business query warning:', businessError);

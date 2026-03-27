@@ -1195,7 +1195,7 @@ export default function Home() {
               </div>
             </motion.div>
 
-            {/* Pro Plan */}
+            {/* Premium Plan */}
             <motion.div
               className="rounded-3xl bg-white/95 p-6 sm:p-8 shadow-lg shadow-slate-200/60 flex flex-col h-full border border-white/80 cursor-default"
               variants={scrollReveal}
@@ -1329,7 +1329,7 @@ export default function Home() {
             <div>
               <h4 className="font-semibold mb-2 text-sm">What about onboarding & support?</h4>
               <p className="text-sm text-muted-foreground">
-                Starter includes email support, Growth adds chat support and setup guidance, and Pro includes priority support and strategy calls.
+                Starter includes email support, Growth adds chat support and setup guidance, and Premium includes priority support and strategy calls.
               </p>
             </div>
           </motion.div>

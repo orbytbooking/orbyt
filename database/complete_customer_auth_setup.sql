@@ -65,11 +65,14 @@ DECLARE
 BEGIN
   -- Only proceed if the user has role 'customer' in metadata
   IF NEW.raw_user_meta_data->>'role' = 'customer' THEN
-    -- Get the first active business
     SELECT id INTO default_business_id
     FROM public.businesses
     WHERE is_active = true
     LIMIT 1;
+
+    IF default_business_id IS NULL THEN
+      RETURN NEW;
+    END IF;
 
     -- Only insert if customer doesn't already exist
     IF NOT EXISTS (SELECT 1 FROM public.customers WHERE auth_user_id = NEW.id) THEN

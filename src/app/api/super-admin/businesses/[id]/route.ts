@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSuperAdminUser, getAuthenticatedUser, createServiceRoleClient, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import { requireSuperAdminGate } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,21 +7,14 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getSuperAdminUser();
-  if (!user) {
-    const authUser = await getAuthenticatedUser();
-    if (!authUser) return createUnauthorizedResponse();
-    return createForbiddenResponse('Not a super admin');
-  }
+  const gate = await requireSuperAdminGate();
+  if (!gate.ok) return gate.response;
+
+  const { admin } = gate;
 
   const { id: businessId } = await params;
   if (!businessId) {
     return NextResponse.json({ error: 'Business ID required' }, { status: 400 });
-  }
-
-  const admin = createServiceRoleClient();
-  if (!admin) {
-    return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
   }
 
   try {
@@ -55,10 +48,16 @@ export async function GET(
       }
     }
 
-    const [{ count: bookingsCount }, { count: providersCount }, { count: customersCount }] = await Promise.all([
+    const [
+      { count: bookingsCount },
+      { count: providersCount },
+      { count: customersCount },
+      { count: teamProfilesCount },
+    ] = await Promise.all([
       admin.from('bookings').select('id', { count: 'exact', head: true }).eq('business_id', businessId),
       admin.from('service_providers').select('id', { count: 'exact', head: true }).eq('business_id', businessId),
       admin.from('customers').select('id', { count: 'exact', head: true }).eq('business_id', businessId),
+      admin.from('profiles').select('id', { count: 'exact', head: true }).eq('business_id', businessId),
     ]);
 
     let storageUsedBytes = 0;
@@ -89,12 +88,32 @@ export async function GET(
       .limit(10);
 
     // Subscription & billing (platform_subscriptions, platform_subscription_plans, platform_payments)
-    let subscription: { planName: string; planSlug: string; status: string; amountCents: number; currentPeriodStart?: string; currentPeriodEnd?: string } | null = null;
+    let subscription: {
+      planName: string;
+      planSlug: string;
+      status: string;
+      amountCents: number;
+      currentPeriodStart?: string;
+      currentPeriodEnd?: string;
+      stripeCustomerId?: string | null;
+      stripeSubscriptionId?: string | null;
+    } | null = null;
     let recentSubscriptionPayments: { paid_at: string; amount_cents: number; description?: string }[] = [];
+    let paymentIssueCounts = { failed: 0, refunded: 0, pending: 0 };
+    let recentPlatformPayments:
+      | {
+          id?: string;
+          paid_at: string;
+          amount_cents: number;
+          description?: string;
+          status: string;
+          plan_slug?: string | null;
+        }[]
+      | [] = [];
     try {
       const { data: subRow } = await admin
         .from('platform_subscriptions')
-        .select('id, plan_id, status, current_period_start, current_period_end')
+        .select('id, plan_id, status, current_period_start, current_period_end, stripe_customer_id, stripe_subscription_id')
         .eq('business_id', businessId)
         .maybeSingle();
       if (subRow) {
@@ -112,6 +131,8 @@ export async function GET(
           amountCents: plan?.amount_cents ?? 0,
           currentPeriodStart: (subRow as { current_period_start?: string }).current_period_start ?? undefined,
           currentPeriodEnd: (subRow as { current_period_end?: string }).current_period_end ?? undefined,
+          stripeCustomerId: (subRow as { stripe_customer_id?: string | null }).stripe_customer_id ?? null,
+          stripeSubscriptionId: (subRow as { stripe_subscription_id?: string | null }).stripe_subscription_id ?? null,
         };
       }
       const { data: paymentRows } = await admin
@@ -126,6 +147,42 @@ export async function GET(
         amount_cents: p.amount_cents,
         description: p.description,
       }));
+
+      // Payment health + recent billing events (includes failed / pending / refunded)
+      const { data: paymentEventRows } = await admin
+        .from('platform_payments')
+        .select('id, paid_at, amount_cents, description, status, plan_slug')
+        .eq('business_id', businessId)
+        .order('paid_at', { ascending: false })
+        .limit(10);
+
+      const events = (paymentEventRows ?? []) as {
+        id?: string;
+        paid_at: string;
+        amount_cents: number;
+        description?: string;
+        status: string;
+        plan_slug?: string | null;
+      }[];
+
+      recentPlatformPayments = events.map((p) => ({
+        id: p.id,
+        paid_at: p.paid_at,
+        amount_cents: p.amount_cents,
+        description: p.description,
+        status: p.status,
+        plan_slug: p.plan_slug ?? null,
+      }));
+
+      paymentIssueCounts = events.reduce(
+        (acc, row) => {
+          if (row.status === 'failed') acc.failed += 1;
+          if (row.status === 'pending') acc.pending += 1;
+          if (row.status === 'refunded') acc.refunded += 1;
+          return acc;
+        },
+        { failed: 0, refunded: 0, pending: 0 }
+      );
     } catch (_) {
       // Non-fatal: subscription tables may not exist
     }
@@ -133,6 +190,9 @@ export async function GET(
     const planSlugForStorage = (subscription?.planSlug ?? (business.plan as string) ?? 'starter').toString().toLowerCase();
     const STORAGE_LIMIT_BYTES: Record<string, number> = {
       starter: 1 * 1024 * 1024 * 1024,
+      growth: 10 * 1024 * 1024 * 1024,
+      premium: 100 * 1024 * 1024 * 1024,
+      // legacy slugs
       pro: 10 * 1024 * 1024 * 1024,
       enterprise: 100 * 1024 * 1024 * 1024,
     };
@@ -148,6 +208,8 @@ export async function GET(
         bookings: bookingsCount ?? 0,
         providers: providersCount ?? 0,
         customers: customersCount ?? 0,
+        /** Profiles linked to this business (team / app users). */
+        team_profiles: teamProfilesCount ?? 0,
       },
       storageUsedBytes,
       storageLimitBytes,
@@ -155,6 +217,8 @@ export async function GET(
       recentBookings: recentBookings ?? [],
       subscription: subscription ?? undefined,
       recentSubscriptionPayments,
+      paymentIssueCounts,
+      recentPlatformPayments,
     });
   } catch (err) {
     console.error('Super admin business detail error:', err);
@@ -167,21 +231,14 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getSuperAdminUser();
-  if (!user) {
-    const authUser = await getAuthenticatedUser();
-    if (!authUser) return createUnauthorizedResponse();
-    return createForbiddenResponse('Not a super admin');
-  }
+  const gate = await requireSuperAdminGate();
+  if (!gate.ok) return gate.response;
+
+  const { admin } = gate;
 
   const { id: businessId } = await params;
   if (!businessId) {
     return NextResponse.json({ error: 'Business ID required' }, { status: 400 });
-  }
-
-  const admin = createServiceRoleClient();
-  if (!admin) {
-    return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
   }
 
   try {
@@ -239,21 +296,14 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getSuperAdminUser();
-  if (!user) {
-    const authUser = await getAuthenticatedUser();
-    if (!authUser) return createUnauthorizedResponse();
-    return createForbiddenResponse('Not a super admin');
-  }
+  const gate = await requireSuperAdminGate();
+  if (!gate.ok) return gate.response;
+
+  const { admin } = gate;
 
   const { id: businessId } = await params;
   if (!businessId) {
     return NextResponse.json({ error: 'Business ID required' }, { status: 400 });
-  }
-
-  const admin = createServiceRoleClient();
-  if (!admin) {
-    return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
   }
 
   try {

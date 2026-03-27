@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSuperAdminUser, getAuthenticatedUser, createServiceRoleClient, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import { requireSuperAdminGate } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,17 +8,10 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getSuperAdminUser();
-  if (!user) {
-    const authUser = await getAuthenticatedUser();
-    if (!authUser) return createUnauthorizedResponse();
-    return createForbiddenResponse('Not a super admin');
-  }
+  const gate = await requireSuperAdminGate();
+  if (!gate.ok) return gate.response;
 
-  const admin = createServiceRoleClient();
-  if (!admin) {
-    return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
-  }
+  const { admin } = gate;
 
   const { id } = await params;
   if (!id) {
@@ -54,17 +47,10 @@ export async function PATCH(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getSuperAdminUser();
-  if (!user) {
-    const authUser = await getAuthenticatedUser();
-    if (!authUser) return createUnauthorizedResponse();
-    return createForbiddenResponse('Not a super admin');
-  }
+  const gate = await requireSuperAdminGate();
+  if (!gate.ok) return gate.response;
 
-  const admin = createServiceRoleClient();
-  if (!admin) {
-    return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
-  }
+  const { admin } = gate;
 
   const { id } = await params;
   if (!id) {

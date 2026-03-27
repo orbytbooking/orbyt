@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Eye, EyeOff, Lock, Mail, Shield, AlertCircle, Sparkles, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail, Shield, AlertCircle, Sparkles, ArrowRight, CheckCircle2, Info } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
+import { supabaseSuperAdmin } from '@/lib/supabase-super-admin';
 
 export default function SuperAdminLogin() {
   const [email, setEmail] = useState('');
@@ -14,15 +15,27 @@ export default function SuperAdminLogin() {
   const [error, setError] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
   const [focusedField, setFocusedField] = useState('');
+  const [activeOtherAccountEmail, setActiveOtherAccountEmail] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!mounted || !session) return;
-      const res = await fetch('/api/super-admin/me', { credentials: 'include' });
-      if (res.ok) router.replace('/super-admin/dashboard');
+      const { data: { session: saSession } } = await supabaseSuperAdmin.auth.getSession();
+      if (saSession) {
+        const res = await fetch('/api/super-admin/me', { credentials: 'include' });
+        if (!mounted) return;
+        if (res.ok) {
+          router.replace('/super-admin/dashboard');
+          return;
+        }
+        await supabaseSuperAdmin.auth.signOut();
+      }
+      if (!mounted) return;
+      const { data: { session: tenantSession } } = await supabase.auth.getSession();
+      if (tenantSession?.user?.email) {
+        setActiveOtherAccountEmail(tenantSession.user.email ?? 'this account');
+      }
     })();
     return () => { mounted = false; };
   }, [router]);
@@ -32,7 +45,7 @@ export default function SuperAdminLogin() {
     setIsLoading(true);
     setError('');
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    const { error: signInError } = await supabaseSuperAdmin.auth.signInWithPassword({ email, password });
 
     if (signInError) {
       setError(signInError.message === 'Invalid login credentials' ? 'Invalid email or password.' : signInError.message);
@@ -46,7 +59,7 @@ export default function SuperAdminLogin() {
       setTimeout(() => router.replace('/super-admin/dashboard'), 800);
       return;
     }
-    await supabase.auth.signOut();
+    await supabaseSuperAdmin.auth.signOut();
     if (res.status === 403) {
       setError('This account is not authorized as a Super Admin.');
     } else {
@@ -92,6 +105,18 @@ export default function SuperAdminLogin() {
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-6">
+              {activeOtherAccountEmail && (
+                <div className="flex gap-3 p-4 bg-emerald-500/15 border border-emerald-400/40 rounded-xl">
+                  <Info className="w-5 h-5 text-emerald-300 shrink-0 mt-0.5" />
+                  <div className="text-sm text-emerald-100 leading-relaxed">
+                    <p className="font-medium text-emerald-50 mb-1">Business session also active</p>
+                    <p className="text-emerald-100/95">
+                      You are signed in as <span className="font-semibold text-white">{activeOtherAccountEmail}</span> for the business app.
+                      Super Admin uses a <strong>separate</strong> session in this browser, so signing in here does not sign you out of the owner dashboard.
+                    </p>
+                  </div>
+                </div>
+              )}
               {error && (
                 <div className="flex items-center gap-2 p-3 bg-red-500/20 border border-red-500/50 rounded-lg animate-shake">
                   <AlertCircle className="w-4 h-4 text-red-400" />
@@ -188,12 +213,15 @@ export default function SuperAdminLogin() {
           )}
 
           {/* Info */}
-          <div className="mt-6 p-4 bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-xl">
+          <div className="mt-6 p-4 bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-xl space-y-2">
             <p className="text-xs text-blue-300 font-medium mb-1 flex items-center">
               <Sparkles className="w-3 h-3 mr-1" />
               Super Admin access:
             </p>
             <p className="text-xs text-blue-200">Sign in with a Supabase user that is listed in the super_admins table.</p>
+            <p className="text-xs text-blue-300/90 border-t border-blue-500/20 pt-2">
+              Super Admin auth is stored separately from business owner and customer logins, so you can stay signed in to both in one browser.
+            </p>
           </div>
         </div>
 
