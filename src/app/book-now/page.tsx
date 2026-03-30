@@ -945,7 +945,7 @@ function BookingPageContent() {
 
       try {
         const response = await fetch(
-          `/api/time-slots?business_id=${businessIdParam}&date=${selectedDate.toISOString().split('T')[0]}`
+          `/api/time-slots?business_id=${businessIdParam}&date=${format(selectedDate, 'yyyy-MM-dd')}`
         );
         
         if (response.ok) {
@@ -989,7 +989,7 @@ function BookingPageContent() {
 
       setProvidersLoading(true);
       try {
-        const formattedDate = selectedDate.toISOString().split('T')[0];
+        const formattedDate = format(selectedDate, 'yyyy-MM-dd');
         // Use the service ID from the selected service object, not the service name
         const serviceId = selectedService.id || selectedService.raw?.id;
         console.log('Fetching providers with params:');
@@ -1235,13 +1235,31 @@ function BookingPageContent() {
     }).catch(() => {});
   }, [searchParams]);
 
-  // When returning from payment (Stripe or Authorize.net) success, show success step
+  // When returning from payment (Stripe or Authorize.net) success, confirm then show success step.
   useEffect(() => {
-    const stripeSuccess = searchParams.get("stripe") === "success" && searchParams.get("session_id");
+    const stripeSuccess = searchParams.get("stripe") === "success";
+    const sessionId = searchParams.get("session_id");
     const authorizeNetSuccess = searchParams.get("authorize_net") === "success" && searchParams.get("booking_id");
-    if (stripeSuccess || authorizeNetSuccess) {
+    const businessId = searchParams.get("business");
+
+    if (authorizeNetSuccess) {
       setCurrentStep("success");
+      return;
     }
+
+    if (!stripeSuccess || !sessionId || !businessId) return;
+    if (paymentConfirmSentRef.current) return;
+    paymentConfirmSentRef.current = true;
+
+    fetch("/api/stripe/confirm-booking-payment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId, businessId }),
+    })
+      .catch(() => {})
+      .finally(() => {
+        setCurrentStep("success");
+      });
   }, [searchParams]);
 
   useEffect(() => {

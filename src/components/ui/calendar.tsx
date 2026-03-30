@@ -1,14 +1,26 @@
+"use client";
+
+/**
+ * Single date-picker entry for the app (customer book-now, admin, provider-facing admin tools).
+ * Do not import `DayPicker` directly elsewhere — keeps automatic IANA timezone behavior in one place.
+ */
+
 import * as React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { DayPicker } from "react-day-picker";
 
 import { cn } from "@/lib/utils";
+import { useAutoIanaTimeZone } from "@/lib/useAutoIanaTimeZone";
 
 export type CalendarProps = React.ComponentProps<typeof DayPicker>;
 
-function Calendar({ className, classNames, showOutsideDays = true, ...props }: CalendarProps) {
+function Calendar({ className, classNames, showOutsideDays = true, timeZone: timeZoneProp, ...props }: CalendarProps) {
+  const autoTimeZone = useAutoIanaTimeZone();
+  const timeZone = timeZoneProp ?? autoTimeZone;
+
   return (
     <DayPicker
+      {...(timeZone ? { timeZone } : {})}
       showOutsideDays={showOutsideDays}
       className={cn("p-5 w-full", className)}
       classNames={{

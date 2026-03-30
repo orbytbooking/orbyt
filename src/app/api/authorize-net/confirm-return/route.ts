@@ -5,7 +5,7 @@ import { EmailService } from "@/lib/emailService";
 /**
  * Called when the customer returns from Authorize.net with payment success.
  * Marks the booking as paid and sends a receipt email (same behavior as Stripe webhook).
- * Only updates if booking is pending + online to avoid abuse.
+ * Only updates when payment_status is pending (idempotent thereafter).
  */
 export async function POST(request: Request) {
   try {
@@ -48,9 +48,9 @@ export async function POST(request: Request) {
     if (b.payment_status !== "pending") {
       return NextResponse.json({ ok: true, already: true });
     }
-    if (b.payment_method !== "online") {
-      return NextResponse.json({ error: "Booking is not an online payment" }, { status: 400 });
-    }
+    // Admin “Booking Charges” may set payment_method to online only when sending the link; many rows
+    // still have payment_method 'cash' from intake until then. If we're completing hosted checkout for
+    // this booking_id, pending → paid is correct regardless of the previous method label.
     if (businessId && b.business_id !== businessId) {
       return NextResponse.json({ error: "Booking does not match business" }, { status: 400 });
     }

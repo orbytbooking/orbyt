@@ -1,6 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { ArrowLeft } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -13,79 +16,53 @@ interface ReportData {
   service: string
   status: string
   amount: number
-  customer_name: string
-  customer_email: string
-  customer_phone: string
-  payment_method?: string
   payment_status?: string
-  notes?: string
-  created_at: string
 }
 
 interface ReportsResponse {
   bookings: ReportData[]
-  summary: {
-    totalBookings: number
-    revenue: number
-    completed: number
-    cancelled: number
-  }
-  charts: {
+  summary: { totalBookings: number; revenue: number; completed: number; cancelled: number }
+  charts?: {
     revenueByDate: [string, number][]
-    statusCounts: {
-      pending: number
-      confirmed: number
-      completed: number
-      cancelled: number
-    }
+    statusCounts: { pending: number; confirmed: number; completed: number; cancelled: number }
   }
 }
 
-// Simple SVG Line Chart
 function LineChartSVG({ points, labels, width = 600, height = 220 }: { points: number[]; labels: string[]; width?: number; height?: number }) {
-  const padding = 32;
-  const max = Math.max(1, ...points);
-  const stepX = (width - padding * 2) / Math.max(1, points.length - 1);
-  const scaleY = (val: number) => height - padding - (val / max) * (height - padding * 2);
-  const d = points.map((y, i) => `${i === 0 ? 'M' : 'L'} ${padding + i * stepX} ${scaleY(y)}`).join(' ');
+  const padding = 32
+  const max = Math.max(1, ...points)
+  const stepX = (width - padding * 2) / Math.max(1, points.length - 1)
+  const scaleY = (val: number) => height - padding - (val / max) * (height - padding * 2)
+  const d = points.map((y, i) => `${i === 0 ? 'M' : 'L'} ${padding + i * stepX} ${scaleY(y)}`).join(' ')
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-[180px] sm:h-[220px]" preserveAspectRatio="xMidYMid meet">
-      <rect x="0" y="0" width={width} height={height} fill="transparent" />
-      {/* Axes */}
       <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#e5e7eb" />
       <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="#e5e7eb" />
-      {/* Path */}
       <path d={d} fill="none" stroke="#06b6d4" strokeWidth={2} />
-      {/* Points */}
-      {points.map((y, i) => (
-        <circle key={i} cx={padding + i * stepX} cy={scaleY(y)} r={3} fill="#06b6d4" />
-      ))}
-      {/* Labels */}
+      {points.map((y, i) => <circle key={i} cx={padding + i * stepX} cy={scaleY(y)} r={3} fill="#06b6d4" />)}
       {labels.map((l, i) => (
         <text key={i} x={padding + i * stepX} y={height - padding + 16} fontSize="10" textAnchor="middle" fill="#6b7280">
           {l.slice(5)}
         </text>
       ))}
     </svg>
-  );
+  )
 }
 
-// Simple SVG Bar Chart
 function BarChartSVG({ values, labels, width = 600, height = 220 }: { values: number[]; labels: string[]; width?: number; height?: number }) {
-  const padding = 32;
-  const max = Math.max(1, ...values);
-  const barWidth = (width - padding * 2) / Math.max(1, values.length);
-  const scaleY = (val: number) => (val / max) * (height - padding * 2);
+  const padding = 32
+  const max = Math.max(1, ...values)
+  const barWidth = (width - padding * 2) / Math.max(1, values.length)
+  const scaleY = (val: number) => (val / max) * (height - padding * 2)
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-[180px] sm:h-[220px]" preserveAspectRatio="xMidYMid meet">
-      <rect x="0" y="0" width={width} height={height} fill="transparent" />
       <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#e5e7eb" />
       {values.map((v, i) => {
-        const x = padding + i * barWidth + 6;
-        const h = scaleY(v);
-        const y = height - padding - h;
+        const x = padding + i * barWidth + 6
+        const h = scaleY(v)
+        const y = height - padding - h
         return (
           <g key={i}>
             <rect x={x} y={y} width={barWidth - 12} height={h} fill="#06b6d4" rx={4} />
@@ -93,323 +70,263 @@ function BarChartSVG({ values, labels, width = 600, height = 220 }: { values: nu
               {labels[i]}
             </text>
           </g>
-        );
+        )
       })}
     </svg>
-  );
+  )
+}
+
+function MetricListCard({
+  title,
+  rows,
+  actionHref,
+}: {
+  title: string
+  rows: Array<{ label: string; value: string | number; highlight?: boolean }>
+  actionHref?: string
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
+        <CardTitle className="text-base">{title}</CardTitle>
+        {actionHref ? (
+          <Button asChild variant="outline" size="sm" className="h-7 px-2 text-xs">
+            <Link href={actionHref}>Go To Reports</Link>
+          </Button>
+        ) : null}
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {rows.map((r) => (
+          <div key={r.label} className={`flex items-center justify-between text-sm ${r.highlight ? 'bg-muted px-2 py-1 rounded' : ''}`}>
+            <span className="text-muted-foreground">{r.label}</span>
+            <span className="font-medium">{r.value}</span>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
 }
 
 export default function ReportsPage() {
+  const router = useRouter()
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<'all' | 'pending' | 'confirmed' | 'completed' | 'cancelled'>('all')
   const [startDate, setStartDate] = useState<string>('')
   const [endDate, setEndDate] = useState<string>('')
+  const [industry, setIndustry] = useState<string>('all')
+  const [location, setLocation] = useState<string>('all')
   const [data, setData] = useState<ReportsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [initialLoad, setInitialLoad] = useState(true)
 
-  const fetchReports = async () => {
+  const fetchReports = useCallback(async () => {
     try {
-      if (!initialLoad) setLoading(true)
+      setLoading(true)
       setError(null)
-      
       const params = new URLSearchParams()
       if (query) params.append('query', query)
       if (status !== 'all') params.append('status', status)
       if (startDate) params.append('startDate', startDate)
       if (endDate) params.append('endDate', endDate)
-      
-      // Debug logging
-      console.log('Fetching reports with params:', {
-        query,
-        status,
-        startDate,
-        endDate,
-        paramString: params.toString()
-      })
-      
       const response = await fetch(`/api/admin/reports?${params.toString()}`)
-      if (!response.ok) {
-        throw new Error('Failed to fetch reports')
-      }
-      
+      if (!response.ok) throw new Error('Failed to fetch reports')
       const result = await response.json()
-      if (result.success) {
-        console.log('Reports data received:', result.data)
-        setData(result.data)
-      } else {
-        throw new Error(result.error || 'Unknown error')
-      }
+      if (!result.success) throw new Error(result.error || 'Unknown error')
+      setData(result.data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred')
-      console.error('Reports fetch error:', err)
     } finally {
       setLoading(false)
-      if (initialLoad) setInitialLoad(false)
     }
-  }
+  }, [query, status, startDate, endDate])
 
   useEffect(() => {
     fetchReports()
-  }, [])
+  }, [fetchReports])
 
-  useEffect(() => {
-    // Debounced search
-    const timer = setTimeout(() => {
-      fetchReports()
-    }, 300)
-    
-    return () => clearTimeout(timer)
-  }, [query, status, startDate, endDate])
+  const bookings = data?.bookings ?? []
+  const totals = data?.summary ?? { totalBookings: 0, revenue: 0, completed: 0, cancelled: 0 }
 
-  const filtered = useMemo(() => {
-    if (!data) return []
-    return data.bookings
-  }, [data])
+  const paymentStats = useMemo(() => {
+    const paid = bookings.filter((b) => b.payment_status === 'paid').reduce((s, b) => s + (b.amount || 0), 0)
+    const pending = bookings.filter((b) => b.payment_status !== 'paid').reduce((s, b) => s + (b.amount || 0), 0)
+    return { paid, pending }
+  }, [bookings])
 
-  const totals = useMemo(() => {
-    if (!data) return { totalBookings: 0, completed: 0, cancelled: 0, revenue: 0 }
-    return data.summary
-  }, [data])
-
-  // Build series for charts from API data
-  const revenueByDate = useMemo(() => {
-    if (!data) return []
-    return data.charts.revenueByDate
-  }, [data])
-
-  const statusCounts = useMemo(() => {
-    if (!data) return []
-    const keys = ['pending', 'confirmed', 'completed', 'cancelled'] as const;
-    return keys.map((k) => ({ label: k, value: data.charts.statusCounts[k] }));
-  }, [data])
-
-  const exportCSV = () => {
-    if (!data) return
-    
-    // Create proper CSV format that Excel opens without warnings
-    const headers = ['Booking ID', 'Customer Name', 'Customer Email', 'Customer Phone', 'Scheduled Date', 'Created Date', 'Service', 'Status', 'Amount']
-    
-    let csvContent = headers.join(',') + '\n'
-    
-    data.bookings.forEach(booking => {
-      csvContent += [
-        `"${booking.id}"`,
-        `"${booking.customer_name || 'N/A'}"`,
-        `"${booking.customer_email || 'N/A'}"`,
-        `"${booking.customer_phone || 'N/A'}"`,
-        `"${booking.scheduled_date || 'N/A'}"`,
-        `"${booking.created_at?.split('T')[0] || 'N/A'}"`,
-        `"${booking.service}"`,
-        `"${booking.status}"`,
-        `"${booking.amount.toFixed(2)}"`
-      ].join(',') + '\n'
-    })
-    
-    // Add UTF-8 BOM for Excel compatibility
-    const BOM = '\uFEFF'
-    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8' })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `reports-${new Date().toISOString().split('T')[0]}.csv`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    window.URL.revokeObjectURL(url)
-  }
-
-  if (loading && initialLoad) {
-    return (
-      <div className="space-y-6 px-3 sm:px-0 min-w-0">
-        <div className="text-center py-8">
-          <div className="text-sm sm:text-base text-muted-foreground">Loading reports...</div>
-        </div>
-      </div>
-    )
-  }
+  const recurringCount = useMemo(
+    () => bookings.filter((b) => String(b.service || '').toLowerCase().includes('recurr')).length,
+    [bookings]
+  )
+  const oneTimeCount = Math.max(0, totals.totalBookings - recurringCount)
+  const revenueByDate = data?.charts?.revenueByDate ?? []
+  const recurringRevenue = useMemo(
+    () =>
+      bookings
+        .filter((b) => String(b.service || '').toLowerCase().includes('recurr'))
+        .reduce((sum, b) => sum + (b.amount || 0), 0),
+    [bookings]
+  )
+  const oneTimeRevenue = useMemo(
+    () =>
+      bookings
+        .filter((b) => !String(b.service || '').toLowerCase().includes('recurr'))
+        .reduce((sum, b) => sum + (b.amount || 0), 0),
+    [bookings]
+  )
+  const moneyBreakdown = useMemo(
+    () => [
+      { label: 'Paid', value: paymentStats.paid },
+      { label: 'Pending', value: paymentStats.pending },
+      { label: 'Recurring', value: recurringRevenue },
+      { label: 'One time', value: oneTimeRevenue },
+    ],
+    [paymentStats.paid, paymentStats.pending, recurringRevenue, oneTimeRevenue]
+  )
 
   if (error) {
     return (
-      <div className="space-y-6 px-3 sm:px-0 min-w-0">
-        <div className="text-center py-8 px-2">
-          <div className="text-sm sm:text-base text-red-600 break-words">Error: {error}</div>
-          <Button onClick={fetchReports} className="mt-4 text-sm">Retry</Button>
-        </div>
-      </div>
-    )
-  }
-
-  if (!data) {
-    return (
-      <div className="space-y-6 px-3 sm:px-0 min-w-0">
-        <div className="text-center py-8">
-          <div className="text-sm sm:text-base text-muted-foreground">No data available</div>
-        </div>
+      <div className="space-y-4">
+        <div className="text-red-600 text-sm">{error}</div>
+        <Button onClick={fetchReports}>Retry</Button>
       </div>
     )
   }
 
   return (
-    <div className="space-y-4 sm:space-y-6 px-3 sm:px-0 min-w-0 max-w-full">
-      {/* Filters: stack on mobile, row on larger screens */}
-      <div className="flex flex-col gap-4 min-w-0">
-        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:justify-between sm:items-end">
-          <div className="flex flex-col sm:flex-row flex-1 gap-3 sm:items-end w-full sm:max-w-none min-w-0">
-            <div className="w-full min-w-0 sm:flex-1 sm:max-w-sm">
-              <Input placeholder="Search reports..." value={query} onChange={(e) => setQuery(e.target.value)} className="w-full min-w-0 text-sm sm:text-base" />
-            </div>
-            <Select value={status} onValueChange={(v) => setStatus(v as any)}>
-              <SelectTrigger className="w-full sm:w-40 text-sm sm:text-base min-w-0">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-sm sm:text-base">All Status</SelectItem>
-                <SelectItem value="pending" className="text-sm sm:text-base">Pending</SelectItem>
-                <SelectItem value="confirmed" className="text-sm sm:text-base">Confirmed</SelectItem>
-                <SelectItem value="completed" className="text-sm sm:text-base">Completed</SelectItem>
-                <SelectItem value="cancelled" className="text-sm sm:text-base">Cancelled</SelectItem>
-              </SelectContent>
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <Button variant="outline" size="sm" className="h-8 px-2.5" onClick={() => router.back()}>
+          <ArrowLeft className="h-4 w-4 mr-1.5" />
+          Back
+        </Button>
+        <h1 className="text-2xl font-bold">Reports dashboard</h1>
+      </div>
+
+      <Card>
+        <CardContent className="pt-6 space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            <Select value={industry} onValueChange={setIndustry}>
+              <SelectTrigger><SelectValue placeholder="Industry" /></SelectTrigger>
+              <SelectContent><SelectItem value="all">Industry: All</SelectItem></SelectContent>
             </Select>
-            <div className="grid grid-cols-[1fr_auto_1fr] gap-2 sm:flex sm:items-end sm:gap-3 min-w-0">
-              <div className="space-y-1 col-span-1 min-w-0">
-                <label className="text-xs sm:text-sm text-muted-foreground block">Start date</label>
-                <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full min-w-0 text-sm sm:text-base" />
-              </div>
-              <span className="pb-2 text-xs sm:text-sm text-muted-foreground self-end sm:flex-shrink-0">to</span>
-              <div className="space-y-1 col-span-1 min-w-0">
-                <label className="text-xs sm:text-sm text-muted-foreground block">End date</label>
-                <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full min-w-0 text-sm sm:text-base" />
-              </div>
-            </div>
+            <Select value={location} onValueChange={setLocation}>
+              <SelectTrigger><SelectValue placeholder="Locations" /></SelectTrigger>
+              <SelectContent><SelectItem value="all">Locations: All</SelectItem></SelectContent>
+            </Select>
+            <Input placeholder="Search reports" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <Button onClick={fetchReports}>Apply</Button>
           </div>
-          <Button
-            className="w-full sm:w-auto text-white shrink-0 text-sm sm:text-base"
-            style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)' }}
-            onClick={exportCSV}
-          >
-            Export CSV
-          </Button>
-        </div>
-      </div>
-
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-w-0">
-        <Card className="min-w-0 overflow-hidden">
-          <CardHeader className="pb-2 sm:pb-6">
-            <CardTitle className="text-base sm:text-lg font-semibold">Revenue Over Time</CardTitle>
-          </CardHeader>
-          <CardContent className="min-w-0">
-            <LineChartSVG
-              points={revenueByDate.map(([, v]) => v)}
-              labels={revenueByDate.map(([d]) => d)}
-            />
-          </CardContent>
-        </Card>
-        <Card className="min-w-0 overflow-hidden">
-          <CardHeader className="pb-2 sm:pb-6">
-            <CardTitle className="text-base sm:text-lg font-semibold">Status Breakdown</CardTitle>
-          </CardHeader>
-          <CardContent className="min-w-0">
-            <BarChartSVG
-              values={statusCounts.map((s) => s.value)}
-              labels={statusCounts.map((s) => s.label)}
-            />
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 min-w-0">
-        <Card className="min-w-0 overflow-hidden">
-          <CardHeader className="py-3 sm:py-6 px-3 sm:px-6">
-            <CardTitle className="text-xs sm:text-sm text-muted-foreground truncate">Total Bookings</CardTitle>
-          </CardHeader>
-          <CardContent className="pb-3 sm:pb-6 px-3 sm:px-6">
-            <div className="text-lg sm:text-2xl lg:text-3xl font-bold truncate" title={String(totals.totalBookings)}>{totals.totalBookings}</div>
-          </CardContent>
-        </Card>
-        <Card className="min-w-0 overflow-hidden">
-          <CardHeader className="py-3 sm:py-6 px-3 sm:px-6">
-            <CardTitle className="text-xs sm:text-sm text-muted-foreground truncate">Revenue</CardTitle>
-          </CardHeader>
-          <CardContent className="pb-3 sm:pb-6 px-3 sm:px-6">
-            <div className="text-lg sm:text-2xl lg:text-3xl font-bold truncate" title={`$${totals.revenue.toLocaleString()}`}>${totals.revenue.toLocaleString()}</div>
-          </CardContent>
-        </Card>
-        <Card className="min-w-0 overflow-hidden">
-          <CardHeader className="py-3 sm:py-6 px-3 sm:px-6">
-            <CardTitle className="text-xs sm:text-sm text-muted-foreground truncate">Completed</CardTitle>
-          </CardHeader>
-          <CardContent className="pb-3 sm:pb-6 px-3 sm:px-6">
-            <div className="text-lg sm:text-2xl lg:text-3xl font-bold truncate" title={String(totals.completed)}>{totals.completed}</div>
-          </CardContent>
-        </Card>
-        <Card className="min-w-0 overflow-hidden">
-          <CardHeader className="py-3 sm:py-6 px-3 sm:px-6">
-            <CardTitle className="text-xs sm:text-sm text-muted-foreground truncate">Cancelled</CardTitle>
-          </CardHeader>
-          <CardContent className="pb-3 sm:pb-6 px-3 sm:px-6">
-            <div className="text-lg sm:text-2xl lg:text-3xl font-bold truncate" title={String(totals.cancelled)}>{totals.cancelled}</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="min-w-0 overflow-hidden">
-        <CardHeader className="px-3 py-3 sm:px-6 sm:py-6">
-          <CardTitle className="text-base sm:text-lg font-semibold truncate">Report Details ({filtered.length})</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0 md:p-6 min-w-0">
-          {/* Mobile: card list */}
-          <div className="md:hidden divide-y divide-border">
-            {filtered.map((r) => (
-              <div key={r.id} className="p-3 sm:p-4 space-y-2 min-w-0">
-                <div className="flex justify-between items-start gap-2 min-w-0">
-                  <span className="text-sm sm:text-base font-medium truncate min-w-0" title={r.customer_name || 'N/A'}>{r.customer_name || 'N/A'}</span>
-                  <span className="text-sm sm:text-base font-medium shrink-0">${r.amount.toFixed(2)}</span>
-                </div>
-                <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs sm:text-sm text-muted-foreground min-w-0">
-                  <span className="shrink-0">Scheduled</span>
-                  <span className="truncate min-w-0" title={r.scheduled_date || 'N/A'}>{r.scheduled_date || 'N/A'}</span>
-                  <span className="shrink-0">Created</span>
-                  <span className="truncate min-w-0" title={r.created_at?.split('T')[0] || 'N/A'}>{r.created_at?.split('T')[0] || 'N/A'}</span>
-                  <span className="shrink-0">Service</span>
-                  <span className="truncate min-w-0" title={r.service}>{r.service}</span>
-                  <span className="shrink-0">Status</span>
-                  <span className="capitalize truncate min-w-0">{r.status}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-          {/* Desktop: table */}
-          <div className="hidden md:block overflow-x-auto min-w-0">
-            <table className="w-full min-w-0">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left py-3 px-3 lg:px-4 text-xs sm:text-sm font-medium text-muted-foreground">Customer Name</th>
-                  <th className="text-left py-3 px-3 lg:px-4 text-xs sm:text-sm font-medium text-muted-foreground">Scheduled Date</th>
-                  <th className="text-left py-3 px-3 lg:px-4 text-xs sm:text-sm font-medium text-muted-foreground">Created Date</th>
-                  <th className="text-left py-3 px-3 lg:px-4 text-xs sm:text-sm font-medium text-muted-foreground">Service</th>
-                  <th className="text-left py-3 px-3 lg:px-4 text-xs sm:text-sm font-medium text-muted-foreground">Status</th>
-                  <th className="text-right py-3 px-3 lg:px-4 text-xs sm:text-sm font-medium text-muted-foreground">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((r) => (
-                  <tr key={r.id} className="border-b border-border">
-                    <td className="py-3 px-3 lg:px-4 text-xs sm:text-sm font-medium max-w-[120px] lg:max-w-none truncate" title={r.customer_name || 'N/A'}>{r.customer_name || 'N/A'}</td>
-                    <td className="py-3 px-3 lg:px-4 text-xs sm:text-sm whitespace-nowrap">{r.scheduled_date || 'N/A'}</td>
-                    <td className="py-3 px-3 lg:px-4 text-xs sm:text-sm whitespace-nowrap">{r.created_at?.split('T')[0] || 'N/A'}</td>
-                    <td className="py-3 px-3 lg:px-4 text-xs sm:text-sm max-w-[100px] lg:max-w-none truncate" title={r.service}>{r.service}</td>
-                    <td className="py-3 px-3 lg:px-4 text-xs sm:text-sm capitalize">{r.status}</td>
-                    <td className="py-3 px-3 lg:px-4 text-xs sm:text-sm font-medium text-right whitespace-nowrap">${r.amount.toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="text-sm">
+            Report for date: <span className="font-medium">{startDate || '—'} to {endDate || '—'}</span>
           </div>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Popular reports</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <MetricListCard
+            title="Revenue"
+            actionHref="/admin/reports/revenue"
+            rows={[
+              { label: 'Total', value: `$${totals.revenue.toFixed(2)}` },
+              { label: 'Billed total revenue', value: `$${totals.revenue.toFixed(2)}` },
+              { label: 'Pending payments', value: `$${paymentStats.pending.toFixed(2)}` },
+              { label: 'Recurring', value: recurringCount, highlight: true },
+              { label: 'One time', value: oneTimeCount },
+            ]}
+          />
+          <MetricListCard
+            title="Bookings"
+            actionHref="/admin/reports/revenue"
+            rows={[
+              { label: 'Total', value: totals.totalBookings },
+              { label: 'Recurring', value: recurringCount, highlight: true },
+              { label: 'Weekly', value: bookings.filter((b) => String(b.service).toLowerCase().includes('week')).length },
+              { label: 'One time', value: oneTimeCount },
+            ]}
+          />
+          <MetricListCard
+            title="Payments"
+            actionHref="/admin/reports/revenue"
+            rows={[
+              { label: 'Total', value: `$${totals.revenue.toFixed(2)}` },
+              { label: 'Total paid amount', value: `$${paymentStats.paid.toFixed(2)}` },
+              { label: 'Pending payments', value: `$${paymentStats.pending.toFixed(2)}` },
+              { label: 'Bookings', value: `$${totals.revenue.toFixed(2)}`, highlight: true },
+              { label: 'Custom invoices', value: '$0.00' },
+            ]}
+          />
+          <MetricListCard
+            title="Referrals"
+            rows={[
+              { label: 'Completed referrals', value: 0 },
+              { label: 'Booked', value: 0 },
+              { label: 'Invited', value: 0 },
+              { label: 'Registered', value: 0 },
+            ]}
+          />
+          <MetricListCard
+            title="Trends"
+            rows={[
+              {
+                label: 'Revenue per booking',
+                value: totals.totalBookings > 0 ? `$${(totals.revenue / totals.totalBookings).toFixed(2)}` : '$0.00',
+              },
+              { label: 'Recurring', value: `$${bookings.filter((b) => String(b.service).toLowerCase().includes('recurr')).reduce((s, b) => s + b.amount, 0).toFixed(2)}`, highlight: true },
+              { label: 'One time', value: `$${bookings.filter((b) => !String(b.service).toLowerCase().includes('recurr')).reduce((s, b) => s + b.amount, 0).toFixed(2)}` },
+            ]}
+          />
+          <MetricListCard
+            title="Ratings"
+            rows={[
+              { label: '0/5 out of 0', value: '' },
+              { label: '5 star', value: '0%' },
+              { label: '4 star', value: '0%' },
+              { label: '3 star', value: '0%' },
+              { label: '2 star', value: '0%' },
+              { label: '1 star', value: '0%' },
+            ]}
+          />
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="pb-2 sm:pb-6">
+            <CardTitle className="text-base sm:text-lg font-semibold">Revenue Over Time</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <LineChartSVG points={revenueByDate.map(([, v]) => v)} labels={revenueByDate.map(([d]) => d)} />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2 sm:pb-6">
+            <CardTitle className="text-base sm:text-lg font-semibold">Revenue Breakdown</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <BarChartSVG values={moneyBreakdown.map((s) => s.value)} labels={moneyBreakdown.map((s) => s.label)} />
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>More reports</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Button variant="outline">Cancellation reports</Button>
+          <Button variant="outline">Services</Button>
+          <Button variant="outline">Busiest slowest time</Button>
+          <Button variant="outline">Customer details</Button>
+        </CardContent>
+      </Card>
+
+      {loading ? <div className="text-sm text-muted-foreground">Loading…</div> : null}
     </div>
   )
 }

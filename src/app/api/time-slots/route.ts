@@ -8,6 +8,7 @@ import {
   getReserveSlotSettings,
   getBookingCountByTimeForDate,
   getDayNameFromDate,
+  getCalendarDayOfWeek,
   normalizeTimeToHHmm,
 } from '@/lib/schedulingFilters';
 
@@ -92,10 +93,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ timeSlots: filtered });
     }
 
-    // Get the day of week from the date (0 = Sunday, 1 = Monday, etc.)
+    // Calendar weekday for YYYY-MM-DD (avoid Date.parse UTC/local mismatch)
     let dayOfWeek = new Date().getDay(); // Default to today
     if (date) {
-      dayOfWeek = new Date(date).getDay();
+      dayOfWeek = getCalendarDayOfWeek(date);
     }
 
     // Fetch provider availability for the given day of week and business

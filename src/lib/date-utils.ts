@@ -1,6 +1,11 @@
 /**
- * Timezone-aware date utility functions
- * Ensures consistent date handling across all calendars in the system
+ * Timezone-aware date utility helpers (YYYY-MM-DD, local calendar math).
+ *
+ * **Popovers / date pickers:** Import `Calendar` from `@/components/ui/calendar` only — it wires
+ * `react-day-picker` with an automatic IANA zone after mount (customer, provider, and admin flows).
+ *
+ * **Custom month grids** (e.g. bookings dashboard, provider availability) use the browser’s local
+ * `Date` for layout, which matches that same automatic zone for display.
  */
 
 /**

@@ -611,6 +611,85 @@ export class EmailService {
   }
 
   /**
+   * Send secure payment link for an existing booking (Booking Charges → pay online).
+   */
+  async sendPaymentLinkEmail(data: {
+    to: string;
+    customerName: string;
+    businessName: string;
+    service: string | null;
+    amount: number;
+    bookingRef: string;
+    paymentUrl: string;
+  }): Promise<boolean> {
+    try {
+      const { to, customerName, businessName, service, amount, bookingRef, paymentUrl } = data;
+      const emailSubject = `Pay for your service — ${businessName}`;
+      const emailHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Complete your payment</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #00BCD4 0%, #0097A7 100%); color: white; padding: 28px; border-radius: 10px 10px 0 0; text-align: center; }
+            .content { background: #f8f9fa; padding: 28px; border-radius: 0 0 10px 10px; }
+            .button { display: inline-block; background: #00BCD4; color: white !important; padding: 14px 28px; text-decoration: none; border-radius: 6px; margin: 20px 0; font-weight: 600; }
+            .amount { font-size: 22px; font-weight: bold; color: #0097A7; margin: 16px 0; }
+            .footer { text-align: center; color: #666; margin-top: 24px; font-size: 14px; }
+            .muted { color: #666; font-size: 14px; word-break: break-all; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1 style="margin:0;font-size:22px;">Complete your payment</h1>
+              <p style="margin:8px 0 0;opacity:0.95;">${bookingRef}</p>
+            </div>
+            <div class="content">
+              <p>Hi ${customerName},</p>
+              <p>${businessName} has sent you a secure link to pay for your completed service.</p>
+              <p><strong>Service:</strong> ${service || 'Service'}</p>
+              <div class="amount">Amount due: $${Number(amount || 0).toFixed(2)}</div>
+              <div style="text-align: center;">
+                <a href="${paymentUrl}" class="button">Pay securely</a>
+              </div>
+              <p class="muted">If the button doesn’t work, copy and paste this link into your browser:<br>${paymentUrl}</p>
+              <p>Thank you,<br>The ${businessName} Team</p>
+            </div>
+            <div class="footer">
+              <p>This is an automated message. Please do not reply to this email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      if (!this.resendClient) {
+        console.warn('[Email] Payment link not sent — RESEND_API_KEY is not set:', to, bookingRef);
+        return false;
+      }
+      const { error } = await this.resendClient.emails.send({
+        from: process.env.RESEND_FROM_EMAIL || 'noreply@yourdomain.com',
+        to: [to],
+        subject: emailSubject,
+        html: emailHtml,
+      });
+      if (error) {
+        console.error('Payment link email error:', error);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.error('sendPaymentLinkEmail error:', e);
+      return false;
+    }
+  }
+
+  /**
    * Send "never found provider" email when all providers decline or none available
    */
   async sendNeverFoundProviderEmail(data: {

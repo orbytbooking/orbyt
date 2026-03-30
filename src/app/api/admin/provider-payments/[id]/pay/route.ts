@@ -23,7 +23,7 @@ export async function POST(
 
     const { data: provider } = await supabase
       .from('service_providers')
-      .select('id')
+      .select('id, first_name, last_name')
       .eq('id', providerId)
       .eq('business_id', businessId)
       .single();
@@ -47,12 +47,35 @@ export async function POST(
     }
 
     const totalPaid = (updated ?? []).reduce((s: number, r: any) => s + Number(r.net_amount || 0), 0);
+    const paidCount = updated?.length ?? 0;
+
+    // Best-effort audit logging for provider payout history.
+    const providerName = `${(provider as any)?.first_name || ''} ${(provider as any)?.last_name || ''}`.trim();
+    const { error: logError } = await supabase
+      .from('provider_payment_logs')
+      .insert({
+        business_id: businessId,
+        provider_id: providerId,
+        earnings_count: paidCount,
+        total_amount: totalPaid,
+        payout_date: payoutDate,
+        payout_method: 'manual',
+        payout_status: 'completed',
+        notes: paidCount > 0 ? 'Marked as paid from admin provider payments page.' : 'No pending earnings to mark as paid.',
+        metadata: {
+          providerName,
+          source: 'admin_provider_payments_mark_as_paid',
+        },
+      });
+    if (logError) {
+      console.error('Provider pay log insert failed:', logError);
+    }
 
     return NextResponse.json({
       success: true,
-      count: updated?.length ?? 0,
+      count: paidCount,
       totalPaid,
-      message: `Marked ${updated?.length ?? 0} earnings as paid ($${totalPaid.toFixed(2)})`,
+      message: `Marked ${paidCount} earnings as paid ($${totalPaid.toFixed(2)})`,
     });
   } catch (e) {
     console.error('Provider pay POST:', e);

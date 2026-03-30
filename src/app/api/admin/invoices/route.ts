@@ -31,23 +31,29 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const customerId = searchParams.get('customer_id');
     const status = searchParams.get('status');
-
-    if (!customerId) {
-      return NextResponse.json({ error: 'customer_id is required' }, { status: 400 });
-    }
+    const paymentStatus = searchParams.get('payment_status');
+    const invoiceType = searchParams.get('invoice_type');
+    const dateFrom = searchParams.get('date_from');
+    const dateTo = searchParams.get('date_to');
+    const search = (searchParams.get('search') || '').trim().toLowerCase();
 
     let query = supabase
       .from('invoices')
       .select(`
         *,
-        invoice_bookings(booking_id, amount, sort_order, bookings(id, service, scheduled_date, scheduled_time, total_price, date, time)),
+        customers(id, name, email, phone),
+        invoice_bookings(booking_id, amount, sort_order, bookings(id, service, scheduled_date, scheduled_time, total_price, date, time, payment_method, card_brand, card_last4)),
         invoice_line_items(*)
       `)
       .eq('business_id', businessId)
-      .eq('customer_id', customerId)
       .order('issue_date', { ascending: false });
 
+    if (customerId) query = query.eq('customer_id', customerId);
     if (status) query = query.eq('status', status);
+    if (paymentStatus) query = query.eq('payment_status', paymentStatus);
+    if (invoiceType) query = query.eq('invoice_type', invoiceType);
+    if (dateFrom) query = query.gte('issue_date', dateFrom);
+    if (dateTo) query = query.lte('issue_date', dateTo);
 
     const { data: invoices, error } = await query;
 
@@ -56,7 +62,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ invoices: invoices ?? [] });
+    let filtered = invoices ?? [];
+    if (search) {
+      filtered = filtered.filter((inv: any) =>
+        String(inv.invoice_number ?? '').toLowerCase().includes(search) ||
+        String(inv.description ?? '').toLowerCase().includes(search) ||
+        String(inv?.customers?.name ?? '').toLowerCase().includes(search) ||
+        String(inv?.customers?.email ?? '').toLowerCase().includes(search) ||
+        String(inv?.customers?.phone ?? '').toLowerCase().includes(search)
+      );
+    }
+
+    return NextResponse.json({ invoices: filtered });
   } catch (e) {
     console.error('Invoices API error:', e);
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });

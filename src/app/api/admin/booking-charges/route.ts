@@ -1,5 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  getAuthenticatedUser,
+  createUnauthorizedResponse,
+  createForbiddenResponse,
+} from '@/lib/auth-helpers';
 
 /**
  * GET: List completed bookings for charges
@@ -7,9 +12,28 @@ import { NextRequest, NextResponse } from 'next/server';
  */
 export async function GET(request: NextRequest) {
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
+    const role = user.user_metadata?.role as string | undefined;
+    if (role === 'customer') return createForbiddenResponse('Customers cannot access this resource');
+
     const businessId = request.headers.get('x-business-id') || request.nextUrl.searchParams.get('businessId');
     if (!businessId) {
       return NextResponse.json({ error: 'Business ID required' }, { status: 400 });
+    }
+
+    const supabaseAuth = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+    const { data: owned } = await supabaseAuth
+      .from('businesses')
+      .select('id')
+      .eq('id', businessId)
+      .eq('owner_id', user.id)
+      .maybeSingle();
+    if (!owned) {
+      return createForbiddenResponse('You do not have access to this business');
     }
 
     const tab = request.nextUrl.searchParams.get('tab') || 'pending';
@@ -18,17 +42,12 @@ export async function GET(request: NextRequest) {
     const search = request.nextUrl.searchParams.get('search') || '';
     const frequency = request.nextUrl.searchParams.get('frequency') || '';
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-
-    let query = supabase
+    let query = supabaseAuth
       .from('bookings')
       .select(`
         id, service, scheduled_date, scheduled_time, total_price, customer_name,
         customer_email, customer_phone, payment_method, payment_status, status,
-        provider_name, address, apt_no, zip_code, frequency
+        provider_name, address, apt_no, zip_code, frequency, card_last4, card_brand
       `)
       .eq('business_id', businessId)
       .eq('status', 'completed')

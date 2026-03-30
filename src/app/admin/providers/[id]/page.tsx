@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/use-toast";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -15,8 +17,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight as ChevronRightIcon, Calendar as CalendarIcon, Search as SearchIcon, Mail, Phone, Star, User as UserIcon, UserMinus, UserCog, ShieldBan, ShieldCheck, BellOff, BellRing, X, Plus, Upload, File, Download, Trash2, FileText, Image as ImageIcon, FileVideo, FileAudio, FolderOpen } from "lucide-react";
+import { ChevronLeft, ChevronRight as ChevronRightIcon, Calendar as CalendarIcon, Search as SearchIcon, Mail, Phone, Star, User as UserIcon, UserMinus, UserCog, ShieldBan, ShieldCheck, BellOff, BellRing, X, Plus, Upload, File, Download, Trash2, FileText, Image as ImageIcon, FileVideo, FileAudio, FolderOpen, LogIn, Loader2, MoreHorizontal, Eye, Banknote } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { adminImpersonateProvider } from "@/lib/adminProviderImpersonation";
 import { getDayOfWeekUTC, getTodayLocalDate } from "@/lib/date-utils";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { AdminProviderDrive } from "@/components/drive/AdminProviderDrive";
@@ -76,6 +79,41 @@ type ProviderFile = {
   url?: string;
 };
 
+type AdminProviderPaymentSummary = {
+  id: string;
+  name: string;
+  email: string;
+  pendingAmount: number;
+  pendingCount: number;
+  paidAmount: number;
+  paidCount: number;
+  payoutPaused?: boolean;
+};
+
+type AdminProviderPaymentLog = {
+  id: string;
+  providerId: string;
+  providerName: string;
+  earningsCount: number;
+  totalAmount: number;
+  payoutDate: string;
+  payoutMethod: string;
+  payoutStatus: string;
+  createdAt: string;
+};
+
+type AdminProviderPaymentJob = {
+  id: string;
+  bookingId: string;
+  date: string;
+  service: string;
+  customerName: string;
+  bookingStatus: string;
+  payoutStatus: string;
+  amount: number;
+  createdAt: string;
+};
+
 export default function ProviderProfilePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -101,6 +139,7 @@ export default function ProviderProfilePage() {
   const [showDeactivateDialog, setShowDeactivateDialog] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
   const [excludeNotification, setExcludeNotification] = useState(false);
+  const [impersonateLoading, setImpersonateLoading] = useState(false);
 
   // Password strength indicator
   const getPasswordStrength = (password: string) => {
@@ -174,6 +213,8 @@ export default function ProviderProfilePage() {
     provider?: { id?: string; name: string } | null;
   };
   const [allBookings, setAllBookings] = useState<Booking[]>([]);
+  const [calendarBookingSummaryOpen, setCalendarBookingSummaryOpen] = useState(false);
+  const [selectedCalendarBooking, setSelectedCalendarBooking] = useState<Booking | null>(null);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [calView, setCalView] = useState<"month" | "week" | "day">("month");
 
@@ -220,6 +261,10 @@ export default function ProviderProfilePage() {
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string; size: number | string; uploadedAt: string } | null>(null);
   const fileUploadRef = useRef<HTMLInputElement | null>(null);
   const [isProviderStripeConnectEnabled, setIsProviderStripeConnectEnabled] = useState(false);
+  const [paymentSummary, setPaymentSummary] = useState<AdminProviderPaymentSummary | null>(null);
+  const [paymentLogs, setPaymentLogs] = useState<AdminProviderPaymentLog[]>([]);
+  const [paymentJobs, setPaymentJobs] = useState<AdminProviderPaymentJob[]>([]);
+  const [loadingPayments, setLoadingPayments] = useState(false);
 
   useEffect(() => {
     const fetchProvider = async () => {
@@ -327,6 +372,85 @@ export default function ProviderProfilePage() {
 
     fetchProviderBookings();
   }, [id, provider, currentBusiness?.id]);
+
+  // Fetch provider payments summary/logs for Payments tab.
+  useEffect(() => {
+    const fetchPayments = async () => {
+      if (!id || !currentBusiness?.id) return;
+      setLoadingPayments(true);
+      try {
+        const res = await fetch(`/api/admin/provider-payments?businessId=${encodeURIComponent(currentBusiness.id)}`, {
+          headers: { "x-business-id": currentBusiness.id },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || "Failed to fetch payment data");
+
+        const providers = Array.isArray(data?.providers) ? data.providers : [];
+        const logs = Array.isArray(data?.logs) ? data.logs : [];
+
+        const summary = providers.find((p: any) => String(p.id) === String(id)) || null;
+        const thisProviderLogs = logs.filter((l: any) => String(l.providerId) === String(id));
+
+        setPaymentSummary(summary);
+        setPaymentLogs(thisProviderLogs);
+
+        const jobsRes = await fetch(`/api/admin/provider-payments/${id}/jobs`, {
+          headers: { "x-business-id": currentBusiness.id },
+        });
+        const jobsData = await jobsRes.json().catch(() => ({}));
+        if (jobsRes.ok) {
+          setPaymentJobs(Array.isArray(jobsData?.jobs) ? jobsData.jobs : []);
+        } else {
+          setPaymentJobs([]);
+        }
+      } catch (err) {
+        console.error("Error fetching provider payment tab data:", err);
+        setPaymentSummary(null);
+        setPaymentLogs([]);
+        setPaymentJobs([]);
+      } finally {
+        setLoadingPayments(false);
+      }
+    };
+
+    fetchPayments();
+  }, [id, currentBusiness?.id]);
+
+  const handleMarkProviderPayoutPaid = async () => {
+    if (!provider || !currentBusiness?.id) return;
+    try {
+      const res = await fetch(`/api/admin/provider-payments/${provider.id}/pay`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-business-id": currentBusiness.id,
+        },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Failed to mark payout as paid");
+      toast({ title: "Payment updated", description: data?.message || "Marked provider payout as paid." });
+      // refresh tab data
+      setLoadingPayments(true);
+      const refreshRes = await fetch(`/api/admin/provider-payments?businessId=${encodeURIComponent(currentBusiness.id)}`, {
+        headers: { "x-business-id": currentBusiness.id },
+      });
+      const refreshData = await refreshRes.json().catch(() => ({}));
+      const providers = Array.isArray(refreshData?.providers) ? refreshData.providers : [];
+      const logs = Array.isArray(refreshData?.logs) ? refreshData.logs : [];
+      setPaymentSummary(providers.find((p: any) => String(p.id) === String(id)) || null);
+      setPaymentLogs(logs.filter((l: any) => String(l.providerId) === String(id)));
+      const jobsRes = await fetch(`/api/admin/provider-payments/${id}/jobs`, {
+        headers: { "x-business-id": currentBusiness.id },
+      });
+      const jobsData = await jobsRes.json().catch(() => ({}));
+      setPaymentJobs(Array.isArray(jobsData?.jobs) ? jobsData.jobs : []);
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Failed", variant: "destructive" });
+    } finally {
+      setLoadingPayments(false);
+    }
+  };
 
   // Fetch provider availability from database
   useEffect(() => {
@@ -875,6 +999,35 @@ export default function ProviderProfilePage() {
     }
   };
 
+  const handleToggleEmailNotifications = async () => {
+    if (!provider) return;
+    const nextValue = !provider.send_email_notification;
+    try {
+      const response = await fetch(`/api/admin/providers/${provider.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...provider, send_email_notification: nextValue }),
+      });
+      if (!response.ok) throw new Error('Failed');
+      setProvider({ ...provider, send_email_notification: nextValue });
+      toast({
+        title: nextValue ? "Email notifications enabled" : "Email notifications disabled",
+        description: nextValue
+          ? `${provider.name} will receive email notifications.`
+          : `${provider.name} will no longer receive email notifications.`,
+      });
+    } catch {
+      toast({ title: "Failed to update email notifications", variant: "destructive" });
+    }
+  };
+
+  const openBookingFromCalendar = (bookingId?: string) => {
+    if (!bookingId) return;
+    const booking = allBookings.find((b) => String(b.id) === String(bookingId)) || null;
+    setSelectedCalendarBooking(booking);
+    setCalendarBookingSummaryOpen(true);
+  };
+
   if (loading || !provider) {
     return (
       <div className="space-y-4">
@@ -897,6 +1050,8 @@ export default function ProviderProfilePage() {
     );
   };
 
+  const emailLooksValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(provider?.email || "").trim());
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -906,20 +1061,50 @@ export default function ProviderProfilePage() {
           </Link>
           <h2 className="text-xl font-semibold text-white">{provider.name}</h2>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={impersonateLoading || !provider.user_id}
+            onClick={async () => {
+              if (!provider.user_id) {
+                toast({
+                  title: "No portal login yet",
+                  description: "Create a login account below before opening the provider portal as this user.",
+                  variant: "destructive",
+                });
+                return;
+              }
+              setImpersonateLoading(true);
+              try {
+                const result = await adminImpersonateProvider(provider.id);
+                if (!result.ok) {
+                  toast({
+                    title: "Could not log in as provider",
+                    description: result.error,
+                    variant: "destructive",
+                  });
+                }
+              } finally {
+                setImpersonateLoading(false);
+              }
+            }}
+            className="inline-flex items-center px-3 py-2 text-sm font-medium text-purple-700 bg-purple-50 rounded-md hover:bg-purple-100 disabled:opacity-50 dark:text-purple-200 dark:bg-purple-950/50 dark:hover:bg-purple-900/40 border border-purple-200/60 dark:border-purple-800/50"
+          >
+            {impersonateLoading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <LogIn className="h-4 w-4 mr-2" />
+            )}
+            Log in as provider
+          </button>
           <Button
             variant="outline"
             className="border-cyan-500/30 text-cyan-300 hover:text-white hover:bg-cyan-500/20"
-            onClick={() => {
-              toast({
-                title: "Provider Portal Access",
-                description: `Accessing provider portal for ${provider.name}. Provider can log in at /provider/login`,
-              });
-              // In a real implementation, this could generate a magic link or open provider portal
-            }}
+            onClick={() => window.open("/provider/login", "_blank", "noopener,noreferrer")}
+            title="Open provider login in a new tab"
           >
             <UserCog className="h-4 w-4 mr-2" />
-            Provider Portal
+            Provider login page
           </Button>
         </div>
       </div>
@@ -1188,9 +1373,16 @@ export default function ProviderProfilePage() {
                                 <div className={`text-sm font-medium mb-1 ${isToday?'text-cyan-600 dark:text-cyan-400':''}`}>{day}</div>
                                 <div className="flex-1 overflow-hidden space-y-0.5">
                                   {items.slice(0,2).map(b=> (
-                                    <div key={b.id} className="text-[10px] px-1 py-0.5 rounded text-white" style={{background:'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)'}}>
+                                    <button
+                                      key={b.id}
+                                      type="button"
+                                      onClick={() => openBookingFromCalendar(b.id)}
+                                      className="w-full text-left text-[10px] px-1 py-0.5 rounded text-white hover:opacity-90 focus:outline-none focus:ring-1 focus:ring-cyan-300"
+                                      style={{background:'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)'}}
+                                      title="Open booking details"
+                                    >
                                       <div className="truncate">{b.time}</div>
-                                    </div>
+                                    </button>
                                   ))}
                                   {items.length>2 && (
                                     <div className="text-[10px] text-muted-foreground">+{items.length-2}</div>
@@ -1225,10 +1417,17 @@ export default function ProviderProfilePage() {
                               <div className="space-y-1">
                                 {items.length===0 && <div className="text-xs text-muted-foreground">No bookings</div>}
                                 {items.map(b=> (
-                                  <div key={b.id} className="text-xs p-1 rounded text-white" style={{background:'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)'}}>
+                                  <button
+                                    key={b.id}
+                                    type="button"
+                                    onClick={() => openBookingFromCalendar(b.id)}
+                                    className="w-full text-left text-xs p-1 rounded text-white hover:opacity-90 focus:outline-none focus:ring-1 focus:ring-cyan-300"
+                                    style={{background:'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)'}}
+                                    title="Open booking details"
+                                  >
                                     <div className="truncate font-medium">{b.time}</div>
                                     <div className="truncate">{b.service}</div>
-                                  </div>
+                                  </button>
                                 ))}
                               </div>
                             </div>
@@ -1244,14 +1443,20 @@ export default function ProviderProfilePage() {
                       <div className="text-sm text-muted-foreground">{items.length} booking(s) on this day</div>
                       {items.length===0 && <div className="text-sm text-muted-foreground">No bookings scheduled.</div>}
                       {items.map(b => (
-                        <div key={b.id} className="p-3 rounded-md border">
+                        <button
+                          key={b.id}
+                          type="button"
+                          onClick={() => openBookingFromCalendar(b.id)}
+                          className="w-full text-left p-3 rounded-md border hover:bg-muted/30 focus:outline-none focus:ring-2 focus:ring-cyan-300"
+                          title="Open booking details"
+                        >
                           <div className="flex items-center justify-between">
                             <div className="font-medium">{b.service}</div>
                             <div className="text-sm">{b.time}</div>
                           </div>
                           <div className="text-xs text-muted-foreground mt-1">Customer: {b.customer.name}</div>
                           {b.address && <div className="text-xs text-muted-foreground">{b.address}</div>}
-                        </div>
+                        </button>
                       ))}
                     </div>
                   );
@@ -1933,12 +2138,189 @@ export default function ProviderProfilePage() {
         </TabsContent>
 
         <TabsContent value="payments">
-          <Card>
-            <CardHeader>
-              <CardTitle>Payments</CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">No payments yet.</CardContent>
-          </Card>
+          <div className="space-y-4">
+            {!emailLooksValid ? (
+              <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 text-sm">
+                It seems that the email address under this profile is not valid. Due to this, the email will not be sent to this provider.
+                Please update a valid email address and try sending email again.
+              </div>
+            ) : null}
+
+            <Card>
+              <CardContent className="p-4">
+                <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr_220px] gap-4">
+                  <div className="rounded-md bg-muted/40 p-4 flex flex-col items-center justify-center min-h-[180px]">
+                    <UserIcon className="h-20 w-20 text-muted-foreground" />
+                    <Button variant="outline" className="mt-4 w-full" onClick={() => setActiveTab("profile")}>Edit Profile</Button>
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-3xl font-semibold">{provider?.name || "Provider"}</h3>
+                    <div className="flex items-center gap-1 text-amber-500">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <Star key={i} className={`h-4 w-4 ${i < Math.round(provider?.rating || 0) ? "fill-current" : ""}`} />
+                      ))}
+                      <span className="text-sm text-muted-foreground ml-2">{(provider?.rating || 0).toFixed(1)}/5</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">({provider?.completed_jobs || 0} Ratings)</p>
+                    <div className="space-y-1 pt-1">
+                      <p className="text-sm flex items-center gap-2"><Mail className="h-4 w-4 text-muted-foreground" /> {provider?.email || "—"}</p>
+                      <p className="text-sm flex items-center gap-2"><Phone className="h-4 w-4 text-muted-foreground" /> {provider?.phone || "—"}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Button variant="outline" className="w-full" onClick={() => setShowDeactivateDialog(true)}>
+                      Deactivate
+                    </Button>
+                    <Button variant="outline" className="w-full" onClick={toggleBlockAccess}>
+                      {provider?.access_blocked ? "Unblock Access" : "Block Access"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={handleToggleEmailNotifications}
+                    >
+                      {provider?.send_email_notification ? "Disable Email Notifications" : "Enable Email Notifications"}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {loadingPayments ? (
+              <Card>
+                <CardContent className="p-6 text-sm text-muted-foreground flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading payment summary...
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                <div className="rounded-md overflow-hidden">
+                  <div className="grid grid-cols-1 md:grid-cols-4 bg-gradient-to-r from-blue-800 to-blue-600 text-white">
+                    <div className="p-4 border-white/20 md:border-r">
+                      <p className="text-xs text-white/80">Date sent</p>
+                      <p className="text-xl font-semibold">
+                        {paymentLogs[0]?.createdAt ? new Date(paymentLogs[0].createdAt).toLocaleDateString() : "—"}
+                      </p>
+                    </div>
+                    <div className="p-4 border-white/20 md:border-r">
+                      <p className="text-xs text-white/80">Payment date(s)</p>
+                      <p className="text-xl font-semibold">
+                        {paymentLogs[0]?.payoutDate || "—"}
+                      </p>
+                    </div>
+                    <div className="p-4 border-white/20 md:border-r">
+                      <p className="text-xs text-white/80">Adjusted amount</p>
+                      <p className="text-xl font-semibold">
+                        ${Number(paymentLogs[0]?.totalAmount || paymentSummary?.pendingAmount || 0).toFixed(2)}
+                      </p>
+                    </div>
+                    <div className="p-4">
+                      <p className="text-xs text-white/80">Payment type</p>
+                      <p className="text-xl font-semibold uppercase">
+                        {paymentLogs[0]?.payoutMethod || "cash/check"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4">
+                  <Card>
+                    <CardContent className="p-0">
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead className="bg-muted/40">
+                            <tr>
+                              <th className="p-3 text-left text-sm font-semibold">Service date/payment date</th>
+                              <th className="p-3 text-left text-sm font-semibold">Customer</th>
+                              <th className="p-3 text-left text-sm font-semibold">Amount</th>
+                              <th className="p-3 text-right text-sm font-semibold">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {paymentJobs.slice(0, 12).map((job) => (
+                                <tr key={job.id} className="border-t">
+                                  <td className="p-3 text-sm">
+                                    <div>{job.date || "—"}</div>
+                                    <div className="text-muted-foreground capitalize">{job.payoutStatus || "—"}</div>
+                                  </td>
+                                  <td className="p-3 text-sm">
+                                    <div className="font-medium">{job.customerName || "Customer"}</div>
+                                    <div className="text-muted-foreground">{job.service || "Service"}</div>
+                                    <div className="text-muted-foreground">Booking: {job.bookingId || "—"}</div>
+                                  </td>
+                                  <td className="p-3 text-sm font-semibold">${Number(job.amount || 0).toFixed(2)}</td>
+                                  <td className="p-3 text-right text-sm">
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <Button size="icon" variant="ghost" className="h-8 w-8">
+                                          <MoreHorizontal className="h-4 w-4" />
+                                        </Button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent align="end">
+                                        <DropdownMenuItem onClick={() => router.push("/admin/bookings")}>
+                                          <Eye className="h-4 w-4 mr-2" />
+                                          View Booking
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem onClick={handleMarkProviderPayoutPaid}>
+                                          <Banknote className="h-4 w-4 mr-2" />
+                                          Check/Cash
+                                        </DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                  </td>
+                                </tr>
+                              ))}
+                            {paymentJobs.length === 0 ? (
+                              <tr>
+                                <td colSpan={4} className="p-4 text-sm text-muted-foreground text-center">
+                                  No jobs found yet.
+                                </td>
+                              </tr>
+                            ) : null}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardContent className="p-0">
+                      <div className="divide-y">
+                        <div className="p-4 flex items-center justify-between">
+                          <span className="text-muted-foreground">Before extras:</span>
+                          <span className="font-semibold">${Number(paymentSummary?.pendingAmount || 0).toFixed(2)}</span>
+                        </div>
+                        <div className="p-4 flex items-center justify-between">
+                          <span className="text-muted-foreground">Extras:</span>
+                          <span className="font-semibold">$0.00</span>
+                        </div>
+                        <div className="p-4 flex items-center justify-between">
+                          <span className="text-muted-foreground">Total pay:</span>
+                          <span className="font-semibold">${Number(paymentSummary?.pendingAmount || 0).toFixed(2)}</span>
+                        </div>
+                        <div className="p-4 flex items-center justify-between">
+                          <span className="text-muted-foreground">Adjusted pay:</span>
+                          <span className="font-semibold text-blue-700">${Number(paymentLogs[0]?.totalAmount || paymentSummary?.pendingAmount || 0).toFixed(2)}</span>
+                        </div>
+                        <div className="p-4">
+                          <Badge variant={paymentSummary?.payoutPaused ? "secondary" : "default"}>
+                            {paymentSummary?.payoutPaused ? "Paused" : "Active"}
+                          </Badge>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div>
+                  <Button variant="outline" onClick={() => router.push("/admin/provider-payments")}>
+                    Open Provider Payments
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
         </TabsContent>
 
         <TabsContent value="notifications">
@@ -2163,6 +2545,75 @@ export default function ProviderProfilePage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Sheet open={calendarBookingSummaryOpen} onOpenChange={setCalendarBookingSummaryOpen}>
+        <SheetContent side="right" className="w-[460px] sm:max-w-[460px] p-0 overflow-y-auto">
+          <div className="p-4 border-b">
+            <SheetHeader>
+              <SheetTitle className="text-lg">Booking summary</SheetTitle>
+            </SheetHeader>
+          </div>
+          {!selectedCalendarBooking ? (
+            <div className="p-4 text-sm text-muted-foreground">No booking selected.</div>
+          ) : (
+            <div className="space-y-3 p-4">
+              <Card>
+                <CardContent className="p-3 text-sm space-y-1">
+                  <div className="font-semibold">{selectedCalendarBooking.customer?.name || "Customer"}</div>
+                  <div className="text-muted-foreground">{selectedCalendarBooking.customer?.email || "—"}</div>
+                  <div className="text-muted-foreground">{selectedCalendarBooking.customer?.phone || "—"}</div>
+                  <div className="text-muted-foreground">{selectedCalendarBooking.address || "—"}</div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Booking details</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm space-y-2">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Booking id</span><span>{selectedCalendarBooking.id}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Service</span><span>{selectedCalendarBooking.service || "—"}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Date</span><span>{selectedCalendarBooking.date || "—"}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Time</span><span>{selectedCalendarBooking.time || "—"}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className="capitalize">{selectedCalendarBooking.status || "—"}</span></div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Price details</span>
+                    <span>{typeof selectedCalendarBooking.amount === "number" ? `$${selectedCalendarBooking.amount.toFixed(2)}` : (selectedCalendarBooking.amount || "—")}</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="space-y-2">
+                <Button
+                  className="w-full"
+                  style={{ background: "linear-gradient(135deg, #2D6BFF 0%, #2458D4 100%)" }}
+                  onClick={() => router.push(`/admin/add-booking?bookingId=${encodeURIComponent(String(selectedCalendarBooking.id))}`)}
+                >
+                  Edit
+                </Button>
+                <Button
+                  className="w-full bg-red-500 hover:bg-red-600 text-white"
+                  onClick={() => router.push(`/admin/bookings?id=${encodeURIComponent(String(selectedCalendarBooking.id))}`)}
+                >
+                  Cancel
+                </Button>
+                <Button className="w-full bg-emerald-100 hover:bg-emerald-200 text-emerald-900" onClick={() => router.push(`/admin/leads?addBooking=${encodeURIComponent(String(selectedCalendarBooking.id))}`)}>
+                  Add to leads funnel
+                </Button>
+                <Button className="w-full bg-pink-100 hover:bg-pink-200 text-pink-900" onClick={() => router.push(`/admin/bookings?id=${encodeURIComponent(String(selectedCalendarBooking.id))}`)}>
+                  Send "Add card" link
+                </Button>
+                <Button className="w-full bg-slate-100 hover:bg-slate-200 text-slate-900" onClick={() => router.push(`/admin/logs?bookingId=${encodeURIComponent(String(selectedCalendarBooking.id))}`)}>
+                  View Booking Log
+                </Button>
+                <Button className="w-full bg-cyan-100 hover:bg-cyan-200 text-cyan-900" onClick={() => router.push(`/admin/booking-charges?precharge=${encodeURIComponent(String(selectedCalendarBooking.id))}`)}>
+                  View Payment Log
+                </Button>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
 
       {/* Create login account for provider with null user_id */}
       <Dialog open={showCreateAuthDialog} onOpenChange={setShowCreateAuthDialog}>

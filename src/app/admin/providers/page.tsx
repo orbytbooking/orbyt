@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/lib/supabaseClient";
+import { adminImpersonateProvider } from "@/lib/adminProviderImpersonation";
 import { useBusiness } from "@/contexts/BusinessContext";
 import {
   UserCog,
@@ -37,6 +38,8 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  LogIn,
+  Loader2,
 } from "lucide-react";
 
 const PROVIDERS_STORAGE_KEY = "adminProviders";
@@ -53,66 +56,9 @@ type Provider = {
   completedJobs: number;
   status: ProviderStatus;
   joinedDate: string;
+  /** Linked Supabase auth user — required for “Log in as provider” */
+  userId: string | null;
 };
-
-// Mock data - replace with real API calls
-const defaultProviders: Provider[] = [
-  {
-    id: "PRV001",
-    name: "John Smith",
-    email: "john.smith@example.com",
-    phone: "+1 (555) 123-4567",
-    specialization: "Deep Cleaning",
-    rating: 4.8,
-    completedJobs: 156,
-    status: "active",
-    joinedDate: "2024-01-15",
-  },
-  {
-    id: "PRV002",
-    name: "Sarah Johnson",
-    email: "sarah.j@example.com",
-    phone: "+1 (555) 234-5678",
-    specialization: "Office Cleaning",
-    rating: 4.9,
-    completedJobs: 203,
-    status: "active",
-    joinedDate: "2023-11-20",
-  },
-  {
-    id: "PRV003",
-    name: "Michael Brown",
-    email: "m.brown@example.com",
-    phone: "+1 (555) 345-6789",
-    specialization: "Carpet Cleaning",
-    rating: 4.7,
-    completedJobs: 128,
-    status: "active",
-    joinedDate: "2024-02-10",
-  },
-  {
-    id: "PRV004",
-    name: "Emily Davis",
-    email: "emily.d@example.com",
-    phone: "+1 (555) 456-7890",
-    specialization: "Move In/Out",
-    rating: 4.6,
-    completedJobs: 95,
-    status: "inactive",
-    joinedDate: "2024-03-05",
-  },
-  {
-    id: "PRV005",
-    name: "David Wilson",
-    email: "d.wilson@example.com",
-    phone: "+1 (555) 567-8901",
-    specialization: "Standard Cleaning",
-    rating: 4.9,
-    completedJobs: 187,
-    status: "active",
-    joinedDate: "2023-12-01",
-  },
-];
 
 const getStatusBadge = (status: string) => {
   const styles = {
@@ -146,6 +92,7 @@ const ProvidersPage = () => {
   const [showInactive, setShowInactive] = useState(false);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
+  const [impersonateProviderId, setImpersonateProviderId] = useState<string | null>(null);
   const { toast } = useToast();
   const { currentBusiness, loading: businessLoading } = useBusiness();
 
@@ -195,13 +142,26 @@ const ProvidersPage = () => {
           setProviders([]); // Empty array on error
         } else {
           // Transform database data to match Provider interface
-          const transformedProviders: Provider[] = providersData.map(p => ({
+          const transformedProviders: Provider[] = providersData.map((p: {
+            id: string;
+            user_id?: string | null;
+            first_name: string;
+            last_name: string;
+            email: string;
+            phone?: string | null;
+            specialization?: string | null;
+            rating?: string | number | null;
+            completed_jobs?: number | null;
+            status: string;
+            created_at?: string | null;
+          }) => ({
             id: p.id,
+            userId: p.user_id ?? null,
             name: `${p.first_name} ${p.last_name}`,
             email: p.email,
             phone: p.phone || '+1 (555) 000-0000',
             specialization: p.specialization || 'General Services',
-            rating: parseFloat(p.rating) || 0,
+            rating: parseFloat(String(p.rating ?? 0)) || 0,
             completedJobs: p.completed_jobs || 0,
             status: p.status as ProviderStatus,
             joinedDate: p.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
@@ -228,6 +188,32 @@ const ProvidersPage = () => {
       provider.specialization.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const handleImpersonateProvider = useCallback(
+    async (provider: Provider) => {
+      if (!provider.userId) {
+        toast({
+          title: "No portal login",
+          description: `Create a login account for ${provider.name} on their profile page first.`,
+          variant: "destructive",
+        });
+        return;
+      }
+      setImpersonateProviderId(provider.id);
+      try {
+        const result = await adminImpersonateProvider(provider.id);
+        if (!result.ok) {
+          toast({
+            title: "Could not log in as provider",
+            description: result.error,
+            variant: "destructive",
+          });
+        }
+      } finally {
+        setImpersonateProviderId(null);
+      }
+    },
+    [toast]
+  );
 
   const activeCount = providers.filter((p) => p.status === "active").length;
   const stats = [
@@ -293,8 +279,10 @@ const ProvidersPage = () => {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <CardTitle>Service Providers</CardTitle>
-              <div className="text-sm text-muted-foreground">
-                Manage providers and access provider portal features
+              <div className="text-sm text-muted-foreground max-w-xl">
+                Manage providers and use{" "}
+                <span className="text-purple-200 font-medium">Log in as provider</span>{" "}
+                to open their portal without a password (like platform super-admin → tenant). Your admin session stays as-is.
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -404,13 +392,32 @@ const ProvidersPage = () => {
                   <TableCell>{provider.completedJobs}</TableCell>
                   <TableCell>{getStatusBadge(provider.status)}</TableCell>
                   <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => void handleImpersonateProvider(provider)}
+                        disabled={!!impersonateProviderId || !provider.userId}
+                        title={
+                          provider.userId
+                            ? "Open provider portal as this user (no password)"
+                            : "Create a portal login on the provider profile first"
+                        }
+                        className="inline-flex items-center px-2 py-1.5 text-xs font-medium text-purple-700 bg-purple-50 rounded hover:bg-purple-100 disabled:opacity-50 dark:text-purple-200 dark:bg-purple-950/50 dark:hover:bg-purple-900/40"
+                      >
+                        {impersonateProviderId === provider.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                        ) : (
+                          <LogIn className="h-3.5 w-3.5 mr-1" />
+                        )}
+                        Log in as provider
+                      </button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" aria-label="More actions">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
                         <DropdownMenuLabel>Actions</DropdownMenuLabel>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => router.push(`/admin/providers/${provider.id}`)}>
@@ -434,18 +441,6 @@ const ProvidersPage = () => {
                           View Jobs
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => {
-                          // Open provider portal in new tab (if provider has login credentials)
-                          toast({
-                            title: "Provider Portal",
-                            description: `Access provider portal features for ${provider.name}`,
-                          });
-                          // In a real implementation, this would generate a login link or open provider portal
-                        }}>
-                          <UserCog className="h-4 w-4 mr-2" />
-                          Access Provider Portal
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
                         <DropdownMenuItem 
                           className="text-red-600"
                           onClick={() => {
@@ -465,6 +460,7 @@ const ProvidersPage = () => {
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

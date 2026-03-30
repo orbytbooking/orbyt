@@ -20,7 +20,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import { getSupabaseProviderClient } from "@/lib/supabaseProviderClient";
-import { Providers } from "@/app/providers";
 import { PlatformNotificationBell } from "@/components/notifications/PlatformNotificationBell";
 
 const navigation = [
@@ -143,7 +142,7 @@ export default function ProviderLayout({
   };
 
   return (
-    <Providers>
+    <>
       {pathname === "/provider/invite" || pathname === "/provider/login" ? (
         // For invite page, render without sidebar
         <div className="min-h-screen bg-background">
@@ -255,6 +254,6 @@ export default function ProviderLayout({
         </main>
       </div>
       )}
-    </Providers>
+    </>
   );
 }

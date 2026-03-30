@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
-import { EmailService } from "@/lib/emailService";
 import {
   PLATFORM_SUBSCRIPTION_KIND,
   PLATFORM_PENDING_OWNER_KIND,
@@ -14,6 +13,7 @@ import {
   syncPlatformSubscriptionRow,
 } from "@/lib/platform-billing/applyPlatformSubscriptionFromStripe";
 import { processPendingOwnerCheckout } from "@/lib/webhooks/processPendingOwnerCheckout";
+import { applyBookingPaidFromStripeSession } from "@/lib/payments/applyBookingPaidFromStripeSession";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -255,47 +255,15 @@ async function handleBookingCheckoutCompleted(
     metadata: session.metadata,
   });
 
-  const bookingId = session.metadata?.booking_id;
-  const businessId = session.metadata?.business_id;
-  if (!bookingId || !supabase) {
-    console.warn("[Stripe Webhook] checkout.session.completed with no booking_id or supabase:", session.id);
+  if (!supabase) {
+    console.warn("[Stripe Webhook] checkout.session.completed with no supabase:", session.id);
     return;
   }
 
-  const { error } = await supabase
-    .from("bookings")
-    .update({ payment_status: "paid" })
-    .eq("id", bookingId);
-  if (error) {
-    console.error("[Stripe Webhook] Failed to update booking payment_status:", bookingId, error);
-    throw new Error("Failed to update booking");
+  const result = await applyBookingPaidFromStripeSession(session, supabase, { sendReceipt: true });
+  if (!result.ok) {
+    console.error("[Stripe Webhook] applyBookingPaidFromStripeSession:", result.error, session.id);
+    throw new Error(result.error);
   }
-  console.log("[Stripe Webhook] Booking marked as paid:", bookingId);
-
-  const custEmail = session.customer_email ?? session.customer_details?.email;
-  if (custEmail) {
-    try {
-      const { data: booking } = await supabase
-        .from("bookings")
-        .select("customer_name, service, total_price")
-        .eq("id", bookingId)
-        .single();
-      const { data: biz } = businessId
-        ? await supabase.from("businesses").select("name").eq("id", businessId).single()
-        : { data: null };
-      const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
-      const emailService = new EmailService();
-      await emailService.sendReceiptEmail({
-        to: custEmail,
-        customerName: booking?.customer_name ?? "Customer",
-        businessName: (biz as { name?: string } | null)?.name ?? "Your Business",
-        service: booking?.service ?? null,
-        amount: Number(booking?.total_price ?? 0),
-        bookingRef: bkRef,
-        paymentMethod: "card",
-      });
-    } catch (e) {
-      console.warn("[Stripe Webhook] Receipt email failed:", e);
-    }
-  }
+  console.log("[Stripe Webhook] Booking marked as paid:", session.metadata?.booking_id);
 }

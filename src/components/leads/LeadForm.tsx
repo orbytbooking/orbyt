@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,6 +13,8 @@ interface LeadFormProps {
     status: string;
     tags: string[];
   };
+  /** Prefill when opening Add Lead from a booking (ignored when `lead` is set for edit). */
+  prefillFromBooking?: { name: string; email: string; phone?: string } | null;
   onSubmit: (data: any) => void;
   onCancel: () => void;
   loading?: boolean;
@@ -20,14 +22,26 @@ interface LeadFormProps {
 
 const statusOptions = ['new', 'contacted', 'qualified', 'lost'];
 
-export function LeadForm({ lead, onSubmit, onCancel, loading }: LeadFormProps) {
+export function LeadForm({ lead, prefillFromBooking, onSubmit, onCancel, loading }: LeadFormProps) {
   const [formData, setFormData] = useState({
-    name: lead?.name || '',
-    email: lead?.email || '',
-    phone: lead?.phone || '',
+    name: lead?.name || prefillFromBooking?.name || '',
+    email: lead?.email || prefillFromBooking?.email || '',
+    phone: lead?.phone || prefillFromBooking?.phone || '',
     status: lead?.status || 'new',
-    tags: lead?.tags || []
+    tags: lead?.tags || (prefillFromBooking ? ['From booking'] : []),
   });
+
+  useEffect(() => {
+    if (lead) return;
+    if (!prefillFromBooking) return;
+    setFormData({
+      name: prefillFromBooking.name,
+      email: prefillFromBooking.email,
+      phone: prefillFromBooking.phone || '',
+      status: 'new',
+      tags: ['From booking'],
+    });
+  }, [lead, prefillFromBooking]);
   const [newTag, setNewTag] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {

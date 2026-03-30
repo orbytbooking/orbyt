@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -44,6 +46,9 @@ const defaultColumns: Column[] = [
 const columns = defaultColumns;
 
 export default function LeadsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const lastProcessedBookingForLead = useRef<string | null>(null);
   const { leads, loading, error, createLead, deleteLead, updateLead, refetch, addTag, updateTag, removeTag } = useLeads();
   const { businesses, currentBusiness, loading: businessLoading, switchBusiness } = useBusiness();
   const { logo } = useLogo();
@@ -64,6 +69,66 @@ export default function LeadsPage() {
   const [showStatusInput, setShowStatusInput] = useState(false);
   const [creatingBusiness, setCreatingBusiness] = useState(false);
   const [newBusinessName, setNewBusinessName] = useState('');
+  const [prefillFromBooking, setPrefillFromBooking] = useState<{
+    name: string;
+    email: string;
+    phone?: string;
+  } | null>(null);
+  const [addLeadFormKey, setAddLeadFormKey] = useState(0);
+
+  // Open Add Lead with prefill when linked from a booking (?bookingId= or ?addBooking=)
+  useEffect(() => {
+    const rawId = searchParams.get('bookingId') || searchParams.get('addBooking');
+    if (!rawId?.trim() || !currentBusiness?.id) return;
+    const id = rawId.trim();
+    if (lastProcessedBookingForLead.current === id) return;
+    lastProcessedBookingForLead.current = id;
+
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          toast.error('Sign in to load booking details.');
+          lastProcessedBookingForLead.current = null;
+          return;
+        }
+        const res = await fetch(`/api/bookings/${encodeURIComponent(id)}`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            'x-business-id': currentBusiness.id,
+          },
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          toast.error(typeof json?.error === 'string' ? json.error : 'Could not load booking');
+          lastProcessedBookingForLead.current = null;
+          return;
+        }
+        const b = json?.data;
+        if (!b) {
+          toast.error('Booking not found');
+          lastProcessedBookingForLead.current = null;
+          return;
+        }
+        setPrefillFromBooking({
+          name: String(b.customer_name || '').trim() || 'Customer',
+          email: String(b.customer_email || '').trim(),
+          phone: String(b.customer_phone || '').trim() || undefined,
+        });
+        setAddLeadFormKey((k) => k + 1);
+        setIsAddModalOpen(true);
+        const params = new URLSearchParams(searchParams.toString());
+        params.delete('bookingId');
+        params.delete('addBooking');
+        const q = params.toString();
+        router.replace(`/admin/leads${q ? `?${q}` : ''}`, { scroll: false });
+      } catch {
+        toast.error('Failed to load booking');
+        lastProcessedBookingForLead.current = null;
+      }
+    })();
+  }, [searchParams, currentBusiness?.id, router]);
 
   // Load custom statuses from localStorage on component mount
   useEffect(() => {
@@ -94,6 +159,7 @@ export default function LeadsPage() {
     try {
       await createLead(leadData);
       setIsAddModalOpen(false);
+      setPrefillFromBooking(null);
     } catch (err) {
       console.error('Failed to create lead:', err);
     } finally {
@@ -712,12 +778,20 @@ export default function LeadsPage() {
       {/* Add Lead Modal */}
       <Modal
         isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
+        onClose={() => {
+          setIsAddModalOpen(false);
+          setPrefillFromBooking(null);
+        }}
         title="Add New Lead"
       >
         <LeadForm
+          key={addLeadFormKey}
+          prefillFromBooking={prefillFromBooking}
           onSubmit={handleAddLead}
-          onCancel={() => setIsAddModalOpen(false)}
+          onCancel={() => {
+            setIsAddModalOpen(false);
+            setPrefillFromBooking(null);
+          }}
           loading={modalLoading}
         />
       </Modal>

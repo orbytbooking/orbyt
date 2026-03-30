@@ -178,11 +178,22 @@ export async function getBookingCountByTimeForDate(
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-/** Get day name from YYYY-MM-DD (use noon to avoid timezone shift) */
+/**
+ * 0 = Sunday … 6 = Saturday for the Gregorian calendar date YYYY-MM-DD.
+ * Prefer this over `new Date(dateStr).getDay()`: date-only strings are parsed as UTC midnight,
+ * while `getDay()` uses the host timezone, so the weekday can be wrong (e.g. Monday → Sunday in US).
+ */
+export function getCalendarDayOfWeek(dateStr: string): number {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return new Date().getDay();
+  const [y, m, d] = dateStr.split('-').map(Number);
+  if (!y || !m || !d) return new Date().getDay();
+  return new Date(Date.UTC(y, m - 1, d, 12, 0, 0)).getUTCDay();
+}
+
+/** Get day name from YYYY-MM-DD (calendar date, not server local midnight) */
 export function getDayNameFromDate(dateStr: string): string {
   if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return DAY_NAMES[0];
-  const d = new Date(dateStr + 'T12:00:00');
-  return DAY_NAMES[d.getDay()];
+  return DAY_NAMES[getCalendarDayOfWeek(dateStr)];
 }
 
 /** Booking Koala-style: return true if the time slot has capacity (or no reserve-slot limit for that time) */
