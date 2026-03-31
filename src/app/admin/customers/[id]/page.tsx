@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
-import { UserMinus, ShieldBan, AlertCircle, BellOff, ChevronLeft, ChevronRight as ChevronRightIcon, Calendar as CalendarIcon, Search as SearchIcon, User as UserIcon, UserCheck, ShieldCheck, BellRing, FolderOpen, File, Upload, Download, Trash2, Image as ImageIcon, MoreVertical, Plus, Minus, X, FileText, FileVideo, Info, Send, UserCog, Mail, Phone, MapPin, ChevronDown } from "lucide-react";
+import { UserMinus, ShieldBan, AlertCircle, BellOff, ChevronLeft, ChevronRight as ChevronRightIcon, Calendar as CalendarIcon, Search as SearchIcon, User as UserIcon, UserCheck, ShieldCheck, BellRing, FolderOpen, File, Upload, Download, Trash2, Image as ImageIcon, MoreVertical, Plus, Minus, X, FileText, FileVideo, Info, Send, UserCog, Mail, Phone, MapPin, ChevronDown, Loader2, Copy } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -41,6 +41,8 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabaseClient";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { CreateInvoiceDialog } from "@/components/admin/CreateInvoiceDialog";
+import { Elements, CardElement, useElements, useStripe } from "@stripe/react-stripe-js";
+import { loadStripe, type Stripe as StripeJs } from "@stripe/stripe-js";
 
 const CUSTOMERS_STORAGE_KEY = "adminCustomers";
 
@@ -76,7 +78,7 @@ export default function CustomerProfilePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
-  const activeTab = tabParam && VALID_TABS.includes(tabParam) ? tabParam : "dashboard";
+  const activeTab = tabParam && VALID_TABS.includes(tabParam) ? tabParam : "profile";
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [ratingForm, setRatingForm] = useState({ provider: "", score: 5, comment: "" });
   const id = params?.id;
@@ -103,6 +105,8 @@ export default function CustomerProfilePage() {
     durationMinutes?: number | null;
     privateCustomerNotes?: string[];
     privateBookingNotes?: string[];
+    cardBrand?: string | null;
+    cardLast4?: string | null;
   };
   const [allBookings, setAllBookings] = useState<Booking[]>([]);
   /** Bookings for this customer from API (shown on Dashboard calendar) */
@@ -127,6 +131,13 @@ export default function CustomerProfilePage() {
   const [showContactsList, setShowContactsList] = useState(false);
   const [newContact, setNewContact] = useState({ name: "", email: "", phone: "" });
   const [addresses, setAddresses] = useState<{ id: string; aptNo: string; location: string; zip: string; isDefault: boolean }[]>([]);
+  const [editingAddress, setEditingAddress] = useState<{
+    id: string;
+    label: string;
+    location: string;
+    aptNo: string;
+    zip: string;
+  } | null>(null);
   const [stripeConnected, setStripeConnected] = useState(false);
   const [buttonStates, setButtonStates] = useState({
     isActive: true,
@@ -161,6 +172,310 @@ export default function CustomerProfilePage() {
   const { currentBusiness } = useBusiness();
   const [industries, setIndustries] = useState<{ id: string; name: string }[]>([]);
   const [extrasMap, setExtrasMap] = useState<Record<string, string>>({});
+
+  const [savedCards, setSavedCards] = useState<
+    { brand: string; last4: string; expMonth?: number | null; expYear?: number | null; stripePaymentMethodId?: string | null; source?: string }[]
+  >([]);
+  const [showAddCardDialog, setShowAddCardDialog] = useState(false);
+  const [newCardNumber, setNewCardNumber] = useState("");
+  const [cardSetupLoading, setCardSetupLoading] = useState(false);
+  const [cardSetupError, setCardSetupError] = useState<string | null>(null);
+  const [stripePk, setStripePk] = useState<string | null>(null);
+  const [stripeAccount, setStripeAccount] = useState<string | null>(null);
+  const [setupClientSecret, setSetupClientSecret] = useState<string | null>(null);
+  const [setupIntentId, setSetupIntentId] = useState<string | null>(null);
+  const stripePromiseRef = useRef<Promise<StripeJs | null> | null>(null);
+
+  const [showAddCardLinkDialog, setShowAddCardLinkDialog] = useState(false);
+  const [addCardLinkUrl, setAddCardLinkUrl] = useState<string>("");
+  const [addCardLinkMessage, setAddCardLinkMessage] = useState<string>("");
+  const [addCardLinkBusy, setAddCardLinkBusy] = useState(false);
+  const [addCardLinkSendMode, setAddCardLinkSendMode] = useState<"email" | "sms" | "both">("email");
+
+  useEffect(() => {
+    if (!showAddCardLinkDialog || !currentBusiness?.id || !id) return;
+    let cancelled = false;
+    setAddCardLinkBusy(true);
+    (async () => {
+      try {
+        const res = await fetch(`/api/admin/customers/${id}/add-card-link`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            businessId: currentBusiness.id,
+            message: addCardLinkMessage,
+            sendMode: "none",
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok) {
+          toast({ title: "Failed", description: data?.error || `Could not create link (${res.status})`, variant: "destructive" });
+          return;
+        }
+        setAddCardLinkUrl(String(data.url || ""));
+      } finally {
+        if (!cancelled) setAddCardLinkBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showAddCardLinkDialog, currentBusiness?.id, id]);
+
+  const stripePromise = useMemo(() => {
+    if (!stripePk) return null;
+    if (!stripePromiseRef.current) {
+      stripePromiseRef.current = loadStripe(stripePk, stripeAccount ? { stripeAccount } : undefined);
+    }
+    return stripePromiseRef.current;
+  }, [stripePk, stripeAccount]);
+
+  const initStripeCardSetup = async () => {
+    if (!currentBusiness?.id || !id) {
+      toast({ title: "Missing business/customer", description: "Business or customer is not available.", variant: "destructive" });
+      return;
+    }
+    setCardSetupLoading(true);
+    setCardSetupError(null);
+    try {
+      const res = await fetch("/api/stripe/customer-add-card/setup-intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId: currentBusiness.id, customerId: id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCardSetupError(data?.error || `Failed to initialize Stripe (${res.status})`);
+        return;
+      }
+      const pk = typeof data.publishableKey === "string" ? data.publishableKey : null;
+      const cs = typeof data.clientSecret === "string" ? data.clientSecret : null;
+      const si = typeof data.setupIntentId === "string" ? data.setupIntentId : null;
+      const acct = typeof data.stripeConnectAccountId === "string" ? data.stripeConnectAccountId : null;
+      if (!pk || !cs) {
+        setCardSetupError("Stripe is not configured (missing publishable key / client secret).");
+        return;
+      }
+      setStripePk(pk);
+      setStripeAccount(acct);
+      stripePromiseRef.current = null; // reset so loadStripe re-initializes with stripeAccount if needed
+      setSetupClientSecret(cs);
+      setSetupIntentId(si);
+    } catch (e) {
+      setCardSetupError(e instanceof Error ? e.message : "Failed to initialize Stripe.");
+    } finally {
+      setCardSetupLoading(false);
+    }
+  };
+
+  const AddCardStripeForm = ({ onDone }: { onDone: () => void }) => {
+    const stripe = useStripe();
+    const elements = useElements();
+    const [saving, setSaving] = useState(false);
+
+    return (
+      <div className="space-y-4">
+        <div className="space-y-1">
+          <Label>Add new card</Label>
+          <div className="flex gap-2">
+            <div className="flex-1 rounded-md border px-3 py-2">
+              <CardElement
+                options={{
+                  hidePostalCode: true,
+                  style: {
+                    base: {
+                      fontSize: "14px",
+                      color: "var(--foreground)",
+                      "::placeholder": { color: "var(--muted-foreground)" },
+                    },
+                    invalid: { color: "var(--destructive)" },
+                  },
+                }}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() =>
+                toast({
+                  title: "Autofill link",
+                  description: "BookingKoala uses a secure add-card link; we can add that next if you want.",
+                })
+              }
+            >
+              Autofill link
+            </Button>
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <img
+              src="/card-logos/mastercard.svg"
+              alt="Mastercard"
+              className="h-6 w-auto rounded-sm"
+              loading="lazy"
+            />
+            <img
+              src="/card-logos/visa.svg"
+              alt="Visa"
+              className="h-6 w-auto rounded-sm"
+              loading="lazy"
+            />
+            <img
+              src="/card-logos/discover.svg"
+              alt="Discover"
+              className="h-6 w-auto rounded-sm"
+              loading="lazy"
+            />
+            <img
+              src="/card-logos/amex.svg"
+              alt="American Express"
+              className="h-6 w-auto rounded-sm"
+              loading="lazy"
+            />
+            <div className="h-6 px-2 rounded border bg-lime-50 text-lime-700 text-[10px] font-semibold inline-flex items-center gap-1">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Safe &amp; Secure
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-3 justify-end">
+          <Button variant="outline" onClick={onDone} disabled={saving}>
+            Cancel
+          </Button>
+          <Button
+            onClick={async () => {
+              if (!stripe || !elements || !setupClientSecret) return;
+              setSaving(true);
+              try {
+                const result = await stripe.confirmCardSetup(setupClientSecret, {
+                  payment_method: { card: elements.getElement(CardElement)! },
+                });
+                if (result.error) {
+                  toast({ title: "Add card failed", description: result.error.message || "Stripe error", variant: "destructive" });
+                  return;
+                }
+                const siId = result.setupIntent?.id || setupIntentId;
+                if (!siId) {
+                  toast({ title: "Add card failed", description: "Missing setup intent id", variant: "destructive" });
+                  return;
+                }
+                const res = await fetch("/api/stripe/customer-add-card/sync", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ businessId: currentBusiness?.id, customerId: id, setupIntentId: siId }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                  toast({ title: "Add card failed", description: data?.error || `Sync failed (${res.status})`, variant: "destructive" });
+                  return;
+                }
+                if (Array.isArray(data.billingCards)) {
+                  setSavedCards(
+                    data.billingCards
+                      .map((c: any) => ({
+                        brand: (c?.brand ?? "").toString().trim(),
+                        last4: (c?.last4 ?? "").toString().trim(),
+                        expMonth: c?.expMonth ?? null,
+                        expYear: c?.expYear ?? null,
+                        stripePaymentMethodId: (c?.stripePaymentMethodId ?? null) as string | null,
+                        source: (c?.source ?? "stripe").toString(),
+                      }))
+                      .filter((c: any) => !!c.last4)
+                  );
+                }
+                toast({ title: "Card added", description: "Card saved to Stripe and linked to this customer." });
+                onDone();
+              } finally {
+                setSaving(false);
+              }
+            }}
+            disabled={!stripe || !elements || saving}
+          >
+            Add Card
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
+  const billingCards = useMemo(() => {
+    const seen = new Set<string>();
+    const cards: {
+      brand: string;
+      last4: string;
+      expMonth?: number | null;
+      expYear?: number | null;
+      source: "saved" | "booking";
+      stripePaymentMethodId?: string | null;
+      cardKey: string;
+    }[] = [];
+
+    for (const card of savedCards) {
+      const brand = (card.brand || "Card").toString().trim();
+      const last4 = (card.last4 || "").toString().trim();
+      if (!last4) continue;
+      const key = `${brand}|${last4}|${card.expMonth ?? ""}|${card.expYear ?? ""}|${card.stripePaymentMethodId ?? ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      cards.push({
+        brand,
+        last4,
+        expMonth: card.expMonth ?? null,
+        expYear: card.expYear ?? null,
+        source: "saved",
+        stripePaymentMethodId: card.stripePaymentMethodId ?? null,
+        cardKey: key,
+      });
+    }
+
+    for (const b of customerBookings) {
+      const last4 = (b.cardLast4 || "").toString().trim();
+      if (!last4) continue;
+      const rawBrand = (b.cardBrand || "").toString().trim();
+      const brand = rawBrand || "Card";
+      const key = `${brand}|${last4}|booking`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      cards.push({
+        brand,
+        last4,
+        source: "booking",
+        cardKey: key,
+      });
+    }
+
+    return cards;
+  }, [customerBookings, savedCards]);
+
+  const handleDeleteSavedCard = async (cardKey: string) => {
+    const next = savedCards.filter((c) => {
+      const key = `${(c.brand || "Card").toString().trim()}|${(c.last4 || "").toString().trim()}|${c.expMonth ?? ""}|${c.expYear ?? ""}|${c.stripePaymentMethodId ?? ""}`;
+      return key !== cardKey;
+    });
+    setSavedCards(next);
+    try {
+      if (id && typeof id === "string") {
+        await fetch(`/api/admin/customers/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ billingCards: next }),
+        });
+      }
+      toast({ title: "Card removed", description: "Card deleted from this customer profile." });
+    } catch {
+      toast({ title: "Delete failed", description: "Could not delete this card.", variant: "destructive" });
+    }
+  };
+
+  const getCardLogoSrc = (brandRaw: string) => {
+    const b = (brandRaw || "").toLowerCase();
+    if (b.includes("visa")) return "/card-logos/visa.svg";
+    if (b.includes("master")) return "/card-logos/mastercard.svg";
+    if (b.includes("discover")) return "/card-logos/discover.svg";
+    if (b.includes("amex") || b.includes("american")) return "/card-logos/amex.svg";
+    return null;
+  };
 
   // Drive state variables
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -237,7 +552,7 @@ export default function CustomerProfilePage() {
         const res = await fetch(`/api/admin/customers/${id}`);
         const data = await res.json();
         if (cancelled) return;
-        if (res.ok && data?.customer) {
+          if (res.ok && data?.customer) {
           const c = data.customer;
           setCustomer({
             id: c.id,
@@ -252,6 +567,22 @@ export default function CustomerProfilePage() {
             lastBooking: c.lastBooking ?? c.last_booking,
             authUserId: c.auth_user_id ?? c.authUserId ?? null,
           });
+          if (Array.isArray(c.billingCards)) {
+            setSavedCards(
+              c.billingCards
+                .map((card: any) => ({
+                  brand: (card?.brand ?? "").toString().trim(),
+                  last4: (card?.last4 ?? "").toString().trim(),
+                  expMonth: card?.expMonth ?? null,
+                  expYear: card?.expYear ?? null,
+                  stripePaymentMethodId: (card?.stripePaymentMethodId ?? null) as string | null,
+                  source: (card?.source ?? "stripe").toString(),
+                }))
+                .filter((card: { brand: string; last4: string }) => !!card.last4)
+            );
+          } else {
+            setSavedCards([]);
+          }
           setButtonStates({
             isActive: (c.status || "active") === "active",
             isBlocked: !!c.access_blocked,
@@ -361,6 +692,8 @@ export default function CustomerProfilePage() {
             cancellationFeeCurrency: b.cancellation_fee_currency ?? undefined,
             privateCustomerNotes: Array.isArray(b.private_customer_notes) ? b.private_customer_notes.filter((n: unknown) => typeof n === "string") : [],
             privateBookingNotes: Array.isArray(b.private_booking_notes) ? b.private_booking_notes.filter((n: unknown) => typeof n === "string") : [],
+            cardBrand: b.card_brand ?? null,
+            cardLast4: b.card_last4 ?? null,
           };
         });
         setCustomerBookings(list);
@@ -666,7 +999,8 @@ export default function CustomerProfilePage() {
         toast({ title: "Profile Saved", description: "Customer details have been updated." });
       } else {
         const data = await res.json().catch(() => ({}));
-        toast({ title: "Failed to save profile", description: data.error || "Please try again", variant: "destructive" });
+        const details = [data?.error, data?.details].filter(Boolean).join(" ");
+        toast({ title: "Failed to save profile", description: details || "Please try again", variant: "destructive" });
       }
     } catch {
       toast({ title: "Failed to save profile", variant: "destructive" });
@@ -685,7 +1019,11 @@ export default function CustomerProfilePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contacts: nextContacts, addresses: nextAddresses }),
       });
-      if (!res.ok) toast({ title: "Failed to save", variant: "destructive" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const details = [data?.error, data?.details].filter(Boolean).join(" ");
+        toast({ title: "Failed to save", description: details || undefined, variant: "destructive" });
+      }
     } catch {
       toast({ title: "Failed to save", variant: "destructive" });
     }
@@ -1492,22 +1830,36 @@ export default function CustomerProfilePage() {
                 <Button variant="outline" size="sm" className="text-blue-600 border-blue-600" onClick={()=>setAddresses(a=>a.length?[...a,{id:String(Date.now()),aptNo:'',location:'',zip:'',isDefault:false}]:[{id:'1',aptNo:'',location:profile.address||'',zip:'',isDefault:true}])}>Add New</Button>
               </div>
             </CardHeader>
-            <CardContent>
-              {(addresses.length > 0 ? addresses : (profile.address ? [{ id: '1', aptNo: '', location: profile.address, zip: '', isDefault: true }] : [])).map((addr) => (
-                <div key={addr.id} className="flex items-start justify-between p-4 border rounded-lg mb-3 last:mb-0 gap-4">
-                  <div className="flex-1 grid gap-2">
-                    {addr.isDefault && <Badge className="bg-green-100 text-green-700 w-fit">Default</Badge>}
-                    <div>
-                      <Label className="text-xs text-muted-foreground">Apt. no.</Label>
-                      <Input value={addr.aptNo} onChange={(e)=>updateAddress(addr.id,'aptNo',e.target.value)} placeholder="605" className="mt-1" />
+            <CardContent className="space-y-3">
+              {(addresses.length > 0 ? addresses : (profile.address ? [{ id: '1', aptNo: '', location: profile.address, zip: '', isDefault: true }] : [])).map((addr, index) => (
+                <div
+                  key={addr.id}
+                  className="flex items-start justify-between rounded-lg border bg-background gap-3 shadow-sm max-w-md"
+                >
+                  <div className="flex-1 p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold">
+                        Address {String(index + 1).padStart(2, "0")}
+                      </span>
+                      {addr.isDefault && (
+                        <Badge className="bg-green-100 text-green-700 border-transparent text-xs">
+                          Default
+                        </Badge>
+                      )}
                     </div>
-                    <div>
-                      <Label className="text-xs text-muted-foreground">Location</Label>
-                      <Input value={addr.location} onChange={(e)=>updateAddress(addr.id,'location',e.target.value)} placeholder="195 River Grove Way, West Palm Beach, FL, USA" className="mt-1" />
-                    </div>
-                    <div>
-                      <Label className="text-xs text-muted-foreground">Zip/Postal code</Label>
-                      <Input value={addr.zip} onChange={(e)=>updateAddress(addr.id,'zip',e.target.value)} placeholder="33407" className="mt-1" />
+                    <div className="border-t pt-3 space-y-2 text-sm">
+                      <div>
+                        <div className="font-medium">Apt. no.</div>
+                        <div>{addr.aptNo || "—"}</div>
+                      </div>
+                      <div>
+                        <div className="font-medium">Location</div>
+                        <div>{addr.location || "—"}</div>
+                      </div>
+                      <div>
+                        <div className="font-medium">Zip/Postal code</div>
+                        <div>{addr.zip || "—"}</div>
+                      </div>
                     </div>
                   </div>
                   <DropdownMenu>
@@ -1515,6 +1867,19 @@ export default function CustomerProfilePage() {
                       <Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={() =>
+                          setEditingAddress({
+                            id: addr.id,
+                            label: `Address ${String(index + 1)}`,
+                            location: addr.location,
+                            aptNo: addr.aptNo,
+                            zip: addr.zip,
+                          })
+                        }
+                      >
+                        Edit
+                      </DropdownMenuItem>
                       <DropdownMenuItem onClick={()=>setAddresses(a=>a.map(x=>({...x,isDefault:x.id===addr.id})))}>Set as default</DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive"
@@ -1547,13 +1912,93 @@ export default function CustomerProfilePage() {
                   <p className="text-sm text-muted-foreground mt-1">You can add multiple cards and switch between them when making bookings.</p>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" className="text-pink-600 border-pink-600 hover:bg-pink-50" onClick={()=>toast({title:'Add Card Link', description:'Add card link would be sent to customer.'})}>Send &quot;Add card&quot; link</Button>
-                  <Button variant="outline" size="sm" className="text-blue-600 border-blue-600" onClick={()=>toast({title:'Add Card', description:'Add card form would open.'})}>Add New</Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-pink-600 border-pink-600 hover:bg-pink-50"
+                    onClick={() => {
+                      setAddCardLinkMessage("");
+                      setAddCardLinkUrl("");
+                      setAddCardLinkSendMode("email");
+                      setShowAddCardLinkDialog(true);
+                    }}
+                  >
+                    Send &quot;Add card&quot; link
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-blue-600 border-blue-600"
+                    onClick={() => {
+                      setNewCardNumber("");
+                      setShowAddCardDialog(true);
+                    }}
+                  >
+                    Add New
+                  </Button>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-muted-foreground">No cards on file.</p>
+              {billingCards.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No cards on file.</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {billingCards.map((card) => (
+                    <div
+                      key={card.cardKey}
+                      className="rounded-lg border bg-muted/30 p-3 space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="h-8 flex items-center">
+                          {getCardLogoSrc(card.brand || "") ? (
+                            <img
+                              src={getCardLogoSrc(card.brand || "") as string}
+                              alt={card.brand || "Card"}
+                              className="h-7 w-auto rounded-sm"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="font-semibold uppercase tracking-wide text-sm">{card.brand || "Card"}</div>
+                          )}
+                        </div>
+                        {card.source === "saved" ? (
+                          <Badge className="bg-emerald-100 text-emerald-700 border-transparent text-xs">Default</Badge>
+                        ) : null}
+                      </div>
+                      <div className="text-lg tracking-[0.25em] font-mono">
+                        **** **** **** {card.last4}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {card.expMonth && card.expYear ? (
+                          <span>
+                            Exp: {String(card.expMonth).padStart(2, "0")}/{String(card.expYear).slice(-2)}
+                          </span>
+                        ) : (
+                          <span>Exp: —</span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between pt-1">
+                        <div className="text-xs text-muted-foreground">
+                          {card.source === "saved"
+                            ? "Added manually to this profile."
+                            : "Saved from booking charge history."}
+                        </div>
+                        {card.source === "saved" ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => handleDeleteSavedCard(card.cardKey)}
+                          >
+                            Delete
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -1570,7 +2015,240 @@ export default function CustomerProfilePage() {
               </div>
             </CardContent>
           </Card>
-          </div>
+        </div>
+
+        {/* Add Card Dialog */}
+        <Dialog open={showAddCardDialog} onOpenChange={setShowAddCardDialog}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add card</DialogTitle>
+              <DialogDescription>
+                Add a new card to this customer&apos;s profile. This is for reference only and does not charge the card.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-2">
+              {cardSetupError ? (
+                <div className="text-sm text-destructive">{cardSetupError}</div>
+              ) : null}
+              {cardSetupLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Initializing Stripe…
+                </div>
+              ) : null}
+
+              {!setupClientSecret || !stripePromise ? (
+                <div className="space-y-3">
+                  <Button
+                    className="w-full"
+                    onClick={initStripeCardSetup}
+                    disabled={cardSetupLoading}
+                  >
+                    Initialize card form
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => setShowAddCardDialog(false)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <Elements
+                  stripe={stripePromise}
+                  options={{
+                    clientSecret: setupClientSecret,
+                  }}
+                >
+                  <AddCardStripeForm
+                    onDone={() => {
+                      setShowAddCardDialog(false);
+                      setSetupClientSecret(null);
+                      setSetupIntentId(null);
+                      setStripePk(null);
+                      setStripeAccount(null);
+                      stripePromiseRef.current = null;
+                    }}
+                  />
+                </Elements>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Send Add Card Link Dialog */}
+        <Dialog open={showAddCardLinkDialog} onOpenChange={setShowAddCardLinkDialog}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Send "Add card" link</DialogTitle>
+              <DialogDescription>
+                Learn how the &apos;Add Card&apos; feature works. <button className="text-blue-600 hover:underline" type="button">Click here</button>
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <Label htmlFor="add-card-message">Text</Label>
+                <Input
+                  id="add-card-message"
+                  value={addCardLinkMessage}
+                  onChange={(e) => setAddCardLinkMessage(e.target.value.slice(0, 200))}
+                  placeholder="Please add a card on file"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>URL</Label>
+                <div className="flex">
+                  <Input className="rounded-r-none" value={addCardLinkUrl} readOnly placeholder="Click Send to generate link" />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-l-none"
+                    disabled={!addCardLinkUrl}
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(addCardLinkUrl);
+                        toast({ title: "Copied", description: "Link copied to clipboard." });
+                      } catch {
+                        toast({ title: "Copy failed", description: "Could not copy link.", variant: "destructive" });
+                      }
+                    }}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 pt-1">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="radio" checked={addCardLinkSendMode === "email"} onChange={() => setAddCardLinkSendMode("email")} />
+                  Send email
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="radio" checked={addCardLinkSendMode === "sms"} onChange={() => setAddCardLinkSendMode("sms")} />
+                  Send SMS
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="radio" checked={addCardLinkSendMode === "both"} onChange={() => setAddCardLinkSendMode("both")} />
+                  Send both
+                </label>
+              </div>
+            </div>
+            <DialogFooter className="mt-2">
+              <Button variant="outline" onClick={() => setShowAddCardLinkDialog(false)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={addCardLinkBusy || !currentBusiness?.id || !id}
+                onClick={async () => {
+                  if (!currentBusiness?.id || !id) return;
+                  setAddCardLinkBusy(true);
+                  try {
+                    const res = await fetch(`/api/admin/customers/${id}/add-card-link`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        businessId: currentBusiness.id,
+                        message: addCardLinkMessage,
+                        sendMode: addCardLinkSendMode,
+                      }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                      toast({ title: "Failed", description: data?.error || `Could not send link (${res.status})`, variant: "destructive" });
+                      return;
+                    }
+                    setAddCardLinkUrl(String(data.url || ""));
+                    if (data.warning) {
+                      toast({ title: "Link created", description: data.warning });
+                    } else {
+                      toast({ title: "Sent", description: addCardLinkSendMode === "email" ? "Add-card link sent to customer email." : "Add-card link created." });
+                    }
+                  } finally {
+                    setAddCardLinkBusy(false);
+                  }
+                }}
+              >
+                {addCardLinkBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                Send
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Address Dialog */}
+        <Dialog open={!!editingAddress} onOpenChange={(open) => { if (!open) setEditingAddress(null); }}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                {editingAddress ? editingAddress.label : "Address"}
+              </DialogTitle>
+            </DialogHeader>
+            {editingAddress && (
+              <div className="space-y-3 mt-2">
+                <div>
+                  <Label>Location</Label>
+                  <Input
+                    value={editingAddress.location}
+                    onChange={(e) =>
+                      setEditingAddress((prev) =>
+                        prev ? { ...prev, location: e.target.value } : prev
+                      )
+                    }
+                  />
+                </div>
+                <div>
+                  <Label>Apt. no.</Label>
+                  <Input
+                    value={editingAddress.aptNo}
+                    onChange={(e) =>
+                      setEditingAddress((prev) =>
+                        prev ? { ...prev, aptNo: e.target.value } : prev
+                      )
+                    }
+                  />
+                </div>
+                <div>
+                  <Label>Zip/Postal code</Label>
+                  <Input
+                    value={editingAddress.zip}
+                    onChange={(e) =>
+                      setEditingAddress((prev) =>
+                        prev ? { ...prev, zip: e.target.value } : prev
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            )}
+            <DialogFooter className="mt-4">
+              <Button variant="outline" onClick={() => setEditingAddress(null)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={async () => {
+                  if (!editingAddress) return;
+                  const { id: addrId, location, aptNo, zip } = editingAddress;
+                  const next = addresses.map((a) =>
+                    a.id === addrId ? { ...a, location, aptNo, zip } : a
+                  );
+                  setAddresses(next);
+                  try {
+                    await fetch(`/api/admin/customers/${id}`, {
+                      method: "PUT",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ addresses: next }),
+                    });
+                  } catch {
+                    // non-blocking
+                  }
+                  setEditingAddress(null);
+                }}
+              >
+                Update
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         </TabsContent>
 
         <TabsContent value="gift">

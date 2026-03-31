@@ -53,6 +53,8 @@ export async function GET(
         smsReminders: customer.sms_reminders !== false,
         contacts: Array.isArray(customer.contacts) ? customer.contacts : [],
         addresses: Array.isArray(customer.addresses) ? customer.addresses : [],
+        billingCards: Array.isArray(customer.billing_cards) ? customer.billing_cards : [],
+        stripeCustomerId: customer.stripe_customer_id ?? null,
       },
     });
   } catch (err) {
@@ -98,17 +100,81 @@ export async function PUT(
     if (body.smsReminders !== undefined) updatePayload.sms_reminders = body.smsReminders;
     if (body.contacts !== undefined) updatePayload.contacts = Array.isArray(body.contacts) ? body.contacts : [];
     if (body.addresses !== undefined) updatePayload.addresses = Array.isArray(body.addresses) ? body.addresses : [];
+    if (body.billingCards !== undefined) updatePayload.billing_cards = Array.isArray(body.billingCards) ? body.billingCards : [];
 
-    const { data: customer, error } = await supabaseAdmin
-      .from('customers')
-      .update(updatePayload)
-      .eq('id', id)
-      .select()
-      .single();
+    let attemptPayload: Record<string, unknown> = { ...updatePayload };
+    let customer: any = null;
+    let error: any = null;
+
+    // Be resilient when some optional columns are not migrated yet.
+    // We progressively strip fields that trigger "column does not exist".
+    const optionalColumnFields: Array<keyof typeof attemptPayload> = [
+      'contacts',
+      'addresses',
+      'billing_cards',
+      'company',
+      'first_name',
+      'last_name',
+      'gender',
+      'notes',
+      'sms_reminders',
+      'access_blocked',
+      'booking_blocked',
+      'email_notifications',
+      'tags',
+    ];
+
+    for (let i = 0; i < optionalColumnFields.length + 1; i++) {
+      const res = await supabaseAdmin
+        .from('customers')
+        .update(attemptPayload)
+        .eq('id', id)
+        .select()
+        .single();
+      customer = res.data;
+      error = res.error;
+      if (!error) break;
+
+      const msg = String(error.message || '').toLowerCase();
+      const isMissingColumnError =
+        msg.includes('column') &&
+        (msg.includes('does not exist') || msg.includes('schema cache') || msg.includes('could not find'));
+      if (!isMissingColumnError) break;
+
+      let stripped = false;
+      for (const field of optionalColumnFields) {
+        if (!(field in attemptPayload)) continue;
+        if (msg.includes(String(field).toLowerCase())) {
+          delete attemptPayload[field];
+          stripped = true;
+        }
+      }
+      // Generic fallback: if we couldn't map the column name, remove one optional field at a time.
+      if (!stripped) {
+        const nextField = optionalColumnFields.find((f) => f in attemptPayload);
+        if (nextField) {
+          delete attemptPayload[nextField];
+          stripped = true;
+        }
+      }
+      if (!stripped) break;
+    }
 
     if (error) {
       console.error('Customer update error:', error);
-      return NextResponse.json({ error: 'Failed to update customer' }, { status: 500 });
+      if (error.code === '23505') {
+        const msg = String(error.message || '').toLowerCase();
+        if (msg.includes('email') || msg.includes('customers_email_business_id_unique')) {
+          return NextResponse.json(
+            { error: 'Email is already used by another customer in this business.' },
+            { status: 409 }
+          );
+        }
+      }
+      return NextResponse.json(
+        { error: 'Failed to update customer', details: error.message ?? null },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ success: true, customer });

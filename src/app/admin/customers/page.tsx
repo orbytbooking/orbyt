@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,7 +36,8 @@ import {
   UserMinus,
   Ban,
   Plus,
-  Info
+  Info,
+  Loader2,
 } from "lucide-react";
 import {
   Select,
@@ -52,6 +53,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { parseCustomerCsv } from "@/lib/parseCustomerCsv";
 
 // Mock data fallback
 const defaultCustomers = [
@@ -158,6 +160,8 @@ const Customers = () => {
     notes: "",
   });
   const [page, setPage] = useState(1);
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const [importBusy, setImportBusy] = useState(false);
 
   useEffect(() => {
     setCustomers([]); // Clear old data when business changes
@@ -216,6 +220,149 @@ const Customers = () => {
     }
   }
 
+  const handleImportCustomers = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !currentBusiness?.id) return;
+
+    setImportBusy(true);
+    try {
+      const text = await file.text();
+      const { rows: parsedRows, headerErrors, rowErrors } = parseCustomerCsv(text);
+
+      if (headerErrors.length > 0) {
+        toast({
+          title: "Import failed",
+          description: headerErrors.join(" "),
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (parsedRows.length === 0) {
+        toast({
+          title: "Nothing to import",
+          description:
+            rowErrors.length > 0
+              ? rowErrors.slice(0, 5).join("; ") + (rowErrors.length > 5 ? "…" : "")
+              : "Add at least one data row using the same columns as Export (Name, Email, Phone, Address).",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const seenFile = new Set<string>();
+      const deduped: { name: string; email: string; phone: string; address: string }[] = [];
+      for (const r of parsedRows) {
+        const key = r.email.toLowerCase().trim();
+        if (seenFile.has(key)) continue;
+        seenFile.add(key);
+        deduped.push(r);
+      }
+
+      const { data: existingRows, error: existingErr } = await supabase
+        .from("customers")
+        .select("email")
+        .eq("business_id", currentBusiness.id);
+
+      if (existingErr) {
+        toast({
+          title: "Import failed",
+          description: existingErr.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const existing = new Set(
+        (existingRows || []).map((r) => String(r.email ?? "").toLowerCase().trim())
+      );
+
+      const toInsert = deduped.filter((r) => !existing.has(r.email.toLowerCase().trim()));
+      const skippedInFile = parsedRows.length - deduped.length;
+      const skippedExisting = deduped.length - toInsert.length;
+
+      if (toInsert.length === 0) {
+        toast({
+          title: "Nothing new to import",
+          description:
+            skippedExisting > 0
+              ? `All ${deduped.length} row(s) already exist for this business.`
+              : "No valid rows found in the file.",
+          variant: skippedExisting > 0 ? "default" : "destructive",
+        });
+        return;
+      }
+
+      const joinDateStr = new Date().toISOString().slice(0, 10);
+      const payloads = toInsert.map((r) => ({
+        name: r.name,
+        email: r.email.trim().toLowerCase(),
+        phone: r.phone || null,
+        address: r.address || null,
+        join_date: joinDateStr,
+        total_bookings: 0,
+        total_spent: 0,
+        status: "active" as const,
+        last_booking: null,
+        business_id: currentBusiness.id,
+      }));
+
+      let imported = 0;
+      let failed = 0;
+      const CHUNK = 40;
+      for (let i = 0; i < payloads.length; i += CHUNK) {
+        const chunk = payloads.slice(i, i + CHUNK);
+        const { error } = await supabase.from("customers").insert(chunk);
+        if (!error) {
+          imported += chunk.length;
+          continue;
+        }
+        for (const p of chunk) {
+          const { error: e2 } = await supabase.from("customers").insert([p]);
+          if (!e2) imported++;
+          else if (
+            e2.code === "23505" ||
+            String(e2.message).toLowerCase().includes("duplicate")
+          ) {
+            /* race with existing */
+          } else {
+            failed++;
+          }
+        }
+      }
+
+      let desc = `Imported ${imported} customer${imported === 1 ? "" : "s"}.`;
+      const parts: string[] = [];
+      if (skippedInFile > 0) parts.push(`${skippedInFile} duplicate row(s) in file skipped`);
+      if (skippedExisting > 0) parts.push(`${skippedExisting} already in your list`);
+      if (rowErrors.length > 0) parts.push(`${rowErrors.length} row(s) failed validation`);
+      if (failed > 0) parts.push(`${failed} row(s) failed to save`);
+      if (parts.length > 0) desc += ` ${parts.join(". ")}.`;
+      if (rowErrors.length > 0) {
+        desc += ` First issues: ${rowErrors.slice(0, 3).join("; ")}`;
+        if (rowErrors.length > 3) desc += "…";
+      }
+
+      toast({
+        title: imported > 0 ? "Import complete" : "Import finished with issues",
+        description: desc,
+        variant: imported > 0 ? "default" : "destructive",
+      });
+
+      if (imported > 0) {
+        await fetchCustomers();
+      }
+    } catch (err) {
+      toast({
+        title: "Import failed",
+        description: err instanceof Error ? err.message : "Could not read the file.",
+        variant: "destructive",
+      });
+    } finally {
+      setImportBusy(false);
+    }
+  };
 
   // Open modal if query parameter is present
   useEffect(() => {
@@ -304,8 +451,8 @@ const Customers = () => {
 
   const handleOpenEdit = async (customer: Customer) => {
     const parts = (customer.name || "").trim().split(" ");
-    const firstName = parts[0] || "";
-    const lastName = parts.slice(1).join(" ") || "";
+    let firstName = parts[0] || "";
+    let lastName = parts.slice(1).join(" ") || "";
     const addr = (customer as any).address ?? customer.address ?? "";
     const lastComma = addr.lastIndexOf(", ");
     const [mainAddr, apt] = lastComma >= 0
@@ -321,6 +468,12 @@ const Customers = () => {
         gender = c.gender ?? "unspecified";
         notes = c.notes ?? "";
         smsReminders = c.smsReminders !== false;
+        const fn = String(c.first_name ?? c.firstName ?? "").trim();
+        const ln = String(c.last_name ?? c.lastName ?? "").trim();
+        if (fn || ln) {
+          firstName = fn;
+          lastName = ln;
+        }
       }
     } catch {}
     setEditCustomer({
@@ -353,6 +506,12 @@ const Customers = () => {
           phone: editCustomer.phone,
           address: address || undefined,
           status: editCustomer.status,
+          firstName: editCustomer.firstName.trim(),
+          lastName: editCustomer.lastName.trim(),
+          company: editCustomer.company,
+          gender: editCustomer.gender,
+          notes: editCustomer.notes,
+          smsReminders: editCustomer.smsReminders,
         }),
       });
       if (res.ok) {
@@ -363,17 +522,6 @@ const Customers = () => {
               : c
           )
         );
-        // Persist extras to database (do not send contacts/addresses to avoid overwriting)
-        await fetch(`/api/admin/customers/${editCustomer.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            company: editCustomer.company,
-            gender: editCustomer.gender,
-            notes: editCustomer.notes,
-            smsReminders: editCustomer.smsReminders,
-          }),
-        }).catch(() => {});
         toast({ title: "Customer Updated", description: `${name} has been updated successfully.` });
         setShowEditCustomer(false);
       } else {
@@ -428,11 +576,16 @@ const Customers = () => {
     const name = `${newCustomer.firstName} ${newCustomer.lastName}`.trim();
     const address = [newCustomer.address, newCustomer.aptNo].filter(Boolean).join(", ");
     const now = new Date();
+    const fn = newCustomer.firstName.trim();
+    const ln = newCustomer.lastName.trim();
     const newEntry = {
-      name: name || newCustomer.firstName || newCustomer.lastName || "Customer",
-      email: newCustomer.email,
+      name: name || fn || ln || "Customer",
+      first_name: fn || null,
+      last_name: ln || null,
+      email: newCustomer.email.trim(),
       phone: newCustomer.phone || "",
       address: address || "",
+      gender: newCustomer.gender || "unspecified",
       join_date: now.toISOString().slice(0, 10),
       total_bookings: 0,
       total_spent: 0,
@@ -452,11 +605,13 @@ const Customers = () => {
       return;
     }
 
-    if (data?.id && (newCustomer.notes || newCustomer.company || newCustomer.gender)) {
+    if (data?.id) {
       await fetch(`/api/admin/customers/${data.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          firstName: fn,
+          lastName: ln,
           company: newCustomer.company,
           gender: newCustomer.gender,
           notes: newCustomer.notes,
@@ -541,8 +696,25 @@ const Customers = () => {
       <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">All customers</h2>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="text-blue-600 border-blue-600 hover:bg-blue-50" onClick={() => toast({ title: "Import", description: "Import feature coming soon." })}>
-            <Download className="h-4 w-4 mr-1" />
+          <input
+            ref={importFileRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={handleImportCustomers}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-blue-600 border-blue-600 hover:bg-blue-50"
+            disabled={importBusy || !currentBusiness?.id}
+            onClick={() => importFileRef.current?.click()}
+          >
+            {importBusy ? (
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4 mr-1" />
+            )}
             Import
           </Button>
           <Button variant="outline" size="sm" className="text-green-600 border-green-600 hover:bg-green-50" onClick={() => {
@@ -606,11 +778,11 @@ const Customers = () => {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => router.push(`/admin/customers/${customer.id}`)}>
+                          <DropdownMenuItem onClick={() => router.push(`/admin/customers/${customer.id}?tab=profile`)}>
                             <Eye className="h-4 w-4 mr-2" />
                             View
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleOpenEdit(customer)}>
+                          <DropdownMenuItem onClick={() => router.push(`/admin/customers/${customer.id}`)}>
                             <Pencil className="h-4 w-4 mr-2" />
                             Edit
                           </DropdownMenuItem>

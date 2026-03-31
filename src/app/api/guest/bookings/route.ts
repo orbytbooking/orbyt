@@ -131,7 +131,8 @@ export async function POST(request: NextRequest) {
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-  // Link to existing customer when email matches (manual customers get same treatment as portal customers)
+  // Link to existing customer when email matches; if none exists, create one
+  // so that all website bookings automatically appear in the admin Customers list.
   let customerId: string | null = null;
   if (customerEmail) {
     const { data: existing } = await supabase
@@ -140,6 +141,7 @@ export async function POST(request: NextRequest) {
       .eq('business_id', businessId)
       .ilike('email', customerEmail)
       .maybeSingle();
+
     if (existing?.id) {
       if (existing.booking_blocked) {
         const { data: accessRow } = await supabase
@@ -156,6 +158,28 @@ export async function POST(request: NextRequest) {
         );
       }
       customerId = existing.id;
+    } else {
+      const now = new Date();
+      const joinDate = now.toISOString().slice(0, 10);
+      const { data: created } = await supabase
+        .from('customers')
+        .insert({
+          business_id: businessId,
+          name: customerName,
+          email: customerEmail,
+          phone: customerPhone || null,
+          address: (body.address ?? '').toString().trim() || null,
+          join_date: joinDate,
+          total_bookings: 0,
+          total_spent: 0,
+          status: 'active',
+          last_booking: null,
+        })
+        .select('id')
+        .single();
+      if (created?.id) {
+        customerId = created.id;
+      }
     }
   }
 
