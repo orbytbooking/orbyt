@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { loadStripe, type Stripe as StripeJs } from "@stripe/stripe-js";
 import { Elements, CardElement, useElements, useStripe } from "@stripe/react-stripe-js";
@@ -114,7 +114,7 @@ function AddCardInner({
   );
 }
 
-export default function AddCardPage() {
+function AddCardPageContent() {
   const searchParams = useSearchParams();
   const token = (searchParams?.get("token") || "").trim();
 
@@ -200,6 +200,30 @@ export default function AddCardPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function AddCardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center p-6 bg-muted/30">
+          <Card className="w-full max-w-lg">
+            <CardHeader>
+              <CardTitle>Add card</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading…
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      }
+    >
+      <AddCardPageContent />
+    </Suspense>
   );
 }
 
