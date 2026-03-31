@@ -33,6 +33,7 @@ import {
   ListChecks,
   Image,
   Shield,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -43,6 +44,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabaseClient";
 import { AdminBookingsCalendar } from "@/components/admin/AdminBookingsCalendar";
+import { EditBookingSheet } from "@/components/admin/EditBookingSheet";
 import { getOccurrenceDatesForSeriesSync } from "@/lib/recurringBookings";
 
 // Icon mapping for API responses
@@ -66,6 +68,7 @@ type Booking = {
   provider?: { id: string; name: string; email: string; phone: string } | null;
   customer?: { name: string; email: string; phone: string };
   customerName?: string;
+  customer_id?: string | null;
   service: string;
   date: string;
   time: string;
@@ -182,6 +185,10 @@ const Dashboard = () => {
   const [industries, setIndustries] = useState<{ id: string; name: string }[]>([]);
   const [extrasMap, setExtrasMap] = useState<Record<string, string>>({});
   const [adminCalendarPrefs, setAdminCalendarPrefs] = useState<AdminCalendarPrefsState>(DEFAULT_ADMIN_CALENDAR_PREFS);
+  const [sendAddCardLoading, setSendAddCardLoading] = useState(false);
+  const [resendReceiptLoading, setResendReceiptLoading] = useState(false);
+  const [checklistOpen, setChecklistOpen] = useState(false);
+  const [sheetEditBookingId, setSheetEditBookingId] = useState<string | null>(null);
   const { config } = useWebsiteConfig();
   const { currentBusiness } = useBusiness(); // Get current business
   const router = useRouter();
@@ -406,6 +413,7 @@ const Dashboard = () => {
           service: b.service || "Service",
           amount: `$${Number(b.total_price ?? b.amount ?? 0).toFixed(2)}`,
           customerName: name,
+          customer_id: b.customer_id ?? null,
           customer: {
             name,
             email: b.customer_email || "",
@@ -1095,17 +1103,21 @@ const Dashboard = () => {
                   </Button>
                 </>
               )}
-              <Button asChild className="w-full text-white bg-blue-600 hover:bg-blue-700">
-                <Link
-                  href={
-                    selectedBooking?.id && String(selectedBooking.id).trim() && String(selectedBooking.id) !== 'undefined'
-                      ? `/admin/add-booking?bookingId=${encodeURIComponent(selectedBooking.id)}`
-                      : '/admin/add-booking'
-                  }
-                  onClick={() => setSelectedBooking(null)}
-                >
-                  <Pencil className="h-4 w-4 mr-2" />Edit
-                </Link>
+              <Button
+                className="w-full text-white bg-blue-600 hover:bg-blue-700"
+                onClick={() => {
+                  const id =
+                    selectedBooking?.id &&
+                    String(selectedBooking.id).trim() &&
+                    String(selectedBooking.id) !== "undefined"
+                      ? String(selectedBooking.id)
+                      : "";
+                  setSelectedBooking(null);
+                  if (id) setSheetEditBookingId(id);
+                  else router.push("/admin/add-booking");
+                }}
+              >
+                <Pencil className="h-4 w-4 mr-2" />Edit
               </Button>
               <Button className="w-full text-white bg-red-600 hover:bg-red-700" onClick={async () => {
                 if (!selectedBooking?.id) return;
@@ -1120,11 +1132,73 @@ const Dashboard = () => {
               <Button className="w-full text-white bg-emerald-500 hover:bg-emerald-600" onClick={() => { router.push(`/admin/leads?addBooking=${selectedBooking.id}`); setSelectedBooking(null); }}>
                 Add to leads funnel
               </Button>
-              <Button className="w-full text-white bg-pink-500 hover:bg-pink-600" onClick={() => toast({ title: "Add card link", description: "Send Add card link feature." })}>
-                <CreditCard className="h-4 w-4 mr-2" />Send &quot;Add card&quot; link
+              <Button
+                className="w-full text-white bg-pink-500 hover:bg-pink-600"
+                disabled={sendAddCardLoading}
+                onClick={async () => {
+                  if (!selectedBooking?.id) return;
+                  setSendAddCardLoading(true);
+                  try {
+                    const res = await fetch(`/api/admin/bookings/${encodeURIComponent(String(selectedBooking.id))}/send-add-card-link`, {
+                      method: "POST",
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                      toast({
+                        title: "Error",
+                        description: typeof data.error === "string" ? data.error : "Failed to send add-card link",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+                    toast({
+                      title: "Link sent",
+                      description: typeof data.sentTo === "string"
+                        ? `We emailed a secure add-card link to ${data.sentTo}.`
+                        : "We emailed a secure add-card link to the booking customer email.",
+                    });
+                  } catch {
+                    toast({ title: "Error", description: "Failed to send add-card link", variant: "destructive" });
+                  } finally {
+                    setSendAddCardLoading(false);
+                  }
+                }}
+              >
+                {sendAddCardLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CreditCard className="h-4 w-4 mr-2" />}
+                {sendAddCardLoading ? "Sending…" : "Send \"Add card\" link"}
               </Button>
-              <Button className="w-full text-white bg-sky-400 hover:bg-sky-500" onClick={() => toast({ title: "Receipt", description: "Receipt will be resent to the customer." })}>
-                <Receipt className="h-4 w-4 mr-2" />Resend Receipt
+              <Button
+                className="w-full text-white bg-sky-400 hover:bg-sky-500"
+                disabled={resendReceiptLoading}
+                onClick={async () => {
+                  if (!selectedBooking?.id) return;
+                  setResendReceiptLoading(true);
+                  try {
+                    const res = await fetch(`/api/admin/bookings/${encodeURIComponent(String(selectedBooking.id))}/resend-receipt`, {
+                      method: "POST",
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                      toast({
+                        title: "Error",
+                        description: typeof data.error === "string" ? data.error : "Could not send receipt",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+                    toast({
+                      title: "Receipt sent",
+                      description: typeof data.message === "string" ? data.message : "The customer should receive the receipt shortly.",
+                    });
+                  } catch {
+                    toast({ title: "Error", description: "Failed to send receipt", variant: "destructive" });
+                  } finally {
+                    setResendReceiptLoading(false);
+                  }
+                }}
+              >
+                {resendReceiptLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Receipt className="h-4 w-4 mr-2" />}
+                {resendReceiptLoading ? "Sending…" : "Resend Receipt"}
               </Button>
               <Button className="w-full text-white bg-amber-400 hover:bg-amber-500" onClick={() => { router.push(`/admin/logs?booking=${selectedBooking.id}`); setSelectedBooking(null); }}>
                 <FileText className="h-4 w-4 mr-2" />View Booking Log
@@ -1132,7 +1206,7 @@ const Dashboard = () => {
               <Button className="w-full text-white bg-rose-400 hover:bg-rose-500" onClick={() => { router.push(`/admin/booking-charges?precharge=${selectedBooking.id}`); setSelectedBooking(null); }}>
                 Pre-charge
               </Button>
-              <Button className="w-full text-white bg-orange-500 hover:bg-orange-600" onClick={() => toast({ title: "Checklist", description: "View checklist for this booking." })}>
+              <Button className="w-full text-white bg-orange-500 hover:bg-orange-600" onClick={() => setChecklistOpen(true)}>
                 <ListChecks className="h-4 w-4 mr-2" />View Checklist
               </Button>
               <Button
@@ -1167,6 +1241,73 @@ const Dashboard = () => {
         )}
       </SheetContent>
     </Sheet>
+
+    <Dialog open={checklistOpen} onOpenChange={setChecklistOpen}>
+      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Booking checklist</DialogTitle>
+          <DialogDescription>
+            Extras, notes, and partial-cleaning details for this job.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 text-sm">
+          {selectedBooking && (() => {
+            const c = (selectedBooking.customization || {}) as Record<string, unknown>;
+            const ids = (c.selectedExtras as string[]) || [];
+            const extraNames = ids.map((id) => extrasMap[id] || id).filter(Boolean);
+            const cust = c as { isPartialCleaning?: boolean; excludedAreas?: string[]; excludeQuantities?: Record<string, number> };
+            const partial = !!cust?.isPartialCleaning || (cust?.excludedAreas?.length ?? 0) > 0;
+            return (
+              <>
+                {extraNames.length > 0 ? (
+                  <div>
+                    <p className="font-medium text-foreground mb-1">Selected extras</p>
+                    <ul className="list-disc pl-5 text-muted-foreground space-y-0.5">
+                      {extraNames.map((name) => (
+                        <li key={name}>{name}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {partial ? (
+                  <div className="rounded-md border border-amber-200/80 bg-amber-50/80 dark:bg-amber-950/30 dark:border-amber-900/40 p-3">
+                    <p className="font-medium text-foreground mb-1">Partial cleaning</p>
+                    <p className="text-muted-foreground">
+                      {cust?.isPartialCleaning ? "Yes" : "—"}
+                      {cust?.excludedAreas?.length ? (
+                        <span className="block mt-1">
+                          Excluded areas:{" "}
+                          {(cust.excludedAreas || []).map((paramId) => {
+                            const qty = cust.excludeQuantities?.[paramId] ?? 1;
+                            return `${String(paramId).slice(0, 8)}…${qty > 1 ? ` × ${qty}` : ""}`;
+                          }).join(", ")}
+                        </span>
+                      ) : null}
+                    </p>
+                  </div>
+                ) : null}
+                {selectedBooking.notes ? (
+                  <div>
+                    <p className="font-medium text-foreground mb-1">Notes</p>
+                    <p className="text-muted-foreground whitespace-pre-wrap">{selectedBooking.notes}</p>
+                  </div>
+                ) : null}
+                {extraNames.length === 0 && !partial && !selectedBooking.notes ? (
+                  <p className="text-muted-foreground">
+                    No extras or notes on this booking. Use Edit to add extras, or add notes when creating or editing the booking.
+                  </p>
+                ) : null}
+              </>
+            );
+          })()}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setChecklistOpen(false)}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     {/* Assign Provider Dialog */}
     <Dialog open={showProviderDialog} onOpenChange={(open) => { setShowProviderDialog(open); if (!open) setSelectedProvider(null); }}>
@@ -1215,6 +1356,18 @@ const Dashboard = () => {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <EditBookingSheet
+      bookingId={sheetEditBookingId}
+      open={!!sheetEditBookingId}
+      onOpenChange={(open) => {
+        if (!open) setSheetEditBookingId(null);
+      }}
+      onSaved={() => {
+        fetchDashboardData(false);
+        setCalendarRefreshKey((k) => k + 1);
+      }}
+    />
     </>
   );
 };

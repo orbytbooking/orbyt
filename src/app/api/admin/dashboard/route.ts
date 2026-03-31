@@ -323,6 +323,7 @@ export async function GET(request: NextRequest) {
           
           return {
             id: booking.id || 'unknown',
+            customer_id: booking.customer_id ?? null,
             provider: provider ? {
               id: provider.id,
               name: `${provider.first_name || ''} ${provider.last_name || ''}`.trim() || provider.name || 'Unknown Provider',
@@ -357,6 +358,7 @@ export async function GET(request: NextRequest) {
           console.error('Error processing booking:', booking.id, bookingError);
           return {
             id: booking.id || 'error-booking',
+            customer_id: null,
             provider: null,
             customer: {
               name: 'Error Loading Customer',
@@ -408,6 +410,7 @@ export async function GET(request: NextRequest) {
           
           return {
             id: booking.id || 'unknown',
+            customer_id: booking.customer_id ?? null,
             provider: provider ? {
               id: provider.id,
               name: `${provider.first_name || ''} ${provider.last_name || ''}`.trim() || provider.name || 'Unknown Provider',
@@ -442,6 +445,7 @@ export async function GET(request: NextRequest) {
           console.error('Error processing booking:', booking.id, bookingError);
           return {
             id: booking.id || 'error-booking',
+            customer_id: null,
             provider: null,
             customer: {
               name: 'Error Loading Customer',

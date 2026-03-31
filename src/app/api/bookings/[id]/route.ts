@@ -11,6 +11,8 @@ import {
   insertQuoteActivityLog,
   shortBookingRefForLogs,
 } from '@/lib/draftQuoteLogs';
+import { ensureCustomerForAdminBooking } from '@/lib/ensureCustomerForAdminBooking';
+import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
 
 export async function GET(
   request: Request,
@@ -106,15 +108,8 @@ export async function PUT(
       return NextResponse.json({ error: 'Invalid booking ID' }, { status: 400 });
     }
 
-    // Verify user has permission to update bookings
-    const { data: businessAccess, error: accessError } = await supabase
-      .from('businesses')
-      .select('id, owner_id')
-      .eq('owner_id', user.id)
-      .eq('id', businessId)
-      .single();
-
-    if (accessError || !businessAccess) {
+    const allowed = await userCanManageBookingsForBusiness(supabase, user.id, businessId);
+    if (!allowed) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
@@ -143,34 +138,17 @@ export async function PUT(
           providerWageType = String(bookingData.provider_wage_type);
         }
       }
-      let customerId: string | null = bookingData.customer_id && typeof bookingData.customer_id === 'string' ? bookingData.customer_id.trim() || null : null;
       const customerEmail = (bookingData.customer_email || '').toString().trim();
       const customerName = (bookingData.customer_name || '').toString().trim();
       const customerPhone = (bookingData.customer_phone || '').toString().trim() || null;
       const customerAddress = (bookingData.address || '').toString().trim() || null;
-      if (!customerId && customerEmail) {
-        const { data: existing } = await supabase
-          .from('customers')
-          .select('id')
-          .eq('business_id', businessId)
-          .ilike('email', customerEmail)
-          .maybeSingle();
-        if (existing?.id) customerId = existing.id;
-        else if (customerName || customerEmail) {
-          const { data: created } = await supabase
-            .from('customers')
-            .insert({
-              business_id: businessId,
-              name: customerName || customerEmail,
-              email: customerEmail,
-              phone: customerPhone,
-              address: customerAddress,
-            })
-            .select('id')
-            .single();
-          if (created?.id) customerId = created.id;
-        }
-      }
+      const customerId = await ensureCustomerForAdminBooking(supabase, businessId, {
+        customerIdFromClient: bookingData.customer_id,
+        customerEmail,
+        customerName,
+        customerPhone,
+        customerAddress,
+      });
       let providerName: string | null = (bookingData.provider_name || '').toString().trim() || null;
       const providerId = bookingData.service_provider_id ?? null;
       if (providerId && !providerName) {

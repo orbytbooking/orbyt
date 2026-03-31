@@ -93,6 +93,7 @@ import {
   Link2,
   Trash2,
   Info,
+  Loader2,
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { Label } from "@/components/ui/label";
@@ -104,6 +105,7 @@ import { SendScheduleDialog } from "@/components/admin/SendScheduleDialog";
 import { SendQuoteEmailFlow } from "@/components/admin/SendQuoteEmailFlow";
 import { DraftQuoteLogsDialog } from "@/components/admin/DraftQuoteLogsDialog";
 import { AdminBookingsCalendar } from "@/components/admin/AdminBookingsCalendar";
+import { EditBookingSheet } from "@/components/admin/EditBookingSheet";
 import { getOccurrenceDatesForSeriesSync } from "@/lib/recurringBookings";
 import {
   DEFAULT_ADMIN_CALENDAR_PREFS,
@@ -270,6 +272,9 @@ export default function BookingsPage() {
   const [adminCalendarPrefs, setAdminCalendarPrefs] = useState<AdminCalendarPrefsState>(DEFAULT_ADMIN_CALENDAR_PREFS);
   const [showSendScheduleDialog, setShowSendScheduleDialog] = useState(false);
   const [sendInvitationLoading, setSendInvitationLoading] = useState(false);
+  const [sendAddCardLoading, setSendAddCardLoading] = useState(false);
+  const [resendReceiptLoading, setResendReceiptLoading] = useState(false);
+  const [checklistOpen, setChecklistOpen] = useState(false);
   const [frequencyFilter, setFrequencyFilter] = useState("all");
   const [draftQuoteDeleteTarget, setDraftQuoteDeleteTarget] = useState<Booking | null>(null);
   const [draftQuoteDeleting, setDraftQuoteDeleting] = useState(false);
@@ -281,6 +286,7 @@ export default function BookingsPage() {
   const [changeExpiryBooking, setChangeExpiryBooking] = useState<Booking | null>(null);
   const [changeExpiryDate, setChangeExpiryDate] = useState("");
   const [changeExpirySaving, setChangeExpirySaving] = useState(false);
+  const [sheetEditBookingId, setSheetEditBookingId] = useState<string | null>(null);
 
   // Sync activeTab with URL
   useEffect(() => {
@@ -1438,7 +1444,7 @@ export default function BookingsPage() {
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 className="gap-2 cursor-pointer"
-                                onSelect={() => router.push(`/admin/add-booking?bookingId=${encodeURIComponent(booking.id)}`)}
+                                onSelect={() => setSheetEditBookingId(String(booking.id))}
                               >
                                 <Pencil className="h-4 w-4 shrink-0 text-primary" />
                                 Edit
@@ -1986,7 +1992,7 @@ export default function BookingsPage() {
                     const id = selectedBooking?.id != null ? String(selectedBooking.id).trim() : "";
                     setShowDetails(false);
                     if (id && id !== "undefined") {
-                      router.push(`/admin/add-booking?bookingId=${encodeURIComponent(id)}`);
+                      setSheetEditBookingId(id);
                     } else {
                       router.push("/admin/add-booking");
                     }
@@ -2016,11 +2022,73 @@ export default function BookingsPage() {
                 <Button className="w-full text-white bg-emerald-500 hover:bg-emerald-600" onClick={() => router.push(`/admin/leads?addBooking=${selectedBooking.id}`)}>
                   Add to leads funnel
                 </Button>
-                <Button className="w-full text-white bg-pink-500 hover:bg-pink-600" onClick={() => { toast({ title: "Add card link", description: "Send Add card link feature." }); }}>
-                  <CreditCard className="h-4 w-4 mr-2" />Send &quot;Add card&quot; link
+                <Button
+                  className="w-full text-white bg-pink-500 hover:bg-pink-600"
+                  disabled={sendAddCardLoading}
+                  onClick={async () => {
+                    if (!selectedBooking?.id) return;
+                    setSendAddCardLoading(true);
+                    try {
+                      const res = await fetch(`/api/admin/bookings/${encodeURIComponent(String(selectedBooking.id))}/send-add-card-link`, {
+                        method: "POST",
+                      });
+                      const data = await res.json().catch(() => ({}));
+                      if (!res.ok) {
+                        toast({
+                          title: "Error",
+                          description: typeof data.error === "string" ? data.error : "Failed to send add-card link",
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+                      toast({
+                        title: "Link sent",
+                        description: typeof data.sentTo === "string"
+                          ? `We emailed a secure add-card link to ${data.sentTo}.`
+                          : "We emailed a secure add-card link to the booking customer email.",
+                      });
+                    } catch {
+                      toast({ title: "Error", description: "Failed to send add-card link", variant: "destructive" });
+                    } finally {
+                      setSendAddCardLoading(false);
+                    }
+                  }}
+                >
+                  {sendAddCardLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CreditCard className="h-4 w-4 mr-2" />}
+                  {sendAddCardLoading ? "Sending…" : "Send \"Add card\" link"}
                 </Button>
-                <Button className="w-full text-white bg-sky-400 hover:bg-sky-500" onClick={() => { toast({ title: "Receipt", description: "Receipt will be resent to the customer." }); }}>
-                  <Receipt className="h-4 w-4 mr-2" />Resend Receipt
+                <Button
+                  className="w-full text-white bg-sky-400 hover:bg-sky-500"
+                  disabled={resendReceiptLoading}
+                  onClick={async () => {
+                    if (!selectedBooking?.id) return;
+                    setResendReceiptLoading(true);
+                    try {
+                      const res = await fetch(`/api/admin/bookings/${encodeURIComponent(String(selectedBooking.id))}/resend-receipt`, {
+                        method: "POST",
+                      });
+                      const data = await res.json().catch(() => ({}));
+                      if (!res.ok) {
+                        toast({
+                          title: "Error",
+                          description: typeof data.error === "string" ? data.error : "Could not send receipt",
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+                      toast({
+                        title: "Receipt sent",
+                        description: typeof data.message === "string" ? data.message : "The customer should receive the receipt shortly.",
+                      });
+                    } catch {
+                      toast({ title: "Error", description: "Failed to send receipt", variant: "destructive" });
+                    } finally {
+                      setResendReceiptLoading(false);
+                    }
+                  }}
+                >
+                  {resendReceiptLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Receipt className="h-4 w-4 mr-2" />}
+                  {resendReceiptLoading ? "Sending…" : "Resend Receipt"}
                 </Button>
                 <Button className="w-full text-white bg-amber-400 hover:bg-amber-500" onClick={() => router.push(`/admin/logs?booking=${selectedBooking.id}`)}>
                   <FileText className="h-4 w-4 mr-2" />View Booking Log
@@ -2028,7 +2096,7 @@ export default function BookingsPage() {
                 <Button className="w-full text-white bg-rose-400 hover:bg-rose-500" onClick={() => router.push(`/admin/booking-charges?precharge=${selectedBooking.id}`)}>
                   Pre-charge
                 </Button>
-                <Button className="w-full text-white bg-orange-500 hover:bg-orange-600" onClick={() => { toast({ title: "Checklist", description: "View checklist for this booking." }); }}>
+                <Button className="w-full text-white bg-orange-500 hover:bg-orange-600" onClick={() => setChecklistOpen(true)}>
                   <ListChecks className="h-4 w-4 mr-2" />View Checklist
                 </Button>
                 <Button
@@ -2045,11 +2113,105 @@ export default function BookingsPage() {
                 >
                   <Image className="h-4 w-4 mr-2" />Job Media
                 </Button>
+                <Button
+                  variant="outline"
+                  className="w-full border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-800"
+                  onClick={() => {
+                    setShowDetails(false);
+                    const params = new URLSearchParams(searchParams.toString());
+                    params.delete("booking");
+                    params.delete("id");
+                    router.replace(`/admin/bookings${params.toString() ? `?${params.toString()}` : ""}`, { scroll: false });
+                  }}
+                >
+                  View in Bookings
+                </Button>
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowDetails(false);
+                      const params = new URLSearchParams(searchParams.toString());
+                      params.delete("booking");
+                      params.delete("id");
+                      router.replace(`/admin/bookings${params.toString() ? `?${params.toString()}` : ""}`, { scroll: false });
+                    }}
+                  >
+                    Close
+                  </Button>
+                </div>
               </div>
             </div>
           )}
         </SheetContent>
       </Sheet>
+
+      <Dialog open={checklistOpen} onOpenChange={setChecklistOpen}>
+        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Booking checklist</DialogTitle>
+            <DialogDescription>
+              Extras, notes, and partial-cleaning details for this job.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 text-sm">
+            {selectedBooking && (() => {
+              const c = (selectedBooking as { customization?: BookingCustomization }).customization;
+              const ids = (c?.selectedExtras as string[]) || [];
+              const extraNames = ids.map((id) => extrasMap[id] || id).filter(Boolean);
+              const partial = c?.isPartialCleaning || (c?.excludedAreas?.length ?? 0) > 0;
+              return (
+                <>
+                  {extraNames.length > 0 ? (
+                    <div>
+                      <p className="font-medium text-foreground mb-1">Selected extras</p>
+                      <ul className="list-disc pl-5 text-muted-foreground space-y-0.5">
+                        {extraNames.map((name) => (
+                          <li key={name}>{name}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {partial ? (
+                    <div className="rounded-md border border-amber-200/80 bg-amber-50/80 dark:bg-amber-950/30 dark:border-amber-900/40 p-3">
+                      <p className="font-medium text-foreground mb-1">Partial cleaning</p>
+                      <p className="text-muted-foreground">
+                        {c?.isPartialCleaning ? "Yes" : "—"}
+                        {c?.excludedAreas?.length ? (
+                          <span className="block mt-1">
+                            Excluded:{" "}
+                            {(c.excludedAreas || []).map((paramId) => {
+                              const qty = c.excludeQuantities?.[paramId] ?? 1;
+                              const name = excludeParamNames[paramId] || `${String(paramId).slice(0, 8)}…`;
+                              return `${name}${qty > 1 ? ` × ${qty}` : ""}`;
+                            }).join(", ")}
+                          </span>
+                        ) : null}
+                      </p>
+                    </div>
+                  ) : null}
+                  {selectedBooking.notes ? (
+                    <div>
+                      <p className="font-medium text-foreground mb-1">Notes</p>
+                      <p className="text-muted-foreground whitespace-pre-wrap">{selectedBooking.notes}</p>
+                    </div>
+                  ) : null}
+                  {extraNames.length === 0 && !partial && !selectedBooking.notes ? (
+                    <p className="text-muted-foreground">
+                      No extras or notes on this booking. Use Edit to add extras, or add notes when creating or editing the booking.
+                    </p>
+                  ) : null}
+                </>
+              );
+            })()}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setChecklistOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Provider Assignment Dialog */}
       <Dialog open={showProviderDialog} onOpenChange={(open) => {
@@ -2129,6 +2291,15 @@ export default function BookingsPage() {
         onOpenChange={setShowSendScheduleDialog}
         bookings={bookings}
         providers={providers}
+      />
+
+      <EditBookingSheet
+        bookingId={sheetEditBookingId}
+        open={!!sheetEditBookingId}
+        onOpenChange={(open) => {
+          if (!open) setSheetEditBookingId(null);
+        }}
+        onSaved={() => setRefreshKey((k) => k + 1)}
       />
     </div>
   );

@@ -5,6 +5,8 @@ import { createAdminNotification } from '@/lib/adminProviderSync';
 import { syncBookingCreated, createRecurringCalendarEvent } from '@/lib/googleCalendar';
 import { getStoreOptionsScheduling, isDateHoliday } from '@/lib/schedulingFilters';
 import { logNewDraftOrQuote } from '@/lib/draftQuoteLogs';
+import { ensureCustomerForAdminBooking } from '@/lib/ensureCustomerForAdminBooking';
+import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
 
 export async function GET(request: Request) {
   try {
@@ -92,15 +94,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Business context required' }, { status: 400 });
     }
 
-    // Verify user has permission to create bookings
-    const { data: businessAccess, error: accessError } = await supabase
-      .from('businesses')
-      .select('id, owner_id')
-      .eq('owner_id', user.id)
-      .eq('id', businessId)
-      .single();
-
-    if (accessError || !businessAccess) {
+    const allowed = await userCanManageBookingsForBusiness(supabase, user.id, businessId);
+    if (!allowed) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
@@ -182,36 +177,17 @@ export async function POST(request: Request) {
       }
     }
 
-    // Resolve customer_id: use provided id, or lookup/create by email so admin-created bookings link to customers
-    let customerId: string | null = bookingData.customer_id && typeof bookingData.customer_id === 'string' ? bookingData.customer_id.trim() || null : null;
     const customerEmail = (bookingData.customer_email || '').toString().trim();
     const customerName = (bookingData.customer_name || '').toString().trim();
     const customerPhone = (bookingData.customer_phone || '').toString().trim() || null;
     const customerAddress = (bookingData.address || '').toString().trim() || null;
-    if (!customerId && customerEmail) {
-      const { data: existing } = await supabase
-        .from('customers')
-        .select('id')
-        .eq('business_id', businessId)
-        .ilike('email', customerEmail)
-        .maybeSingle();
-      if (existing?.id) {
-        customerId = existing.id;
-      } else if (customerName || customerEmail) {
-        const { data: created } = await supabase
-          .from('customers')
-          .insert({
-            business_id: businessId,
-            name: customerName || customerEmail,
-            email: customerEmail,
-            phone: customerPhone,
-            address: customerAddress,
-          })
-          .select('id')
-          .single();
-        if (created?.id) customerId = created.id;
-      }
-    }
+    const customerId = await ensureCustomerForAdminBooking(supabase, businessId, {
+      customerIdFromClient: bookingData.customer_id,
+      customerEmail,
+      customerName,
+      customerPhone,
+      customerAddress,
+    });
 
     // Resolve provider_name when provider is assigned (for display in customer profile/calendar)
     let providerName: string | null = (bookingData.provider_name || '').toString().trim() || null;

@@ -5,6 +5,7 @@ import { processBookingScheduling } from '@/lib/bookingScheduling';
 import { EmailService } from '@/lib/emailService';
 import { syncBookingCreated, createRecurringCalendarEvent } from '@/lib/googleCalendar';
 import { getStoreOptionsScheduling, isDateHoliday, getSpotLimits, getBookingCountForDate, getBookingCountForWeek, isTimeSlotAvailableForBooking } from '@/lib/schedulingFilters';
+import { ensureCustomerForAdminBooking } from '@/lib/ensureCustomerForAdminBooking';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -131,55 +132,49 @@ export async function POST(request: NextRequest) {
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-  // Link to existing customer when email matches; if none exists, create one
-  // so that all website bookings automatically appear in the admin Customers list.
+  // Same customer resolution as admin add-booking: normalize email, upsert on (email, business_id),
+  // so website / book-now guests always link to the admin Customers list.
   let customerId: string | null = null;
   if (customerEmail) {
-    const { data: existing } = await supabase
+    const { data: existingForBlock } = await supabase
       .from('customers')
       .select('id, booking_blocked')
       .eq('business_id', businessId)
       .ilike('email', customerEmail)
       .maybeSingle();
 
-    if (existing?.id) {
-      if (existing.booking_blocked) {
-        const { data: accessRow } = await supabase
-          .from('business_access_settings')
-          .select('customer_blocked_message')
-          .eq('business_id', businessId)
-          .maybeSingle();
-        const message =
-          accessRow?.customer_blocked_message ||
-          'We apologize for the inconvenience. Please contact our office if you have any questions.';
-        return NextResponse.json(
-          { error: 'BOOKING_BLOCKED', message },
-          { status: 403 }
-        );
-      }
-      customerId = existing.id;
-    } else {
-      const now = new Date();
-      const joinDate = now.toISOString().slice(0, 10);
-      const { data: created } = await supabase
-        .from('customers')
-        .insert({
-          business_id: businessId,
-          name: customerName,
-          email: customerEmail,
-          phone: customerPhone || null,
-          address: (body.address ?? '').toString().trim() || null,
-          join_date: joinDate,
-          total_bookings: 0,
-          total_spent: 0,
-          status: 'active',
-          last_booking: null,
-        })
-        .select('id')
-        .single();
-      if (created?.id) {
-        customerId = created.id;
-      }
+    if (existingForBlock?.booking_blocked) {
+      const { data: accessRow } = await supabase
+        .from('business_access_settings')
+        .select('customer_blocked_message')
+        .eq('business_id', businessId)
+        .maybeSingle();
+      const message =
+        accessRow?.customer_blocked_message ||
+        'We apologize for the inconvenience. Please contact our office if you have any questions.';
+      return NextResponse.json(
+        { error: 'BOOKING_BLOCKED', message },
+        { status: 403 }
+      );
+    }
+
+    customerId = await ensureCustomerForAdminBooking(supabase, businessId, {
+      customerIdFromClient: existingForBlock?.id ?? null,
+      customerEmail,
+      customerName,
+      customerPhone: customerPhone || null,
+      customerAddress: (body.address ?? '').toString().trim() || null,
+    });
+
+    if (!customerId) {
+      console.error('guest/bookings: ensureCustomerForAdminBooking returned null', { businessId, customerEmail });
+      return NextResponse.json(
+        {
+          error: 'CUSTOMER_RECORD_FAILED',
+          message: 'We could not save your contact profile. Please try again or call us to book.',
+        },
+        { status: 500 }
+      );
     }
   }
 
