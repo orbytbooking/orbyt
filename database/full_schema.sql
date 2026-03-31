@@ -146,6 +146,19 @@ CREATE TABLE public.business_holidays (
   CONSTRAINT business_holidays_pkey PRIMARY KEY (id),
   CONSTRAINT business_holidays_business_id_fkey FOREIGN KEY (business_id) REFERENCES public.businesses(id)
 );
+CREATE TABLE public.business_notification_templates (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  business_id uuid NOT NULL,
+  name text NOT NULL,
+  subject text NOT NULL DEFAULT ''::text,
+  body text NOT NULL DEFAULT ''::text,
+  enabled boolean NOT NULL DEFAULT true,
+  is_default boolean NOT NULL DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT business_notification_templates_pkey PRIMARY KEY (id),
+  CONSTRAINT business_notification_templates_business_id_fkey FOREIGN KEY (business_id) REFERENCES public.businesses(id) ON DELETE CASCADE
+);
 CREATE TABLE public.business_reserve_slot_settings (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   business_id uuid NOT NULL,
@@ -210,6 +223,11 @@ CREATE TABLE public.business_store_options (
   time_adjustment_note_enabled boolean NOT NULL DEFAULT false,
   allow_customer_self_reschedule boolean NOT NULL DEFAULT false,
   reschedule_message text,
+  admin_bookings_default_view text NOT NULL DEFAULT 'calendar'::text CHECK (admin_bookings_default_view = ANY (ARRAY['calendar'::text, 'listing'::text])),
+  admin_calendar_view_mode text NOT NULL DEFAULT 'month'::text CHECK (admin_calendar_view_mode = ANY (ARRAY['month'::text, 'week'::text, 'day'::text])),
+  admin_calendar_month_display text NOT NULL DEFAULT 'names'::text CHECK (admin_calendar_month_display = ANY (ARRAY['names'::text, 'dots'::text])),
+  admin_calendar_multi_booking_layout text NOT NULL DEFAULT 'side_by_side'::text CHECK (admin_calendar_multi_booking_layout = ANY (ARRAY['side_by_side'::text, 'overlapped'::text])),
+  admin_calendar_hide_non_working_hours boolean NOT NULL DEFAULT false,
   CONSTRAINT business_store_options_pkey PRIMARY KEY (id),
   CONSTRAINT business_store_options_business_id_fkey FOREIGN KEY (business_id) REFERENCES public.businesses(id)
 );

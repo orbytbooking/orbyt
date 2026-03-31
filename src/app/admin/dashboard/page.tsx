@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { DEFAULT_ADMIN_CALENDAR_PREFS, parseAdminCalendarPrefs, type AdminCalendarPrefsState } from "@/lib/adminCalendarPrefs";
 import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { useRouter } from "next/navigation";
@@ -180,6 +181,7 @@ const Dashboard = () => {
   const [sendInvitationLoading, setSendInvitationLoading] = useState(false);
   const [industries, setIndustries] = useState<{ id: string; name: string }[]>([]);
   const [extrasMap, setExtrasMap] = useState<Record<string, string>>({});
+  const [adminCalendarPrefs, setAdminCalendarPrefs] = useState<AdminCalendarPrefsState>(DEFAULT_ADMIN_CALENDAR_PREFS);
   const { config } = useWebsiteConfig();
   const { currentBusiness } = useBusiness(); // Get current business
   const router = useRouter();
@@ -241,6 +243,22 @@ const Dashboard = () => {
       setIsRefreshing(false);
     }
   };
+
+  useEffect(() => {
+    if (!currentBusiness?.id) return;
+    let cancelled = false;
+    fetch(`/api/admin/store-options?businessId=${encodeURIComponent(currentBusiness.id)}`, {
+      headers: { "x-business-id": currentBusiness.id },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setAdminCalendarPrefs(parseAdminCalendarPrefs(data?.options));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [currentBusiness?.id]);
 
   // Fetch industries for booking modal (industry name, extras resolution)
   useEffect(() => {
@@ -760,6 +778,10 @@ const Dashboard = () => {
             }}
             showRefresh={true}
             onDayClick={setSelectedDate}
+            calendarViewMode={adminCalendarPrefs.admin_calendar_view_mode}
+            monthDisplay={adminCalendarPrefs.admin_calendar_month_display}
+            multiBookingLayout={adminCalendarPrefs.admin_calendar_multi_booking_layout}
+            hideNonWorkingHours={adminCalendarPrefs.admin_calendar_hide_non_working_hours}
           />
           {selectedDate && (
             <div className="mt-4">

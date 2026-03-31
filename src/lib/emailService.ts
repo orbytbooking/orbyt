@@ -1,11 +1,22 @@
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 import {
-  getActivePlatformEmailTemplateByKey,
   plainTextToEmailHtml,
+  resolvePublicAssetUrls,
   substituteEmailPlaceholders,
+} from '@/lib/emailTemplatePlaceholders';
+import {
+  getActivePlatformEmailTemplateByKey,
   PLATFORM_EMAIL_TEMPLATE_KEYS,
 } from '@/lib/platformEmailTemplates';
+
+/** Public site base URL for template placeholders like {{site_url}}/blog */
+function resolveSiteUrl(website?: string | null): string {
+  const w = (website ?? '').trim();
+  if (w && /^https?:\/\//i.test(w)) return w.replace(/\/$/, '');
+  const app = (process.env.NEXT_PUBLIC_APP_URL || 'https://yourdomain.com').trim();
+  return app.replace(/\/$/, '');
+}
 
 interface ProviderInvitationData {
   email: string;
@@ -271,6 +282,11 @@ export class EmailService {
     to: string;
     customerName: string;
     businessName: string;
+    businessWebsite?: string | null;
+    businessLogoUrl?: string | null;
+    supportEmail?: string | null;
+    supportPhone?: string | null;
+    storeCurrency?: string | null;
     invoiceNumber: string;
     totalAmount: number;
     dueDate: string | null;
@@ -280,7 +296,22 @@ export class EmailService {
     lineSummary?: string;
   }): Promise<boolean> {
     try {
-      const { to, customerName, businessName, invoiceNumber, totalAmount, dueDate, issueDate, description, viewUrl, lineSummary } = data;
+      const {
+        to,
+        customerName,
+        businessName,
+        businessLogoUrl,
+        supportEmail,
+        supportPhone,
+        storeCurrency,
+        invoiceNumber,
+        totalAmount,
+        dueDate,
+        issueDate,
+        description,
+        viewUrl,
+        lineSummary,
+      } = data;
       const defaultSubject = `Invoice ${invoiceNumber} from ${businessName}`;
 
       const tpl = await getActivePlatformEmailTemplateByKey(PLATFORM_EMAIL_TEMPLATE_KEYS.invoice);
@@ -296,6 +327,11 @@ export class EmailService {
           description: description || '',
           line_summary: lineSummary || '',
           view_url: viewUrl,
+          business_logo_url: businessLogoUrl || '',
+          support_email: supportEmail || '',
+          support_phone: supportPhone || '',
+          store_currency: storeCurrency || '',
+          site_url: resolveSiteUrl(businessWebsite),
         };
         const emailSubject =
           substituteEmailPlaceholders((tpl.subject || '').trim(), vars).trim() || defaultSubject;
@@ -310,6 +346,7 @@ export class EmailService {
           emailHtml = '';
         }
         if (emailHtml) {
+          emailHtml = resolvePublicAssetUrls(emailHtml, resolveSiteUrl(businessWebsite));
           if (!this.resendClient) {
             console.log('[Email] Invoice (template, Resend not configured):', to, invoiceNumber);
             return true;
@@ -411,6 +448,11 @@ export class EmailService {
     to: string;
     customerName: string;
     businessName: string;
+    businessWebsite?: string | null;
+    businessLogoUrl?: string | null;
+    supportEmail?: string | null;
+    supportPhone?: string | null;
+    storeCurrency?: string | null;
     service: string | null;
     scheduledDate: string | null;
     scheduledTime: string | null;
@@ -419,7 +461,22 @@ export class EmailService {
     bookingRef: string;
   }): Promise<boolean> {
     try {
-      const { to, customerName, businessName, service, scheduledDate, scheduledTime, address, totalPrice, bookingRef } = data;
+      const {
+        to,
+        customerName,
+        businessName,
+        businessWebsite,
+        businessLogoUrl,
+        supportEmail,
+        supportPhone,
+        storeCurrency,
+        service,
+        scheduledDate,
+        scheduledTime,
+        address,
+        totalPrice,
+        bookingRef,
+      } = data;
       const dateStr = scheduledDate ? new Date(scheduledDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : 'TBD';
       const timeStr = scheduledTime ? (String(scheduledTime).includes(':') ? String(scheduledTime).slice(0, 5) : String(scheduledTime)) : '';
 
@@ -437,6 +494,11 @@ export class EmailService {
           total_price: Number(totalPrice || 0).toFixed(2),
           total_price_formatted: `$${Number(totalPrice || 0).toFixed(2)}`,
           booking_ref: bookingRef,
+          business_logo_url: businessLogoUrl || '',
+          support_email: supportEmail || '',
+          support_phone: supportPhone || '',
+          store_currency: storeCurrency || '',
+          site_url: resolveSiteUrl(businessWebsite),
         };
         const emailSubject =
           substituteEmailPlaceholders((tpl.subject || '').trim(), vars).trim() || defaultSubject;
@@ -451,6 +513,7 @@ export class EmailService {
           emailHtml = '';
         }
         if (emailHtml) {
+          emailHtml = resolvePublicAssetUrls(emailHtml, resolveSiteUrl(businessWebsite));
           if (!this.resendClient) {
             console.log('[Email] Booking confirmation (template, Resend not configured):', to, bookingRef);
             return true;

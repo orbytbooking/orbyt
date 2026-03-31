@@ -108,6 +108,12 @@ interface StoreOptions {
   completion_on_clock_out?: boolean;
   allow_reclock_in?: boolean;
   time_log_updates_booking?: boolean;
+  /** Admin Bookings / dashboard calendar UI */
+  admin_bookings_default_view?: 'calendar' | 'listing';
+  admin_calendar_view_mode?: 'month' | 'week' | 'day';
+  admin_calendar_month_display?: 'names' | 'dots';
+  admin_calendar_multi_booking_layout?: 'side_by_side' | 'overlapped';
+  admin_calendar_hide_non_working_hours?: boolean;
 }
 
 // All IANA time zones (from Intl when available, else fallback list)
@@ -156,6 +162,11 @@ const SCHEDULING_DEFAULT_OPTIONS: StoreOptions = {
   completion_on_clock_out: false,
   allow_reclock_in: false,
   time_log_updates_booking: false,
+  admin_bookings_default_view: 'calendar',
+  admin_calendar_view_mode: 'month',
+  admin_calendar_month_display: 'names',
+  admin_calendar_multi_booking_layout: 'side_by_side',
+  admin_calendar_hide_non_working_hours: false,
 };
 
 // Simple rich text editor for reschedule/cancellation messages
@@ -287,12 +298,6 @@ export default function GeneralSettingsPage() {
   const [priceAdjustmentNote, setPriceAdjustmentNote] = useState<'yes' | 'no'>('no');
   const [timeAdjustmentNote, setTimeAdjustmentNote] = useState<'yes' | 'no'>('no');
   const [calendarSettingsExpanded, setCalendarSettingsExpanded] = useState(false);
-  const [calendarDefaultView, setCalendarDefaultView] = useState<'calendar' | 'listing'>('calendar');
-  const [calendarViewDefault, setCalendarViewDefault] = useState<'month' | 'week' | 'day'>('month');
-  const [calendarProvidersPosition, setCalendarProvidersPosition] = useState<'top' | 'timeline' | 'side'>('side');
-  const [calendarMonthShow, setCalendarMonthShow] = useState<'names' | 'dots'>('names');
-  const [calendarMultipleBookings, setCalendarMultipleBookings] = useState<'side_by_side' | 'overlapped'>('side_by_side');
-  const [calendarHideNonWorkingHours, setCalendarHideNonWorkingHours] = useState<'yes' | 'no'>('no');
   const [timeZoneSettingsExpanded, setTimeZoneSettingsExpanded] = useState(false);
   const [timeZoneMultipleEnabled, setTimeZoneMultipleEnabled] = useState<'yes' | 'no'>('no');
   const [chatSettingsExpanded, setChatSettingsExpanded] = useState(false);
@@ -708,6 +713,7 @@ export default function GeneralSettingsPage() {
 
   const [locationSaving, setLocationSaving] = useState(false);
   const [addressSaving, setAddressSaving] = useState(false);
+  const [calendarSettingsSaving, setCalendarSettingsSaving] = useState(false);
   const [priceTimeSaving, setPriceTimeSaving] = useState(false);
   const [customerRescheduleSaving, setCustomerRescheduleSaving] = useState(false);
   const allTimeZones = useMemo(() => getAllTimeZones(), []);
@@ -762,6 +768,31 @@ export default function GeneralSettingsPage() {
       toast.error(e instanceof Error ? e.message : "Failed to save address settings");
     } finally {
       setAddressSaving(false);
+    }
+  };
+
+  const saveCalendarSettings = async () => {
+    if (!currentBusiness?.id) return;
+    setCalendarSettingsSaving(true);
+    try {
+      const res = await fetch("/api/admin/store-options", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "x-business-id": currentBusiness.id },
+        body: JSON.stringify({
+          ...schedulingOptions,
+          businessId: currentBusiness.id,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save");
+      if (data.options) {
+        setSchedulingOptions({ ...SCHEDULING_DEFAULT_OPTIONS, ...data.options });
+      }
+      toast.success("Calendar settings saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save calendar settings");
+    } finally {
+      setCalendarSettingsSaving(false);
     }
   };
 
@@ -1669,8 +1700,13 @@ export default function GeneralSettingsPage() {
                               </Tooltip>
                             </div>
                             <RadioGroup
-                              value={calendarDefaultView}
-                              onValueChange={(v) => setCalendarDefaultView(v as 'calendar' | 'listing')}
+                              value={schedulingOptions.admin_bookings_default_view ?? 'calendar'}
+                              onValueChange={(v) =>
+                                setSchedulingOptions((prev) => ({
+                                  ...prev,
+                                  admin_bookings_default_view: v as 'calendar' | 'listing',
+                                }))
+                              }
                               className="flex gap-4 pt-1"
                             >
                               <label className="flex items-center gap-2 cursor-pointer">
@@ -1700,8 +1736,13 @@ export default function GeneralSettingsPage() {
                               </Tooltip>
                             </div>
                             <RadioGroup
-                              value={calendarViewDefault}
-                              onValueChange={(v) => setCalendarViewDefault(v as 'month' | 'week' | 'day')}
+                              value={schedulingOptions.admin_calendar_view_mode ?? 'month'}
+                              onValueChange={(v) =>
+                                setSchedulingOptions((prev) => ({
+                                  ...prev,
+                                  admin_calendar_view_mode: v as 'month' | 'week' | 'day',
+                                }))
+                              }
                               className="flex gap-4 pt-1"
                             >
                               <label className="flex items-center gap-2 cursor-pointer">
@@ -1719,47 +1760,17 @@ export default function GeneralSettingsPage() {
                             </RadioGroup>
                           </div>
                           <div className="space-y-2">
-                            <div className="flex items-center gap-1.5">
-                              <Label className="font-semibold text-sm">
-                                Where should the providers show on your calendar by default?
-                              </Label>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button type="button" className="inline-flex text-muted-foreground hover:text-foreground">
-                                    <Info className="h-4 w-4" />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="max-w-xs">
-                                  Position of the provider list or timeline on the calendar.
-                                </TooltipContent>
-                              </Tooltip>
-                            </div>
-                            <RadioGroup
-                              value={calendarProvidersPosition}
-                              onValueChange={(v) => setCalendarProvidersPosition(v as 'top' | 'timeline' | 'side')}
-                              className="flex gap-4 pt-1"
-                            >
-                              <label className="flex items-center gap-2 cursor-pointer">
-                                <RadioGroupItem value="top" id="cal-providers-top" />
-                                <span className="text-sm">Top</span>
-                              </label>
-                              <label className="flex items-center gap-2 cursor-pointer">
-                                <RadioGroupItem value="timeline" id="cal-providers-timeline" />
-                                <span className="text-sm">Timeline/Horizontal</span>
-                              </label>
-                              <label className="flex items-center gap-2 cursor-pointer">
-                                <RadioGroupItem value="side" id="cal-providers-side" />
-                                <span className="text-sm">Side</span>
-                              </label>
-                            </RadioGroup>
-                          </div>
-                          <div className="space-y-2">
                             <Label className="font-semibold text-sm">
                               Would you like to show customer names in the month view or the dots for bookings?
                             </Label>
                             <RadioGroup
-                              value={calendarMonthShow}
-                              onValueChange={(v) => setCalendarMonthShow(v as 'names' | 'dots')}
+                              value={schedulingOptions.admin_calendar_month_display ?? 'names'}
+                              onValueChange={(v) =>
+                                setSchedulingOptions((prev) => ({
+                                  ...prev,
+                                  admin_calendar_month_display: v as 'names' | 'dots',
+                                }))
+                              }
                               className="flex gap-4 pt-1"
                             >
                               <label className="flex items-center gap-2 cursor-pointer">
@@ -1777,8 +1788,13 @@ export default function GeneralSettingsPage() {
                               How you want to show multiple bookings on single date?
                             </Label>
                             <RadioGroup
-                              value={calendarMultipleBookings}
-                              onValueChange={(v) => setCalendarMultipleBookings(v as 'side_by_side' | 'overlapped')}
+                              value={schedulingOptions.admin_calendar_multi_booking_layout ?? 'side_by_side'}
+                              onValueChange={(v) =>
+                                setSchedulingOptions((prev) => ({
+                                  ...prev,
+                                  admin_calendar_multi_booking_layout: v as 'side_by_side' | 'overlapped',
+                                }))
+                              }
                               className="flex gap-4 pt-1"
                             >
                               <label className="flex items-center gap-2 cursor-pointer">
@@ -1808,8 +1824,13 @@ export default function GeneralSettingsPage() {
                               </Tooltip>
                             </div>
                             <RadioGroup
-                              value={calendarHideNonWorkingHours}
-                              onValueChange={(v) => setCalendarHideNonWorkingHours(v as 'yes' | 'no')}
+                              value={schedulingOptions.admin_calendar_hide_non_working_hours ? 'yes' : 'no'}
+                              onValueChange={(v) =>
+                                setSchedulingOptions((prev) => ({
+                                  ...prev,
+                                  admin_calendar_hide_non_working_hours: v === 'yes',
+                                }))
+                              }
                               className="flex gap-4 pt-1"
                             >
                               <label className="flex items-center gap-2 cursor-pointer">
@@ -1822,6 +1843,15 @@ export default function GeneralSettingsPage() {
                               </label>
                             </RadioGroup>
                           </div>
+                          <Button
+                            type="button"
+                            onClick={saveCalendarSettings}
+                            disabled={calendarSettingsSaving}
+                            className="mt-2"
+                          >
+                            {calendarSettingsSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                            Save calendar settings
+                          </Button>
                         </div>
                       </TooltipProvider>
                     </div>

@@ -361,12 +361,21 @@ export async function POST(request: NextRequest) {
 
   if (customerEmail) {
     try {
-      const { data: biz } = await supabase.from('businesses').select('name').eq('id', businessId).single();
+      const { data: biz } = await supabase
+        .from('businesses')
+        .select('name, website, logo_url, business_email, business_phone, currency')
+        .eq('id', businessId)
+        .single();
       const emailService = new EmailService();
       await emailService.sendBookingConfirmation({
         to: customerEmail,
         customerName: customerName || 'Customer',
         businessName: biz?.name || 'Your Business',
+        businessWebsite: biz?.website || null,
+        businessLogoUrl: biz?.logo_url || null,
+        supportEmail: biz?.business_email || null,
+        supportPhone: biz?.business_phone || null,
+        storeCurrency: biz?.currency || null,
         service: booking.service,
         scheduledDate: booking.scheduled_date ?? booking.date,
         scheduledTime: booking.scheduled_time ?? booking.time,

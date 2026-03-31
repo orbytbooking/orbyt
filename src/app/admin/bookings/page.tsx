@@ -105,6 +105,11 @@ import { SendQuoteEmailFlow } from "@/components/admin/SendQuoteEmailFlow";
 import { DraftQuoteLogsDialog } from "@/components/admin/DraftQuoteLogsDialog";
 import { AdminBookingsCalendar } from "@/components/admin/AdminBookingsCalendar";
 import { getOccurrenceDatesForSeriesSync } from "@/lib/recurringBookings";
+import {
+  DEFAULT_ADMIN_CALENDAR_PREFS,
+  parseAdminCalendarPrefs,
+  type AdminCalendarPrefsState,
+} from "@/lib/adminCalendarPrefs";
 import { differenceInCalendarDays, format, parseISO, startOfDay } from "date-fns";
 
 // Bookings are now loaded from Supabase only.
@@ -262,6 +267,7 @@ export default function BookingsPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providersLoading, setProvidersLoading] = useState(false);
   const [viewMode, setViewMode] = useState<"list" | "calendar">("calendar");
+  const [adminCalendarPrefs, setAdminCalendarPrefs] = useState<AdminCalendarPrefsState>(DEFAULT_ADMIN_CALENDAR_PREFS);
   const [showSendScheduleDialog, setShowSendScheduleDialog] = useState(false);
   const [sendInvitationLoading, setSendInvitationLoading] = useState(false);
   const [frequencyFilter, setFrequencyFilter] = useState("all");
@@ -378,15 +384,33 @@ export default function BookingsPage() {
       .catch(() => setExtrasMap({}));
   }, [showDetails, selectedBooking?.id, industries]);
 
-  // Auto-set view mode based on active tab
   useEffect(() => {
-    const tabsNeedingListView = ['today', 'unassigned', 'draft', 'cancelled', 'history'];
+    if (!currentBusiness?.id) return;
+    let cancelled = false;
+    fetch(`/api/admin/store-options?businessId=${encodeURIComponent(currentBusiness.id)}`, {
+      headers: { "x-business-id": currentBusiness.id },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        const o = data?.options;
+        if (!o || cancelled) return;
+        setAdminCalendarPrefs(parseAdminCalendarPrefs(o));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [currentBusiness?.id]);
+
+  // Auto-set view mode based on active tab (calendar vs list follows store default on All / Upcoming)
+  useEffect(() => {
+    const tabsNeedingListView = ["today", "unassigned", "draft", "cancelled", "history"];
     if (tabsNeedingListView.includes(activeTab)) {
       setViewMode("list");
     } else {
-      setViewMode("calendar");
+      setViewMode(adminCalendarPrefs.admin_bookings_default_view === "listing" ? "list" : "calendar");
     }
-  }, [activeTab]);
+  }, [activeTab, adminCalendarPrefs.admin_bookings_default_view]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -1544,6 +1568,10 @@ export default function BookingsPage() {
           onMonthChange={setCurrentDate}
           onRefresh={() => setRefreshKey((k) => k + 1)}
           showRefresh={true}
+          calendarViewMode={adminCalendarPrefs.admin_calendar_view_mode}
+          monthDisplay={adminCalendarPrefs.admin_calendar_month_display}
+          multiBookingLayout={adminCalendarPrefs.admin_calendar_multi_booking_layout}
+          hideNonWorkingHours={adminCalendarPrefs.admin_calendar_hide_non_working_hours}
         />
       )}
         </TabsContent>

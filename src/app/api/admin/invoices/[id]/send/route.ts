@@ -60,7 +60,7 @@ export async function POST(
 
     const { data: business } = await supabase
       .from('businesses')
-      .select('name')
+      .select('name, website, logo_url, business_email, business_phone, currency')
       .eq('id', businessId)
       .single();
 
@@ -95,6 +95,11 @@ export async function POST(
       to: customer.email,
       customerName: customer.name || 'Customer',
       businessName: business?.name || 'Your Business',
+      businessWebsite: business?.website || null,
+      businessLogoUrl: business?.logo_url || null,
+      supportEmail: business?.business_email || null,
+      supportPhone: business?.business_phone || null,
+      storeCurrency: business?.currency || null,
       invoiceNumber: invoice.invoice_number,
       totalAmount: Number(invoice.total_amount) || 0,
       dueDate: invoice.due_date || null,

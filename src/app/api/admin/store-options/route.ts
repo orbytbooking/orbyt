@@ -51,6 +51,11 @@ export interface BusinessStoreOptions {
   time_adjustment_note_enabled: boolean;
   allow_customer_self_reschedule: boolean;
   reschedule_message: string | null;
+  admin_bookings_default_view: 'calendar' | 'listing';
+  admin_calendar_view_mode: 'month' | 'week' | 'day';
+  admin_calendar_month_display: 'names' | 'dots';
+  admin_calendar_multi_booking_layout: 'side_by_side' | 'overlapped';
+  admin_calendar_hide_non_working_hours: boolean;
 }
 
 const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
@@ -90,6 +95,11 @@ const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
   time_adjustment_note_enabled: false,
   allow_customer_self_reschedule: false,
   reschedule_message: null,
+  admin_bookings_default_view: 'calendar',
+  admin_calendar_view_mode: 'month',
+  admin_calendar_month_display: 'names',
+  admin_calendar_multi_booking_layout: 'side_by_side',
+  admin_calendar_hide_non_working_hours: false,
 };
 
 async function getSupabase() {
@@ -186,6 +196,21 @@ export async function PUT(request: NextRequest) {
       time_adjustment_note_enabled: body.time_adjustment_note_enabled ?? false,
       allow_customer_self_reschedule: body.allow_customer_self_reschedule ?? false,
       reschedule_message: body.reschedule_message ?? null,
+      admin_bookings_default_view: ['calendar', 'listing'].includes(body.admin_bookings_default_view)
+        ? body.admin_bookings_default_view
+        : 'calendar',
+      admin_calendar_view_mode: ['month', 'week', 'day'].includes(body.admin_calendar_view_mode)
+        ? body.admin_calendar_view_mode
+        : 'month',
+      admin_calendar_month_display: ['names', 'dots'].includes(body.admin_calendar_month_display)
+        ? body.admin_calendar_month_display
+        : 'names',
+      admin_calendar_multi_booking_layout: ['side_by_side', 'overlapped'].includes(
+        body.admin_calendar_multi_booking_layout
+      )
+        ? body.admin_calendar_multi_booking_layout
+        : 'side_by_side',
+      admin_calendar_hide_non_working_hours: body.admin_calendar_hide_non_working_hours === true,
       updated_at: new Date().toISOString(),
     };
 
