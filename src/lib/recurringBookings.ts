@@ -5,23 +5,14 @@
  */
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { getStoreOptionsScheduling, isDateHoliday } from './schedulingFilters';
+import {
+  FREQUENCY_REPEAT_WEEKDAY_PATTERNS as WEEKDAY_REPEAT_PATTERNS,
+  normalizeFrequencyRepeatKey,
+} from './frequencyRepeatWeekdayCalendar';
+import { finalStatusForAdminBooking, providerIdFromBookingPayload } from '@/lib/adminBookingStatus';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-/**
- * `frequency_repeats` values from admin (see frequencies/new/page.tsx) map to JS getDay():
- * 0 Sun … 6 Sat.
- */
-const WEEKDAY_REPEAT_PATTERNS: Record<string, number[]> = {
-  'every-mon-fri': [1, 5],
-  'every-mon-wed-fri': [1, 3, 5],
-  'every-tue-thu': [2, 4],
-  'sat-sun': [0, 6],
-  'every-tue-wed-fri': [2, 3, 5],
-  'every-mon-wed': [1, 3],
-  'every-mon-thu': [1, 4],
-};
 
 const TEXT_NUMBERS: Record<string, number> = {
   one: 1,
@@ -39,11 +30,7 @@ const TEXT_NUMBERS: Record<string, number> = {
 };
 
 function normalizeRepeat(raw: string | null | undefined): string {
-  return (raw || '')
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/_/g, '-');
+  return normalizeFrequencyRepeatKey(raw);
 }
 
 function parseEveryNUnit(repeatsRaw: string | null | undefined): { n: number; unit: 'day' | 'week' | 'month' | 'year' } | null {
@@ -289,8 +276,13 @@ export async function computeOccurrenceDates(
 function bookingFromTemplate(
   series: Record<string, unknown>,
   dateStr: string,
-  businessId: string
+  businessId: string,
+  adminBooking: boolean
 ): Record<string, unknown> {
+  const bookingStatus = adminBooking
+    ? finalStatusForAdminBooking({ ...series } as Record<string, unknown>, providerIdFromBookingPayload(series as Record<string, unknown>))
+    : String(series.status ?? 'pending');
+
   const row: Record<string, unknown> = {
     business_id: businessId,
     recurring_series_id: series.id,
@@ -318,7 +310,7 @@ function bookingFromTemplate(
     customer_name: series.customer_name ?? series.customerName ?? null,
     customer_email: series.customer_email ?? series.customerEmail ?? null,
     customer_phone: series.customer_phone ?? series.customerPhone ?? null,
-    status: 'pending',
+    status: bookingStatus,
     tip_amount: 0,
   };
   return row;
@@ -336,6 +328,8 @@ export async function createRecurringSeries(
     frequencyRepeats?: string | null;
     occurrencesAhead?: number;
     sameProvider?: boolean;
+    /** Admin add-booking: assigned provider + pending → confirmed on the booking row. */
+    adminBooking?: boolean;
   }
 ): Promise<{ seriesId: string; bookingIds: string[] }> {
   const opts = await getStoreOptionsScheduling(businessId);
@@ -393,7 +387,14 @@ export async function createRecurringSeries(
 
   // One booking row per recurring series (first occurrence date); other dates are derived from series when displaying
   const firstDate = dates[0] ?? options.startDate;
-  const singleBooking = bookingFromTemplate({ ...template, ...seriesRow, id: series.id }, firstDate, businessId);
+  // Do not merge recurring_series.status ('active') into the booking — it overwrote booking status as pending/incorrect.
+  const { status: _omitSeriesTableStatus, ...seriesRowForBooking } = seriesRow;
+  const singleBooking = bookingFromTemplate(
+    { ...template, ...seriesRowForBooking, id: series.id },
+    firstDate,
+    businessId,
+    options.adminBooking === true
+  );
 
   const { data: inserted, error: insertError } = await supabase.from('bookings').insert(singleBooking).select('id').single();
 
@@ -608,4 +609,29 @@ export async function extendAllRecurringSeries(
     }
   }
   return { extended: seriesList?.length ?? 0, totalCreated };
+}
+
+/**
+ * Display status for one expanded occurrence of a recurring booking row.
+ * Per-date completed / customer-cancelled overrides; otherwise uses the parent row status
+ * (so pending recurring bookings stay pending on the calendar until confirmed).
+ */
+export function statusForRecurringOccurrence(
+  occurrenceDate: string,
+  booking: {
+    status?: string | null;
+    completed_occurrence_dates?: string[] | null;
+    customer_cancelled_occurrence_dates?: string[] | null;
+  }
+): string {
+  const d = String(occurrenceDate).slice(0, 10);
+  const completed = Array.isArray(booking.completed_occurrence_dates) ? booking.completed_occurrence_dates : [];
+  const customerCancelled = Array.isArray(booking.customer_cancelled_occurrence_dates)
+    ? booking.customer_cancelled_occurrence_dates
+    : [];
+  if (completed.includes(d)) return "completed";
+  if (customerCancelled.includes(d)) return "cancelled";
+  if (booking.status === "cancelled") return "cancelled";
+  const raw = String(booking.status ?? "pending").trim().toLowerCase();
+  return raw || "pending";
 }

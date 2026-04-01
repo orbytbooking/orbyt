@@ -69,7 +69,11 @@ export async function POST(request: Request) {
     if (custEmail) {
       try {
         const { data: biz } = b.business_id
-          ? await supabase.from("businesses").select("name").eq("id", b.business_id).single()
+          ? await supabase
+              .from("businesses")
+              .select("name, business_email, business_phone")
+              .eq("id", b.business_id)
+              .single()
           : { data: null };
         const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
         const emailService = new EmailService();
@@ -81,6 +85,8 @@ export async function POST(request: Request) {
           amount: Number(b.total_price ?? 0),
           bookingRef: bkRef,
           paymentMethod: "card",
+          supportEmail: (biz as { business_email?: string | null } | null)?.business_email ?? null,
+          supportPhone: (biz as { business_phone?: string | null } | null)?.business_phone ?? null,
         });
       } catch (e) {
         console.warn("[Authorize.net confirm-return] Receipt email failed:", e);

@@ -319,54 +319,51 @@ export default function ProviderProfilePage() {
     fetchProvider();
   }, [id, toast]);
 
-  // Fetch bookings for this provider
+  // Fetch bookings for this provider (API expands recurring series for calendar)
   useEffect(() => {
     const fetchProviderBookings = async () => {
       if (!id || !provider || !currentBusiness?.id) {
-        console.log('Waiting for provider, id, or business context...', { id, provider: !!provider, business: !!currentBusiness?.id });
         return;
       }
 
       try {
-        console.log(`📋 Fetching bookings for provider ${id} in business ${currentBusiness.id}`);
-        // Fetch bookings from database where provider_id matches and business_id matches
-        const { data: bookings, error } = await supabase
-          .from('bookings')
-          .select('*')
-          .eq('provider_id', id)
-          .eq('business_id', currentBusiness.id)
-          .order('scheduled_date', { ascending: true })
-          .order('scheduled_time', { ascending: true });
-
-        if (error) {
-          console.error('Error fetching provider bookings:', error);
+        const res = await fetch(
+          `/api/admin/provider-bookings?provider_id=${encodeURIComponent(String(id))}`,
+          { credentials: 'include' },
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !Array.isArray(data.bookings)) {
+          setAllBookings([]);
           return;
         }
 
-        // Transform bookings to match the expected format
-        const transformedBookings: Booking[] = (bookings || []).map((booking: any) => ({
-          id: booking.id,
-          customer: {
-            name: booking.customer_name || 'Unknown',
-            email: booking.customer_email || '',
-            phone: booking.customer_phone || ''
-          },
-          service: booking.service || 'Service',
-          date: booking.scheduled_date || booking.date || '',
-          time: booking.scheduled_time || booking.time || '',
-          address: booking.address || '',
-          status: booking.status || 'pending',
-          amount: `$${booking.total_price || booking.amount || 0}`,
-          provider: {
-            id: booking.provider_id,
-            name: provider.name
-          }
-        }));
+        const transformedBookings: Booking[] = (data.bookings as any[]).map((booking: any) => {
+          const dateStr = booking.scheduled_date || booking.date || '';
+          const dateOnly =
+            typeof dateStr === 'string' && dateStr.length >= 10 ? dateStr.slice(0, 10) : dateStr;
+          return {
+            id: booking.id,
+            customer: {
+              name: booking.customer_name || 'Unknown',
+              email: booking.customer_email || '',
+              phone: booking.customer_phone || '',
+            },
+            service: booking.service || 'Service',
+            date: dateOnly,
+            time: booking.scheduled_time || booking.time || '',
+            address: booking.address || '',
+            status: booking.status || 'pending',
+            amount: `$${Number(booking.total_price ?? booking.amount ?? 0).toFixed(2)}`,
+            provider: {
+              id: booking.provider_id,
+              name: provider.name,
+            },
+          };
+        });
 
-        console.log(`✅ Found ${transformedBookings.length} bookings for provider ${id} in business ${currentBusiness.id}`);
         setAllBookings(transformedBookings);
-      } catch (error) {
-        console.error('Error fetching provider bookings:', error);
+      } catch {
+        setAllBookings([]);
       }
     };
 
@@ -1021,9 +1018,15 @@ export default function ProviderProfilePage() {
     }
   };
 
-  const openBookingFromCalendar = (bookingId?: string) => {
+  const openBookingFromCalendar = (bookingId?: string, occurrenceDate?: string) => {
     if (!bookingId) return;
-    const booking = allBookings.find((b) => String(b.id) === String(bookingId)) || null;
+    const occ = typeof occurrenceDate === 'string' ? occurrenceDate.slice(0, 10) : '';
+    const booking =
+      allBookings.find(
+        (b) =>
+          String(b.id) === String(bookingId) &&
+          (!occ || String(b.date || '').slice(0, 10) === occ),
+      ) || null;
     setSelectedCalendarBooking(booking);
     setCalendarBookingSummaryOpen(true);
   };
@@ -1374,9 +1377,9 @@ export default function ProviderProfilePage() {
                                 <div className="flex-1 overflow-hidden space-y-0.5">
                                   {items.slice(0,2).map(b=> (
                                     <button
-                                      key={b.id}
+                                      key={`${b.id}-${b.date}`}
                                       type="button"
-                                      onClick={() => openBookingFromCalendar(b.id)}
+                                      onClick={() => openBookingFromCalendar(b.id, b.date)}
                                       className="w-full text-left text-[10px] px-1 py-0.5 rounded text-white hover:opacity-90 focus:outline-none focus:ring-1 focus:ring-cyan-300"
                                       style={{background:'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)'}}
                                       title="Open booking details"
@@ -1418,9 +1421,9 @@ export default function ProviderProfilePage() {
                                 {items.length===0 && <div className="text-xs text-muted-foreground">No bookings</div>}
                                 {items.map(b=> (
                                   <button
-                                    key={b.id}
+                                    key={`${b.id}-${b.date}`}
                                     type="button"
-                                    onClick={() => openBookingFromCalendar(b.id)}
+                                    onClick={() => openBookingFromCalendar(b.id, b.date)}
                                     className="w-full text-left text-xs p-1 rounded text-white hover:opacity-90 focus:outline-none focus:ring-1 focus:ring-cyan-300"
                                     style={{background:'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)'}}
                                     title="Open booking details"
@@ -1444,9 +1447,9 @@ export default function ProviderProfilePage() {
                       {items.length===0 && <div className="text-sm text-muted-foreground">No bookings scheduled.</div>}
                       {items.map(b => (
                         <button
-                          key={b.id}
+                          key={`${b.id}-${b.date}`}
                           type="button"
-                          onClick={() => openBookingFromCalendar(b.id)}
+                          onClick={() => openBookingFromCalendar(b.id, b.date)}
                           className="w-full text-left p-3 rounded-md border hover:bg-muted/30 focus:outline-none focus:ring-2 focus:ring-cyan-300"
                           title="Open booking details"
                         >

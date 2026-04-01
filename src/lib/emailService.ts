@@ -18,6 +18,59 @@ function resolveSiteUrl(website?: string | null): string {
   return app.replace(/\/$/, '');
 }
 
+/** Business name + contact lines for customer-facing booking and receipt emails */
+function businessContactFooterHtml(
+  businessName: string,
+  supportEmail?: string | null,
+  supportPhone?: string | null
+): string {
+  const email = (supportEmail ?? '').trim();
+  const phone = (supportPhone ?? '').trim();
+  const style =
+    'margin-top:24px;padding-top:16px;border-top:1px solid #e0e0e0;font-size:14px;color:#444;line-height:1.5;';
+  let inner = `<p style="margin:0 0 8px;"><strong>${businessName}</strong></p>`;
+  if (email) {
+    inner += `<p style="margin:4px 0;"><strong>Email:</strong> <a href="mailto:${email}">${email}</a></p>`;
+  }
+  if (phone) {
+    inner += `<p style="margin:4px 0;"><strong>Phone:</strong> ${phone}</p>`;
+  }
+  return `<div style="${style}">${inner}</div>`;
+}
+
+function formatBookingScheduleForEmail(
+  scheduledDate: string | null,
+  scheduledTime: string | null
+): { dateStr: string; timeStr: string } {
+  const dateStr = scheduledDate
+    ? new Date(scheduledDate + "T00:00:00").toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })
+    : "TBD";
+  const timeStr = scheduledTime
+    ? String(scheduledTime).includes(":")
+      ? String(scheduledTime).slice(0, 5)
+      : String(scheduledTime)
+    : "";
+  return { dateStr, timeStr };
+}
+
+function appendBusinessContactBeforeBodyClose(
+  emailHtml: string,
+  businessName: string,
+  supportEmail?: string | null,
+  supportPhone?: string | null
+): string {
+  const contactFooter = businessContactFooterHtml(businessName, supportEmail, supportPhone);
+  if (/<\/body>/i.test(emailHtml)) {
+    return emailHtml.replace(/<\/body>/i, `${contactFooter}</body>`);
+  }
+  return emailHtml + contactFooter;
+}
+
 interface ProviderInvitationData {
   email: string;
   firstName: string;
@@ -442,9 +495,10 @@ export class EmailService {
   }
 
   /**
-   * Send booking confirmation to customer
+   * Pending / request-received email (customer or guest book-now, not yet confirmed).
+   * Uses platform template key `booking_pending_request` when configured.
    */
-  async sendBookingConfirmation(data: {
+  async sendBookingPendingEmail(data: {
     to: string;
     customerName: string;
     businessName: string;
@@ -459,6 +513,12 @@ export class EmailService {
     address: string | null;
     totalPrice: number;
     bookingRef: string;
+    awaitingOnlinePayment?: boolean;
+    /**
+     * `scheduled` matches customer portal wording (DB `pending` shown as “scheduled”).
+     * Same platform template key `booking_pending_request`; only default subject/body copy differs when no custom template.
+     */
+    copyVariant?: 'pending' | 'scheduled';
   }): Promise<boolean> {
     try {
       const {
@@ -476,11 +536,218 @@ export class EmailService {
         address,
         totalPrice,
         bookingRef,
+        awaitingOnlinePayment = false,
+        copyVariant = 'pending',
       } = data;
-      const dateStr = scheduledDate ? new Date(scheduledDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : 'TBD';
-      const timeStr = scheduledTime ? (String(scheduledTime).includes(':') ? String(scheduledTime).slice(0, 5) : String(scheduledTime)) : '';
+      const { dateStr, timeStr } = formatBookingScheduleForEmail(scheduledDate, scheduledTime);
+      const useScheduledCopy = copyVariant === 'scheduled' && !awaitingOnlinePayment;
+      const defaultSubject = awaitingOnlinePayment
+        ? `Complete your booking — ${businessName}`
+        : useScheduledCopy
+          ? `Appointment scheduled — ${businessName}`
+          : `Booking request received — ${businessName}`;
+      const bookingStatusLabel = awaitingOnlinePayment
+        ? 'Pending — not yet confirmed'
+        : useScheduledCopy
+          ? 'Scheduled — not yet confirmed'
+          : 'Pending — not yet confirmed';
+      const introParagraph = awaitingOnlinePayment
+        ? `We saved your booking details with ${businessName}. Your request is not finalized until you complete secure payment in the checkout window. If you already finished paying, you will receive a confirmation email shortly.`
+        : useScheduledCopy
+          ? `Your appointment with ${businessName} is scheduled for the date and time below. It is not fully confirmed yet; ${businessName} will confirm it or contact you if anything needs to change.`
+          : `We received your booking request with ${businessName}. Your appointment is still pending and is not confirmed yet. ${businessName} will confirm it or contact you if anything needs to change.`;
 
+      const tpl = await getActivePlatformEmailTemplateByKey(
+        PLATFORM_EMAIL_TEMPLATE_KEYS.bookingPendingRequest
+      );
+      if (tpl) {
+        const vars = {
+          customer_name: customerName,
+          business_name: businessName,
+          service: service || '',
+          date: dateStr,
+          time: timeStr,
+          address: address || '',
+          total_price: Number(totalPrice || 0).toFixed(2),
+          total_price_formatted: `$${Number(totalPrice || 0).toFixed(2)}`,
+          booking_ref: bookingRef,
+          business_logo_url: businessLogoUrl || '',
+          support_email: supportEmail || '',
+          support_phone: supportPhone || '',
+          store_currency: storeCurrency || '',
+          site_url: resolveSiteUrl(businessWebsite),
+          awaiting_online_payment: awaitingOnlinePayment ? 'yes' : 'no',
+          booking_status_label: bookingStatusLabel,
+          intro_paragraph: introParagraph,
+        };
+        const emailSubject =
+          substituteEmailPlaceholders((tpl.subject || '').trim(), vars).trim() || defaultSubject;
+        const bodyHtmlRaw = (tpl.body_html || '').trim();
+        const bodyTextRaw = tpl.body_text || '';
+        let emailHtml: string;
+        if (bodyHtmlRaw) {
+          emailHtml = substituteEmailPlaceholders(bodyHtmlRaw, vars);
+        } else if (bodyTextRaw) {
+          emailHtml = plainTextToEmailHtml(substituteEmailPlaceholders(bodyTextRaw, vars));
+        } else {
+          emailHtml = '';
+        }
+        if (emailHtml) {
+          emailHtml = resolvePublicAssetUrls(emailHtml, resolveSiteUrl(businessWebsite));
+          emailHtml = appendBusinessContactBeforeBodyClose(
+            emailHtml,
+            businessName,
+            supportEmail,
+            supportPhone
+          );
+          if (!this.resendClient) {
+            console.log('[Email] Booking pending (template, Resend not configured):', to, bookingRef);
+            return true;
+          }
+          const { error } = await this.resendClient.emails.send({
+            from: process.env.RESEND_FROM_EMAIL || 'noreply@yourdomain.com',
+            to: [to],
+            subject: emailSubject,
+            html: emailHtml,
+          });
+          if (error) {
+            console.error('Booking pending email error (template):', error);
+            return false;
+          }
+          return true;
+        }
+      }
+
+      const headerTitle = awaitingOnlinePayment
+        ? 'Booking request — payment needed'
+        : useScheduledCopy
+          ? 'Appointment scheduled'
+          : 'Booking request received';
+      const emailHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Booking request</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center; }
+            .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
+            .detail { background: white; padding: 16px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #00BCD4; }
+            .status { display: inline-block; background: #fff3cd; color: #856404; padding: 6px 12px; border-radius: 6px; font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+            .footer { text-align: center; color: #666; margin-top: 30px; font-size: 14px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>${headerTitle}</h1>
+              <p>Reference: ${bookingRef}</p>
+            </div>
+            <div class="content">
+              <p>Hi ${customerName},</p>
+              <p class="status">${bookingStatusLabel}</p>
+              <p>${introParagraph}</p>
+              <div class="detail">
+                <p><strong>Service:</strong> ${service || 'Service'}</p>
+                <p><strong>Date:</strong> ${dateStr}</p>
+                ${timeStr ? `<p><strong>Time:</strong> ${timeStr}</p>` : ''}
+                ${address ? `<p><strong>Address:</strong> ${address}</p>` : ''}
+                <p><strong>Amount:</strong> $${Number(totalPrice || 0).toFixed(2)}</p>
+              </div>
+              <p>If you have any questions, please reach out using the contact details below.</p>
+              ${businessContactFooterHtml(businessName, supportEmail, supportPhone)}
+              <p>Thank you — we will be in touch if we need anything else.</p>
+              <p>Best regards,<br>The ${businessName} Team</p>
+            </div>
+            <div class="footer">
+              <p>This is an automated message. For questions about your booking, use the business contact details shown above.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      if (!this.resendClient) {
+        console.log('[Email] Booking pending (Resend not configured):', to, bookingRef);
+        return true;
+      }
+      const { error } = await this.resendClient.emails.send({
+        from: process.env.RESEND_FROM_EMAIL || 'noreply@yourdomain.com',
+        to: [to],
+        subject: defaultSubject,
+        html: emailHtml,
+      });
+      if (error) {
+        console.error('Booking pending email error:', error);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.error('sendBookingPendingEmail error:', e);
+      return false;
+    }
+  }
+
+  /**
+   * Confirmed booking email (e.g. after payment or admin confirmation). Includes assigned provider when provided.
+   * Uses platform template key `booking_confirmation` when configured.
+   */
+  /**
+   * Sends only when the booking is actually confirmed (callers should pass details for a `confirmed` row).
+   * Platform template: `booking_confirmation`.
+   */
+  async sendBookingConfirmedEmail(data: {
+    to: string;
+    customerName: string;
+    businessName: string;
+    businessWebsite?: string | null;
+    businessLogoUrl?: string | null;
+    supportEmail?: string | null;
+    supportPhone?: string | null;
+    storeCurrency?: string | null;
+    service: string | null;
+    scheduledDate: string | null;
+    scheduledTime: string | null;
+    address: string | null;
+    totalPrice: number;
+    bookingRef: string;
+    providerName?: string | null;
+    providerPhone?: string | null;
+  }): Promise<boolean> {
+    try {
+      const {
+        to,
+        customerName,
+        businessName,
+        businessWebsite,
+        businessLogoUrl,
+        supportEmail,
+        supportPhone,
+        storeCurrency,
+        service,
+        scheduledDate,
+        scheduledTime,
+        address,
+        totalPrice,
+        bookingRef,
+        providerName,
+        providerPhone,
+      } = data;
+      const { dateStr, timeStr } = formatBookingScheduleForEmail(scheduledDate, scheduledTime);
       const defaultSubject = `Booking Confirmed - ${businessName}`;
+      const pn = (providerName ?? '').trim();
+      const pp = (providerPhone ?? '').trim();
+      const hasProvider = Boolean(pn);
+      const introParagraph = `Your booking with ${businessName} has been confirmed.`;
+      const providerBlockHtml = hasProvider
+        ? `<div class="detail provider">
+            <p><strong>Assigned provider:</strong> ${pn}</p>
+            ${pp ? `<p><strong>Provider phone:</strong> ${pp}</p>` : ''}
+          </div>`
+        : `<p style="color:#555;font-size:15px;">Your service professional will be assigned soon. ${businessName} will contact you if anything changes.</p>`;
 
       const tpl = await getActivePlatformEmailTemplateByKey(PLATFORM_EMAIL_TEMPLATE_KEYS.bookingConfirmation);
       if (tpl) {
@@ -499,6 +766,11 @@ export class EmailService {
           support_phone: supportPhone || '',
           store_currency: storeCurrency || '',
           site_url: resolveSiteUrl(businessWebsite),
+          booking_status_label: 'Confirmed',
+          intro_paragraph: introParagraph,
+          provider_name: pn,
+          provider_phone: pp,
+          has_assigned_provider: hasProvider ? 'yes' : 'no',
         };
         const emailSubject =
           substituteEmailPlaceholders((tpl.subject || '').trim(), vars).trim() || defaultSubject;
@@ -514,8 +786,14 @@ export class EmailService {
         }
         if (emailHtml) {
           emailHtml = resolvePublicAssetUrls(emailHtml, resolveSiteUrl(businessWebsite));
+          emailHtml = appendBusinessContactBeforeBodyClose(
+            emailHtml,
+            businessName,
+            supportEmail,
+            supportPhone
+          );
           if (!this.resendClient) {
-            console.log('[Email] Booking confirmation (template, Resend not configured):', to, bookingRef);
+            console.log('[Email] Booking confirmed (template, Resend not configured):', to, bookingRef);
             return true;
           }
           const { error } = await this.resendClient.emails.send({
@@ -525,14 +803,13 @@ export class EmailService {
             html: emailHtml,
           });
           if (error) {
-            console.error('Booking confirmation email error (template):', error);
+            console.error('Booking confirmed email error (template):', error);
             return false;
           }
           return true;
         }
       }
 
-      const emailSubject = defaultSubject;
       const emailHtml = `
         <!DOCTYPE html>
         <html>
@@ -546,6 +823,8 @@ export class EmailService {
             .header { background: linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center; }
             .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
             .detail { background: white; padding: 16px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #00BCD4; }
+            .detail.provider { border-left-color: #00838f; }
+            .status { display: inline-block; background: #e8f5e9; color: #2e7d32; padding: 6px 12px; border-radius: 6px; font-size: 14px; font-weight: 600; margin-bottom: 12px; }
             .footer { text-align: center; color: #666; margin-top: 30px; font-size: 14px; }
           </style>
         </head>
@@ -557,7 +836,8 @@ export class EmailService {
             </div>
             <div class="content">
               <p>Hi ${customerName},</p>
-              <p>Your booking with ${businessName} has been confirmed.</p>
+              <p class="status">Confirmed</p>
+              <p>${introParagraph}</p>
               <div class="detail">
                 <p><strong>Service:</strong> ${service || 'Service'}</p>
                 <p><strong>Date:</strong> ${dateStr}</p>
@@ -565,12 +845,14 @@ export class EmailService {
                 ${address ? `<p><strong>Address:</strong> ${address}</p>` : ''}
                 <p><strong>Amount:</strong> $${Number(totalPrice || 0).toFixed(2)}</p>
               </div>
-              <p>If you have any questions, please contact ${businessName}.</p>
+              ${providerBlockHtml}
+              <p>If you have any questions, please reach out using the contact details below.</p>
+              ${businessContactFooterHtml(businessName, supportEmail, supportPhone)}
               <p>Thank you for your booking!</p>
               <p>Best regards,<br>The ${businessName} Team</p>
             </div>
             <div class="footer">
-              <p>This is an automated message. Please do not reply to this email.</p>
+              <p>This is an automated message. For questions about your booking, use the business contact details shown above.</p>
             </div>
           </div>
         </body>
@@ -578,22 +860,22 @@ export class EmailService {
       `;
 
       if (!this.resendClient) {
-        console.log('[Email] Booking confirmation (Resend not configured):', to, bookingRef);
+        console.log('[Email] Booking confirmed (Resend not configured):', to, bookingRef);
         return true;
       }
       const { error } = await this.resendClient.emails.send({
         from: process.env.RESEND_FROM_EMAIL || 'noreply@yourdomain.com',
         to: [to],
-        subject: emailSubject,
+        subject: defaultSubject,
         html: emailHtml,
       });
       if (error) {
-        console.error('Booking confirmation email error:', error);
+        console.error('Booking confirmed email error:', error);
         return false;
       }
       return true;
     } catch (e) {
-      console.error('sendBookingConfirmation error:', e);
+      console.error('sendBookingConfirmedEmail error:', e);
       return false;
     }
   }
@@ -609,9 +891,22 @@ export class EmailService {
     amount: number;
     bookingRef: string;
     paymentMethod?: 'card' | 'cash' | 'check';
+    /** Business contact email (e.g. businesses.business_email) */
+    supportEmail?: string | null;
+    supportPhone?: string | null;
   }): Promise<boolean> {
     try {
-      const { to, customerName, businessName, service, amount, bookingRef, paymentMethod = 'card' } = data;
+      const {
+        to,
+        customerName,
+        businessName,
+        service,
+        amount,
+        bookingRef,
+        paymentMethod = 'card',
+        supportEmail,
+        supportPhone,
+      } = data;
       const emailSubject = `Payment Receipt - ${businessName}`;
       const emailHtml = `
         <!DOCTYPE html>
@@ -642,10 +937,11 @@ export class EmailService {
               <div class="amount">Amount paid: $${Number(amount || 0).toFixed(2)}</div>
               <p><strong>Payment method:</strong> ${paymentMethod === 'cash' || paymentMethod === 'check' ? 'Cash/Check' : 'Card'}</p>
               <p>Thank you for choosing ${businessName}!</p>
+              ${businessContactFooterHtml(businessName, supportEmail, supportPhone)}
               <p>Best regards,<br>The ${businessName} Team</p>
             </div>
             <div class="footer">
-              <p>This is an automated receipt. Please do not reply to this email.</p>
+              <p>This is an automated receipt. Please use the business contact details above for questions about this charge.</p>
             </div>
           </div>
         </body>

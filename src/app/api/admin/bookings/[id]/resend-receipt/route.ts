@@ -43,7 +43,7 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
     const businessId = (booking as { business_id: string }).business_id;
     const { data: business, error: bizErr } = await supabase
       .from("businesses")
-      .select("id, owner_id, name")
+      .select("id, owner_id, name, business_email, business_phone")
       .eq("id", businessId)
       .single();
 
@@ -90,6 +90,8 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
       amount,
       bookingRef: bkRef,
       paymentMethod,
+      supportEmail: (business as { business_email?: string | null }).business_email ?? null,
+      supportPhone: (business as { business_phone?: string | null }).business_phone ?? null,
     });
 
     if (!sent) {

@@ -12,6 +12,7 @@ import { useCustomerBookings } from "@/hooks/useCustomerBookings";
 import { useCustomerAccount } from "@/hooks/useCustomerAccount";
 import { Booking } from "@/lib/customer-bookings";
 import { useToast } from "@/components/ui/use-toast";
+import { CustomerBookingPaymentSummary } from "@/components/customer/CustomerBookingPaymentSummary";
 
 const formatBookingDateTime = (booking: Booking) => {
   const composed = new Date(`${booking.date}T${booking.time}`);
@@ -223,10 +224,9 @@ export default function BookingDetailsPage() {
                     </div>
                   </div>
                   <div>
-                    {detailLabel("Service total")}
-                    <div className="mt-1 flex items-center gap-2">
-                      <Sparkles className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-lg font-semibold">{formatCurrency(booking.price)}</span>
+                    {detailLabel("Payment")}
+                    <div className="mt-2">
+                      <CustomerBookingPaymentSummary summary={booking.pricingSummary} totalFallback={booking.price} />
                     </div>
                   </div>
                   {(["canceled", "cancelled"].includes(booking.status?.toLowerCase() ?? "") && booking.cancellationFeeAmount != null && booking.cancellationFeeAmount > 0) && (

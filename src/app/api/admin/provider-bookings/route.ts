@@ -22,6 +22,10 @@ async function getBusinessId(supabase: ReturnType<typeof createClient>) {
   return data?.id ?? null;
 }
 
+const BOOKING_SELECT =
+  'id, service, scheduled_date, scheduled_time, date, time, total_price, customer_name, customer_email, customer_phone, address, apt_no, zip_code, notes, status, provider_id, provider_name, payment_method, payment_status, frequency, customization, provider_wage, provider_wage_type, duration_minutes, cancellation_fee_amount, cancellation_fee_currency, private_booking_notes, private_customer_notes, service_provider_notes, card_brand, card_last4, recurring_series_id, completed_occurrence_dates, customer_cancelled_occurrence_dates';
+
+/** GET — bookings for one provider, with recurring series expanded (admin provider profile calendar). */
 export async function GET(request: NextRequest) {
   try {
     const user = await getAuthenticatedUser();
@@ -32,58 +36,33 @@ export async function GET(request: NextRequest) {
     const businessId = await getBusinessId(supabase);
     if (!businessId) return NextResponse.json({ error: 'Business not found' }, { status: 404 });
 
+    const { searchParams } = new URL(request.url);
+    const providerId = searchParams.get('provider_id');
+    if (!providerId) {
+      return NextResponse.json({ error: 'provider_id is required' }, { status: 400 });
+    }
+
     try {
       await extendAllRecurringSeries(supabase, businessId);
     } catch (e) {
-      console.warn('[customer-bookings] extendAllRecurringSeries', e);
+      console.warn('[provider-bookings] extendAllRecurringSeries', e);
     }
 
-    const { searchParams } = new URL(request.url);
-    const customerId = searchParams.get('customer_id');
-    if (!customerId) {
-      return NextResponse.json({ error: 'customer_id is required' }, { status: 400 });
-    }
-    const customerEmail = (searchParams.get('customer_email') || '').trim();
-    const escapeIlike = (s: string) => s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
-
-    // Fetch by customer_id (primary)
-    const { data: byId, error: errId } = await supabase
+    const { data: rows, error } = await supabase
       .from('bookings')
-      .select('id, service, scheduled_date, scheduled_time, date, time, total_price, customer_name, customer_email, customer_phone, address, apt_no, zip_code, notes, status, provider_id, provider_name, payment_method, payment_status, frequency, customization, provider_wage, provider_wage_type, duration_minutes, cancellation_fee_amount, cancellation_fee_currency, private_booking_notes, private_customer_notes, service_provider_notes, card_brand, card_last4, recurring_series_id, completed_occurrence_dates, customer_cancelled_occurrence_dates')
+      .select(BOOKING_SELECT)
       .eq('business_id', businessId)
-      .eq('customer_id', customerId)
+      .eq('provider_id', providerId)
       .order('scheduled_date', { ascending: false })
       .order('scheduled_time', { ascending: false })
-      .limit(100);
+      .limit(300);
 
-    if (errId) {
-      console.error('Customer bookings error:', errId);
-      return NextResponse.json({ error: errId.message }, { status: 500 });
+    if (error) {
+      console.error('Provider bookings error:', error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Also fetch legacy bookings (customer_id null, customer_email match) for admin-created before linking
-    let legacy: typeof byId = [];
-    if (customerEmail) {
-      const { data: byEmail } = await supabase
-        .from('bookings')
-        .select('id, service, scheduled_date, scheduled_time, date, time, total_price, customer_name, customer_email, customer_phone, address, apt_no, zip_code, notes, status, provider_id, provider_name, payment_method, payment_status, frequency, customization, provider_wage, provider_wage_type, duration_minutes, cancellation_fee_amount, cancellation_fee_currency, private_booking_notes, private_customer_notes, service_provider_notes, card_brand, card_last4, recurring_series_id, completed_occurrence_dates, customer_cancelled_occurrence_dates')
-        .eq('business_id', businessId)
-        .is('customer_id', null)
-        .ilike('customer_email', escapeIlike(customerEmail))
-        .order('scheduled_date', { ascending: false })
-        .order('scheduled_time', { ascending: false })
-        .limit(100);
-      legacy = byEmail ?? [];
-    }
-
-    const seen = new Set((byId ?? []).map((b: { id: string }) => b.id));
-    const merged = [...(byId ?? [])];
-    for (const b of legacy) {
-      if (!seen.has((b as { id: string }).id)) {
-        seen.add((b as { id: string }).id);
-        merged.push(b);
-      }
-    }
+    const merged = [...(rows ?? [])];
     merged.sort((a: any, b: any) => {
       const da = a.scheduled_date || a.date || '';
       const db = b.scheduled_date || b.date || '';
@@ -91,7 +70,6 @@ export async function GET(request: NextRequest) {
       return (b.scheduled_time || b.time || '').localeCompare(a.scheduled_time || a.time || '');
     });
 
-    // Resolve provider_name when null: fetch from service_providers for provider_ids (works for portal & non-portal customers)
     const needProviderName = merged.filter((b: any) => b.provider_id && !b.provider_name);
     const providerIds = [...new Set(needProviderName.map((b: any) => b.provider_id))];
     let providerNamesById: Record<string, string> = {};
@@ -110,7 +88,7 @@ export async function GET(request: NextRequest) {
     const withProviders = merged.map((b: any) =>
       b.provider_name ? b : { ...b, provider_name: providerNamesById[b.provider_id] || null },
     );
-    const top = withProviders.slice(0, 100);
+    const top = withProviders.slice(0, 200);
 
     const recurringIds = [...new Set(top.filter((b: any) => b.recurring_series_id).map((b: any) => b.recurring_series_id))];
     let expanded: any[] = top;
@@ -163,11 +141,11 @@ export async function GET(request: NextRequest) {
           out.push(booking);
         }
       }
-      const seen = new Set<string>();
+      const seenKeys = new Set<string>();
       expanded = out.filter((b: any) => {
         const key = `${b.id}-${String(b.date ?? b.scheduled_date ?? '').slice(0, 10)}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
+        if (seenKeys.has(key)) return false;
+        seenKeys.add(key);
         return true;
       });
     }
@@ -179,11 +157,9 @@ export async function GET(request: NextRequest) {
       return String(b.scheduled_time || b.time || '').localeCompare(String(a.scheduled_time || a.time || ''));
     });
 
-    const bookings = expanded;
-
-    return NextResponse.json({ bookings });
+    return NextResponse.json({ bookings: expanded });
   } catch (e) {
-    console.error('Customer bookings API error:', e);
+    console.error('Provider bookings API error:', e);
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

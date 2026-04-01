@@ -3007,13 +3007,17 @@ function SuperAdminDashboardInner() {
                     <h3 className="text-sm font-semibold text-gray-900 mb-2">Create template</h3>
                     <p className="text-xs text-gray-600 mb-4 leading-relaxed">
                       <span className="font-medium text-gray-800">Built-in keys</span> (when Active, these override the default email):{' '}
-                      <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-[11px]">booking_confirmation</code> for customer booking confirmations,{' '}
+                      <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-[11px]">booking_confirmation</code> for <span className="font-medium">confirmed</span> customer bookings (includes assigned provider:{' '}
+                      <code className="font-mono text-[10px]">provider_name</code>, <code className="font-mono text-[10px]">provider_phone</code>, <code className="font-mono text-[10px]">has_assigned_provider</code>),{' '}
+                      <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-[11px]">booking_pending_request</code> for <span className="font-medium">pending</span> requests (and pay-before-book checkout start),{' '}
                       <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-[11px]">invoice_email</code> for invoice emails. Use placeholders like{' '}
                       <code className="rounded bg-gray-100 px-1 font-mono text-[11px]">{'{{customer_name}}'}</code>,{' '}
                       <code className="rounded bg-gray-100 px-1 font-mono text-[11px]">{'{{business_name}}'}</code> in subject and body. Booking:{' '}
                       <code className="font-mono text-[10px]">date</code>, <code className="font-mono text-[10px]">time</code>, <code className="font-mono text-[10px]">service</code>,{' '}
                       <code className="font-mono text-[10px]">address</code>, <code className="font-mono text-[10px]">booking_ref</code>,{' '}
-                      <code className="font-mono text-[10px]">total_price</code>, <code className="font-mono text-[10px]">total_price_formatted</code>. Invoice:{' '}
+                      <code className="font-mono text-[10px]">total_price</code>, <code className="font-mono text-[10px]">total_price_formatted</code>. Pending template also:{' '}
+                      <code className="font-mono text-[10px]">awaiting_online_payment</code>, <code className="font-mono text-[10px]">intro_paragraph</code>, <code className="font-mono text-[10px]">booking_status_label</code>. Confirmed also:{' '}
+                      <code className="font-mono text-[10px]">intro_paragraph</code>, <code className="font-mono text-[10px]">booking_status_label</code>. Invoice:{' '}
                       <code className="font-mono text-[10px]">invoice_number</code>, <code className="font-mono text-[10px]">total_amount</code>,{' '}
                       <code className="font-mono text-[10px]">due_date</code>, <code className="font-mono text-[10px]">issue_date</code>,{' '}
                       <code className="font-mono text-[10px]">description</code>, <code className="font-mono text-[10px]">line_summary</code>,{' '}

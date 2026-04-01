@@ -451,6 +451,8 @@ CREATE TABLE public.industry_extras (
   excluded_providers ARRAY DEFAULT '{}'::text[],
   maximum_quantity integer,
   icon text,
+  pricing_structure text NOT NULL DEFAULT 'multiply'::text CHECK (pricing_structure = ANY (ARRAY['multiply'::text, 'manual'::text])),
+  manual_prices jsonb NOT NULL DEFAULT '[]'::jsonb,
   CONSTRAINT industry_extras_pkey PRIMARY KEY (id),
   CONSTRAINT industry_extras_industry_id_fkey FOREIGN KEY (industry_id) REFERENCES public.industries(id),
   CONSTRAINT industry_extras_business_id_fkey FOREIGN KEY (business_id) REFERENCES public.businesses(id)

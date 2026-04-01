@@ -107,7 +107,7 @@ import { SendQuoteEmailFlow } from "@/components/admin/SendQuoteEmailFlow";
 import { DraftQuoteLogsDialog } from "@/components/admin/DraftQuoteLogsDialog";
 import { AdminBookingsCalendar } from "@/components/admin/AdminBookingsCalendar";
 import { EditBookingSheet } from "@/components/admin/EditBookingSheet";
-import { getOccurrenceDatesForSeriesSync } from "@/lib/recurringBookings";
+import { getOccurrenceDatesForSeriesSync, statusForRecurringOccurrence } from "@/lib/recurringBookings";
 import { compareBookingsByScheduleDesc } from "@/lib/bookingScheduleSort";
 import {
   DEFAULT_ADMIN_CALENDAR_PREFS,
@@ -502,7 +502,7 @@ export default function BookingsPage() {
       if (recurringIds.length > 0) {
         const { data: seriesList } = await supabase
           .from('recurring_series')
-          .select('id, start_date, end_date, frequency, frequency_repeats, occurrences_ahead, scheduled_time')
+          .select('id, start_date, end_date, frequency, frequency_repeats, occurrences_ahead, scheduled_time, duration_minutes')
           .in('id', recurringIds);
         const seriesById = (seriesList || []).reduce((acc: Record<string, any>, s: any) => { acc[s.id] = s; return acc; }, {});
         const expanded: any[] = [];
@@ -514,21 +514,32 @@ export default function BookingsPage() {
             const completedDates: string[] = Array.isArray(booking.completed_occurrence_dates)
               ? booking.completed_occurrence_dates
               : [];
+            const durationFromSeries =
+              booking.duration_minutes != null ? Number(booking.duration_minutes) : null;
+            const mergedDuration =
+              durationFromSeries != null && Number.isFinite(durationFromSeries) && durationFromSeries > 0
+                ? durationFromSeries
+                : series.duration_minutes != null && Number.isFinite(Number(series.duration_minutes)) && Number(series.duration_minutes) > 0
+                  ? Number(series.duration_minutes)
+                  : null;
             if (!dates.length) {
-              expanded.push(booking);
+              expanded.push({
+                ...booking,
+                ...(mergedDuration != null ? { duration_minutes: mergedDuration } : {}),
+              });
               continue;
             }
             for (const d of dates) {
-              const occurrenceStatus = completedDates.includes(d)
-                ? 'completed'
-                : (booking.status === 'cancelled' ? 'cancelled' : 'confirmed');
+              const occurrenceStatus = statusForRecurringOccurrence(d, booking);
               expanded.push({
                 ...booking,
+                booking_row_status: booking.status,
                 date: d,
                 scheduled_date: d,
                 time,
                 scheduled_time: time,
                 status: occurrenceStatus,
+                ...(mergedDuration != null ? { duration_minutes: mergedDuration } : {}),
               });
             }
           } else {
@@ -920,6 +931,19 @@ export default function BookingsPage() {
     }
   };
 
+  const notifyCustomerBookingConfirmed = (bookingId: string) => {
+    if (!currentBusiness?.id) return;
+    void fetch('/api/admin/bookings/notify-customer-confirmed', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-business-id': currentBusiness.id,
+      },
+      credentials: 'include',
+      body: JSON.stringify({ bookingId }),
+    }).catch(() => {});
+  };
+
   const handleStatusChange = async (
     bookingId: string,
     newStatus: string,
@@ -969,9 +993,13 @@ export default function BookingsPage() {
         prev.map((b) => {
           if (b.id !== bookingId) return b;
           const completedDates = [...completedList, dateStr];
-          const occurrenceStatus = completedDates.includes(b.date)
-            ? 'completed'
-            : ((b as any).status === 'cancelled' ? 'cancelled' : 'confirmed');
+          const rowStatus = (b as { booking_row_status?: string }).booking_row_status ?? (b as any).status;
+          const occurrenceStatus = statusForRecurringOccurrence(String(b.date).slice(0, 10), {
+            status: rowStatus,
+            completed_occurrence_dates: completedDates,
+            customer_cancelled_occurrence_dates: (b as { customer_cancelled_occurrence_dates?: string[] })
+              .customer_cancelled_occurrence_dates,
+          });
           return {
             ...b,
             completed_occurrence_dates: completedDates,
@@ -989,6 +1017,9 @@ export default function BookingsPage() {
       return;
     }
 
+    const priorRow = bookings.find((b) => b.id === bookingId);
+    const priorStatus = String(priorRow?.status ?? "");
+
     const { error } = await supabase.from('bookings').update({ status: newStatus }).eq('id', bookingId);
     if (error) {
       toast({
@@ -997,6 +1028,9 @@ export default function BookingsPage() {
         variant: "destructive",
       });
       return;
+    }
+    if (newStatus === "confirmed" && priorStatus !== "confirmed") {
+      notifyCustomerBookingConfirmed(bookingId);
     }
     const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
     await createBookingNotification('Booking modified', `Booking ${bkRef} status changed to ${newStatus}.`);
@@ -1018,7 +1052,8 @@ export default function BookingsPage() {
 
   const handleAssignProvider = async () => {
     if (!selectedProvider || !selectedBooking) return;
-    
+    const wasAlreadyConfirmed = selectedBooking.status === "confirmed";
+
     // Update provider_id and (if column exists) provider_name so customer portal shows assigned provider
     const providerName = selectedProvider.name || `${selectedProvider.first_name || ''} ${selectedProvider.last_name || ''}`.trim();
     let error = (await supabase
@@ -1055,6 +1090,10 @@ export default function BookingsPage() {
       });
     } catch {
       // Non-blocking: email is best-effort
+    }
+
+    if (!wasAlreadyConfirmed) {
+      notifyCustomerBookingConfirmed(selectedBooking.id);
     }
 
     setBookings((prev) => {

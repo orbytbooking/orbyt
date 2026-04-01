@@ -19,6 +19,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CalendarIcon, Clock, Loader2, CheckCircle, CheckCircle2, ArrowRight, CreditCard, Wallet, Lock, ArrowLeft, Home, Building2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { format } from "date-fns";
@@ -29,7 +30,10 @@ import Link from "next/link";
 import Navigation from "@/components/Navigation";
 import FrequencyAwareServiceCard, { ServiceCustomization } from "@/components/FrequencyAwareServiceCard";
 import { Booking, fetchBookingById } from "@/lib/customer-bookings";
-import { formatFrequencyRepeatsForDisplay } from "@/lib/industryFrequencyRepeats";
+import {
+  formatFrequencyRepeatsForDisplay,
+  normalizeFrequencyLabelForMatch,
+} from "@/lib/industryFrequencyRepeats";
 import {
   computeCustomerBookingTotals,
   computeEffectiveServiceAndExtras,
@@ -47,6 +51,13 @@ import {
   type FrequencyDependencies,
 } from "@/lib/frequencyFilter";
 import { isServiceCategoryVisibleOnPublicBooking } from "@/lib/form1CustomerBooking";
+import { approximateMinutesFromDurationLabel } from "@/lib/bookingDuration";
+import { resolveQtyBasedExtraLine } from "@/lib/extraQtyPricing";
+import {
+  getAllowedWeekdaysForFrequencyRepeatsEvery,
+  normalizeFrequencyRepeatKey,
+} from "@/lib/frequencyRepeatWeekdayCalendar";
+import { serializePricingSummaryForCustomization } from "@/lib/customerBookingPricingDisplay";
 import styles from "./BookingPage.module.css";
 import { useCustomerAccount } from "@/hooks/useCustomerAccount";
 import { getSupabaseCustomerClient } from "@/lib/supabaseCustomerClient";
@@ -319,6 +330,34 @@ const formatExtrasForStorage = (extras: { name: string; quantity: number }[]): s
   );
 };
 
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/** Plural weekday list for calendar hint (e.g. "Mondays and Fridays"). */
+function bookingCalendarWeekdayPhrase(allowed: number[]): string {
+  const sorted = [...new Set(allowed)].sort((a, b) => a - b);
+  const labels = sorted.map((d) => WEEKDAY_NAMES[d] ?? "");
+  if (labels.length === 0) return "";
+  const plural = (name: string) => `${name}s`;
+  if (labels.length === 1) return plural(labels[0]);
+  if (labels.length === 2) return `${plural(labels[0])} and ${plural(labels[1])}`;
+  return `${labels.slice(0, -1).map(plural).join(", ")}, and ${plural(labels[labels.length - 1])}`;
+}
+
+/** Match selected frequency label to `frequencyMetaByName` (exact or normalized), so we read the same `frequency_repeats` as admin "Frequency repeats every". */
+function frequencyMetaForCalendar(
+  freqLabel: string,
+  metaByName: Record<string, CustomerFrequencyMeta>,
+): CustomerFrequencyMeta | undefined {
+  const t = freqLabel.trim();
+  if (!t) return undefined;
+  if (metaByName[t]) return metaByName[t];
+  const norm = normalizeFrequencyLabelForMatch(t);
+  for (const [k, v] of Object.entries(metaByName)) {
+    if (normalizeFrequencyLabelForMatch(k) === norm) return v;
+  }
+  return undefined;
+}
+
 function BookingPageContent() {
   const { toast } = useToast();
   const router = useRouter();
@@ -366,7 +405,9 @@ function BookingPageContent() {
   const [bookingFrequencyForFilters, setBookingFrequencyForFilters] = useState("");
   const [serviceListFrequencyDeps, setServiceListFrequencyDeps] =
     useState<FrequencyDependencies | null>(null);
-  const [excludeParametersList, setExcludeParametersList] = useState<Array<{ name: string; price?: number; qty_based?: boolean }>>([]);
+  const [excludeParametersList, setExcludeParametersList] = useState<
+    Array<{ name: string; price?: number; qty_based?: boolean; time_minutes?: number }>
+  >([]);
   const [dynamicTimeSlots, setDynamicTimeSlots] = useState<string[]>([]);
   const [availableProviders, setAvailableProviders] = useState<any[]>([]);
   const [providersLoading, setProvidersLoading] = useState(false);
@@ -799,6 +840,33 @@ function BookingPageContent() {
   const existingAddressAvailable = Boolean(storedAddress?.address || customerAddress);
   const disableAddressFields = addressPreference === "existing" && existingAddressAvailable;
 
+  const bookingDateWeekdayRule = useMemo(() => {
+    const freqLabel =
+      serviceCustomization?.frequency?.trim() || bookingFrequencyForFilters.trim() || "";
+    if (!freqLabel) return { key: "all", allowed: null as number[] | null };
+    const meta = frequencyMetaForCalendar(freqLabel, frequencyMetaByName);
+    const repeatsEvery = meta?.frequency_repeats;
+    const allowed = getAllowedWeekdaysForFrequencyRepeatsEvery(repeatsEvery);
+    const repeatsNorm = normalizeFrequencyRepeatKey(repeatsEvery);
+    return {
+      key: allowed?.length ? `${repeatsNorm}|${allowed.join(",")}` : repeatsNorm || "all",
+      allowed,
+    };
+  }, [serviceCustomization?.frequency, bookingFrequencyForFilters, frequencyMetaByName]);
+
+  useEffect(() => {
+    const allowed = bookingDateWeekdayRule.allowed;
+    if (!allowed?.length) return;
+    const raw = form.getValues("date");
+    if (!raw) return;
+    const d = raw instanceof Date ? raw : new Date(raw);
+    if (Number.isNaN(d.getTime())) return;
+    if (!allowed.includes(d.getDay())) {
+      form.setValue("date", undefined as unknown as Date, { shouldValidate: true, shouldDirty: true });
+      form.setValue("time", "");
+    }
+  }, [bookingDateWeekdayRule.key, bookingDateWeekdayRule.allowed, form]);
+
   const [hasLocationBasedFrequencies, setHasLocationBasedFrequencies] = useState(false);
 
   useEffect(() => {
@@ -1081,11 +1149,15 @@ function BookingPageContent() {
         if (cancelled) return;
         const list = Array.isArray(data.excludeParameters) ? data.excludeParameters : [];
         setExcludeParametersList(
-          list.map((p: { name?: string; price?: number; qty_based?: boolean }) => ({
-            name: String(p.name ?? ""),
-            price: typeof p.price === "number" ? p.price : undefined,
-            qty_based: Boolean(p.qty_based),
-          })),
+          list.map((p: { name?: string; price?: number; qty_based?: boolean; time_minutes?: unknown }) => {
+            const tm = Number(p.time_minutes);
+            return {
+              name: String(p.name ?? ""),
+              price: typeof p.price === "number" ? p.price : undefined,
+              qty_based: Boolean(p.qty_based),
+              ...(Number.isFinite(tm) && tm > 0 ? { time_minutes: tm } : {}),
+            };
+          }),
         );
       })
       .catch(() => {
@@ -1575,6 +1647,105 @@ function BookingPageContent() {
     }
   }, [currentStep, router, searchParams]);
 
+  /** Align with admin AddBookingForm: sum pricing-parameter time_minutes + extras time; fallback to service duration label (e.g. "4-6 hours"). */
+  const getEstimatedDurationMinutes = useCallback((): number | null => {
+    if (!bookingData || !serviceCustomization || !selectedService) return null;
+    const serviceName = bookingData.service || selectedService.name;
+    const selectedFrequency = serviceCustomization.frequency?.trim() || "One-time";
+
+    let totalMinutes = 0;
+    const vc = serviceCustomization.variableCategories ?? {};
+    let addedAreaLike = false;
+
+    if (pricingParametersFull.length > 0) {
+      for (const [categoryKey, optionName] of Object.entries(vc)) {
+        if (!optionName?.trim() || optionName.trim().toLowerCase() === "none") continue;
+        const param = pricingParametersFull.find(
+          (p) =>
+            String(p.variable_category ?? "").trim() === categoryKey &&
+            String(p.name ?? "").trim() === optionName.trim() &&
+            pricingParamAppliesToSelection(
+              {
+                show_based_on_frequency: p.show_based_on_frequency,
+                frequency: p.frequency,
+                show_based_on_service_category: p.show_based_on_service_category,
+                service_category: p.service_category,
+              },
+              selectedFrequency,
+              serviceName,
+            ),
+        );
+        if (param && typeof param.time_minutes === "number" && param.time_minutes > 0) {
+          totalMinutes += param.time_minutes;
+          if (/sqft|area|square|meter|size/i.test(String(param.variable_category))) addedAreaLike = true;
+        }
+      }
+
+      if (!addedAreaLike && serviceCustomization.squareMeters?.trim()) {
+        const areaLikeParam = pricingParametersFull.find(
+          (p) =>
+            /sqft|area|square|meter|size/i.test(String(p.variable_category ?? "")) &&
+            String(p.name ?? "").trim() === serviceCustomization.squareMeters.trim() &&
+            pricingParamAppliesToSelection(
+              {
+                show_based_on_frequency: p.show_based_on_frequency,
+                frequency: p.frequency,
+                show_based_on_service_category: p.show_based_on_service_category,
+                service_category: p.service_category,
+              },
+              selectedFrequency,
+              serviceName,
+            ),
+        );
+        if (areaLikeParam && typeof areaLikeParam.time_minutes === "number" && areaLikeParam.time_minutes > 0) {
+          totalMinutes += areaLikeParam.time_minutes;
+        }
+      }
+    }
+
+    if (serviceCustomization.extras?.length && availableExtras.length > 0) {
+      for (const item of serviceCustomization.extras) {
+        if (item.name === "None") continue;
+        const extra = availableExtras.find((e: { name?: string }) => (e.name || "").trim() === (item.name || "").trim());
+        if (!extra) continue;
+        const qty = Math.max(1, Number(item.quantity) || 1);
+        const { lineMinutes } = resolveQtyBasedExtraLine(
+          {
+            qty_based: (extra as { qty_based?: boolean }).qty_based,
+            pricing_structure: (extra as { pricing_structure?: string }).pricing_structure,
+            price: Number((extra as { price?: unknown }).price) || 0,
+            time_minutes: Number((extra as { time_minutes?: unknown }).time_minutes) || 0,
+            maximum_quantity: (extra as { maximum_quantity?: number | null }).maximum_quantity ?? null,
+            manual_prices: (extra as { manual_prices?: { price?: number; time_minutes?: number }[] }).manual_prices ?? null,
+          },
+          qty,
+        );
+        if (lineMinutes > 0) totalMinutes += lineMinutes;
+      }
+    }
+
+    // Subtract time for excluded areas (partial cleaning), same as admin AddBookingForm
+    if (serviceCustomization.isPartialCleaning && serviceCustomization.excludedAreas?.length) {
+      for (const areaName of serviceCustomization.excludedAreas) {
+        const param = excludeParametersList.find((p) => p.name === areaName);
+        const tm = param?.time_minutes;
+        if (typeof tm === "number" && tm > 0) {
+          const qty = param.qty_based ? Math.max(1, serviceCustomization.excludeQuantities?.[areaName] ?? 1) : 1;
+          totalMinutes -= tm * qty;
+        }
+      }
+      totalMinutes = Math.max(0, totalMinutes);
+    }
+
+    if (totalMinutes > 0) return totalMinutes;
+
+    const label =
+      (selectedService as { duration?: string }).duration ??
+      (selectedService.raw as { duration?: string } | undefined)?.duration;
+    const fromLabel = approximateMinutesFromDurationLabel(label);
+    return fromLabel;
+  }, [bookingData, serviceCustomization, selectedService, pricingParametersFull, availableExtras, excludeParametersList]);
+
   const addBookingToStorage = useCallback(async (paymentMethod: "cash" | "online" = "cash") => {
     if (!bookingData || !serviceCustomization || !selectedService) {
       toast({
@@ -1657,6 +1828,7 @@ function BookingPageContent() {
           !!selectedFreq &&
           String(selectedFreq).toLowerCase().replace(/\s+/g, " ") !== "one-time" &&
           String(selectedFreq).toLowerCase().replace(/\s+/g, "") !== "onetime";
+        const estimatedDurationMins = getEstimatedDurationMinutes();
         const payload = {
           business_id: currentBusinessId,
           customer_name: `${bookingData.firstName ?? ""} ${bookingData.lastName ?? ""}`.trim(),
@@ -1675,6 +1847,7 @@ function BookingPageContent() {
           payment_method: paymentMethod,
           provider_id: selectedProviderId || undefined,
           provider_name: selectedProviderObj?.name ?? undefined,
+          ...(estimatedDurationMins != null ? { duration_minutes: estimatedDurationMins } : {}),
           ...(storeDefaultProviderWage
             ? {
                 provider_wage: storeDefaultProviderWage.wage,
@@ -1683,6 +1856,7 @@ function BookingPageContent() {
             : {}),
           customization: {
             ...(newBooking.customization ?? {}),
+            pricing_summary: serializePricingSummaryForCustomization(tot),
             ...(appliedCoupon
               ? {
                   coupon: {
@@ -1784,6 +1958,7 @@ function BookingPageContent() {
     storeDefaultProviderWage,
     frequencyMetaByName,
     excludeParametersList,
+    getEstimatedDurationMinutes,
   ]);
 
   // Handle service selection (persist to card customizations so selection survives re-renders)
@@ -1932,10 +2107,20 @@ function BookingPageContent() {
     for (const item of serviceCustomization.extras) {
       if (item.name === "None") continue;
       const extra = availableExtras.find((e: any) => (e.name || "").trim() === (item.name || "").trim());
-      if (extra && typeof (extra as any).price === "number") {
-        const qty = Math.max(1, Number(item.quantity) || 1);
-        sum += (extra as any).price * qty;
-      }
+      if (!extra) continue;
+      const qty = Math.max(1, Number(item.quantity) || 1);
+      const { linePrice } = resolveQtyBasedExtraLine(
+        {
+          qty_based: extra.qty_based,
+          pricing_structure: extra.pricing_structure,
+          price: Number(extra.price) || 0,
+          time_minutes: Number(extra.time_minutes) || 0,
+          maximum_quantity: extra.maximum_quantity ?? null,
+          manual_prices: extra.manual_prices ?? null,
+        },
+        qty,
+      );
+      sum += linePrice;
     }
     return sum;
   };
@@ -1980,6 +2165,8 @@ function BookingPageContent() {
     if (!bookingData || !serviceCustomization || !selectedService) {
       const z = {
         lineSubtotal: 0,
+        effectiveServiceTotal: 0,
+        extrasSubtotal: 0,
         partialCleaningDiscount: 0,
         frequencyDiscount: 0,
         baseBeforeCoupon: 0,
@@ -2023,7 +2210,7 @@ function BookingPageContent() {
       taxRate: 0.08,
       getCouponDiscountAmount,
     });
-    return { ...out, subtotal: out.lineSubtotal };
+    return { ...out, subtotal: out.lineSubtotal, effectiveServiceTotal, extrasSubtotal };
   }
 
   const applyCustomerCoupon = useCallback(async () => {
@@ -2232,6 +2419,7 @@ function BookingPageContent() {
         !!selectedFreq &&
         String(selectedFreq).toLowerCase().replace(/\s+/g, " ") !== "one-time" &&
         String(selectedFreq).toLowerCase().replace(/\s+/g, "") !== "onetime";
+      const estimatedDurationMinsStripe = getEstimatedDurationMinutes();
       const payload = {
         business_id: currentBusinessId,
         customer_name: `${bookingData.firstName ?? ""} ${bookingData.lastName ?? ""}`.trim(),
@@ -2250,6 +2438,7 @@ function BookingPageContent() {
         payment_method: "online",
         provider_id: selectedProviderId || undefined,
         provider_name: selectedProviderObj?.name ?? undefined,
+        ...(estimatedDurationMinsStripe != null ? { duration_minutes: estimatedDurationMinsStripe } : {}),
         ...(storeDefaultProviderWage
           ? {
               provider_wage: storeDefaultProviderWage.wage,
@@ -2258,6 +2447,7 @@ function BookingPageContent() {
           : {}),
         customization: {
           ...(newBooking.customization ?? {}),
+          pricing_summary: serializePricingSummaryForCustomization(tot),
           ...(appliedCoupon
             ? {
                 coupon: {
@@ -2356,6 +2546,7 @@ function BookingPageContent() {
     paymentProvider,
     frequencyMetaByName,
     excludeParametersList,
+    getEstimatedDurationMinutes,
   ]);
 
   // Handle online payment via Stripe Checkout (redirect)
@@ -2534,8 +2725,8 @@ function BookingPageContent() {
   // Payment Screen
   if (currentStep === "payment" && bookingData && selectedService && serviceCustomization) {
     const {
-      subtotal,
-      lineSubtotal,
+      effectiveServiceTotal,
+      extrasSubtotal,
       partialCleaningDiscount,
       frequencyDiscount,
       couponDiscount,
@@ -2544,6 +2735,19 @@ function BookingPageContent() {
     } = calculateTotal();
     summaryTotalRef.current = total;
     const bid = searchParams.get("business");
+    const paymentFreqLabel = serviceCustomization.frequency?.trim() || "";
+    const paymentFreqMeta = paymentFreqLabel ? frequencyMetaByName[paymentFreqLabel] : undefined;
+    const paymentIsRecurring = paymentFreqMeta?.occurrence_time === "recurring";
+    const paymentLengthMins = getEstimatedDurationMinutes();
+    const paymentDisplayLength =
+      paymentLengthMins == null
+        ? "—"
+        : (() => {
+            const m = Math.round(paymentLengthMins);
+            const hrs = Math.floor(m / 60);
+            const rem = m % 60;
+            return hrs > 0 ? `${hrs} Hr${rem > 0 ? ` ${rem} Min` : ""}` : `${m} Min`;
+          })();
 
     return (
       <div className="min-h-screen">
@@ -2581,130 +2785,132 @@ function BookingPageContent() {
             )}
 
             <div className="grid md:grid-cols-3 gap-6">
-              {/* Booking Summary Sidebar */}
-              <div className="md:col-span-1">
-                <div className={styles.summaryCard}>
-                  <h3 className={styles.summaryTitle}>Booking Summary</h3>
-                  <div className={styles.summaryItem}>
-                    <strong>Category:</strong> {selectedIndustryLabel || "Selected Industry"}
-                  </div>
-                  <div className={styles.summaryItem}>
-                    <strong>Service:</strong> {selectedService.name}
-                  </div>
-                  <div className={styles.summaryItem}>
-                    <strong>Frequency:</strong> {serviceCustomization.frequency || "—"}
-                  </div>
-                  {(() => {
-                    const sf = serviceCustomization.frequency?.trim() || "";
-                    const raw = sf ? frequencyMetaByName[sf]?.frequency_repeats : "";
-                    const disp = formatFrequencyRepeatsForDisplay(raw || null);
-                    if (!disp) return null;
-                    return (
-                      <div className={styles.summaryItem}>
-                        <strong>Repeats:</strong> {disp}
-                      </div>
-                    );
-                  })()}
-                  {Object.keys(availableVariables).length > 0
-                    ? Object.keys(availableVariables).map((categoryKey) => {
-                        const value =
-                          serviceCustomization.variableCategories?.[categoryKey] ??
-                          (/sqft|area|square|meter|size/i.test(categoryKey) ? serviceCustomization.squareMeters : null) ??
-                          (categoryKey.toLowerCase().includes("bedroom") ? serviceCustomization.bedroom : null) ??
-                          (categoryKey.toLowerCase().includes("bathroom") ? serviceCustomization.bathroom : null);
-                        if (value == null || String(value).trim() === "") return null;
-                        return (
-                          <div key={categoryKey} className={styles.summaryItem}>
-                            <strong>{categoryKey}:</strong> {String(value).trim()}
-                          </div>
-                        );
-                      })
-                    : (
-                      <>
-                        {serviceCustomization.squareMeters?.trim() && (
-                          <div className={styles.summaryItem}>
-                            <strong>Sq Ft:</strong> {serviceCustomization.squareMeters}
-                          </div>
-                        )}
-                        {serviceCustomization.bedroom?.trim() && (
-                          <div className={styles.summaryItem}>
-                            <strong>Bedroom:</strong> {serviceCustomization.bedroom}
-                          </div>
-                        )}
-                        {serviceCustomization.bathroom?.trim() && (
-                          <div className={styles.summaryItem}>
-                            <strong>Bathroom:</strong> {serviceCustomization.bathroom}
-                          </div>
-                        )}
-                      </>
-                    )}
-                  {serviceCustomization.extras &&
-                    Array.isArray(serviceCustomization.extras) &&
-                    serviceCustomization.extras.length > 0 &&
-                    !(serviceCustomization.extras.length === 1 && serviceCustomization.extras[0].name === "None") && (
-                      <div className={styles.summaryItem}>
-                        <strong>Extras:</strong> {serviceCustomization.extras.map(extra => 
-                          typeof extra === 'string' ? extra : `${extra.name}${extra.quantity > 1 ? ` (${extra.quantity})` : ''}`
-                        ).join(", ")}
+              {/* Booking + payment summaries (aligned with admin Add Booking sidebar) */}
+              <div className="md:col-span-1 space-y-4 lg:sticky lg:top-4 lg:self-start">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Booking Summary</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Industry</span>
+                      <span className="font-medium text-right max-w-[180px]">
+                        {selectedIndustryLabel || "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Service</span>
+                      <span className="font-medium text-right max-w-[180px]">{selectedService.name}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Frequency</span>
+                      <span className="font-medium text-right max-w-[180px]">
+                        {serviceCustomization.frequency || "Not selected"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Length</span>
+                      <span className="font-medium">{paymentDisplayLength}</span>
+                    </div>
+                    {paymentIsRecurring && paymentFreqMeta?.frequency_repeats && (
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Repeats</span>
+                        <span className="text-muted-foreground">
+                          {formatFrequencyRepeatsForDisplay(paymentFreqMeta.frequency_repeats)}
+                        </span>
                       </div>
                     )}
-                  <div className={styles.summaryItem}>
-                    <strong>Date:</strong> {format(bookingData.date, "PPP")}
-                  </div>
-                  <div className={styles.summaryItem}>
-                    <strong>Time:</strong> {bookingData.time}
-                  </div>
-                  <div className={styles.summaryItem}>
-                    <strong>Address:</strong> {bookingData.address}
-                  </div>
-                  <div className={styles.divider}></div>
-                  <div className={styles.priceRow}>
-                    <span>Subtotal:</span>
-                    <span>${(lineSubtotal ?? subtotal).toFixed(2)}</span>
-                  </div>
-                  {partialCleaningDiscount > 0 && (
-                    <div className={styles.priceRow}>
-                      <span>Partial cleaning discount:</span>
-                      <span className="text-green-600">-${partialCleaningDiscount.toFixed(2)}</span>
+                    <div className="border-t pt-3 mt-1 space-y-2 text-xs text-muted-foreground">
+                      <p className="font-medium text-foreground text-sm">Schedule & location</p>
+                      <div className="flex justify-between gap-2">
+                        <span>Service date</span>
+                        <span className="font-medium text-foreground text-right">{format(bookingData.date, "PPP")}</span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span>Arrival time</span>
+                        <span className="font-medium text-foreground">{bookingData.time}</span>
+                      </div>
+                      <div className="flex justify-between gap-2 items-start">
+                        <span className="shrink-0">Location</span>
+                        <span className="font-medium text-foreground text-right">
+                          {bookingData.aptNo
+                            ? `${bookingData.address}, Apt ${bookingData.aptNo}`
+                            : bookingData.address}
+                        </span>
+                      </div>
                     </div>
-                  )}
-                  {frequencyDiscount > 0 && (
-                    <div className={styles.priceRow}>
-                      <span>Frequency discount:</span>
-                      <span className="text-green-600">-${frequencyDiscount.toFixed(2)}</span>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Payment Summary</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Service Total</span>
+                      <span className="font-medium">${effectiveServiceTotal.toFixed(2)}</span>
                     </div>
-                  )}
-                  {couponDiscount > 0 && (
-                    <div className={styles.priceRow}>
-                      <span>Coupon Discount:</span>
-                      <span className="text-green-600">-${couponDiscount.toFixed(2)}</span>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Extras Total</span>
+                      <span className="font-medium">${extrasSubtotal.toFixed(2)}</span>
                     </div>
-                  )}
-                  <div className={styles.priceRow}>
-                    <span>Service Charge:</span>
-                    <span>${tax.toFixed(2)}</span>
-                  </div>
-                  <div className={styles.divider}></div>
-                  <div className={styles.totalRow}>
-                    <span>Total:</span>
-                    <span>${total.toFixed(2)}</span>
-                  </div>
-                  <div className={styles.divider}></div>
-                  <div className="mt-2">
-                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Cancellation disclaimer</p>
-                    <p className="text-xs text-slate-600">
-                      {cancellationPolicyDisclaimer ?? "Based on our cancellation policy, a fee may apply if you cancel within the policy window."}
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    onClick={() => setCurrentStep("details")}
-                    className="w-full mt-4"
-                  >
-                    <ArrowLeft className="mr-2 h-4 w-4" />
-                    Back to Details
-                  </Button>
+                    {partialCleaningDiscount > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Partial Cleaning Discount</span>
+                        <span className="font-medium text-green-600">-${partialCleaningDiscount.toFixed(2)}</span>
+                      </div>
+                    )}
+                    {frequencyDiscount > 0 ? (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Frequency Discount</span>
+                        <span className="font-medium text-green-600">-${frequencyDiscount.toFixed(2)}</span>
+                      </div>
+                    ) : paymentIsRecurring &&
+                      paymentFreqMeta?.frequency_discount === "exclude-first" &&
+                      paymentFreqMeta?.discount != null &&
+                      Number(paymentFreqMeta.discount) > 0 ? (
+                      <div className="flex justify-between text-xs">
+                        <span className="text-amber-600">Frequency Discount (Applied from 2nd booking)</span>
+                        <span className="text-amber-600">
+                          {(paymentFreqMeta.discount_type ?? "%") === "%" ||
+                          String(paymentFreqMeta.discount_type ?? "").toLowerCase() === "percentage"
+                            ? `${paymentFreqMeta.discount}%`
+                            : `$${Number(paymentFreqMeta.discount).toFixed(2)}`}
+                        </span>
+                      </div>
+                    ) : null}
+                    {couponDiscount > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Coupon Discount</span>
+                        <span className="font-medium text-green-600">-${couponDiscount.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Tax</span>
+                      <span className="font-medium">${tax.toFixed(2)}</span>
+                    </div>
+                    <div className="border-t pt-2 mt-2" />
+                    <div className="flex justify-between font-semibold text-base">
+                      <span>TOTAL</span>
+                      <span>${total.toFixed(2)}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <div className="rounded-lg border bg-card px-4 py-3 text-sm">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
+                    Cancellation disclaimer
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {cancellationPolicyDisclaimer ??
+                      "Based on our cancellation policy, a fee may apply if you cancel within the policy window."}
+                  </p>
                 </div>
+                <Button variant="outline" onClick={() => setCurrentStep("details")} className="w-full">
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Back to Details
+                </Button>
               </div>
 
               {/* Payment via Stripe or Authorize.net (per business setting) */}
@@ -3165,6 +3371,13 @@ function BookingPageContent() {
                           render={({ field }) => (
                             <FormItem className="flex flex-col">
                               <FormLabel className={styles.formLabel}>Select Date</FormLabel>
+                              {bookingDateWeekdayRule.allowed && bookingDateWeekdayRule.allowed.length > 0 && (
+                                <p className="text-sm text-muted-foreground mb-2">
+                                  This matches your provider&apos;s <strong>Frequency repeats every</strong> setting: only{" "}
+                                  {bookingCalendarWeekdayPhrase(bookingDateWeekdayRule.allowed)} are available. Other
+                                  weekdays are disabled.
+                                </p>
+                              )}
                               <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
                                 <PopoverTrigger asChild>
                                   <FormControl>
@@ -3191,7 +3404,14 @@ function BookingPageContent() {
                                       today.setHours(0, 0, 0, 0);
                                       const compareDate = new Date(date);
                                       compareDate.setHours(0, 0, 0, 0);
-                                      return compareDate < today || compareDate < new Date("1900-01-01");
+                                      if (compareDate < today || compareDate < new Date("1900-01-01")) {
+                                        return true;
+                                      }
+                                      const allowed = bookingDateWeekdayRule.allowed;
+                                      if (allowed?.length && !allowed.includes(compareDate.getDay())) {
+                                        return true;
+                                      }
+                                      return false;
                                     }}
                                     initialFocus
                                   />

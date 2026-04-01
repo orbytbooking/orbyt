@@ -7,6 +7,7 @@ import { Calendar, Clock, DollarSign, LayoutDashboard, MapPin, Search, User } fr
 
 import { Button } from "@/components/ui/button";
 import { BookingsTable } from "@/components/customer/BookingsTable";
+import { CustomerBookingPaymentSummary } from "@/components/customer/CustomerBookingPaymentSummary";
 import { CustomerSidebar } from "@/components/customer/CustomerSidebar";
 import {
   Dialog,
@@ -20,6 +21,7 @@ import { Booking } from "@/lib/customer-bookings";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
 import { getSupabaseCustomerClient } from "@/lib/supabaseCustomerClient";
+import { resolveBookingDurationMinutes } from "@/lib/bookingDuration";
 
 const formatDate = (dateStr: string) => {
   const d = new Date(dateStr);
@@ -36,6 +38,17 @@ const formatTime = (timeStr: string) => {
   return `${h12}:${min} ${ampm}`;
 };
 const formatCurrency = (n: number) => new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(n);
+
+function formatLengthLabel(totalMinutes: number): string {
+  const m = Math.round(totalMinutes);
+  if (!Number.isFinite(m) || m <= 0) return "—";
+  if (m >= 60) {
+    const h = Math.floor(m / 60);
+    const rest = m % 60;
+    return rest > 0 ? `${h} Hr ${rest} Min` : `${h} Hr`;
+  }
+  return `${m} Min`;
+}
 
 const statusStyles: Record<string, string> = {
   scheduled: "bg-muted text-muted-foreground",
@@ -435,6 +448,22 @@ const CustomerAppointmentsPage = () => {
                           <p className="text-sm pl-7"><span className="text-muted-foreground">Repeats every</span> <span className="font-medium">{detailsBooking.frequencyRepeatsDisplay.trim()}</span></p>
                         ) : null}
                       </div>
+                      {(() => {
+                        const mins = resolveBookingDurationMinutes({
+                          durationMinutes: detailsBooking.durationMinutes,
+                          customization: detailsBooking.customization,
+                        });
+                        if (mins == null) return null;
+                        return (
+                          <div className="flex items-center gap-3">
+                            <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+                            <p className="text-sm">
+                              <span className="text-muted-foreground">Length</span>{" "}
+                              <span className="font-medium">{formatLengthLabel(mins)}</span>
+                            </p>
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* Booking summary – same structure as book-now: variable categories + legacy fields + extras */}
@@ -532,13 +561,14 @@ const CustomerAppointmentsPage = () => {
                       </div>
                     </div>
 
-                    {/* Amount */}
-                    <div className="flex items-center justify-between rounded-xl border bg-muted/30 px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <DollarSign className="h-5 w-5 text-muted-foreground" />
-                        <span className="text-sm font-medium text-muted-foreground">Total amount</span>
+                    <div className="flex items-start gap-3">
+                      <DollarSign className="h-5 w-5 text-muted-foreground shrink-0 mt-1" />
+                      <div className="flex-1 min-w-0">
+                        <CustomerBookingPaymentSummary
+                          summary={detailsBooking.pricingSummary}
+                          totalFallback={detailsBooking.price}
+                        />
                       </div>
-                      <span className="text-lg font-bold">{formatCurrency(detailsBooking.price)}</span>
                     </div>
 
                     {/* Cancellation fee (if booking was cancelled and fee was applied) */}

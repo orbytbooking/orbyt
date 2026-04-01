@@ -6,6 +6,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getStoreOptionsScheduling } from './schedulingFilters';
 import { createAdminNotification } from './adminProviderSync';
 import { notifyProviderOfBooking } from './notifyProviderBooking';
+import { sendCustomerBookingConfirmedEmail } from './sendCustomerBookingConfirmedEmail';
 
 export type AutoAssignResult =
   | { success: true; assignment: { providerName: string } }
@@ -214,6 +215,20 @@ export async function performAutoAssign(
   if (updateError) {
     console.error('Auto-assign booking update:', updateError);
     return { success: false, error: 'Failed to update booking' };
+  }
+
+  const priorStatus = String((booking as { status?: string }).status || '');
+  if (priorStatus !== 'confirmed') {
+    const { data: refreshed } = await supabaseAdmin
+      .from('bookings')
+      .select(
+        'id, status, customer_email, customer_name, service, scheduled_date, date, scheduled_time, time, address, total_price, exclude_customer_notification, provider_id, provider_name'
+      )
+      .eq('id', bookingId)
+      .maybeSingle();
+    if (refreshed) {
+      await sendCustomerBookingConfirmedEmail(supabaseAdmin, businessId, refreshed);
+    }
   }
 
   await supabaseAdmin.from('assignment_logs').insert({

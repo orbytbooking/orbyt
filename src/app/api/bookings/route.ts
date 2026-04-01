@@ -9,6 +9,49 @@ import { ensureCustomerForAdminBooking } from '@/lib/ensureCustomerForAdminBooki
 import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProviderWage';
 import { resolveFrequencyRepeatsForBooking } from '@/lib/industryFrequencyRepeats';
 import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
+import { sendCustomerFacingBookingEmailAfterScheduling } from '@/lib/sendCustomerBookingConfirmedEmail';
+import { finalStatusForAdminBooking, providerIdFromBookingPayload } from '@/lib/adminBookingStatus';
+
+type AdminBookingRow = {
+  id: string;
+  status?: string | null;
+  customer_email?: string | null;
+  customer_name?: string | null;
+  service?: string | null;
+  scheduled_date?: string | null;
+  date?: string | null;
+  scheduled_time?: string | null;
+  time?: string | null;
+  address?: string | null;
+  total_price?: number | string | null;
+  exclude_customer_notification?: boolean | null;
+  provider_id?: string | null;
+  provider_name?: string | null;
+};
+
+/**
+ * Customer email for bookings created from the admin add-booking form (POST /api/bookings).
+ * Uses the same rules as customer/guest book-now: confirmed → confirmation email; pending → pending/scheduled email; draft/quote/etc. → none.
+ */
+async function sendAdminCreatedBookingConfirmationEmail(
+  supabase: ReturnType<typeof createClient>,
+  businessId: string,
+  booking: AdminBookingRow
+) {
+  if (booking.exclude_customer_notification) return;
+  const st = String(booking.status || '');
+  if (['draft', 'quote', 'expired'].includes(st)) return;
+  if (!String(booking.customer_email ?? '').trim() || !booking.id) return;
+  try {
+    await sendCustomerFacingBookingEmailAfterScheduling(supabase, businessId, booking.id, {
+      totalPriceFallback: Number(booking.total_price ?? 0),
+      customerEmailFallback: booking.customer_email,
+      customerNameFallback: booking.customer_name,
+    });
+  } catch (e) {
+    console.warn('Admin booking confirmation email failed:', e);
+  }
+}
 
 export async function GET(request: Request) {
   try {
@@ -130,11 +173,9 @@ export async function POST(request: Request) {
     }
 
     // Prepare booking data with only fields that exist in database schema
-    // If provider is assigned, set status to 'confirmed' automatically
-    const finalStatus = bookingData.service_provider_id 
-      ? (bookingData.status === 'pending' ? 'confirmed' : bookingData.status)
-      : (bookingData.status || 'pending');
-    
+    const providerIdEarly = providerIdFromBookingPayload(bookingData as Record<string, unknown>);
+    const finalStatus = finalStatusForAdminBooking(bookingData as Record<string, unknown>, providerIdEarly);
+
     // Base amount before tax (from pricing engine / form)
     const baseAmount = Number(bookingData.amount) || 0;
 
@@ -194,7 +235,7 @@ export async function POST(request: Request) {
 
     // Resolve provider_name when provider is assigned (for display in customer profile/calendar)
     let providerName: string | null = (bookingData.provider_name || '').toString().trim() || null;
-    const providerId = bookingData.service_provider_id || null;
+    const providerId = providerIdEarly;
     if (providerId && !providerName) {
       const { data: prov } = await supabase
         .from('service_providers')
@@ -398,6 +439,7 @@ export async function POST(request: Request) {
           frequencyRepeats,
           occurrencesAhead,
           sameProvider,
+          adminBooking: true,
         });
         const { data: firstBooking } = await supabase.from('bookings').select('*').eq('id', bookingIds[0]).single();
         const bkRef = `BK${String(bookingIds[0]).slice(-6).toUpperCase()}`;
@@ -417,6 +459,9 @@ export async function POST(request: Request) {
         });
         if (firstBooking && (firstBooking.status === 'draft' || firstBooking.status === 'quote')) {
           await logNewDraftOrQuote(supabase, request, user, businessId, firstBooking.id, firstBooking.status);
+        }
+        if (firstBooking) {
+          await sendAdminCreatedBookingConfirmationEmail(supabase, businessId, firstBooking as AdminBookingRow);
         }
         return NextResponse.json({
           success: true,
@@ -537,6 +582,7 @@ export async function POST(request: Request) {
           message: `Booking ${bkRef} has been confirmed${assignMsg}.`,
           link: '/admin/bookings',
         });
+        await sendAdminCreatedBookingConfirmationEmail(supabase, businessId, retryBooking as AdminBookingRow);
         return NextResponse.json({
           success: true,
           data: retryBooking,
@@ -582,6 +628,8 @@ export async function POST(request: Request) {
       message: `Booking ${bkRef} has been confirmed${assignMsg}.`,
       link: '/admin/bookings',
     });
+
+    await sendAdminCreatedBookingConfirmationEmail(supabase, businessId, booking as AdminBookingRow);
 
     return NextResponse.json({
       success: true,

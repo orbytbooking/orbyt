@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
 import { notifyProviderOfBooking } from '@/lib/notifyProviderBooking';
+import { sendCustomerBookingConfirmedEmail } from '@/lib/sendCustomerBookingConfirmedEmail';
 
 /**
  * POST: Provider grabs an unassigned booking
@@ -86,6 +87,18 @@ export async function POST(request: NextRequest) {
     if (updateErr) {
       console.error('Grab job update error:', updateErr);
       return NextResponse.json({ error: 'Failed to assign booking' }, { status: 500 });
+    }
+
+    const { data: confirmedRow } = await supabaseAdmin
+      .from('bookings')
+      .select(
+        'id, status, customer_email, customer_name, service, scheduled_date, date, scheduled_time, time, address, total_price, exclude_customer_notification, provider_id, provider_name'
+      )
+      .eq('id', bookingId)
+      .eq('business_id', provider.business_id)
+      .maybeSingle();
+    if (confirmedRow) {
+      await sendCustomerBookingConfirmedEmail(supabaseAdmin, provider.business_id, confirmedRow);
     }
 
     // Notify admin

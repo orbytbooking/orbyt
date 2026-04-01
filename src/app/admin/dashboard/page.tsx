@@ -46,7 +46,8 @@ import { formatProviderWageDisplay } from "@/lib/formatProviderWage";
 import { supabase } from "@/lib/supabaseClient";
 import { AdminBookingsCalendar } from "@/components/admin/AdminBookingsCalendar";
 import { EditBookingSheet } from "@/components/admin/EditBookingSheet";
-import { getOccurrenceDatesForSeriesSync } from "@/lib/recurringBookings";
+import { getOccurrenceDatesForSeriesSync, statusForRecurringOccurrence } from "@/lib/recurringBookings";
+import { minutesFromCustomization } from "@/lib/bookingDuration";
 import { compareBookingsByScheduleDesc } from "@/lib/bookingScheduleSort";
 
 // Icon mapping for API responses
@@ -86,6 +87,9 @@ type Booking = {
   providerWageType?: string | null;
   aptNo?: string | null;
   address?: string | null;
+  /** Denormalized from DB when provider object is not loaded */
+  provider_name?: string | null;
+  provider_id?: string | null;
 };
 
 type Provider = {
@@ -256,6 +260,19 @@ const Dashboard = () => {
     }
   };
 
+  const notifyCustomerBookingConfirmed = (bookingId: string) => {
+    if (!currentBusiness?.id) return;
+    void fetch('/api/admin/bookings/notify-customer-confirmed', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-business-id': currentBusiness.id,
+      },
+      credentials: 'include',
+      body: JSON.stringify({ bookingId }),
+    }).catch(() => {});
+  };
+
   useEffect(() => {
     if (!currentBusiness?.id) return;
     let cancelled = false;
@@ -361,13 +378,20 @@ const Dashboard = () => {
         return;
       }
       let list: any[] = bookingsData || [];
+      let seriesDurationById: Record<string, number | null> = {};
       const recurringIds = [...new Set(list.filter((b: any) => b.recurring_series_id).map((b: any) => b.recurring_series_id))];
       if (recurringIds.length > 0) {
         const { data: seriesList } = await supabase
           .from("recurring_series")
-          .select("id, start_date, end_date, frequency, frequency_repeats, occurrences_ahead, scheduled_time")
+          .select("id, start_date, end_date, frequency, frequency_repeats, occurrences_ahead, scheduled_time, duration_minutes")
           .eq("business_id", currentBusiness.id)
           .in("id", recurringIds);
+        seriesDurationById = Object.fromEntries(
+          (seriesList || []).map((s: { id: string; duration_minutes?: number | null }) => [
+            s.id,
+            s.duration_minutes != null ? Number(s.duration_minutes) : null,
+          ]),
+        ) as Record<string, number | null>;
         const seriesById = (seriesList || []).reduce((acc: Record<string, any>, s: any) => {
           acc[s.id] = s;
           return acc;
@@ -381,23 +405,32 @@ const Dashboard = () => {
             const completedDates: string[] = Array.isArray(booking.completed_occurrence_dates)
               ? booking.completed_occurrence_dates
               : [];
+            const durationFromSeries =
+              booking.duration_minutes != null ? Number(booking.duration_minutes) : null;
+            const mergedDuration =
+              durationFromSeries != null && Number.isFinite(durationFromSeries) && durationFromSeries > 0
+                ? durationFromSeries
+                : series.duration_minutes != null && Number.isFinite(Number(series.duration_minutes)) && Number(series.duration_minutes) > 0
+                  ? Number(series.duration_minutes)
+                  : null;
             if (!dates.length) {
-              expanded.push(booking);
+              expanded.push({
+                ...booking,
+                ...(mergedDuration != null ? { duration_minutes: mergedDuration } : {}),
+              });
               continue;
             }
             for (const d of dates) {
-              const occurrenceStatus = completedDates.includes(d)
-                ? "completed"
-                : booking.status === "cancelled"
-                  ? "cancelled"
-                  : "confirmed";
+              const occurrenceStatus = statusForRecurringOccurrence(d, booking);
               expanded.push({
                 ...booking,
+                booking_row_status: booking.status,
                 date: d,
                 scheduled_date: d,
                 time,
                 scheduled_time: time,
                 status: occurrenceStatus,
+                ...(mergedDuration != null ? { duration_minutes: mergedDuration } : {}),
               });
             }
           } else {
@@ -421,6 +454,18 @@ const Dashboard = () => {
       }
       const normalized: Booking[] = list.map((b: any) => {
         const name = b.customer_name || "Unassigned";
+        const fromRow = b.duration_minutes != null ? Number(b.duration_minutes) : null;
+        const fromSeries =
+          b.recurring_series_id && seriesDurationById[b.recurring_series_id] != null
+            ? Number(seriesDurationById[b.recurring_series_id])
+            : null;
+        const merged =
+          fromRow != null && Number.isFinite(fromRow) && fromRow > 0
+            ? fromRow
+            : fromSeries != null && Number.isFinite(fromSeries) && fromSeries > 0
+              ? fromSeries
+              : null;
+        const durationMinutes = merged ?? minutesFromCustomization(b.customization);
         return {
           id: b.id,
           date: b.date || b.scheduled_date || "",
@@ -441,13 +486,14 @@ const Dashboard = () => {
           zipCode: b.zip_code,
           frequency: b.frequency,
           customization: b.customization,
-          durationMinutes: b.duration_minutes != null ? Number(b.duration_minutes) : null,
+          durationMinutes,
           providerWage: b.provider_wage != null ? Number(b.provider_wage) : null,
           providerWageType: b.provider_wage_type != null ? String(b.provider_wage_type) : null,
           aptNo: b.apt_no,
           address: b.address,
-          provider_id: b.provider_id,
-        } as Booking & { provider_id?: string };
+          provider_id: b.provider_id ?? null,
+          provider_name: b.provider_name ?? null,
+        } as Booking;
       });
       if (!cancelled) {
         setCalendarBookings(normalized);
@@ -495,6 +541,7 @@ const Dashboard = () => {
 
   const acceptBooking = async () => {
     if (!selectedBooking) return;
+    const wasConfirmed = selectedBooking.status === 'confirmed';
     const { error } = await supabase
       .from('bookings')
       .update({ status: 'confirmed', updated_at: new Date().toISOString() })
@@ -502,6 +549,9 @@ const Dashboard = () => {
     if (error) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
       return;
+    }
+    if (!wasConfirmed) {
+      notifyCustomerBookingConfirmed(selectedBooking.id);
     }
     setSelectedBooking((prev) => prev ? { ...prev, status: 'confirmed' } : null);
     const name = selectedBooking.provider?.name || selectedBooking.customer?.name || selectedBooking.customerName || 'Unknown';
@@ -511,6 +561,7 @@ const Dashboard = () => {
 
   const handleAssignProvider = async () => {
     if (!selectedProvider || !selectedBooking || !data?.business_id) return;
+    const wasAlreadyConfirmed = selectedBooking.status === 'confirmed';
     const providerName = selectedProvider.name || 'Provider';
     let err = (await supabase
       .from('bookings')
@@ -525,6 +576,9 @@ const Dashboard = () => {
     if (err) {
       toast({ title: 'Error', description: `Failed to assign provider: ${err.message}`, variant: 'destructive' });
       return;
+    }
+    if (!wasAlreadyConfirmed) {
+      notifyCustomerBookingConfirmed(selectedBooking.id);
     }
     setSelectedBooking((prev) => prev ? { ...prev, provider: { id: selectedProvider.id, name: providerName, email: selectedProvider.email || '', phone: selectedProvider.phone || '' }, status: 'confirmed' } : null);
     toast({ title: 'Provider Assigned', description: `${providerName} has been assigned to this booking.` });
@@ -788,7 +842,7 @@ const Dashboard = () => {
               address: b.address ?? undefined,
               frequency: b.frequency,
               duration_minutes: b.durationMinutes ?? undefined,
-              assignedProvider: b.provider?.name ?? undefined,
+              assignedProvider: b.provider?.name ?? b.provider_name ?? undefined,
             }))}
             onBookingClick={(booking) => {
               const withProvider = data?.availableProviders?.find(

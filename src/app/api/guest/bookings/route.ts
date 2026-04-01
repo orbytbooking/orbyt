@@ -3,11 +3,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
 import { processBookingScheduling } from '@/lib/bookingScheduling';
 import { EmailService } from '@/lib/emailService';
+import { sendCustomerFacingBookingEmailAfterScheduling } from '@/lib/sendCustomerBookingConfirmedEmail';
 import { syncBookingCreated, createRecurringCalendarEvent } from '@/lib/googleCalendar';
 import { resolveFrequencyRepeatsForBooking } from '@/lib/industryFrequencyRepeats';
 import { getStoreOptionsScheduling, isDateHoliday, getSpotLimits, getBookingCountForDate, getBookingCountForWeek, isTimeSlotAvailableForBooking } from '@/lib/schedulingFilters';
 import { ensureCustomerForAdminBooking } from '@/lib/ensureCustomerForAdminBooking';
 import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProviderWage';
+import { parseDurationMinutesFromBookingPayload } from '@/lib/bookingDuration';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -182,17 +184,7 @@ export async function POST(request: NextRequest) {
 
   const customizationRaw = body.customization;
 
-  // Parse duration_minutes from body (for max_minutes validation)
-  let durationMinutes = 0;
-  if (body.duration_minutes != null && typeof body.duration_minutes === 'number' && body.duration_minutes > 0) {
-    durationMinutes = Math.round(body.duration_minutes);
-  } else if (body.duration != null) {
-    const dv = parseFloat(String(body.duration));
-    const unit = (body.duration_unit || 'Hours').toString();
-    if (!isNaN(dv) && dv > 0) {
-      durationMinutes = unit.toLowerCase().includes('hour') ? Math.round(dv * 60) : Math.round(dv);
-    }
-  }
+  const durationMinutes = parseDurationMinutesFromBookingPayload(body);
   if (durationMinutes > 0) {
     const storeOptsForDuration = await getStoreOptionsScheduling(businessId);
     const maxMins = storeOptsForDuration?.max_minutes_per_provider_per_booking;
@@ -248,6 +240,36 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+    if (customerEmail) {
+      try {
+        const { data: biz } = await supabase
+          .from('businesses')
+          .select('name, website, logo_url, business_email, business_phone, currency')
+          .eq('id', businessId)
+          .single();
+        const emailService = new EmailService();
+        const reqRef = `REQ-${String(intentRow.id).replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+        await emailService.sendBookingPendingEmail({
+          to: customerEmail,
+          customerName: customerName || 'Customer',
+          businessName: biz?.name || 'Your Business',
+          businessWebsite: biz?.website || null,
+          businessLogoUrl: biz?.logo_url || null,
+          supportEmail: biz?.business_email || null,
+          supportPhone: biz?.business_phone || null,
+          storeCurrency: biz?.currency || null,
+          service: (body.service ?? '').toString().trim() || null,
+          scheduledDate: date || null,
+          scheduledTime: timeForDb ?? null,
+          address: (body.address ?? '').toString().trim() || null,
+          totalPrice,
+          bookingRef: reqRef,
+          awaitingOnlinePayment: true,
+        });
+      } catch (e) {
+        console.warn('Guest booking (checkout intent) email failed:', e);
+      }
+    }
     return NextResponse.json({
       success: true,
       stripeIntentId: intentRow.id,
@@ -282,7 +304,12 @@ export async function POST(request: NextRequest) {
   if (body.tipUpdatedAt) insert.tip_updated_at = body.tipUpdatedAt;
   if (providerName && String(providerName).trim()) insert.provider_name = String(providerName).trim();
   if (customizationRaw && typeof customizationRaw === 'object' && !Array.isArray(customizationRaw)) {
-    insert.customization = customizationRaw;
+    insert.customization =
+      durationMinutes > 0
+        ? { ...(customizationRaw as Record<string, unknown>), duration_minutes: durationMinutes }
+        : customizationRaw;
+  } else if (durationMinutes > 0) {
+    insert.customization = { duration_minutes: durationMinutes };
   }
   if (durationMinutes > 0) insert.duration_minutes = durationMinutes;
 
@@ -348,6 +375,15 @@ export async function POST(request: NextRequest) {
         scheduledDate: firstBooking?.scheduled_date ?? firstBooking?.date,
         service: firstBooking?.service,
       }).catch((e) => console.warn('Scheduling processing failed:', e));
+
+      if (firstBooking?.id) {
+        await sendCustomerFacingBookingEmailAfterScheduling(supabase, businessId, String(firstBooking.id), {
+          totalPriceFallback: totalPrice,
+          customerEmailFallback: customerEmail || null,
+          customerNameFallback: customerName || 'Customer',
+        });
+      }
+
       return NextResponse.json(
         { success: true, data: firstBooking, message: `Recurring booking created with ${bookingIds.length} visits`, id: bookingIds[0], seriesId, bookingIds },
         { status: 201 }
@@ -409,34 +445,11 @@ export async function POST(request: NextRequest) {
     link: '/admin/bookings',
   });
 
-  if (customerEmail) {
-    try {
-      const { data: biz } = await supabase
-        .from('businesses')
-        .select('name, website, logo_url, business_email, business_phone, currency')
-        .eq('id', businessId)
-        .single();
-      const emailService = new EmailService();
-      await emailService.sendBookingConfirmation({
-        to: customerEmail,
-        customerName: customerName || 'Customer',
-        businessName: biz?.name || 'Your Business',
-        businessWebsite: biz?.website || null,
-        businessLogoUrl: biz?.logo_url || null,
-        supportEmail: biz?.business_email || null,
-        supportPhone: biz?.business_phone || null,
-        storeCurrency: biz?.currency || null,
-        service: booking.service,
-        scheduledDate: booking.scheduled_date ?? booking.date,
-        scheduledTime: booking.scheduled_time ?? booking.time,
-        address: booking.address,
-        totalPrice: totalPrice,
-        bookingRef: bkRef,
-      });
-    } catch (e) {
-      console.warn('Booking confirmation email failed:', e);
-    }
-  }
+  await sendCustomerFacingBookingEmailAfterScheduling(supabase, businessId, String(booking.id), {
+    totalPriceFallback: totalPrice,
+    customerEmailFallback: customerEmail || null,
+    customerNameFallback: customerName || 'Customer',
+  });
 
   return NextResponse.json(
     {

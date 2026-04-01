@@ -4,6 +4,7 @@ import { createAdminNotification } from '@/lib/adminProviderSync';
 import { getCancellationFeeForBooking } from '@/lib/cancellationFee';
 import { syncBookingCancelled } from '@/lib/googleCalendar';
 import { formatFrequencyRepeatsForDisplay } from '@/lib/industryFrequencyRepeats';
+import { extractPricingSummaryFromCustomization } from '@/lib/customerBookingPricingDisplay';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -39,6 +40,7 @@ function dbToCustomerBooking(row: any, extras?: { frequencyRepeats?: string | nu
     ? [providerRow.first_name, providerRow.last_name].filter(Boolean).join(' ').trim()
     : (row.provider_name ?? row.assigned_provider ?? '').trim();
   const repeatsDisp = formatFrequencyRepeatsForDisplay(extras?.frequencyRepeats ?? null);
+  const pricingSummary = extractPricingSummaryFromCustomization(row.customization);
   return {
     id: row.id,
     service: row.service ?? '',
@@ -57,6 +59,10 @@ function dbToCustomerBooking(row: any, extras?: { frequencyRepeats?: string | nu
     cancellationFeeAmount: row.cancellation_fee_amount != null ? Number(row.cancellation_fee_amount) : undefined,
     cancellationFeeCurrency: row.cancellation_fee_currency ?? undefined,
     ...(repeatsDisp ? { frequencyRepeatsDisplay: repeatsDisp } : {}),
+    ...(row.duration_minutes != null && Number(row.duration_minutes) > 0
+      ? { durationMinutes: Number(row.duration_minutes) }
+      : {}),
+    ...(pricingSummary ? { pricingSummary } : {}),
   };
 }
 

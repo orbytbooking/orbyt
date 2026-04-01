@@ -334,7 +334,11 @@ export async function POST(
         });
         if (!excludeNotification && custEmail) {
           try {
-            const { data: biz } = await supabase.from("businesses").select("name").eq("id", businessId).single();
+            const { data: biz } = await supabase
+              .from("businesses")
+              .select("name, business_email, business_phone")
+              .eq("id", businessId)
+              .single();
             const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
             const emailService = new EmailService();
             await emailService.sendReceiptEmail({
@@ -345,6 +349,8 @@ export async function POST(
               amount: roundedTip,
               bookingRef: bkRef,
               paymentMethod: "card",
+              supportEmail: (biz as { business_email?: string | null } | null)?.business_email ?? null,
+              supportPhone: (biz as { business_phone?: string | null } | null)?.business_phone ?? null,
             });
           } catch (e) {
             console.warn("[booking-charges tip] receipt email failed:", e);
@@ -472,7 +478,11 @@ export async function POST(
         const custEmail = String((booking as { customer_email?: string | null }).customer_email ?? "").trim();
         if (custEmail && body.excludeNotification !== true) {
           try {
-            const { data: biz } = await supabase.from("businesses").select("name").eq("id", businessId).single();
+            const { data: biz } = await supabase
+              .from("businesses")
+              .select("name, business_email, business_phone")
+              .eq("id", businessId)
+              .single();
             const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
             const emailService = new EmailService();
             await emailService.sendReceiptEmail({
@@ -483,6 +493,8 @@ export async function POST(
               amount: roundedAdd,
               bookingRef: bkRef,
               paymentMethod: "card",
+              supportEmail: (biz as { business_email?: string | null } | null)?.business_email ?? null,
+              supportPhone: (biz as { business_phone?: string | null } | null)?.business_phone ?? null,
             });
           } catch (e) {
             console.warn("[booking-charges additional_charge] receipt email failed:", e);
@@ -524,7 +536,11 @@ export async function POST(
       const custEmail = (booking as { customer_email?: string }).customer_email;
       if (custEmail) {
         try {
-          const { data: biz } = await supabase.from('businesses').select('name').eq('id', businessId).single();
+          const { data: biz } = await supabase
+            .from('businesses')
+            .select('name, business_email, business_phone')
+            .eq('id', businessId)
+            .single();
           const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
           const emailService = new EmailService();
           await emailService.sendReceiptEmail({
@@ -535,6 +551,8 @@ export async function POST(
             amount: Number((booking as { total_price?: number }).total_price ?? 0),
             bookingRef: bkRef,
             paymentMethod: 'cash',
+            supportEmail: (biz as { business_email?: string | null } | null)?.business_email ?? null,
+            supportPhone: (biz as { business_phone?: string | null } | null)?.business_phone ?? null,
           });
         } catch (e) {
           console.warn('Receipt email (cash) failed:', e);

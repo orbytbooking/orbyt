@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { ChevronLeft, ChevronRight, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { resolveBookingDurationMinutes } from "@/lib/bookingDuration";
 
 export type CalendarBooking = {
   id: string;
@@ -143,11 +144,7 @@ function pickAddressBlock(b: CalendarBooking): string {
 }
 
 function pickDurationMinutes(b: CalendarBooking): number | null {
-  const r = b as Record<string, unknown>;
-  const v = b.duration_minutes ?? r.duration_minutes ?? r.durationMinutes;
-  if (v == null) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+  return resolveBookingDurationMinutes(b as CalendarBooking);
 }
 
 function pickTimeRaw(b: CalendarBooking): string {
@@ -186,7 +183,7 @@ function BookingCalendarHoverCard({
   const industry = pickIndustry(booking);
   const service = String(booking.service ?? "").trim() || "—";
   const frequency = pickFrequency(booking);
-  const assignTo = pickAssignTo(booking) || "—";
+  const assignTo = pickAssignTo(booking) || "Unassigned";
   const location = pickAddressBlock(booking);
   const lengthStr = formatDurationMinutes(pickDurationMinutes(booking));
   const arrival = formatArrivalTime(pickTimeRaw(booking));

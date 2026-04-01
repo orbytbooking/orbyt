@@ -30,6 +30,7 @@ import { differenceInCalendarDays, startOfDay } from "date-fns";
 import { cn } from "@/lib/utils";
 import { BookingPhoneInput } from "@/components/admin/BookingPhoneInput";
 import { isValidPhoneNumber } from "react-phone-number-input";
+import { resolveQtyBasedExtraLine } from "@/lib/extraQtyPricing";
 
 /** `YYYY-MM-DD` for `<input type="date" />` (handles ISO strings from API). */
 function normalizeBookingDateInput(raw: unknown): string {
@@ -483,6 +484,8 @@ export function AddBookingForm({
           display: e.display,
           qtyBased: e.qty_based,
           maximumQuantity: e.maximum_quantity,
+          pricingStructure: e.pricing_structure === 'manual' ? 'manual' : 'multiply',
+          manualPrices: Array.isArray(e.manual_prices) ? e.manual_prices : [],
           exemptFromDiscount: e.exempt_from_discount,
           description: e.description,
           serviceChecklists: []
@@ -1039,11 +1042,13 @@ const handleAddBooking = async (status: string = 'pending') => {
     return;
   }
 
-  const customerName = `${newBooking.firstName} ${newBooking.lastName}`.trim();
-  const customerEmail = newBooking.email.trim();
-  const customerPhone = newBooking.phone.trim();
+    const customerName = `${newBooking.firstName} ${newBooking.lastName}`.trim();
+    const customerEmail = newBooking.email.trim();
+    const customerPhone = newBooking.phone.trim();
+    const effectiveProviderId =
+      (newBooking.serviceProvider || selectedProvider?.id || '').toString().trim() || null;
 
-  try {
+    try {
     // Get current user and their business
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
@@ -1105,7 +1110,7 @@ const handleAddBooking = async (status: string = 'pending') => {
       is_partial_cleaning: isPartialCleaning,
       excluded_areas: selectedExcludeParams,
       exclude_quantities: newBooking.excludeQuantities,
-      service_provider_id: newBooking.serviceProvider || null,
+      service_provider_id: effectiveProviderId,
       provider_wage: providerWage,
       provider_wage_type: providerWageType,
       private_booking_notes: newBooking.privateBookingNotes,
@@ -1726,13 +1731,23 @@ const handleAddBooking = async (status: string = 'pending') => {
       }
     }
 
-    // Add time from selected extras
+    // Add time from selected extras (manual tiers vs per-unit multiply)
     newBooking.selectedExtras?.forEach(extraId => {
       const extra = extras.find(e => e.id === extraId);
-      if (extra && typeof extra.time === "number" && extra.time > 0) {
-        const qty = extra.qtyBased ? (newBooking.extraQuantities[extraId] || 1) : 1;
-        totalMinutes += extra.time * qty;
-      }
+      if (!extra) return;
+      const qty = extra.qtyBased ? (newBooking.extraQuantities[extraId] || 1) : 1;
+      const { lineMinutes } = resolveQtyBasedExtraLine(
+        {
+          qty_based: extra.qtyBased,
+          pricing_structure: (extra as { pricingStructure?: string }).pricingStructure,
+          price: Number(extra.price) || 0,
+          time_minutes: typeof extra.time === "number" ? extra.time : 0,
+          maximum_quantity: (extra as { maximumQuantity?: number | null }).maximumQuantity ?? null,
+          manual_prices: (extra as { manualPrices?: { price: number; time_minutes: number }[] }).manualPrices ?? null,
+        },
+        qty,
+      );
+      if (lineMinutes > 0) totalMinutes += lineMinutes;
     });
 
     // Subtract time from excluded areas when partial cleaning is enabled
@@ -1755,10 +1770,20 @@ const handleAddBooking = async (status: string = 'pending') => {
     let total = 0;
     newBooking.selectedExtras?.forEach(extraId => {
       const extra = extras.find(e => e.id === extraId);
-      if (extra) {
-        const quantity = extra.qtyBased ? (newBooking.extraQuantities[extraId] || 1) : 1;
-        total += extra.price * quantity;
-      }
+      if (!extra) return;
+      const quantity = extra.qtyBased ? (newBooking.extraQuantities[extraId] || 1) : 1;
+      const { linePrice } = resolveQtyBasedExtraLine(
+        {
+          qty_based: extra.qtyBased,
+          pricing_structure: (extra as { pricingStructure?: string }).pricingStructure,
+          price: Number(extra.price) || 0,
+          time_minutes: typeof extra.time === "number" ? extra.time : 0,
+          maximum_quantity: (extra as { maximumQuantity?: number | null }).maximumQuantity ?? null,
+          manual_prices: (extra as { manualPrices?: { price: number; time_minutes: number }[] }).manualPrices ?? null,
+        },
+        quantity,
+      );
+      total += linePrice;
     });
     return total;
   }, [newBooking.selectedExtras, newBooking.extraQuantities, extras]);

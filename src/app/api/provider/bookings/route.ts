@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { syncBookingStatusToAdmin, syncProviderStatusToAdmin } from '@/lib/adminProviderSync';
-import { getOccurrenceDatesForSeriesSync } from '@/lib/recurringBookings';
+import { getOccurrenceDatesForSeriesSync, statusForRecurringOccurrence } from '@/lib/recurringBookings';
 import { compareBookingsByScheduleAsc } from '@/lib/bookingScheduleSort';
 
 export async function GET(request: NextRequest) {
@@ -215,9 +215,12 @@ export async function GET(request: NextRequest) {
           ? (booking as { completed_occurrence_dates: string[] }).completed_occurrence_dates
           : [];
         for (const d of dates) {
-          const occurrenceStatus = completedDates.includes(d)
-            ? 'completed'
-            : (booking.status === 'cancelled' ? 'cancelled' : 'confirmed');
+          const occurrenceStatus = statusForRecurringOccurrence(d, {
+            status: booking.status,
+            completed_occurrence_dates: completedDates,
+            customer_cancelled_occurrence_dates: (booking as { customer_cancelled_occurrence_dates?: string[] })
+              .customer_cancelled_occurrence_dates,
+          });
           expanded.push({
             ...base,
             date: d,

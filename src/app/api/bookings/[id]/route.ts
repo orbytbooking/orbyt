@@ -18,6 +18,8 @@ import {
 import { ensureCustomerForAdminBooking } from '@/lib/ensureCustomerForAdminBooking';
 import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProviderWage';
 import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
+import { finalStatusForAdminBooking, providerIdFromBookingPayload } from '@/lib/adminBookingStatus';
+import { sendCustomerBookingConfirmedEmail } from '@/lib/sendCustomerBookingConfirmedEmail';
 
 export async function GET(
   request: Request,
@@ -132,9 +134,8 @@ export async function PUT(
         if (method === 'cash') paymentMethod = 'cash';
         else if (method.includes('card') || method.includes('bank') || method === 'credit card') paymentMethod = 'online';
       }
-      const finalStatus = bookingData.service_provider_id
-        ? (bookingData.status === 'pending' ? 'confirmed' : bookingData.status)
-        : (bookingData.status || 'pending');
+      const providerIdEarly = providerIdFromBookingPayload(bookingData);
+      const finalStatus = finalStatusForAdminBooking(bookingData, providerIdEarly);
       const { data: storeWageOpts } = await supabase
         .from('business_store_options')
         .select('default_provider_wage, default_provider_wage_type')
@@ -158,7 +159,7 @@ export async function PUT(
         customerAddress,
       });
       let providerName: string | null = (bookingData.provider_name || '').toString().trim() || null;
-      const providerId = bookingData.service_provider_id ?? null;
+      const providerId = providerIdEarly;
       if (providerId && !providerName) {
         const { data: prov } = await supabase
           .from('service_providers')
@@ -599,6 +600,12 @@ export async function PUT(
         message: `Booking ${bkRef} has been updated.`,
         link: '/admin/bookings',
       });
+    }
+
+    const newSt = String(booking.status || '');
+    const oldSt = String(priorStatus || '');
+    if (newSt === 'confirmed' && oldSt !== 'confirmed') {
+      await sendCustomerBookingConfirmedEmail(supabase, businessId, booking);
     }
 
     return NextResponse.json({

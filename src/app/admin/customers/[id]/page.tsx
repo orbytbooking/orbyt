@@ -1577,7 +1577,7 @@ export default function CustomerProfilePage() {
                                 <div className={`text-sm font-medium mb-1 ${isToday?'text-cyan-600 dark:text-cyan-400':''}`}>{day}</div>
                                 <div className="flex-1 space-y-1 overflow-y-auto">
                                   {items.slice(0,3).map(b=> (
-                                    <div key={b.id} role="button" tabIndex={0} onClick={() => setSelectedBooking(b)} onKeyDown={(e) => e.key === "Enter" && setSelectedBooking(b)} className="text-xs p-1 rounded text-white cursor-pointer hover:opacity-90 transition-opacity" style={{background:'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)'}}>
+                                    <div key={`${b.id}-${b.date}`} role="button" tabIndex={0} onClick={() => setSelectedBooking(b)} onKeyDown={(e) => e.key === "Enter" && setSelectedBooking(b)} className="text-xs p-1 rounded text-white cursor-pointer hover:opacity-90 transition-opacity" style={{background:'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)'}}>
                                       <div className="truncate font-medium">{b.time}</div>
                                       <div className="truncate">{b.service}</div>
                                     </div>
@@ -1615,7 +1615,7 @@ export default function CustomerProfilePage() {
                               <div className="space-y-1">
                                 {items.length===0 && <div className="text-xs text-muted-foreground">No bookings</div>}
                                 {items.map(b=> (
-                                  <div key={b.id} role="button" tabIndex={0} onClick={() => setSelectedBooking(b)} onKeyDown={(e) => e.key === "Enter" && setSelectedBooking(b)} className="text-xs p-1 rounded text-white cursor-pointer hover:opacity-90 transition-opacity" style={{background:'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)'}}>
+                                  <div key={`${b.id}-${b.date}`} role="button" tabIndex={0} onClick={() => setSelectedBooking(b)} onKeyDown={(e) => e.key === "Enter" && setSelectedBooking(b)} className="text-xs p-1 rounded text-white cursor-pointer hover:opacity-90 transition-opacity" style={{background:'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)'}}>
                                     <div className="truncate font-medium">{b.time}</div>
                                     <div className="truncate">{b.service}</div>
                                   </div>
@@ -1635,7 +1635,7 @@ export default function CustomerProfilePage() {
                       <div className="text-sm text-muted-foreground">{items.length} booking(s) on this day</div>
                       {items.length===0 && <div className="text-sm text-muted-foreground">No bookings scheduled.</div>}
                       {items.map(b => (
-                        <div key={b.id} role="button" tabIndex={0} onClick={() => setSelectedBooking(b)} onKeyDown={(e) => e.key === "Enter" && setSelectedBooking(b)} className="p-3 rounded-md border cursor-pointer hover:bg-muted/50 transition-colors">
+                        <div key={`${b.id}-${b.date}`} role="button" tabIndex={0} onClick={() => setSelectedBooking(b)} onKeyDown={(e) => e.key === "Enter" && setSelectedBooking(b)} className="p-3 rounded-md border cursor-pointer hover:bg-muted/50 transition-colors">
                           <div className="flex items-center justify-between">
                             <div className="font-medium">{b.service}</div>
                             <div className="text-sm">{b.time}</div>

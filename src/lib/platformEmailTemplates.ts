@@ -12,7 +12,10 @@ export type PlatformEmailTemplateRow = {
 
 /** Documented keys used by EmailService when a matching active template exists. */
 export const PLATFORM_EMAIL_TEMPLATE_KEYS = {
+  /** Customer email after booking is confirmed (includes assigned provider). */
   bookingConfirmation: 'booking_confirmation',
+  /** Customer email while request is still pending / awaiting business or payment. */
+  bookingPendingRequest: 'booking_pending_request',
   invoice: 'invoice_email',
 } as const;
 

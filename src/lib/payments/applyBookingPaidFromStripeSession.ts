@@ -103,29 +103,44 @@ export async function applyBookingPaidFromStripeSession(
 
   const sendReceipt = options?.sendReceipt !== false;
   if (sendReceipt) {
-    const custEmail = session.customer_email ?? session.customer_details?.email;
-    if (custEmail) {
-      try {
-        const { data: booking } = await supabase
-          .from("bookings")
-          .select("customer_name, service, total_price")
-          .eq("id", bookingId)
+    try {
+      const { data: booking } = await supabase
+        .from("bookings")
+        .select("customer_name, customer_email, service, total_price, amount")
+        .eq("id", bookingId)
+        .single();
+      const sessionEmail =
+        (session.customer_email ?? session.customer_details?.email ?? "").toString().trim() || null;
+      const bookingEmail = String((booking as { customer_email?: string | null } | null)?.customer_email ?? "").trim() || null;
+      const custEmail = sessionEmail || bookingEmail;
+      if (custEmail) {
+        const { data: biz } = await supabase
+          .from("businesses")
+          .select("name, business_email, business_phone")
+          .eq("id", businessId)
           .single();
-        const { data: biz } = await supabase.from("businesses").select("name").eq("id", businessId).single();
         const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
+        const bookingTotal = Number((booking as { total_price?: number; amount?: number } | null)?.total_price ?? 0);
+        const bookingAmount = Number((booking as { amount?: number } | null)?.amount ?? 0);
+        const fromSession =
+          session.amount_total != null && session.amount_total > 0 ? session.amount_total / 100 : null;
+        const receiptAmount =
+          fromSession != null ? fromSession : (bookingTotal > 0 ? bookingTotal : bookingAmount);
         const emailService = new EmailService();
         await emailService.sendReceiptEmail({
           to: custEmail,
           customerName: (booking as { customer_name?: string } | null)?.customer_name ?? "Customer",
           businessName: (biz as { name?: string } | null)?.name ?? "Your Business",
           service: (booking as { service?: string | null } | null)?.service ?? null,
-          amount: Number((booking as { total_price?: number } | null)?.total_price ?? 0),
+          amount: receiptAmount,
           bookingRef: bkRef,
           paymentMethod: "card",
+          supportEmail: (biz as { business_email?: string | null } | null)?.business_email ?? null,
+          supportPhone: (biz as { business_phone?: string | null } | null)?.business_phone ?? null,
         });
-      } catch (e) {
-        console.warn("[applyBookingPaidFromStripeSession] Receipt email failed:", e);
       }
+    } catch (e) {
+      console.warn("[applyBookingPaidFromStripeSession] Receipt email failed:", e);
     }
   }
 

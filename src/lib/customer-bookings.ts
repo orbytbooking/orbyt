@@ -1,4 +1,5 @@
 import { createBooking, getCustomerBookings, updateBooking, deleteBooking, getBookingById, type BookingData } from './supabase/bookings';
+import type { CustomerPortalPricingSummary } from './customerBookingPricingDisplay';
 import { useCustomerAccount } from '@/hooks/useCustomerAccount';
 
 export const BOOKINGS_STORAGE_KEY = "customerBookings";
@@ -37,6 +38,10 @@ export type Booking = {
     excludedAreas?: string[];
     variableCategories?: { [categoryName: string]: string };
   };
+  /** Job length in minutes (from DB `duration_minutes`). */
+  durationMinutes?: number;
+  /** Line items saved at checkout (customization.pricing_summary); matches book-now payment breakdown. */
+  pricingSummary?: CustomerPortalPricingSummary;
 };
 
 export type StoredRebookPayload = {

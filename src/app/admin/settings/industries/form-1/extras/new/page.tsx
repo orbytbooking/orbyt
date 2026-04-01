@@ -85,7 +85,7 @@ export default function ExtraNewPage() {
     qtyBased: false,
     exemptFromDiscount: false,
     maximum: "",
-    pricingStructure: "manual" as "manual" | "multiply",
+    pricingStructure: "multiply" as "manual" | "multiply",
     manualPrices: [] as { price: string; timeHours: string; timeMinutes: string }[],
     applyToAllBookings: true as boolean,
     overrideTimePricing: false as boolean,
@@ -367,6 +367,18 @@ export default function ExtraNewPage() {
       if (extra) {
         const hours = Math.floor((extra.time_minutes ?? 0) / 60);
         const minutes = (extra.time_minutes ?? 0) % 60;
+        const structure =
+          extra.pricing_structure === "manual" ? "manual" : "multiply";
+        const manualPricesFromDb = (
+          Array.isArray(extra.manual_prices) ? extra.manual_prices : []
+        ).map((t: { price?: number; time_minutes?: number }) => {
+          const tm = Number(t?.time_minutes) || 0;
+          return {
+            price: String(t?.price ?? ""),
+            timeHours: String(Math.floor(tm / 60)),
+            timeMinutes: String(tm % 60),
+          };
+        });
         setForm({
           name: extra.name,
           description: extra.description || "",
@@ -379,8 +391,8 @@ export default function ExtraNewPage() {
           qtyBased: extra.qty_based,
           exemptFromDiscount: extra.exempt_from_discount ?? false,
           maximum: String(extra.maximum_quantity || ""),
-          pricingStructure: "manual" as "manual" | "multiply",
-          manualPrices: [],
+          pricingStructure: structure,
+          manualPrices: manualPricesFromDb,
           applyToAllBookings: true,
           overrideTimePricing: false,
           exemptExtraTime: false,
@@ -390,7 +402,7 @@ export default function ExtraNewPage() {
           serviceCategoryOptions: extra.service_category_options || [],
           showBasedOnVariables: extra.show_based_on_variables || false,
           variableOptions: extra.variable_options || [],
-          excludedProviders: [],
+          excludedProviders: extra.excluded_providers || [],
         });
         
         if (extra.icon && extra.icon.startsWith('data:')) {
@@ -408,8 +420,10 @@ export default function ExtraNewPage() {
     console.log('=== END FRONTEND DEBUG ===');
   };
 
-  // Legacy localStorage loading (keeping for backwards compatibility)
+  // Legacy localStorage loading (keeping for backwards compatibility; UUID edits use API fetch only)
   useEffect(() => {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (editId && uuidRegex.test(editId)) return;
     if (editId && extras.length > 0) {
       const existing = extras.find(r => String(r.id) === editId);
       if (existing) {
@@ -462,8 +476,41 @@ export default function ExtraNewPage() {
 
     const hours = Number(form.timeHours) || 0;
     const minutes = Number(form.timeMinutes) || 0;
-    const time_minutes = hours * 60 + minutes;
-    const price = Number(form.price) || 0;
+    let time_minutes = hours * 60 + minutes;
+    let price = Number(form.price) || 0;
+
+    const maxParsed = form.maximum ? parseInt(form.maximum, 10) : NaN;
+    const maximum_quantity =
+      form.qtyBased && !Number.isNaN(maxParsed) && maxParsed > 0
+        ? maxParsed
+        : undefined;
+
+    const pricing_structure: "multiply" | "manual" = form.qtyBased
+      ? form.pricingStructure === "manual"
+        ? "manual"
+        : "multiply"
+      : "multiply";
+
+    let manual_prices: Array<{ price: number; time_minutes: number }> = [];
+    if (
+      form.qtyBased &&
+      pricing_structure === "manual" &&
+      maximum_quantity != null
+    ) {
+      manual_prices = Array.from({ length: maximum_quantity }, (_, i) => {
+        const row = form.manualPrices[i];
+        const th = Number(row?.timeHours) || 0;
+        const tm = Number(row?.timeMinutes) || 0;
+        return {
+          price: Number(row?.price) || 0,
+          time_minutes: th * 60 + tm,
+        };
+      });
+      if (manual_prices.length > 0) {
+        time_minutes = manual_prices[0].time_minutes;
+        price = manual_prices[0].price;
+      }
+    }
 
     const extraData = {
       business_id: currentBusiness.id,
@@ -476,7 +523,9 @@ export default function ExtraNewPage() {
       price,
       display: form.display,
       qty_based: form.qtyBased,
-      maximum_quantity: form.maximum ? parseInt(form.maximum) : undefined,
+      maximum_quantity,
+      pricing_structure,
+      manual_prices,
       exempt_from_discount: form.exemptFromDiscount,
       show_based_on_frequency: form.showBasedOnFrequency,
       frequency_options: form.frequencyOptions.length > 0 ? form.frequencyOptions : undefined,
@@ -776,57 +825,34 @@ export default function ExtraNewPage() {
                       value={form.maximum} 
                       onChange={(e) => {
                         const newMaximum = e.target.value;
-                        setForm(p => ({ ...p, maximum: newMaximum }));
-                        
-                        // Auto-multiply if multiply structure is selected
-                        if (form.pricingStructure === "multiply" && newMaximum) {
-                          const maxNum = Number(newMaximum) || 1;
-                          const basePrice = Number(form.price) || 0;
-                          const baseTimeHours = Number(form.timeHours) || 0;
-                          const baseTimeMinutes = Number(form.timeMinutes) || 0;
-                          const totalBaseMinutes = baseTimeHours * 60 + baseTimeMinutes;
-                          
-                          const multipliedPrice = basePrice * maxNum;
-                          const multipliedMinutes = totalBaseMinutes * maxNum;
-                          const multipliedHours = Math.floor(multipliedMinutes / 60);
-                          const remainingMinutes = multipliedMinutes % 60;
-                          
-                          setForm(p => ({ 
-                            ...p, 
-                            maximum: newMaximum,
-                            price: String(multipliedPrice),
-                            timeHours: String(multipliedHours),
-                            timeMinutes: String(remainingMinutes)
-                          }));
+                        if (form.pricingStructure !== "manual") {
+                          setForm((p) => ({ ...p, maximum: newMaximum }));
+                          return;
                         }
-                        
-                        // Update manual prices array when maximum changes in manual mode
-                        if (form.pricingStructure === "manual") {
-                          const maxNum = Number(newMaximum) || 0;
-                          const currentManualPrices = form.manualPrices || [];
-                          
-                          if (maxNum > currentManualPrices.length) {
-                            // Add new empty entries
-                            const newEntries = Array.from({ length: maxNum - currentManualPrices.length }, () => ({
+                        const maxNum = Number(newMaximum) || 0;
+                        const currentManualPrices = form.manualPrices || [];
+                        if (maxNum > currentManualPrices.length) {
+                          const newEntries = Array.from(
+                            { length: maxNum - currentManualPrices.length },
+                            () => ({
                               price: "0",
                               timeHours: "0",
-                              timeMinutes: "0"
-                            }));
-                            setForm(p => ({ 
-                              ...p, 
-                              maximum: newMaximum,
-                              manualPrices: [...currentManualPrices, ...newEntries]
-                            }));
-                          } else if (maxNum < currentManualPrices.length) {
-                            // Remove excess entries
-                            setForm(p => ({ 
-                              ...p, 
-                              maximum: newMaximum,
-                              manualPrices: currentManualPrices.slice(0, maxNum)
-                            }));
-                          } else {
-                            setForm(p => ({ ...p, maximum: newMaximum }));
-                          }
+                              timeMinutes: "0",
+                            }),
+                          );
+                          setForm((p) => ({
+                            ...p,
+                            maximum: newMaximum,
+                            manualPrices: [...currentManualPrices, ...newEntries],
+                          }));
+                        } else if (maxNum < currentManualPrices.length) {
+                          setForm((p) => ({
+                            ...p,
+                            maximum: newMaximum,
+                            manualPrices: currentManualPrices.slice(0, maxNum),
+                          }));
+                        } else {
+                          setForm((p) => ({ ...p, maximum: newMaximum }));
                         }
                       }} 
                       placeholder="Number"
@@ -838,29 +864,36 @@ export default function ExtraNewPage() {
                     <RadioGroup
                       value={form.pricingStructure}
                       onValueChange={(value: "manual" | "multiply") => {
-                        setForm(p => ({ ...p, pricingStructure: value }));
-                        
-                        // If switching to multiply and maximum is set, auto-multiply
-                        if (value === "multiply" && form.maximum) {
-                          const maxNum = Number(form.maximum) || 1;
-                          const basePrice = Number(form.price) || 0;
-                          const baseTimeHours = Number(form.timeHours) || 0;
-                          const baseTimeMinutes = Number(form.timeMinutes) || 0;
-                          const totalBaseMinutes = baseTimeHours * 60 + baseTimeMinutes;
-                          
-                          const multipliedPrice = basePrice * maxNum;
-                          const multipliedMinutes = totalBaseMinutes * maxNum;
-                          const multipliedHours = Math.floor(multipliedMinutes / 60);
-                          const remainingMinutes = multipliedMinutes % 60;
-                          
-                          setForm(p => ({ 
-                            ...p, 
-                            pricingStructure: value,
-                            price: String(multipliedPrice),
-                            timeHours: String(multipliedHours),
-                            timeMinutes: String(remainingMinutes)
-                          }));
-                        }
+                        setForm((p) => {
+                          if (value !== "manual") {
+                            return { ...p, pricingStructure: value };
+                          }
+                          const maxNum = Number(p.maximum) || 0;
+                          const cur = p.manualPrices || [];
+                          if (maxNum > cur.length) {
+                            const newEntries = Array.from(
+                              { length: maxNum - cur.length },
+                              () => ({
+                                price: "0",
+                                timeHours: "0",
+                                timeMinutes: "0",
+                              }),
+                            );
+                            return {
+                              ...p,
+                              pricingStructure: value,
+                              manualPrices: [...cur, ...newEntries],
+                            };
+                          }
+                          if (maxNum > 0 && maxNum < cur.length) {
+                            return {
+                              ...p,
+                              pricingStructure: value,
+                              manualPrices: cur.slice(0, maxNum),
+                            };
+                          }
+                          return { ...p, pricingStructure: value };
+                        });
                       }}
                       className="flex gap-4"
                     >
@@ -873,7 +906,7 @@ export default function ExtraNewPage() {
                     </RadioGroup>
                     {form.pricingStructure === "multiply" && (
                       <p className="text-xs text-muted-foreground mt-1">
-                        The system will automatically multiply the price and time evenly by the maximum number.
+                        Price and time above are per unit. Totals use per-unit × quantity (up to maximum).
                       </p>
                     )}
                   </div>

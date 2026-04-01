@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
 import { EmailService } from '@/lib/emailService';
+import { sendCustomerBookingConfirmedEmail } from '@/lib/sendCustomerBookingConfirmedEmail';
 
 /**
  * GET: List pending invitations for the current provider
@@ -164,6 +165,22 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', invitation.booking_id)
         .eq('business_id', provider.business_id);
+
+      const { data: confirmedRow } = await supabaseAdmin
+        .from('bookings')
+        .select(
+          'id, status, customer_email, customer_name, service, scheduled_date, date, scheduled_time, time, address, total_price, exclude_customer_notification, provider_id, provider_name'
+        )
+        .eq('id', invitation.booking_id)
+        .eq('business_id', provider.business_id)
+        .maybeSingle();
+      if (confirmedRow) {
+        await sendCustomerBookingConfirmedEmail(
+          supabaseAdmin,
+          provider.business_id,
+          confirmedRow
+        );
+      }
 
       await createAdminNotification(provider.business_id, 'invitation_accepted', {
         title: 'Provider accepted booking',
