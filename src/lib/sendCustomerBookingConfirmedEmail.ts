@@ -3,7 +3,7 @@ import { EmailService } from "@/lib/emailService";
 import { resolveProviderForCustomerBookingEmail } from "@/lib/bookingEmailProvider";
 
 const BOOKING_ROW_SELECT_FOR_CUSTOMER_EMAIL =
-  "id, status, customer_email, customer_name, service, scheduled_date, date, scheduled_time, time, address, total_price, exclude_customer_notification, provider_id, provider_name";
+  "id, status, customer_email, customer_name, service, scheduled_date, date, scheduled_time, time, address, total_price, exclude_customer_notification, provider_id, provider_name, payment_status, payment_method";
 
 export type BookingRowForCustomerConfirmedEmail = {
   id: string;
@@ -123,6 +123,8 @@ export async function sendCustomerFacingBookingEmailAfterScheduling(
     const emailService = new EmailService();
     const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
     const awaitingPay = opts.awaitingOnlinePayment ?? false;
+    const paymentAlreadyReceived =
+      !awaitingPay && String((row as { payment_status?: string }).payment_status ?? "").toLowerCase() === "paid";
     await emailService.sendBookingPendingEmail({
       to,
       customerName: String(row.customer_name ?? opts.customerNameFallback ?? "").trim() || "Customer",
@@ -140,6 +142,7 @@ export async function sendCustomerFacingBookingEmailAfterScheduling(
       bookingRef: bkRef,
       awaitingOnlinePayment: awaitingPay,
       copyVariant: awaitingPay ? "pending" : "scheduled",
+      paymentAlreadyReceived,
     });
   } catch (e) {
     console.warn("Customer booking pending email (post-scheduling) failed:", e);

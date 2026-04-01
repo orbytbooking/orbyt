@@ -519,6 +519,8 @@ export class EmailService {
      * Same platform template key `booking_pending_request`; only default subject/body copy differs when no custom template.
      */
     copyVariant?: 'pending' | 'scheduled';
+    /** After online checkout: row can be `pending` but `payment_status` is already `paid`; do not ask for payment again. */
+    paymentAlreadyReceived?: boolean;
   }): Promise<boolean> {
     try {
       const {
@@ -538,24 +540,33 @@ export class EmailService {
         bookingRef,
         awaitingOnlinePayment = false,
         copyVariant = 'pending',
+        paymentAlreadyReceived = false,
       } = data;
       const { dateStr, timeStr } = formatBookingScheduleForEmail(scheduledDate, scheduledTime);
       const useScheduledCopy = copyVariant === 'scheduled' && !awaitingOnlinePayment;
+      const paidPending = paymentAlreadyReceived && !awaitingOnlinePayment;
+      /** Pay-first book-now: booking is only complete after Stripe (intended flow, not a missing payment). */
       const defaultSubject = awaitingOnlinePayment
-        ? `Complete your booking — ${businessName}`
-        : useScheduledCopy
-          ? `Appointment scheduled — ${businessName}`
-          : `Booking request received — ${businessName}`;
+        ? `Complete your booking with ${businessName}`
+        : paidPending
+          ? `Payment successful: booking being finalized - ${businessName}`
+          : useScheduledCopy
+            ? `Appointment scheduled - ${businessName}`
+            : `Booking request received - ${businessName}`;
       const bookingStatusLabel = awaitingOnlinePayment
-        ? 'Pending — not yet confirmed'
-        : useScheduledCopy
-          ? 'Scheduled — not yet confirmed'
-          : 'Pending — not yet confirmed';
+        ? 'Secure checkout: finish to complete your booking'
+        : paidPending
+          ? 'Payment successful - awaiting assignment or final confirmation'
+          : useScheduledCopy
+            ? 'Scheduled - not yet confirmed'
+            : 'Pending - not yet confirmed';
       const introParagraph = awaitingOnlinePayment
-        ? `We saved your booking details with ${businessName}. Your request is not finalized until you complete secure payment in the checkout window. If you already finished paying, you will receive a confirmation email shortly.`
-        : useScheduledCopy
-          ? `Your appointment with ${businessName} is scheduled for the date and time below. It is not fully confirmed yet; ${businessName} will confirm it or contact you if anything needs to change.`
-          : `We received your booking request with ${businessName}. Your appointment is still pending and is not confirmed yet. ${businessName} will confirm it or contact you if anything needs to change.`;
+        ? `Thank you for choosing ${businessName}. Your visit is saved, but the booking is not complete until payment goes through. This is how we secure your spot. Please finish paying on the secure checkout page (use the same browser window, or open book again from the site if you closed it). When payment succeeds, we will email you again with your booking details.`
+        : paidPending
+          ? `Your payment was successful. Thank you. No further payment is needed. Your booking below is still being finalized while ${businessName} assigns a provider or confirms your visit. You will receive another email when your booking is fully confirmed.`
+          : useScheduledCopy
+            ? `Your appointment with ${businessName} is scheduled for the date and time below. It is not fully confirmed yet; ${businessName} will confirm it or contact you if anything needs to change.`
+            : `We received your booking request with ${businessName}. Your appointment is still pending and is not confirmed yet. ${businessName} will confirm it or contact you if anything needs to change.`;
 
       const tpl = await getActivePlatformEmailTemplateByKey(
         PLATFORM_EMAIL_TEMPLATE_KEYS.bookingPendingRequest
@@ -577,6 +588,7 @@ export class EmailService {
           store_currency: storeCurrency || '',
           site_url: resolveSiteUrl(businessWebsite),
           awaiting_online_payment: awaitingOnlinePayment ? 'yes' : 'no',
+          payment_received: paidPending ? 'yes' : 'no',
           booking_status_label: bookingStatusLabel,
           intro_paragraph: introParagraph,
         };
@@ -619,10 +631,12 @@ export class EmailService {
       }
 
       const headerTitle = awaitingOnlinePayment
-        ? 'Booking request — payment needed'
-        : useScheduledCopy
-          ? 'Appointment scheduled'
-          : 'Booking request received';
+        ? 'Almost done: complete payment'
+        : paidPending
+          ? 'Payment successful'
+          : useScheduledCopy
+            ? 'Appointment scheduled'
+            : 'Booking request received';
       const emailHtml = `
         <!DOCTYPE html>
         <html>
@@ -659,7 +673,7 @@ export class EmailService {
               </div>
               <p>If you have any questions, please reach out using the contact details below.</p>
               ${businessContactFooterHtml(businessName, supportEmail, supportPhone)}
-              <p>Thank you — we will be in touch if we need anything else.</p>
+              <p>Thank you. We will be in touch if we need anything else.</p>
               <p>Best regards,<br>The ${businessName} Team</p>
             </div>
             <div class="footer">
@@ -983,7 +997,7 @@ export class EmailService {
   }): Promise<boolean> {
     try {
       const { to, customerName, businessName, service, amount, bookingRef, paymentUrl } = data;
-      const emailSubject = `Pay for your service — ${businessName}`;
+      const emailSubject = `Pay for your service - ${businessName}`;
       const emailHtml = `
         <!DOCTYPE html>
         <html>
@@ -1028,7 +1042,7 @@ export class EmailService {
       `;
 
       if (!this.resendClient) {
-        console.warn('[Email] Payment link not sent — RESEND_API_KEY is not set:', to, bookingRef);
+        console.warn('[Email] Payment link not sent - RESEND_API_KEY is not set:', to, bookingRef);
         return false;
       }
       const { error } = await this.resendClient.emails.send({
@@ -1175,7 +1189,7 @@ export class EmailService {
           'https://yourdomain.com'
         ) + '/provider/bookings';
 
-      const emailSubject = `New booking assigned to you – ${businessName}`;
+      const emailSubject = `New booking assigned to you - ${businessName}`;
       const emailHtml = `
         <!DOCTYPE html>
         <html>

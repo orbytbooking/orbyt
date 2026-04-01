@@ -8,12 +8,15 @@ import { Button } from "@/components/ui/button";
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { PhoneField, PHONE_FIELD_HELPER_TEXT } from "@/components/ui/phone-field";
+import { isValidPhoneNumber } from "react-phone-number-input";
 import {
   Dialog,
   DialogContent,
@@ -21,7 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, Mail, Lock, User, ArrowRight, Phone, MapPin, CheckCircle2, Home } from "lucide-react";
+import { Loader2, Mail, Lock, User, ArrowRight, MapPin, CheckCircle2, Home } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -40,7 +43,10 @@ const loginSchema = z.object({
 const signupSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   email: z.string().email("Please enter a valid email"),
-  phone: z.string().min(10, "Please enter a valid phone number"),
+  phone: z
+    .string()
+    .min(1, "Phone number is required")
+    .refine((v) => isValidPhoneNumber(v), "Please enter a valid phone number"),
   address: z.string().min(5, "Please enter a valid address"),
   password: z.string().min(6, "Password must be at least 6 characters"),
   confirmPassword: z.string().min(6, "Password must be at least 6 characters"),
@@ -568,20 +574,17 @@ export default function AuthPage() {
                       <FormItem>
                         <FormLabel className="text-sm font-medium">Phone Number</FormLabel>
                         <FormControl>
-                          <div className="relative">
-                            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
-                            <Input 
-                              type="tel"
-                              placeholder="(123) 456-7890"
-                              className="pl-10 h-11"
-                              {...field}
-                              onChange={(e) => {
-                                const value = e.target.value.replace(/\D/g, '');
-                                field.onChange(value);
-                              }}
-                            />
-                          </div>
+                          <PhoneField
+                            hideLabel
+                            showHelperText={false}
+                            value={field.value || ""}
+                            onChange={field.onChange}
+                            onBlur={field.onBlur}
+                            placeholder="Phone number"
+                            containerClassName="space-y-0"
+                          />
                         </FormControl>
+                        <FormDescription className="text-xs">{PHONE_FIELD_HELPER_TEXT}</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}

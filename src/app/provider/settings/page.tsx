@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneField } from "@/components/ui/phone-field";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -463,15 +464,14 @@ export default function ProviderSettingsPage() {
                   className="bg-muted"
                 />
               </div>
-              <div>
-                <Label htmlFor="phone">Phone</Label>
-                <Input
-                  id="phone"
-                  value={provider?.phone || ''}
-                  readOnly
-                  className="bg-muted"
-                />
-              </div>
+              <PhoneField
+                id="phone"
+                label="Phone"
+                value={provider?.phone || ""}
+                onChange={() => {}}
+                disabled
+                showHelperText={false}
+              />
               <div>
                 <Label htmlFor="specialization">Specialization</Label>
                 <Input

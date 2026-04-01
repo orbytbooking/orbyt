@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useHiringProspects, type HiringProspect, type HiringStage } from "@/hooks/useHiringProspects";
@@ -21,6 +23,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneField } from "@/components/ui/phone-field";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
@@ -579,14 +582,13 @@ export default function ProspectsTab() {
                       onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
                     />
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-medium text-slate-700">Phone number</label>
-                    <Input
-                      placeholder="___-___-____"
-                      value={form.phone}
-                      onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))}
-                    />
-                  </div>
+                  <PhoneField
+                    label="Phone number"
+                    placeholder="Phone number"
+                    value={form.phone}
+                    onChange={(v) => setForm((p) => ({ ...p, phone: v }))}
+                    labelClassName="text-sm font-medium text-slate-700"
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-slate-700">Add a note</label>
@@ -1108,13 +1110,12 @@ export default function ProspectsTab() {
                     onChange={(e) => setEditForm((p) => ({ ...p, email: e.target.value }))}
                   />
                 </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-700">Phone number</label>
-                  <Input
-                    value={editForm.phone}
-                    onChange={(e) => setEditForm((p) => ({ ...p, phone: e.target.value }))}
-                  />
-                </div>
+                <PhoneField
+                  label="Phone number"
+                  value={editForm.phone}
+                  onChange={(v) => setEditForm((p) => ({ ...p, phone: v }))}
+                  labelClassName="text-sm font-medium text-slate-700"
+                />
               </div>
 
               <div className="space-y-2">

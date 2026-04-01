@@ -58,6 +58,7 @@ import {
   NotificationDetailDialog,
   type NotificationDetailItem,
 } from '@/components/notifications/NotificationDetailDialog';
+import { PhoneField } from '@/components/ui/phone-field';
 import { PLATFORM_NOTIF_ID_PREFIX, parseSupportNotificationId } from '@/lib/platform-announcement-notifications';
 import {
   LineChart,
@@ -414,10 +415,12 @@ function EditBusinessModalInline({
                 <label className="block text-sm font-medium text-gray-700 mb-1">Business email</label>
                 <input type="email" value={form.business_email} onChange={(e) => setForm((f) => ({ ...f, business_email: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Business phone</label>
-                <input type="text" value={form.business_phone} onChange={(e) => setForm((f) => ({ ...f, business_phone: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
-              </div>
+              <PhoneField
+                label="Business phone"
+                labelClassName="text-sm font-medium text-gray-700"
+                value={form.business_phone}
+                onChange={(v) => setForm((f) => ({ ...f, business_phone: v }))}
+              />
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
                 <input type="text" value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
@@ -3016,7 +3019,7 @@ function SuperAdminDashboardInner() {
                       <code className="font-mono text-[10px]">date</code>, <code className="font-mono text-[10px]">time</code>, <code className="font-mono text-[10px]">service</code>,{' '}
                       <code className="font-mono text-[10px]">address</code>, <code className="font-mono text-[10px]">booking_ref</code>,{' '}
                       <code className="font-mono text-[10px]">total_price</code>, <code className="font-mono text-[10px]">total_price_formatted</code>. Pending template also:{' '}
-                      <code className="font-mono text-[10px]">awaiting_online_payment</code>, <code className="font-mono text-[10px]">intro_paragraph</code>, <code className="font-mono text-[10px]">booking_status_label</code>. Confirmed also:{' '}
+                      <code className="font-mono text-[10px]">awaiting_online_payment</code>, <code className="font-mono text-[10px]">payment_received</code> (yes when online payment succeeded but visit is still pending; copy uses &quot;Payment successful&quot;), <code className="font-mono text-[10px]">intro_paragraph</code>, <code className="font-mono text-[10px]">booking_status_label</code>. Confirmed also:{' '}
                       <code className="font-mono text-[10px]">intro_paragraph</code>, <code className="font-mono text-[10px]">booking_status_label</code>. Invoice:{' '}
                       <code className="font-mono text-[10px]">invoice_number</code>, <code className="font-mono text-[10px]">total_amount</code>,{' '}
                       <code className="font-mono text-[10px]">due_date</code>, <code className="font-mono text-[10px]">issue_date</code>,{' '}

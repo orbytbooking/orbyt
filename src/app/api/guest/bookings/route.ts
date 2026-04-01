@@ -2,7 +2,6 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
 import { processBookingScheduling } from '@/lib/bookingScheduling';
-import { EmailService } from '@/lib/emailService';
 import { sendCustomerFacingBookingEmailAfterScheduling } from '@/lib/sendCustomerBookingConfirmedEmail';
 import { syncBookingCreated, createRecurringCalendarEvent } from '@/lib/googleCalendar';
 import { resolveFrequencyRepeatsForBooking } from '@/lib/industryFrequencyRepeats';
@@ -240,36 +239,7 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
-    if (customerEmail) {
-      try {
-        const { data: biz } = await supabase
-          .from('businesses')
-          .select('name, website, logo_url, business_email, business_phone, currency')
-          .eq('id', businessId)
-          .single();
-        const emailService = new EmailService();
-        const reqRef = `REQ-${String(intentRow.id).replace(/-/g, '').slice(0, 8).toUpperCase()}`;
-        await emailService.sendBookingPendingEmail({
-          to: customerEmail,
-          customerName: customerName || 'Customer',
-          businessName: biz?.name || 'Your Business',
-          businessWebsite: biz?.website || null,
-          businessLogoUrl: biz?.logo_url || null,
-          supportEmail: biz?.business_email || null,
-          supportPhone: biz?.business_phone || null,
-          storeCurrency: biz?.currency || null,
-          service: (body.service ?? '').toString().trim() || null,
-          scheduledDate: date || null,
-          scheduledTime: timeForDb ?? null,
-          address: (body.address ?? '').toString().trim() || null,
-          totalPrice,
-          bookingRef: reqRef,
-          awaitingOnlinePayment: true,
-        });
-      } catch (e) {
-        console.warn('Guest booking (checkout intent) email failed:', e);
-      }
-    }
+    // Customer email is sent only after Stripe payment succeeds (booking materialize), not here.
     return NextResponse.json({
       success: true,
       stripeIntentId: intentRow.id,

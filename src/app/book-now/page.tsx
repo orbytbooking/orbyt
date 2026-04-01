@@ -8,12 +8,17 @@ import { Button } from "@/components/ui/button";
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { PhoneField, PHONE_FIELD_HELPER_TEXT } from "@/components/ui/phone-field";
+import { isValidPhoneNumber } from "react-phone-number-input";
+import { guessDefaultCountry } from "@/lib/phoneDefaultCountry";
+import { normalizeStoredPhoneToE164 } from "@/lib/phoneE164";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -64,9 +69,14 @@ import { getSupabaseCustomerClient } from "@/lib/supabaseCustomerClient";
 import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
 
 const optionalEmailSchema = z.union([z.string().email("Please enter a valid email"), z.literal("")]);
-const optionalPhoneSchema = z.union([
-  z.number().min(1000000000, "Please enter a valid 10-digit phone number").max(9999999999, "Please enter a valid 10-digit phone number"),
-  z.literal("") 
+const phoneE164Required = z
+  .string()
+  .min(1, "Phone number is required")
+  .refine((v) => isValidPhoneNumber(v), "Please enter a valid phone number");
+
+const phoneE164Optional = z.union([
+  z.literal(""),
+  z.string().refine((v) => isValidPhoneNumber(v), "Please enter a valid phone number"),
 ]);
 
 const formSchema = z.object({
@@ -74,10 +84,8 @@ const formSchema = z.object({
   lastName: z.string().min(2, "Last name must be at least 2 characters"),
   email: z.string().email("Please enter a valid email"),
   secondaryEmail: optionalEmailSchema,
-  phone: z.number()
-    .min(1000000000, "Please enter a valid 10-digit phone number")
-    .max(9999999999, "Please enter a valid 10-digit phone number"),
-  secondaryPhone: optionalPhoneSchema,
+  phone: phoneE164Required,
+  secondaryPhone: phoneE164Optional,
   addressPreference: z.enum(["existing", "new"]),
   address: z.string().min(5, "Please enter a valid address"),
   aptNo: z.union([z.string().max(20, "Apt. No. should be 20 characters or less"), z.literal("")]),
@@ -288,8 +296,6 @@ const findServiceMatch = (serviceName: string) => {
   return null;
 };
 
-const sanitizePhoneNumber = (value: string) => value.replace(/[^0-9]/g, "");
-
 const normalizeSelectValue = (value: string | undefined, options: readonly string[]) => {
   if (!value) return "";
   const normalized = value.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -464,21 +470,6 @@ function BookingPageContent() {
     return Math.max(0, Math.min(subtotal, appliedCoupon.discountValue));
   }, [appliedCoupon]);
 
-  // Handle phone number input to ensure it's a valid number
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>, field: any) => {
-    const value = e.target.value;
-    if (value === '') {
-      field.onChange(0);
-    } else if (/^\d+$/.test(value)) {
-      field.onChange(Number(value));
-    }
-  };
-
-  // Handle phone field blur for validation
-  const handlePhoneBlur = (field: any) => {
-    field.onBlur();
-    form.trigger("phone");
-  };
   const isAccountLocked = !accountLoading && Boolean(customerName || customerEmail);
   const [prefilledBookingId, setPrefilledBookingId] = useState<string | null>(null);
   const [recentBookingId, setRecentBookingId] = useState<string | null>(null);
@@ -808,7 +799,7 @@ function BookingPageContent() {
       lastName: "",
       email: "",
       secondaryEmail: "",
-      phone: 0,
+      phone: "",
       secondaryPhone: "",
       addressPreference: "new",
       address: "",
@@ -1249,11 +1240,8 @@ function BookingPageContent() {
     }
     if (customerEmail) form.setValue("email", customerEmail);
     if (customerPhone) {
-      // Convert phone string to number, removing any non-digit characters
-      const phoneDigits = customerPhone.replace(/\D/g, '');
-      if (phoneDigits.length >= 10) {
-        form.setValue("phone", parseInt(phoneDigits.slice(-10)));
-      }
+      const e164 = normalizeStoredPhoneToE164(customerPhone, guessDefaultCountry());
+      if (e164) form.setValue("phone", e164);
     }
     if (customerAddress) {
       // Set address preference to existing and pre-fill the address
@@ -1574,9 +1562,10 @@ function BookingPageContent() {
       form.setValue("date", parsedDate);
     }
 
-    if (sourceBooking.contact) {
-      // Convert contact to string before sanitizing
-      form.setValue("phone", Number(sanitizePhoneNumber(String(sourceBooking.contact))));
+    const contactRaw = String(sourceBooking.contact ?? "").trim();
+    if (contactRaw && !contactRaw.includes("@")) {
+      const e164 = normalizeStoredPhoneToE164(contactRaw, guessDefaultCountry());
+      if (e164) form.setValue("phone", e164);
     }
 
     toast({
@@ -3196,16 +3185,18 @@ function BookingPageContent() {
                             <FormItem className={styles.formGroup}>
                               <FormLabel className={styles.formLabel}>Phone Number</FormLabel>
                               <FormControl>
-                                <Input 
-                                  type="tel" 
-                                  className={styles.formInput} 
-                                  placeholder="Phone No." 
-                                  {...field}
-                                  value={field.value || ''}
-                                  onChange={(e) => handlePhoneChange(e, field)}
-                                  onBlur={() => handlePhoneBlur(field)}
+                                <PhoneField
+                                  hideLabel
+                                  showHelperText={false}
+                                  value={field.value || ""}
+                                  onChange={field.onChange}
+                                  onBlur={field.onBlur}
+                                  disabled={isAccountLocked}
+                                  placeholder="Phone No."
+                                  containerClassName="space-y-0"
                                 />
                               </FormControl>
+                              <FormDescription className="text-xs">{PHONE_FIELD_HELPER_TEXT}</FormDescription>
                               <FormMessage />
                             </FormItem>
                           )}
@@ -3233,16 +3224,17 @@ function BookingPageContent() {
                           <FormItem className={styles.formGroup}>
                             <FormLabel className={styles.formLabel}>Secondary Phone (Optional)</FormLabel>
                             <FormControl>
-                              <Input 
-                                type="tel" 
-                                className={styles.formInput} 
-                                placeholder="Phone No." 
-                                {...field}
-                                value={field.value || ''}
-                                onChange={(e) => handlePhoneChange(e, field)}
-                                onBlur={() => handlePhoneBlur(field)}
+                              <PhoneField
+                                hideLabel
+                                showHelperText={false}
+                                value={field.value || ""}
+                                onChange={field.onChange}
+                                onBlur={field.onBlur}
+                                placeholder="Phone No."
+                                containerClassName="space-y-0"
                               />
                             </FormControl>
+                            <FormDescription className="text-xs">{PHONE_FIELD_HELPER_TEXT}</FormDescription>
                             <FormMessage />
                           </FormItem>
                         )}

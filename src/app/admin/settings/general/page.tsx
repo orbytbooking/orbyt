@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PhoneField } from '@/components/ui/phone-field';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Table,
@@ -1420,16 +1421,15 @@ export default function GeneralSettingsPage() {
                               </label>
                             </RadioGroup>
                           </div>
-                          <div className="space-y-2">
-                            <Label className="font-semibold dark:text-white">Phone number</Label>
-                            <Input
-                              type="tel"
-                              placeholder="Enter phone number"
-                              value={storePhone}
-                              onChange={(e) => setStorePhone(e.target.value)}
-                              className="dark:text-white dark:placeholder:text-white"
-                            />
-                          </div>
+                          <PhoneField
+                            label="Phone number"
+                            labelClassName="font-semibold dark:text-white"
+                            value={storePhone}
+                            onChange={(v) => setStorePhone(v)}
+                            placeholder="Enter phone number"
+                            showHelperText={false}
+                            className="dark:text-white dark:placeholder:text-white"
+                          />
                           <div className="space-y-2">
                             <Label className="font-semibold dark:text-white">Phone number format</Label>
                             <Select value={storePhoneFormat} onValueChange={setStorePhoneFormat}>

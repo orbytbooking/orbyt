@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PhoneField } from '@/components/ui/phone-field';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Plus, Search, Pencil, Trash2, UserPlus } from 'lucide-react';
@@ -683,31 +684,28 @@ const StaffManagement = () => {
                 
                 {/* Phone Numbers */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <Label htmlFor="phone" className="text-gray-700 font-medium dark:!text-white" style={{ color: 'white' }}>Phone Number</Label>
-                    <Input
-                      id="phone"
-                      name="phone"
-                      type="tel"
-                      value={formData.phone}
-                      onChange={handleInputChange}
-                      placeholder="+1 (555) 123-4567"
-                      required
-                      className="bg-white/50 backdrop-blur-sm border-white/30 focus:bg-white/60 focus:border-white/50 transition-all duration-200 dark:bg-gray-600/50 dark:border-gray-500/30 dark:focus:bg-gray-600/60 dark:focus:border-gray-500/50"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="alternatePhone" className="text-gray-700 font-medium dark:!text-white" style={{ color: 'white' }}>Alternate Phone</Label>
-                    <Input
-                      id="alternatePhone"
-                      name="alternatePhone"
-                      type="tel"
-                      value={formData.alternatePhone}
-                      onChange={handleInputChange}
-                      placeholder="+1 (555) 987-6543"
-                      className="bg-white/50 backdrop-blur-sm border-white/30 focus:bg-white/60 focus:border-white/50 transition-all duration-200 dark:bg-gray-600/50 dark:border-gray-500/30 dark:focus:bg-gray-600/60 dark:focus:border-gray-500/50"
-                    />
-                  </div>
+                  <PhoneField
+                    id="phone"
+                    label="Phone Number"
+                    labelClassName="text-gray-700 font-medium dark:!text-white"
+                    value={formData.phone}
+                    onChange={(v) => setFormData((prev) => ({ ...prev, phone: v }))}
+                    placeholder="Phone number"
+                    showHelperText={false}
+                    className="bg-white/50 backdrop-blur-sm border-white/30 focus-within:bg-white/60 focus-within:border-white/50 transition-all duration-200 dark:bg-gray-600/50 dark:border-gray-500/30 dark:focus-within:bg-gray-600/60 dark:focus-within:border-gray-500/50"
+                    containerClassName="space-y-1"
+                  />
+                  <PhoneField
+                    id="alternatePhone"
+                    label="Alternate Phone"
+                    labelClassName="text-gray-700 font-medium dark:!text-white"
+                    value={formData.alternatePhone}
+                    onChange={(v) => setFormData((prev) => ({ ...prev, alternatePhone: v }))}
+                    placeholder="Phone number"
+                    showHelperText={false}
+                    className="bg-white/50 backdrop-blur-sm border-white/30 focus-within:bg-white/60 focus-within:border-white/50 transition-all duration-200 dark:bg-gray-600/50 dark:border-gray-500/30 dark:focus-within:bg-gray-600/60 dark:focus-within:border-gray-500/50"
+                    containerClassName="space-y-1"
+                  />
                 </div>
                 
                 {/* Address and Apartment */}
@@ -824,31 +822,26 @@ const StaffManagement = () => {
                         required
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-phone">Phone Number</Label>
-                      <Input
-                        id="edit-phone"
-                        name="phone"
-                        type="tel"
-                        value={formData.phone}
-                        onChange={handleInputChange}
-                        placeholder="+1 (555) 123-4567"
-                        required
-                      />
-                    </div>
+                    <PhoneField
+                      id="edit-phone"
+                      label="Phone Number"
+                      value={formData.phone}
+                      onChange={(v) => setFormData((prev) => ({ ...prev, phone: v }))}
+                      placeholder="Phone number"
+                      showHelperText={false}
+                      containerClassName="space-y-2"
+                    />
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-alternatePhone">Alternate Phone</Label>
-                      <Input
-                        id="edit-alternatePhone"
-                        name="alternatePhone"
-                        type="tel"
-                        value={formData.alternatePhone}
-                        onChange={handleInputChange}
-                        placeholder="+1 (555) 987-6543"
-                      />
-                    </div>
+                    <PhoneField
+                      id="edit-alternatePhone"
+                      label="Alternate Phone"
+                      value={formData.alternatePhone}
+                      onChange={(v) => setFormData((prev) => ({ ...prev, alternatePhone: v }))}
+                      placeholder="Phone number"
+                      showHelperText={false}
+                      containerClassName="space-y-2"
+                    />
                     <div className="space-y-2">
                       <Label htmlFor="edit-apartment">Apartment/Unit #</Label>
                       <Input

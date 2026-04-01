@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PhoneField } from "@/components/ui/phone-field";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/components/ui/use-toast";
 import { ArrowLeft, Users, User } from "lucide-react";
@@ -271,16 +272,13 @@ export default function AddProviderPage() {
                 onChange={(e) => setProvider({ ...provider, email: e.target.value })}
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="phone">Phone Number *</Label>
-              <Input
-                id="phone"
-                type="tel"
-                placeholder="(555) 123-4567"
-                value={provider.phone}
-                onChange={(e) => setProvider({ ...provider, phone: e.target.value })}
-              />
-            </div>
+            <PhoneField
+              id="phone"
+              label="Phone Number *"
+              placeholder="Phone number"
+              value={provider.phone}
+              onChange={(v) => setProvider({ ...provider, phone: v })}
+            />
           </div>
 
           {/* Email Notification Message */}

@@ -4,7 +4,8 @@ import React from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabaseClient';
-import { FiUser, FiMail, FiPhone, FiBriefcase, FiMapPin, FiCheck, FiArrowRight, FiArrowLeft, FiStar, FiCheckCircle } from 'react-icons/fi';
+import { FiUser, FiMail, FiBriefcase, FiMapPin, FiCheck, FiArrowRight, FiArrowLeft, FiStar, FiCheckCircle } from 'react-icons/fi';
+import { PhoneField } from '@/components/ui/phone-field';
 import { FaBusinessTime, FaClipboardList, FaCrown } from 'react-icons/fa';
 import { GiCommercialAirplane } from 'react-icons/gi';
 import Image from 'next/image';
@@ -451,19 +452,17 @@ export default function Onboarding() {
               transition={{ delay: 0.4 }}
               className="relative group"
             >
-              <label className={labelClasses}>Phone Number <span className="text-gray-400">(Optional)</span></label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <FiPhone className="h-5 w-5 text-gray-400 group-focus-within:text-blue-500" />
-                </div>
-                <input
-                  type="tel"
-                  className={`${inputClasses} pl-10`}
-                  value={form.phone}
-                  onChange={e => setForm({...form, phone: e.target.value})}
-                  placeholder="(123) 456-7890"
-                />
-              </div>
+              <PhoneField
+                label={
+                  <>
+                    Phone number <span className="text-gray-400 font-normal">(Optional)</span>
+                  </>
+                }
+                labelClassName={labelClasses}
+                value={form.phone}
+                onChange={(v) => setForm({ ...form, phone: v })}
+                placeholder="Phone number"
+              />
             </motion.div>
           </div>
         );

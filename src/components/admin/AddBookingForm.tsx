@@ -29,6 +29,7 @@ import { getTodayLocalDate, formatDateLocal } from "@/lib/date-utils";
 import { differenceInCalendarDays, startOfDay } from "date-fns";
 import { cn } from "@/lib/utils";
 import { BookingPhoneInput } from "@/components/admin/BookingPhoneInput";
+import { PHONE_FIELD_HELPER_TEXT } from "@/components/ui/phone-field";
 import { isValidPhoneNumber } from "react-phone-number-input";
 import { resolveQtyBasedExtraLine } from "@/lib/extraQtyPricing";
 
@@ -2713,9 +2714,7 @@ const handleAddBooking = async (status: string = 'pending') => {
                   {errors.phone ? (
                     <p className="mt-1 text-xs text-destructive">Enter a valid phone number for the selected country.</p>
                   ) : (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Default country follows your device time zone (then language if needed). Change it with the flag dropdown anytime.
-                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">{PHONE_FIELD_HELPER_TEXT}</p>
                   )}
                 </div>
 

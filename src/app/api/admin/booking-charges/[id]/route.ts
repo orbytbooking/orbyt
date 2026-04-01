@@ -681,7 +681,7 @@ export async function POST(
       checkoutUrl,
       message: sendPaymentEmail
         ? `Payment link sent to ${custEmail}`
-        : 'Payment link ready — copy it to share with your customer.',
+        : 'Payment link ready. Copy it to share with your customer.',
       ...(sendPaymentEmail && custEmail ? { emailedTo: custEmail } : {}),
     });
   } catch (e) {

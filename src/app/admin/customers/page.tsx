@@ -8,6 +8,9 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PhoneField, PHONE_FIELD_HELPER_TEXT } from "@/components/ui/phone-field";
+import { normalizeStoredPhoneToE164 } from "@/lib/phoneE164";
+import { guessDefaultCountry } from "@/lib/phoneDefaultCountry";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -476,6 +479,8 @@ const Customers = () => {
         }
       }
     } catch {}
+    const rawPhone = customer.phone || "";
+    const phoneNormalized = normalizeStoredPhoneToE164(rawPhone, guessDefaultCountry()) || rawPhone;
     setEditCustomer({
       id: customer.id,
       company,
@@ -483,7 +488,7 @@ const Customers = () => {
       lastName,
       gender,
       email: customer.email || "",
-      phone: customer.phone || "",
+      phone: phoneNormalized,
       smsReminders,
       address: mainAddr.trim(),
       aptNo: apt.trim(),
@@ -972,8 +977,13 @@ const Customers = () => {
                 <Input id="edit-email" type="email" placeholder="Ex: example@xyz.com" value={editCustomer.email} onChange={(e) => setEditCustomer({ ...editCustomer, email: e.target.value })} className="rounded-md" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-phone">Phone no.</Label>
-                <Input id="edit-phone" placeholder="Phone No." value={editCustomer.phone} onChange={(e) => setEditCustomer({ ...editCustomer, phone: e.target.value })} className="rounded-md" />
+                <PhoneField
+                  id="edit-phone"
+                  label="Phone no."
+                  placeholder="Phone No."
+                  value={editCustomer.phone}
+                  onChange={(v) => setEditCustomer({ ...editCustomer, phone: v })}
+                />
               </div>
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input type="checkbox" checked={editCustomer.smsReminders} onChange={(e) => setEditCustomer({ ...editCustomer, smsReminders: e.target.checked })} className="w-4 h-4 accent-blue-500 rounded" />
@@ -1115,19 +1125,22 @@ const Customers = () => {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="phone" className="flex items-center gap-1.5">
-                  Phone no.
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium leading-none">Phone no.</span>
                   <button type="button" className="text-blue-500 hover:text-blue-600" title="Add another phone">
                     <Plus className="h-4 w-4" />
                   </button>
-                </Label>
-                <Input
+                </div>
+                <PhoneField
                   id="phone"
+                  hideLabel
+                  showHelperText={false}
                   placeholder="Phone No."
                   value={newCustomer.phone}
-                  onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
-                  className="rounded-md"
+                  onChange={(v) => setNewCustomer({ ...newCustomer, phone: v })}
+                  containerClassName="space-y-0"
                 />
+                <p className="text-xs text-muted-foreground">{PHONE_FIELD_HELPER_TEXT}</p>
               </div>
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input

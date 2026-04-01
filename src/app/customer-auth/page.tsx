@@ -8,12 +8,15 @@ import { Button } from "@/components/ui/button";
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { PhoneField, PHONE_FIELD_HELPER_TEXT } from "@/components/ui/phone-field";
+import { isValidPhoneNumber } from "react-phone-number-input";
 import {
   Dialog,
   DialogContent,
@@ -21,7 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, Mail, Lock, User, ArrowRight, Phone, MapPin, CheckCircle2, Home, Eye, EyeOff } from "lucide-react";
+import { Loader2, Mail, Lock, User, ArrowRight, MapPin, CheckCircle2, Home, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -740,20 +743,17 @@ export default function CustomerAuthPage() {
                       <FormItem>
                         <FormLabel className="text-sm font-medium">Phone Number</FormLabel>
                         <FormControl>
-                          <div className="relative">
-                            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
-                            <Input 
-                              type="tel"
-                              placeholder="(123) 456-7890"
-                              className="pl-10 h-11"
-                              {...field}
-                              onChange={(e) => {
-                                const value = e.target.value.replace(/\D/g, '');
-                                field.onChange(value);
-                              }}
-                            />
-                          </div>
+                          <PhoneField
+                            hideLabel
+                            showHelperText={false}
+                            value={field.value || ""}
+                            onChange={field.onChange}
+                            onBlur={field.onBlur}
+                            placeholder="Phone number"
+                            containerClassName="space-y-0"
+                          />
                         </FormControl>
+                        <FormDescription className="text-xs">{PHONE_FIELD_HELPER_TEXT}</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}

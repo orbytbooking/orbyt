@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PhoneField } from '@/components/ui/phone-field';
 import { X, Plus } from 'lucide-react';
 
 interface LeadFormProps {
@@ -106,12 +107,11 @@ export function LeadForm({ lead, prefillFromBooking, onSubmit, onCancel, loading
       </div>
 
       <div>
-        <Label htmlFor="phone">Phone</Label>
-        <Input
+        <PhoneField
           id="phone"
-          type="tel"
+          label="Phone"
           value={formData.phone}
-          onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+          onChange={(v) => setFormData({ ...formData, phone: v })}
           placeholder="Enter phone number"
         />
       </div>

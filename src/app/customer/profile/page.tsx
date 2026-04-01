@@ -6,6 +6,9 @@ import { Clock, UserRound, Upload, Trash2 } from "lucide-react";
 import { CustomerSidebar } from "@/components/customer/CustomerSidebar";
 import { useCustomerAccount } from "@/hooks/useCustomerAccount";
 import { Input } from "@/components/ui/input";
+import { PhoneField } from "@/components/ui/phone-field";
+import { normalizeStoredPhoneToE164 } from "@/lib/phoneE164";
+import { guessDefaultCountry } from "@/lib/phoneDefaultCountry";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -35,7 +38,10 @@ const CustomerProfilePage = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setFormState(customerAccount);
+    if (!customerAccount) return;
+    const raw = customerAccount.phone || "";
+    const e164 = normalizeStoredPhoneToE164(raw, guessDefaultCountry());
+    setFormState({ ...customerAccount, phone: e164 || raw });
   }, [customerAccount]);
 
   const initials = useMemo(() => (
@@ -218,15 +224,13 @@ const CustomerProfilePage = () => {
                         required
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="profile-phone">Phone number</Label>
-                      <Input
-                        id="profile-phone"
-                        value={formState?.phone || ""}
-                        onChange={handleFieldChange("phone")}
-                        placeholder="(555) 123-4567"
-                      />
-                    </div>
+                    <PhoneField
+                      id="profile-phone"
+                      label="Phone number"
+                      value={formState?.phone || ""}
+                      onChange={(v) => setFormState((prev) => (prev ? { ...prev, phone: v } : prev))}
+                      placeholder="Phone number"
+                    />
                     <div className="space-y-2">
                       <Label htmlFor="profile-address">Service address</Label>
                       <Input

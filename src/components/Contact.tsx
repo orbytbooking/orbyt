@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { PhoneField } from "@/components/ui/phone-field";
+import { isValidPhoneNumber } from "react-phone-number-input";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
@@ -11,7 +13,11 @@ import { z } from "zod";
 const contactSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(100),
   email: z.string().trim().email("Invalid email address").max(255),
-  phone: z.string().trim().min(1, "Phone number is required").max(20),
+  phone: z
+    .string()
+    .trim()
+    .min(1, "Phone number is required")
+    .refine((v) => isValidPhoneNumber(v), "Please enter a valid phone number"),
   message: z.string().trim().min(1, "Message is required").max(1000),
 });
 
@@ -104,14 +110,12 @@ const Contact = ({ data }: ContactProps) => {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="phone">Phone No.</Label>
-            <Input
+            <PhoneField
               id="phone"
-              type="tel"
+              label="Phone number"
               value={formData.phone}
-              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              onChange={(v) => setFormData({ ...formData, phone: v })}
               placeholder="Enter phone number"
-              required
             />
           </div>
 

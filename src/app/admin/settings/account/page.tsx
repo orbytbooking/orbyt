@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PhoneField } from "@/components/ui/phone-field";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
@@ -498,20 +499,18 @@ export default function AccountSettingsPage() {
                   </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="phone" className="flex items-center gap-2">
-                        <Phone className="h-4 w-4" />
-                        Phone Number
-                      </Label>
-                      <Input
-                        id="phone"
-                        type="tel"
-                        value={adminPhone}
-                        onChange={(e) => setAdminPhone(e.target.value)}
-                        placeholder="Enter your phone number"
-                        className="transition-all focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
+                    <PhoneField
+                      id="phone"
+                      label={
+                        <span className="flex items-center gap-2">
+                          <Phone className="h-4 w-4" />
+                          Phone Number
+                        </span>
+                      }
+                      value={adminPhone}
+                      onChange={(v) => setAdminPhone(v)}
+                      placeholder="Enter your phone number"
+                    />
                     <div className="space-y-2">
                       <Label htmlFor="company" className="flex items-center gap-2">
                         <Building className="h-4 w-4" />

@@ -121,7 +121,7 @@ export async function materializeGuestBookingFromIntentPayload(
     date: date || null,
     time: timeForDb || null,
     payment_method: body.paymentMethod === "online" || body.payment_method === "online" ? "online" : "cash",
-    payment_status: "pending",
+    payment_status: "paid",
     tip_amount: body.tipAmount ?? 0,
   };
   if (body.tipUpdatedAt) insert.tip_updated_at = body.tipUpdatedAt;
@@ -342,7 +342,7 @@ export async function materializeCustomerBookingFromIntentPayload(
     date: date && String(date).trim() ? String(date).trim() : null,
     time: timeForDb ?? null,
     payment_method: body.paymentMethod === "online" || body.payment_method === "online" ? "online" : "cash",
-    payment_status: "pending",
+    payment_status: "paid",
     tip_amount: body.tipAmount ?? 0,
   };
 

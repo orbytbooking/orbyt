@@ -1,5 +1,8 @@
 /** Shared quote email HTML for admin preview + server send. */
 
+/** Missing-field placeholder in quote emails (no em dash). */
+const QUOTE_EMPTY = "-";
+
 export function escapeHtml(text: string): string {
   const map: Record<string, string> = {
     "&": "&amp;",
@@ -37,9 +40,9 @@ export function formatTime12h(timeStr: string | null | undefined): string {
 }
 
 export function formatUsDateFromYmd(ymd: string | null | undefined): string {
-  if (!ymd || String(ymd).trim().length < 8) return "—";
+  if (!ymd || String(ymd).trim().length < 8) return QUOTE_EMPTY;
   const d = new Date(String(ymd).slice(0, 10) + "T12:00:00");
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return QUOTE_EMPTY;
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   const yyyy = d.getFullYear();
@@ -61,7 +64,7 @@ export function paymentMethodLabel(pm: string | null | undefined): string {
   const m = (pm || "").toLowerCase();
   if (m === "online" || m.includes("card")) return "CC";
   if (m === "cash") return "Cash/Check";
-  return pm ? pm : "—";
+  return pm ? pm : QUOTE_EMPTY;
 }
 
 export type QuoteEmailExtras = {
@@ -121,7 +124,7 @@ function extractCustomization(booking: Record<string, unknown>): {
     (c?.bedroom as string) ??
     (c?.bedrooms as string) ??
     "";
-  const clean = (v: unknown) => (v != null && String(v).trim() ? String(v).trim() : "—");
+  const clean = (v: unknown) => (v != null && String(v).trim() ? String(v).trim() : QUOTE_EMPTY);
   return {
     bathrooms: clean(bath),
     sqft: clean(sqft),
@@ -146,11 +149,15 @@ export function buildQuoteEmailPayloadFromBooking(
   const dateUs = formatUsDateFromYmd(dateRaw);
   const time12 = formatTime12h(timeRaw);
   const serviceDateLine =
-    dateUs !== "—" && time12 ? `${dateUs} ${time12}` : dateUs !== "—" ? dateUs : time12 || "—";
+    dateUs !== QUOTE_EMPTY && time12
+      ? `${dateUs} ${time12}`
+      : dateUs !== QUOTE_EMPTY
+        ? dateUs
+        : time12 || QUOTE_EMPTY;
 
   const { bathrooms, sqft, bedrooms } = extractCustomization(booking);
   const professionals =
-    String(booking.provider_name ?? booking.assignedProvider ?? "").trim() || "—";
+    String(booking.provider_name ?? booking.assignedProvider ?? "").trim() || QUOTE_EMPTY;
 
   const totalStr = moneyFromBooking(booking.total_price, booking.amount);
 
@@ -160,11 +167,11 @@ export function buildQuoteEmailPayloadFromBooking(
     businessName: ctx.businessName,
     contactEmail: ctx.contactEmail || "office@example.com",
     websiteUrl: ctx.websiteUrl,
-    industryName: (ctx.industryName || "—").trim(),
+    industryName: (ctx.industryName || QUOTE_EMPTY).trim(),
     bookingRef: bookingDisplayRef(String(booking.id)),
     customerFirstName: firstNameFromCustomerName(String(booking.customer_name ?? "")),
-    service: String(booking.service ?? "—"),
-    frequency: String(booking.frequency ?? "—"),
+    service: String(booking.service ?? QUOTE_EMPTY),
+    frequency: String(booking.frequency ?? QUOTE_EMPTY),
     bathrooms,
     sqft,
     bedrooms,
@@ -173,7 +180,7 @@ export function buildQuoteEmailPayloadFromBooking(
     paymentMethodLabel: paymentMethodLabel(String(booking.payment_method ?? "")),
     serviceTotal: totalStr,
     total: totalStr,
-    notes: String(booking.notes ?? "").trim() || "—",
+    notes: String(booking.notes ?? "").trim() || QUOTE_EMPTY,
     bookNowUrl,
     extras: ctx.extras,
   };
@@ -220,7 +227,7 @@ export function buildQuoteEmailHtml(input: QuoteEmailBuildInput): string {
   const offerLine =
     includeOffer && couponDiscountStr && discountedTotalStr
       ? ""
-      : `<p style="margin:16px 0;text-align:center;font-size:15px;color:#1e3a5f;"><strong>Special offer</strong> — see details in your account or reply to this email.</p>`;
+      : `<p style="margin:16px 0;text-align:center;font-size:15px;color:#1e3a5f;"><strong>Special offer</strong>. See details in your account or reply to this email.</p>`;
   const expiryLine =
     extras.expiresOnDisplay != null && extras.daysUntilExpiry != null
       ? `<p style="margin:12px 0;font-size:13px;color:#64748b;text-align:center;">This quote expires on <strong>${e(extras.expiresOnDisplay)}</strong> (${extras.daysUntilExpiry} day(s) from today).</p>`
@@ -290,7 +297,7 @@ export function buildQuoteEmailHtml(input: QuoteEmailBuildInput): string {
           <a href="${e(input.bookNowUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff !important;text-decoration:none;padding:14px 36px;border-radius:6px;font-size:16px;font-weight:600;">Book Now</a>
         </div>
         <p style="margin:0 0 8px;font-size:14px;color:#475569;text-align:center;">Thanks for using ${biz}</p>
-        <p style="margin:0 0 16px;font-size:14px;color:#475569;text-align:center;">— Team ${biz}</p>
+        <p style="margin:0 0 16px;font-size:14px;color:#475569;text-align:center;">The team at ${biz}</p>
         <p style="margin:0 0 24px;font-size:14px;color:#475569;text-align:center;">
           Have a question? Contact us at <a href="${contactMail}" style="color:#2563eb;">${e(contact)}</a>
         </p>

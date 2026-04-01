@@ -6,6 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { PhoneField } from "@/components/ui/phone-field";
+import { normalizeStoredPhoneToE164 } from "@/lib/phoneE164";
+import { guessDefaultCountry } from "@/lib/phoneDefaultCountry";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
@@ -768,12 +771,14 @@ export default function CustomerProfilePage() {
   useEffect(() => {
     if (!customer) return;
     const parts = customer.name?.split(" ") ?? [];
+    const rawPhone = customer.phone || "";
+    const e164 = normalizeStoredPhoneToE164(rawPhone, guessDefaultCountry());
     setProfile((p) => ({
       ...p,
       firstName: parts[0] || "",
       lastName: parts.slice(1).join(" ") || "",
       email: customer.email || "",
-      phone: customer.phone || "",
+      phone: e164 || rawPhone,
       address: customer.address || "",
     }));
     setAddresses((prev) => {
@@ -1756,8 +1761,11 @@ export default function CustomerProfilePage() {
                         <Input value={profile.email} onChange={(e)=>setProfile({...profile, email: e.target.value})} />
                       </div>
                       <div>
-                        <Label>Phone no</Label>
-                        <Input value={profile.phone} onChange={(e)=>setProfile({...profile, phone: e.target.value})} />
+                        <PhoneField
+                          label="Phone no"
+                          value={profile.phone}
+                          onChange={(v) => setProfile({ ...profile, phone: v })}
+                        />
                         <label className="mt-2 flex items-center gap-2 text-sm">
                           <input type="checkbox" checked={profile.smsReminders} onChange={(e)=>setProfile({...profile, smsReminders: e.target.checked})} />
                           <span>Send me reminders via text message</span>
@@ -1785,8 +1793,12 @@ export default function CustomerProfilePage() {
                           <Input type="email" value={newContact.email} onChange={(e)=>setNewContact({...newContact, email: e.target.value})} placeholder="email@example.com" />
                         </div>
                         <div>
-                          <Label>Contact Phone</Label>
-                          <Input value={newContact.phone} onChange={(e)=>setNewContact({...newContact, phone: e.target.value})} placeholder="(555) 123-4567" />
+                          <PhoneField
+                            label="Contact Phone"
+                            value={newContact.phone}
+                            onChange={(v) => setNewContact({ ...newContact, phone: v })}
+                            placeholder="Phone number"
+                          />
                         </div>
                         <div className="md:col-span-3 flex justify-end gap-2">
                           <Button variant="outline" onClick={()=>{ setShowAddContact(false); setNewContact({name:"",email:"",phone:""}); }}>Cancel</Button>

@@ -13,6 +13,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
+import { PhoneField } from "@/components/ui/phone-field";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -1538,13 +1539,11 @@ export default function ProviderProfilePage() {
                     onChange={(e) => setProvider({...provider, email: e.target.value})}
                   />
                 </div>
-                <div>
-                  <Label>Phone</Label>
-                  <Input 
-                    value={provider.phone} 
-                    onChange={(e) => setProvider({...provider, phone: e.target.value})}
-                  />
-                </div>
+                <PhoneField
+                  label="Phone"
+                  value={provider.phone}
+                  onChange={(v) => setProvider({ ...provider, phone: v })}
+                />
                 <div>
                   <Label>Specialization</Label>
                   <Input 

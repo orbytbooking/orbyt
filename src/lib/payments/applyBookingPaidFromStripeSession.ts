@@ -46,19 +46,19 @@ export async function applyBookingPaidFromStripeSession(
   if (!existing) {
     return { ok: false, error: "booking_not_found" };
   }
-  if (existing.payment_status === "paid") {
-    return { ok: true };
-  }
 
-  const { error } = await supabase
-    .from("bookings")
-    .update({ payment_status: "paid", updated_at: new Date().toISOString() })
-    .eq("id", bookingId)
-    .eq("business_id", businessId);
+  // Intent materialize may already set payment_status paid; still run receipt + card details below.
+  if (existing.payment_status !== "paid") {
+    const { error } = await supabase
+      .from("bookings")
+      .update({ payment_status: "paid", updated_at: new Date().toISOString() })
+      .eq("id", bookingId)
+      .eq("business_id", businessId);
 
-  if (error) {
-    console.error("[applyBookingPaidFromStripeSession] update failed:", bookingId, error);
-    return { ok: false, error: "update_failed" };
+    if (error) {
+      console.error("[applyBookingPaidFromStripeSession] update failed:", bookingId, error);
+      return { ok: false, error: "update_failed" };
+    }
   }
 
   // Persist card details (brand/last4) for display.

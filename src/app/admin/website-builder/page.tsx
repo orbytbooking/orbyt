@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PhoneField } from '@/components/ui/phone-field';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import {
@@ -1199,13 +1200,12 @@ export default function WebsiteBuilderPage() {
                             onChange={(e) => updateSection(selectedSection, { email: e.target.value })}
                           />
                         </div>
-                        <div>
-                          <Label>Phone</Label>
-                          <Input
-                            value={selectedSectionData.data.phone}
-                            onChange={(e) => updateSection(selectedSection, { phone: e.target.value })}
-                          />
-                        </div>
+                        <PhoneField
+                          label="Phone"
+                          value={selectedSectionData.data.phone || ""}
+                          onChange={(v) => updateSection(selectedSection, { phone: v })}
+                          showHelperText={false}
+                        />
                         <div>
                           <Label>Address</Label>
                           <Textarea
@@ -1238,13 +1238,12 @@ export default function WebsiteBuilderPage() {
                             onChange={(e) => updateSection(selectedSection, { email: e.target.value })}
                           />
                         </div>
-                        <div>
-                          <Label>Phone</Label>
-                          <Input
-                            value={selectedSectionData.data.phone || ''}
-                            onChange={(e) => updateSection(selectedSection, { phone: e.target.value })}
-                          />
-                        </div>
+                        <PhoneField
+                          label="Phone"
+                          value={selectedSectionData.data.phone || ""}
+                          onChange={(v) => updateSection(selectedSection, { phone: v })}
+                          showHelperText={false}
+                        />
                         <div>
                           <Label>Copyright</Label>
                           <Input

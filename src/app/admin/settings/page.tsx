@@ -8,6 +8,7 @@ import { useBusiness } from "@/contexts/BusinessContext";
 import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PhoneField } from "@/components/ui/phone-field";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
@@ -17,7 +18,6 @@ import {
   Save,
   Building2,
   Mail,
-  Phone,
   MapPin,
   Bell,
   Shield,
@@ -342,19 +342,13 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="company-phone">Phone Number</Label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="company-phone"
-                      className="pl-10"
-                      value={companyInfo.phone}
-                      onChange={(e) => setCompanyInfo({...companyInfo, phone: e.target.value})}
-                      disabled={isSaving}
-                    />
-                  </div>
-                </div>
+                <PhoneField
+                  id="company-phone"
+                  label="Phone Number"
+                  value={companyInfo.phone}
+                  onChange={(v) => setCompanyInfo({ ...companyInfo, phone: v })}
+                  disabled={isSaving}
+                />
 
                 <div className="space-y-2">
                   <Label htmlFor="company-address">Address</Label>
