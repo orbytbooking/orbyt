@@ -139,8 +139,8 @@ export async function POST(request: Request) {
             session.id
           );
         }
-      } else if (session.metadata?.booking_id) {
-        // Booking payment (existing behavior)
+      } else if (session.metadata?.booking_id || session.metadata?.pending_stripe_booking_id) {
+        // Booking payment (existing booking id or deferred book-now intent)
         await handleBookingCheckoutCompleted(session, supabase);
       } else if (session.mode === "subscription") {
         console.warn(

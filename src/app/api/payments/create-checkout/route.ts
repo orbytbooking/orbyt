@@ -7,6 +7,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const {
       bookingId,
+      pendingStripeBookingIntentId,
       amountInCents,
       customerEmail,
       successUrl,
@@ -15,9 +16,17 @@ export async function POST(request: Request) {
       lineItemDescription,
     } = body;
 
-    if (!bookingId || amountInCents == null || amountInCents < 50) {
+    const hasBooking = Boolean(bookingId && String(bookingId).trim());
+    const hasIntent = Boolean(pendingStripeBookingIntentId && String(pendingStripeBookingIntentId).trim());
+    if ((!hasBooking && !hasIntent) || amountInCents == null || amountInCents < 50) {
       return NextResponse.json(
-        { error: "bookingId and amountInCents (min 50) are required" },
+        { error: "bookingId or pendingStripeBookingIntentId, and amountInCents (min 50), are required" },
+        { status: 400 }
+      );
+    }
+    if (hasBooking && hasIntent) {
+      return NextResponse.json(
+        { error: "Pass only one of bookingId or pendingStripeBookingIntentId" },
         { status: 400 }
       );
     }
@@ -26,7 +35,8 @@ export async function POST(request: Request) {
 
     const result = await createCheckout(
       {
-        bookingId,
+        ...(hasBooking ? { bookingId: String(bookingId).trim() } : {}),
+        ...(hasIntent ? { pendingStripeBookingIntentId: String(pendingStripeBookingIntentId).trim() } : {}),
         amountInCents,
         customerEmail,
         successUrl,

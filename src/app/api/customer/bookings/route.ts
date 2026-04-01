@@ -369,6 +369,48 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  const stripeIntent = request.nextUrl.searchParams.get('stripe_intent') === '1';
+  const isOnlinePayment =
+    body.paymentMethod === 'online' || body.payment_method === 'online';
+  if (stripeIntent && isOnlinePayment) {
+    const amountCents = Math.round(totalPrice * 100);
+    if (amountCents < 50) {
+      return NextResponse.json(
+        { error: 'INVALID_AMOUNT', message: 'Amount is too small for card checkout.' },
+        { status: 400 }
+      );
+    }
+    const { data: intentRow, error: intentErr } = await supabase
+      .from('pending_stripe_booking_intents')
+      .insert({
+        business_id: businessId,
+        source: 'customer',
+        customer_auth_user_id: user.id,
+        payload: body,
+        amount_cents: amountCents,
+      })
+      .select('id')
+      .single();
+    if (intentErr || !intentRow?.id) {
+      console.error('customer/bookings stripe_intent insert:', intentErr);
+      return NextResponse.json(
+        {
+          error: 'CHECKOUT_INTENT_FAILED',
+          message:
+            'Could not start payment. If this persists, run database migration 093_pending_stripe_booking_intents.sql.',
+        },
+        { status: 500 }
+      );
+    }
+    return NextResponse.json({
+      success: true,
+      stripeIntentId: intentRow.id,
+      id: intentRow.id,
+      data: { id: intentRow.id },
+      message: 'Proceed to payment to confirm your booking.',
+    });
+  }
+
   const insertMinimal: Record<string, unknown> = {
     business_id: businessId,
     customer_id: customer.id,

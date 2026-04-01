@@ -2,7 +2,10 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 
 export type CreateCheckoutParams = {
-  bookingId: string;
+  /** Existing booking row (admin charges, Authorize.net book-now, legacy Stripe). */
+  bookingId?: string;
+  /** Deferred book-now: create booking only after Stripe payment succeeds. */
+  pendingStripeBookingIntentId?: string;
   amountInCents: number;
   customerEmail?: string;
   successUrl?: string;
@@ -26,6 +29,7 @@ export async function createCheckout(
 ): Promise<CreateCheckoutResult> {
   const {
     bookingId,
+    pendingStripeBookingIntentId,
     amountInCents,
     customerEmail,
     successUrl,
@@ -34,6 +38,13 @@ export async function createCheckout(
     lineItemDescription,
     origin,
   } = params;
+
+  if (!bookingId && !pendingStripeBookingIntentId) {
+    throw new Error("Either bookingId or pendingStripeBookingIntentId is required");
+  }
+  if (bookingId && pendingStripeBookingIntentId) {
+    throw new Error("Pass only one of bookingId or pendingStripeBookingIntentId");
+  }
 
   let paymentProvider: "stripe" | "authorize_net" = "stripe";
   let stripeConnectAccountId: string | null = null;
@@ -110,7 +121,9 @@ export async function createCheckout(
       cancel_url: cancel,
       customer_email: customerEmail || undefined,
       metadata: {
-        booking_id: String(bookingId),
+        ...(pendingStripeBookingIntentId
+          ? { pending_stripe_booking_id: String(pendingStripeBookingIntentId) }
+          : { booking_id: String(bookingId) }),
         ...(businessId ? { business_id: String(businessId) } : {}),
       },
     };
@@ -118,6 +131,21 @@ export async function createCheckout(
       stripeSecretKey == null && stripeConnectAccountId
         ? await stripe.checkout.sessions.create(sessionParams, { stripeAccount: stripeConnectAccountId })
         : await stripe.checkout.sessions.create(sessionParams);
+
+    if (pendingStripeBookingIntentId && businessId) {
+      const client =
+        supabase ??
+        createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+      const { error: linkErr } = await client
+        .from("pending_stripe_booking_intents")
+        .update({ stripe_checkout_session_id: session.id })
+        .eq("id", pendingStripeBookingIntentId)
+        .eq("business_id", businessId);
+      if (linkErr) {
+        console.error("[createCheckout] failed to link Stripe session to pending intent:", linkErr);
+      }
+    }
+
     return {
       url: session.url!,
       provider: "stripe",
@@ -161,11 +189,28 @@ export async function createCheckout(
     success_url: success,
     cancel_url: cancel,
     customer_email: customerEmail || undefined,
-    metadata: { booking_id: String(bookingId), ...(businessId ? { business_id: String(businessId) } : {}) },
+    metadata: {
+      ...(pendingStripeBookingIntentId
+        ? { pending_stripe_booking_id: String(pendingStripeBookingIntentId) }
+        : { booking_id: String(bookingId) }),
+      ...(businessId ? { business_id: String(businessId) } : {}),
+    },
   };
   const session = stripeConnectAccountId
     ? await stripe.checkout.sessions.create(sessionParams, { stripeAccount: stripeConnectAccountId })
     : await stripe.checkout.sessions.create(sessionParams);
+
+  if (pendingStripeBookingIntentId && businessId) {
+    const client =
+      supabase ??
+      createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    await client
+      .from("pending_stripe_booking_intents")
+      .update({ stripe_checkout_session_id: session.id })
+      .eq("id", pendingStripeBookingIntentId)
+      .eq("business_id", businessId);
+  }
+
   return { url: session.url!, provider: "stripe", sessionId: session.id };
 }
 

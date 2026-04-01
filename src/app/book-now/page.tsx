@@ -1854,8 +1854,11 @@ function BookingPageContent() {
     }
   };
 
-  // Create a pending booking and return its id (for Stripe flow). Returns null on error.
-  const createDraftBookingForStripe = useCallback(async (): Promise<string | null> => {
+  /** usePendingIntent: false when migration 093 is missing — falls back to creating the booking before Stripe. */
+  const createDraftBookingForStripe = useCallback(async (): Promise<{
+    id: string;
+    usePendingIntent: boolean;
+  } | null> => {
     if (!bookingData || !serviceCustomization || !selectedService) return null;
     const bookingDate = bookingData.date instanceof Date ? bookingData.date : new Date(bookingData.date);
     let formattedDate: string;
@@ -1897,7 +1900,7 @@ function BookingPageContent() {
       const supabase = getSupabaseCustomerClient();
       const { data: { session } } = await supabase.auth.getSession();
       const isLoggedIn = Boolean(session?.access_token);
-      const apiUrl = isLoggedIn ? "/api/customer/bookings" : "/api/guest/bookings";
+      const basePath = isLoggedIn ? "/api/customer/bookings" : "/api/guest/bookings";
       const headers: Record<string, string> = { "Content-Type": "application/json", "x-business-id": currentBusinessId };
       if (isLoggedIn) headers.Authorization = `Bearer ${session!.access_token}`;
       const tot = calculateTotal();
@@ -1953,23 +1956,57 @@ function BookingPageContent() {
         coupon_discount_amount: appliedCoupon ? getCouponDiscountAmount(tot.subtotal) : undefined,
         ...(isRecurringFreq ? { create_recurring: true, recurring_occurrences_ahead: 8 } : {}),
       };
-      const res = await fetch(apiUrl, { method: "POST", headers, body: JSON.stringify(payload) });
-      const rawText = await res.text();
-      let data: any = {};
-      try {
-        data = rawText ? JSON.parse(rawText) : {};
-      } catch {
-        data = {};
+
+      const parseRes = async (r: Response) => {
+        const t = await r.text();
+        let d: Record<string, unknown> = {};
+        try {
+          d = t ? (JSON.parse(t) as Record<string, unknown>) : {};
+        } catch {
+          d = {};
+        }
+        return { ok: r.ok, status: r.status, data: d, rawText: t };
+      };
+
+      let usePendingIntent = paymentProvider === "stripe";
+      let res = await fetch(
+        usePendingIntent ? `${basePath}?stripe_intent=1` : basePath,
+        { method: "POST", headers, body: JSON.stringify(payload) }
+      );
+      let { ok, status, data, rawText } = await parseRes(res);
+
+      const intentFailed =
+        usePendingIntent && !ok && data.error === "CHECKOUT_INTENT_FAILED";
+
+      if (intentFailed) {
+        res = await fetch(basePath, { method: "POST", headers, body: JSON.stringify(payload) });
+        ({ ok, status, data, rawText } = await parseRes(res));
+        usePendingIntent = false;
       }
-      if (res.ok) {
-        const saved = (data.data ?? data.booking) ?? data;
-        return saved?.id ?? data.id ?? null;
+
+      if (ok) {
+        const saved = (data.data ?? data.booking ?? data) as { id?: string } | undefined;
+        const id = saved?.id ?? (typeof data.id === "string" ? data.id : null);
+        if (id) {
+          if (paymentProvider === "stripe" && !usePendingIntent) {
+            toast({
+              title: "Checkout started",
+              description:
+                "Bookings are created before payment until you apply database migration 093_pending_stripe_booking_intents.sql. After that, the booking is created only after payment succeeds.",
+              duration: 8000,
+            });
+          }
+          return { id, usePendingIntent };
+        }
       }
-      const isBlocked = res.status === 403 && data?.error === "BOOKING_BLOCKED" && data?.message;
-      const msg = isBlocked ? data.message : (typeof data === "object" ? (data.error ?? data.message) : null) || rawText;
+
+      const isBlocked = status === 403 && data?.error === "BOOKING_BLOCKED" && data?.message;
+      const msg = isBlocked
+        ? String(data.message)
+        : (typeof data === "object" ? String(data.error ?? data.message ?? "") : "") || rawText;
       toast({
         title: isBlocked ? "Booking not available" : "Error",
-        description: msg || `Save failed (${res.status})`,
+        description: msg || `Save failed (${status})`,
         variant: "destructive",
       });
       return null;
@@ -1978,14 +2015,26 @@ function BookingPageContent() {
       toast({ title: "Error", description: "Failed to create booking. Please try again.", variant: "destructive" });
       return null;
     }
-  }, [bookingData, serviceCustomization, selectedService, searchParams, form, availableProviders, showProviderStep, appliedCoupon, getCouponDiscountAmount, storeDefaultProviderWage]);
+  }, [
+    bookingData,
+    serviceCustomization,
+    selectedService,
+    searchParams,
+    form,
+    availableProviders,
+    showProviderStep,
+    appliedCoupon,
+    getCouponDiscountAmount,
+    storeDefaultProviderWage,
+    paymentProvider,
+  ]);
 
   // Handle online payment via Stripe Checkout (redirect)
   const handleOnlinePayment = async (_values?: z.infer<typeof paymentSchema>) => {
     setIsProcessing(true);
     try {
-      const bookingId = await createDraftBookingForStripe();
-      if (!bookingId) return;
+      const draft = await createDraftBookingForStripe();
+      if (!draft) return;
       const { subtotal, tax, total } = calculateTotal();
       const amountInCents = Math.round(total * 100);
       if (amountInCents < 50) {
@@ -1993,16 +2042,26 @@ function BookingPageContent() {
         return;
       }
       const businessId = searchParams.get("business") ?? "";
+      const checkoutPayload =
+        paymentProvider === "stripe" && draft.usePendingIntent
+          ? {
+              pendingStripeBookingIntentId: draft.id,
+              amountInCents,
+              customerEmail: undefined,
+              businessId: businessId || undefined,
+              lineItemDescription: `${selectedService?.name ?? "Booking"} – ${bookingData?.date ? format(bookingData.date instanceof Date ? bookingData.date : new Date(bookingData.date), "PPP") : ""}`,
+            }
+          : {
+              bookingId: draft.id,
+              amountInCents,
+              customerEmail: undefined,
+              businessId: businessId || undefined,
+              lineItemDescription: `${selectedService?.name ?? "Booking"} – ${bookingData?.date ? format(bookingData.date instanceof Date ? bookingData.date : new Date(bookingData.date), "PPP") : ""}`,
+            };
       const res = await fetch("/api/payments/create-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          bookingId,
-          amountInCents,
-          customerEmail: undefined,
-          businessId: businessId || undefined,
-          lineItemDescription: `${selectedService?.name ?? "Booking"} – ${bookingData?.date ? format(bookingData.date instanceof Date ? bookingData.date : new Date(bookingData.date), "PPP") : ""}`,
-        }),
+        body: JSON.stringify(checkoutPayload),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -2301,7 +2360,17 @@ function BookingPageContent() {
                     </span>
                   </div>
                   <p className="text-sm text-muted-foreground mt-2">
-                    After you click below, we&apos;ll create your booking and send you to {paymentProvider === "authorize_net" ? "Authorize.net" : "Stripe"} to enter your card details. Your booking is confirmed once payment succeeds.
+                    {paymentProvider === "stripe" ? (
+                      <>
+                        After you click below, you&apos;ll go to Stripe to pay.{" "}
+                        <strong>Your booking is only created after payment succeeds.</strong> If you leave checkout without paying, nothing is reserved.
+                      </>
+                    ) : (
+                      <>
+                        After you click below, we&apos;ll create your booking and send you to Authorize.net to enter your card details. Your booking is
+                        confirmed once payment succeeds.
+                      </>
+                    )}
                   </p>
                   <Button
                     type="button"

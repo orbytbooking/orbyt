@@ -2,21 +2,18 @@ import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { EmailService } from "@/lib/emailService";
 import StripeSdk from "stripe";
+import { fulfillPendingStripeBookingIntent } from "@/lib/payments/fulfillPendingStripeBookingIntent";
 
 /**
- * Mark a booking paid from a completed Stripe Checkout session (metadata.booking_id).
- * Used by the Stripe webhook and by the public confirm-booking-payment API (Connect / no webhook).
+ * Mark a booking paid from a completed Stripe Checkout session.
+ * Supports metadata.booking_id (legacy) or deferred book-now flow (no booking until payment; intent row + session id).
  */
 export async function applyBookingPaidFromStripeSession(
   session: Stripe.Checkout.Session,
   supabase: SupabaseClient,
   options?: { sendReceipt?: boolean }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const bookingId = session.metadata?.booking_id;
-  const businessId = session.metadata?.business_id;
-  if (!bookingId) {
-    return { ok: false, error: "missing_booking_id" };
-  }
+  const businessId = session.metadata?.business_id?.trim();
   if (!businessId) {
     return { ok: false, error: "missing_business_id" };
   }
@@ -25,6 +22,18 @@ export async function applyBookingPaidFromStripeSession(
   }
   if (session.payment_status !== "paid" && session.payment_status !== "no_payment_required") {
     return { ok: false, error: "payment_not_complete" };
+  }
+
+  let bookingId = session.metadata?.booking_id?.trim() || "";
+  if (!bookingId) {
+    const fulfilled = await fulfillPendingStripeBookingIntent(supabase, session, businessId);
+    if (!fulfilled.ok) {
+      if (fulfilled.error === "intent_not_found") {
+        return { ok: false, error: "missing_booking_id" };
+      }
+      return fulfilled;
+    }
+    bookingId = fulfilled.bookingId;
   }
 
   const { data: existing } = await supabase
