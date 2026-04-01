@@ -59,6 +59,8 @@ export interface BusinessStoreOptions {
   /** Applied to guest/customer bookings when they do not send provider wage */
   default_provider_wage: number | null;
   default_provider_wage_type: 'percentage' | 'fixed' | 'hourly' | null;
+  /** Customer portal: show My Drive nav and file uploads when true */
+  customer_my_drive_enabled: boolean;
 }
 
 const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
@@ -105,6 +107,7 @@ const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
   admin_calendar_hide_non_working_hours: false,
   default_provider_wage: null,
   default_provider_wage_type: null,
+  customer_my_drive_enabled: false,
 };
 
 function storeOptionsErrorMissingDefaultWageColumn(message: string): boolean {
@@ -164,11 +167,12 @@ export async function PUT(request: NextRequest) {
       id?: string;
       default_provider_wage?: unknown;
       default_provider_wage_type?: unknown;
+      customer_my_drive_enabled?: boolean;
     } | null = null;
 
     const selWage = await supabase
       .from('business_store_options')
-      .select('id, default_provider_wage, default_provider_wage_type')
+      .select('id, default_provider_wage, default_provider_wage_type, customer_my_drive_enabled')
       .eq('business_id', businessId)
       .maybeSingle();
 
@@ -176,7 +180,7 @@ export async function PUT(request: NextRequest) {
       wageColumnsAvailable = false;
       const selId = await supabase
         .from('business_store_options')
-        .select('id')
+        .select('id, customer_my_drive_enabled')
         .eq('business_id', businessId)
         .maybeSingle();
       if (selId.error) {
@@ -206,6 +210,11 @@ export async function PUT(request: NextRequest) {
     const prevWage = parseStoredWage(existing);
     let default_provider_wage: number | null = prevWage.w;
     let default_provider_wage_type: 'percentage' | 'fixed' | 'hourly' | null = prevWage.t;
+
+    const prevCustomerMyDrive =
+      typeof existing?.customer_my_drive_enabled === 'boolean'
+        ? existing.customer_my_drive_enabled
+        : DEFAULT_OPTIONS.customer_my_drive_enabled;
 
     if ('default_provider_wage' in body || 'default_provider_wage_type' in body) {
       const wRaw = body.default_provider_wage;
@@ -288,6 +297,10 @@ export async function PUT(request: NextRequest) {
       admin_calendar_hide_non_working_hours: body.admin_calendar_hide_non_working_hours === true,
       default_provider_wage,
       default_provider_wage_type,
+      customer_my_drive_enabled:
+        'customer_my_drive_enabled' in body && typeof body.customer_my_drive_enabled === 'boolean'
+          ? body.customer_my_drive_enabled
+          : prevCustomerMyDrive,
       updated_at: new Date().toISOString(),
     };
 

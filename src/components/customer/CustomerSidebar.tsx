@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -16,6 +17,7 @@ import {
   CalendarCheck,
   History,
   CircleOff,
+  HardDrive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PlatformNotificationBell } from "@/components/notifications/PlatformNotificationBell";
@@ -29,7 +31,7 @@ type NavItem = {
   iconColor: string;
 };
 
-export const customerNavItems: NavItem[] = [
+const baseCustomerNavItems: NavItem[] = [
   { 
     label: "Dashboard", 
     href: "/customer/dashboard", 
@@ -60,6 +62,14 @@ export const customerNavItems: NavItem[] = [
   },
 ];
 
+const myDriveNavItem: NavItem = {
+  label: "My Drive",
+  href: "/customer/drive",
+  icon: HardDrive,
+  iconBg: "bg-amber-100",
+  iconColor: "text-amber-700",
+};
+
 type CustomerSidebarProps = {
   customerName: string;
   customerEmail: string;
@@ -72,9 +82,33 @@ export const CustomerSidebar = ({ customerName, customerEmail, initials, busines
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const businessId = searchParams?.get("business") ?? "";
+  const [myDriveEnabled, setMyDriveEnabled] = useState(false);
+
+  useEffect(() => {
+    if (!businessId) {
+      setMyDriveEnabled(false);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/customer/my-drive-settings?business=${encodeURIComponent(businessId)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setMyDriveEnabled(d?.customer_my_drive_enabled === true);
+      })
+      .catch(() => {
+        if (!cancelled) setMyDriveEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId]);
 
   const hrefWithBusiness = (path: string) =>
     businessId ? `${path}${path.includes("?") ? "&" : "?"}business=${businessId}` : path;
+
+  const navItems: NavItem[] = myDriveEnabled
+    ? [...baseCustomerNavItems.slice(0, 2), myDriveNavItem, ...baseCustomerNavItems.slice(2)]
+    : baseCustomerNavItems;
 
   return (
     <aside className="order-2 bg-background/90 border-t border-border px-6 py-6 lg:order-1 lg:border-t-0 lg:border-r lg:min-h-screen flex flex-col">
@@ -96,7 +130,7 @@ export const CustomerSidebar = ({ customerName, customerEmail, initials, busines
         />
       </div>
       <nav className="flex flex-row gap-2 overflow-x-auto pb-4 lg:flex-col lg:gap-3 lg:pb-6 flex-1">
-        {customerNavItems.map((item) => {
+        {navItems.map((item) => {
           const Icon = item.icon;
           const href = hrefWithBusiness(item.href);
           const isActive = pathname === item.href;

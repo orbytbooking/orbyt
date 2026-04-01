@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -479,11 +479,51 @@ export default function CustomerProfilePage() {
     return null;
   };
 
-  // Drive state variables
+  // Drive state variables (customer_drive_files + customer-drive-files bucket; same as customer portal)
   const [files, setFiles] = useState<FileItem[]>([]);
+  const [driveFilesLoading, setDriveFilesLoading] = useState(false);
+  const [driveUploading, setDriveUploading] = useState(false);
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewImage, setPreviewImage] = useState<FileItem | null>(null);
+
+  const fetchDriveFiles = useCallback(async () => {
+    if (!id || typeof id !== "string" || !currentBusiness?.id) return;
+    setDriveFilesLoading(true);
+    try {
+      const res = await fetch(`/api/admin/customers/${encodeURIComponent(id)}/drive`, {
+        headers: { "x-business-id": currentBusiness.id },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load drive");
+      const list = Array.isArray(data.files) ? data.files : [];
+      setFiles(
+        list.map((f: Record<string, unknown>) => ({
+          id: String(f.id),
+          name: String(f.name ?? ""),
+          type: (f.type === "folder" ? "folder" : "file") as "folder" | "file",
+          fileType: f.fileType as FileItem["fileType"],
+          size: f.size != null ? String(f.size) : undefined,
+          uploadedAt: String(f.uploadedAt ?? (f.uploaded_at as string) ?? new Date().toISOString()),
+          url: f.url != null ? String(f.url) : undefined,
+          parentId: (f.parentId as string | null | undefined) ?? null,
+        })),
+      );
+    } catch (e) {
+      toast({
+        title: "Drive",
+        description: e instanceof Error ? e.message : "Failed to load files",
+        variant: "destructive",
+      });
+      setFiles([]);
+    } finally {
+      setDriveFilesLoading(false);
+    }
+  }, [id, currentBusiness?.id, toast]);
+
+  useEffect(() => {
+    void fetchDriveFiles();
+  }, [fetchDriveFiles]);
 
   // Fetch industries for booking modal (Industry display, extras resolution)
   useEffect(() => {
@@ -512,17 +552,6 @@ export default function CustomerProfilePage() {
       })
       .catch(() => setExtrasMap({}));
   }, [selectedBooking?.id, industries]);
-
-  // Cleanup blob URLs on unmount
-  useEffect(() => {
-    return () => {
-      files.forEach(file => {
-        if (file.url && file.url.startsWith('blob:')) {
-          URL.revokeObjectURL(file.url);
-        }
-      });
-    };
-  }, [files]);
 
   // Notification state variables
   const [emailNotifications, setEmailNotifications] = useState<Record<string, boolean>>({
@@ -639,13 +668,6 @@ export default function CustomerProfilePage() {
         }
       }
     })();
-    try {
-      // Drive files: still localStorage until customer drive API exists
-      if (typeof window !== "undefined" && id) {
-        const driveFilesRaw = localStorage.getItem(`customerDriveFiles_${id}`);
-        if (driveFilesRaw) setFiles(JSON.parse(driveFilesRaw));
-      }
-    } catch {}
     return () => { cancelled = true; };
   }, [id]);
 
@@ -768,37 +790,15 @@ export default function CustomerProfilePage() {
     }
   }, [profile.address]);
 
-  // Save drive files to localStorage whenever they change
-  useEffect(() => {
-    if (id && files.length > 0) {
-      localStorage.setItem(`customerDriveFiles_${id}`, JSON.stringify(files));
-    }
-  }, [files, id]);
-
   // Drive helper functions
-  const getFileType = (fileName: string): "document" | "image" | "video" | "other" => {
-    const extension = fileName.split(".").pop()?.toLowerCase();
-    
-    if (["jpg", "jpeg", "png", "gif", "webp", "svg"].includes(extension || "")) {
-      return "image";
-    }
-    if (["mp4", "avi", "mov", "wmv"].includes(extension || "")) {
-      return "video";
-    }
-    if (["pdf", "doc", "docx", "txt", "xls", "xlsx"].includes(extension || "")) {
-      return "document";
-    }
-    return "other";
-  };
-
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return bytes + " B";
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + " KB";
     return (bytes / (1024 * 1024)).toFixed(2) + " MB";
   };
 
-  const handleFileUpload = () => {
-    if (!selectedFile || !id) {
+  const handleFileUpload = async () => {
+    if (!selectedFile || !id || !currentBusiness?.id) {
       toast({
         title: "Error",
         description: "Please select a file to upload",
@@ -807,45 +807,66 @@ export default function CustomerProfilePage() {
       return;
     }
 
-    const newFile: FileItem = {
-      id: Date.now().toString(),
-      name: selectedFile.name,
-      type: "file",
-      fileType: getFileType(selectedFile.name),
-      size: formatFileSize(selectedFile.size),
-      uploadedAt: new Date().toISOString(),
-      url: URL.createObjectURL(selectedFile),
-      parentId: null,
-    };
+    setDriveUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+      formData.append("businessId", currentBusiness.id);
+      const res = await fetch(`/api/admin/customers/${encodeURIComponent(id)}/drive/upload`, {
+        method: "POST",
+        headers: { "x-business-id": currentBusiness.id },
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Upload failed");
 
-    setFiles([...files, newFile]);
-    setSelectedFile(null);
-    setIsUploadDialogOpen(false);
-    
-    toast({
-      title: "File Uploaded",
-      description: `"${selectedFile.name}" has been uploaded successfully`,
-    });
+      setSelectedFile(null);
+      setIsUploadDialogOpen(false);
+      toast({
+        title: "File uploaded",
+        description: `"${selectedFile.name}" was saved to this customer's drive.`,
+      });
+      await fetchDriveFiles();
+    } catch (e) {
+      toast({
+        title: "Upload failed",
+        description: e instanceof Error ? e.message : "Try again later",
+        variant: "destructive",
+      });
+    } finally {
+      setDriveUploading(false);
+    }
   };
 
-  const handleDeleteFile = (fileId: string, fileName: string) => {
-    setFiles(files.filter(f => f.id !== fileId));
-    toast({
-      title: "Deleted",
-      description: `"${fileName}" has been deleted`,
-    });
+  const handleDeleteFile = async (fileId: string, fileName: string) => {
+    if (!id || !currentBusiness?.id) return;
+    try {
+      const res = await fetch(
+        `/api/admin/customers/${encodeURIComponent(id)}/drive?id=${encodeURIComponent(fileId)}`,
+        { method: "DELETE", headers: { "x-business-id": currentBusiness.id } },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Delete failed");
+      toast({
+        title: "Deleted",
+        description: `"${fileName}" has been removed`,
+      });
+      await fetchDriveFiles();
+    } catch (e) {
+      toast({
+        title: "Delete failed",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    }
   };
 
   const handleDownloadFile = (file: FileItem) => {
     if (file.url) {
-      const link = document.createElement("a");
-      link.href = file.url;
-      link.download = file.name;
-      link.click();
-      
+      window.open(file.url, "_blank", "noopener,noreferrer");
       toast({
-        title: "Download Started",
-        description: `Downloading "${file.name}"`,
+        title: "Opening file",
+        description: file.name,
       });
     }
   };
@@ -2280,6 +2301,7 @@ export default function CustomerProfilePage() {
                 <Button 
                   onClick={() => setIsUploadDialogOpen(true)}
                   className="text-white"
+                  disabled={!currentBusiness?.id}
                   style={{ background: "linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)" }}
                 >
                   <Upload className="h-4 w-4 mr-2" />
@@ -2288,12 +2310,17 @@ export default function CustomerProfilePage() {
               </div>
             </CardHeader>
             <CardContent>
-              {files.length === 0 ? (
+              {driveFilesLoading ? (
+                <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
+                  <Loader2 className="h-10 w-10 animate-spin" />
+                  <p className="text-sm">Loading drive…</p>
+                </div>
+              ) : files.length === 0 ? (
                 <div className="text-center py-12">
                   <FolderOpen className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
                   <h3 className="text-lg font-semibold mb-2">No files uploaded</h3>
                   <p className="text-muted-foreground mb-4">
-                    Upload your first file to get started
+                    Upload a file to share it with this customer&apos;s portal My Drive (when enabled).
                   </p>
                 </div>
               ) : (
@@ -2326,7 +2353,7 @@ export default function CustomerProfilePage() {
                               <DropdownMenuItem
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleDeleteFile(file.id, file.name);
+                                  void handleDeleteFile(file.id, file.name);
                                 }}
                                 className="text-red-600"
                               >
@@ -2386,9 +2413,15 @@ export default function CustomerProfilePage() {
                 }}>
                   Cancel
                 </Button>
-                <Button onClick={handleFileUpload}>
-                  <Upload className="h-4 w-4 mr-2" />
-                  Upload
+                <Button onClick={() => void handleFileUpload()} disabled={driveUploading || !selectedFile}>
+                  {driveUploading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Upload
+                    </>
+                  )}
                 </Button>
               </DialogFooter>
             </DialogContent>

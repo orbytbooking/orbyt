@@ -117,6 +117,8 @@ interface StoreOptions {
   /** Default pay for customer/guest bookings (no per-booking wage UI) */
   default_provider_wage?: number | null;
   default_provider_wage_type?: 'percentage' | 'fixed' | 'hourly' | null;
+  /** Customer portal My Drive nav (view files admins add in CRM) */
+  customer_my_drive_enabled?: boolean;
 }
 
 // All IANA time zones (from Intl when available, else fallback list)
@@ -172,6 +174,7 @@ const SCHEDULING_DEFAULT_OPTIONS: StoreOptions = {
   admin_calendar_hide_non_working_hours: false,
   default_provider_wage: null,
   default_provider_wage_type: null,
+  customer_my_drive_enabled: false,
 };
 
 // Simple rich text editor for reschedule/cancellation messages
@@ -401,6 +404,8 @@ export default function GeneralSettingsPage() {
     'We apologize for the inconvenience. Please contact our office if you have any questions.'
   );
   const [allowCustomerSelfReschedule, setAllowCustomerSelfReschedule] = useState<'yes' | 'no'>('no');
+  const [customerMyDriveEnabled, setCustomerMyDriveEnabled] = useState<'yes' | 'no'>('no');
+  const [customerMyDriveSaving, setCustomerMyDriveSaving] = useState(false);
   const [rescheduleMessage, setRescheduleMessage] = useState(
     'Please get in touch with the admin to reschedule your booking. You can only change your customer details and credit card.'
   );
@@ -649,6 +654,9 @@ export default function GeneralSettingsPage() {
         if (data.options.reschedule_message != null) {
           setRescheduleMessage(data.options.reschedule_message || 'Please get in touch with the admin to reschedule your booking. You can only change your customer details and credit card.');
         }
+        if (typeof data.options.customer_my_drive_enabled === 'boolean') {
+          setCustomerMyDriveEnabled(data.options.customer_my_drive_enabled ? 'yes' : 'no');
+        }
       }
     } catch {
       toast.error("Failed to load scheduling settings");
@@ -875,6 +883,35 @@ export default function GeneralSettingsPage() {
       toast.error(e instanceof Error ? e.message : "Failed to save reschedule settings");
     } finally {
       setCustomerRescheduleSaving(false);
+    }
+  };
+
+  const saveCustomerMyDriveSettings = async () => {
+    if (!currentBusiness?.id) return;
+    setCustomerMyDriveSaving(true);
+    try {
+      const res = await fetch("/api/admin/store-options", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "x-business-id": currentBusiness.id },
+        body: JSON.stringify({
+          ...schedulingOptions,
+          businessId: currentBusiness.id,
+          customer_my_drive_enabled: customerMyDriveEnabled === "yes",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save");
+      if (data.options) {
+        setSchedulingOptions((prev) => ({ ...prev, ...data.options }));
+        if (typeof data.options.customer_my_drive_enabled === "boolean") {
+          setCustomerMyDriveEnabled(data.options.customer_my_drive_enabled ? "yes" : "no");
+        }
+      }
+      toast.success("My Drive setting saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save My Drive setting");
+    } finally {
+      setCustomerMyDriveSaving(false);
     }
   };
 
@@ -3551,7 +3588,54 @@ export default function GeneralSettingsPage() {
                   </div>
                   {customerGeneralExpanded && (
                     <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
-                      <p className="text-sm text-muted-foreground">Customer dashboard and FAQ/Support link settings will be available here.</p>
+                      <TooltipProvider>
+                        <div className="space-y-6">
+                          <div className="rounded-lg border bg-card p-4 space-y-4">
+                            <div className="flex items-start gap-2">
+                              <Label className="font-semibold text-base leading-tight shrink-0">
+                                Would you like to enable the &quot;My Drive&quot; option for your customers?
+                              </Label>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button type="button" className="inline-flex text-muted-foreground hover:text-foreground border border-destructive/50 rounded-full p-0.5 shrink-0 mt-0.5" aria-label="More info">
+                                    <Info className="h-4 w-4" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs">
+                                  When enabled, customers see My Drive to view or download documents you add under their profile (Admin → Customers → My drive). They cannot upload from the portal.
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                            <RadioGroup
+                              value={customerMyDriveEnabled}
+                              onValueChange={(v) => setCustomerMyDriveEnabled(v as "yes" | "no")}
+                              className="flex gap-4 pt-1"
+                            >
+                              <div className="flex items-center gap-2">
+                                <RadioGroupItem value="yes" id="customer-my-drive-yes" />
+                                <Label htmlFor="customer-my-drive-yes" className="font-normal cursor-pointer">Yes</Label>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <RadioGroupItem value="no" id="customer-my-drive-no" />
+                                <Label htmlFor="customer-my-drive-no" className="font-normal cursor-pointer">No</Label>
+                              </div>
+                            </RadioGroup>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            Additional customer dashboard and FAQ/Support link settings can be added in this section later.
+                          </p>
+                          <Button onClick={saveCustomerMyDriveSettings} disabled={customerMyDriveSaving}>
+                            {customerMyDriveSaving ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                Saving…
+                              </>
+                            ) : (
+                              "Save My Drive setting"
+                            )}
+                          </Button>
+                        </div>
+                      </TooltipProvider>
                     </div>
                   )}
                 </div>
