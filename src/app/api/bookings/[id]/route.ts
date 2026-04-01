@@ -2,7 +2,11 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
 import { getCancellationFeeForBooking } from '@/lib/cancellationFee';
-import { syncBookingCancelled, syncBookingUpdated } from '@/lib/googleCalendar';
+import {
+  createRecurringCalendarEvent,
+  syncBookingCancelled,
+  syncBookingUpdated,
+} from '@/lib/googleCalendar';
 import { describeDraftQuoteExpiryChange, normalizeExpiryDateValue } from '@/lib/draftQuoteExpiryUtils';
 import {
   describeDraftQuoteStatusChange,
@@ -117,6 +121,7 @@ export async function PUT(
     // Parse request body
     let updateData = await request.json();
     const bookingId = id;
+    let addBookingFormUpdate: Record<string, unknown> | null = null;
 
     // If this is the add-booking form payload (full booking update), build DB-shaped update object
     if (updateData.customer_name !== undefined && typeof updateData.customer_name === 'string') {
@@ -308,6 +313,7 @@ export async function PUT(
         built.draft_quote_expires_on = null;
       }
       updateData = built;
+      addBookingFormUpdate = built;
     }
 
     // When editing a recurring booking's date/time, update the series so all recurring occurrences move (update all recurring)
@@ -375,26 +381,137 @@ export async function PUT(
       }
     }
 
-    const { data: priorBooking } = await supabase
+    const { data: existingBefore } = await supabase
       .from('bookings')
-      .select('status, draft_quote_expires_on')
+      .select('*')
       .eq('id', bookingId)
       .eq('business_id', businessId)
       .maybeSingle();
-    const priorStatus = priorBooking?.status ?? null;
-    const priorExpiryRaw = (priorBooking as { draft_quote_expires_on?: string | null } | null)?.draft_quote_expires_on;
 
-    // Update booking
-    const { data: booking, error: bookingError } = await supabase
-      .from('bookings')
-      .update(updateData)
-      .eq('id', bookingId)
-      .eq('business_id', businessId)
-      .select()
-      .single();
+    const priorStatus = existingBefore?.status ?? null;
+    const priorExpiryRaw =
+      (existingBefore as { draft_quote_expires_on?: string | null } | null)?.draft_quote_expires_on ?? null;
 
-    if (bookingError) {
-      return NextResponse.json({ error: bookingError.message }, { status: 500 });
+    let didPromoteRecurring = false;
+    let booking: Record<string, unknown>;
+
+    let shouldAttachRecurring = false;
+    if (
+      addBookingFormUpdate &&
+      existingBefore &&
+      ['draft', 'quote', 'expired'].includes(String(existingBefore.status || '')) &&
+      ['pending', 'confirmed', 'in_progress'].includes(String(addBookingFormUpdate.status || '')) &&
+      !(existingBefore as { recurring_series_id?: string | null }).recurring_series_id
+    ) {
+      const freqName = String(
+        addBookingFormUpdate.frequency ?? (existingBefore as { frequency?: string | null }).frequency ?? ''
+      ).trim();
+      const freqNorm = freqName.toLowerCase().replace(/\s+/g, ' ');
+      const recurringByFrequency =
+        !!freqNorm && freqNorm !== 'one-time' && freqNorm !== 'onetime';
+      const createRecurring =
+        addBookingFormUpdate.create_recurring === true ||
+        addBookingFormUpdate.create_recurring === 'true' ||
+        recurringByFrequency;
+      const scheduledDateRaw = String(
+        addBookingFormUpdate.scheduled_date ?? addBookingFormUpdate.date ?? ''
+      ).trim();
+      shouldAttachRecurring = !!(createRecurring && scheduledDateRaw && freqName);
+    }
+
+    if (shouldAttachRecurring && addBookingFormUpdate && existingBefore) {
+      const freqName = String(
+        addBookingFormUpdate.frequency ?? (existingBefore as { frequency?: string | null }).frequency ?? ''
+      ).trim();
+      const scheduledDateRaw = String(
+        addBookingFormUpdate.scheduled_date ?? addBookingFormUpdate.date ?? ''
+      ).trim();
+
+      let frequencyRepeats: string | null =
+        (addBookingFormUpdate.frequency_repeats as string | null | undefined) ?? null;
+      if (!frequencyRepeats && addBookingFormUpdate.industry_id) {
+        const { data: freq } = await supabase
+          .from('industry_frequency')
+          .select('frequency_repeats')
+          .eq('industry_id', String(addBookingFormUpdate.industry_id))
+          .ilike('name', freqName)
+          .maybeSingle();
+        frequencyRepeats =
+          (freq as { frequency_repeats?: string } | null)?.frequency_repeats ?? null;
+      }
+
+      const endDateRaw = addBookingFormUpdate.recurring_end_date;
+      const endDate =
+        endDateRaw != null && String(endDateRaw).trim() ? String(endDateRaw).trim() : null;
+      const occurrencesAhead = Math.min(
+        Math.max(1, parseInt(String(addBookingFormUpdate.recurring_occurrences_ahead ?? 8), 10) || 8),
+        24
+      );
+      const sameProvider = addBookingFormUpdate.same_provider_for_recurring !== false;
+
+      const templateForSeries: Record<string, unknown> = {
+        ...(existingBefore as Record<string, unknown>),
+        ...addBookingFormUpdate,
+      };
+
+      try {
+        const { attachExistingBookingToRecurringSeries } = await import('@/lib/recurringBookings');
+        await attachExistingBookingToRecurringSeries(
+          supabase,
+          businessId,
+          bookingId,
+          templateForSeries,
+          addBookingFormUpdate,
+          {
+            startDate: scheduledDateRaw,
+            endDate: endDate || undefined,
+            frequencyName: freqName,
+            frequencyRepeats,
+            occurrencesAhead,
+            sameProvider,
+          }
+        );
+        didPromoteRecurring = true;
+        const { data: b, error: be } = await supabase
+          .from('bookings')
+          .select('*')
+          .eq('id', bookingId)
+          .eq('business_id', businessId)
+          .single();
+        if (be || !b) {
+          return NextResponse.json(
+            { error: be?.message ?? 'Failed to load booking after recurring setup' },
+            { status: 500 }
+          );
+        }
+        booking = b as Record<string, unknown>;
+      } catch (e: unknown) {
+        console.error('Promote draft/quote to recurring:', e);
+        return NextResponse.json(
+          {
+            error:
+              e instanceof Error
+                ? e.message
+                : 'Failed to create recurring series from draft/quote',
+          },
+          { status: 500 }
+        );
+      }
+    } else {
+      const { data: b, error: be } = await supabase
+        .from('bookings')
+        .update(updateData)
+        .eq('id', bookingId)
+        .eq('business_id', businessId)
+        .select()
+        .single();
+      if (be || !b) {
+        return NextResponse.json(
+          { error: be?.message ?? 'Booking not found' },
+          { status: 500 }
+        );
+      }
+      booking = b as Record<string, unknown>;
     }
 
     const actorName = formatQuoteLogActorName(user);
@@ -442,6 +559,26 @@ export async function PUT(
 
     if (booking.status === 'cancelled') {
       await syncBookingCancelled(businessId, booking).catch(() => {});
+    } else if (
+      didPromoteRecurring &&
+      booking.recurring_series_id &&
+      typeof booking.recurring_series_id === 'string'
+    ) {
+      const { data: series } = await supabase
+        .from('recurring_series')
+        .select('start_date, end_date, frequency, frequency_repeats, occurrences_ahead')
+        .eq('id', booking.recurring_series_id)
+        .single();
+      const eventId = series
+        ? await createRecurringCalendarEvent(businessId, booking, series).catch(() => null)
+        : null;
+      if (eventId) {
+        await supabase
+          .from('bookings')
+          .update({ google_calendar_event_id: eventId })
+          .eq('id', bookingId)
+          .eq('business_id', businessId);
+      }
     } else {
       const newEventId = await syncBookingUpdated(businessId, booking).catch(() => null);
       if (newEventId) {
@@ -450,11 +587,19 @@ export async function PUT(
     }
 
     const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
-    await createAdminNotification(businessId, 'booking_modified', {
-      title: 'Booking modified',
-      message: `Booking ${bkRef} has been updated.`,
-      link: '/admin/bookings',
-    });
+    if (didPromoteRecurring) {
+      await createAdminNotification(businessId, 'new_booking', {
+        title: 'Recurring series created',
+        message: `Recurring booking ${bkRef} was saved from draft/quote.`,
+        link: '/admin/bookings',
+      });
+    } else {
+      await createAdminNotification(businessId, 'booking_modified', {
+        title: 'Booking modified',
+        message: `Booking ${bkRef} has been updated.`,
+        link: '/admin/bookings',
+      });
+    }
 
     return NextResponse.json({
       success: true,

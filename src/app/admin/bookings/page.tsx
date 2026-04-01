@@ -1426,7 +1426,11 @@ export default function BookingsPage() {
                             <DropdownMenuContent align="end" className="w-56 z-50">
                               <DropdownMenuItem
                                 className="gap-2 cursor-pointer"
-                                onSelect={() => router.push(`/admin/add-booking?bookingId=${encodeURIComponent(booking.id)}`)}
+                                onSelect={() =>
+                                  router.push(
+                                    `/admin/add-booking?bookingId=${encodeURIComponent(booking.id)}&finalize=1`
+                                  )
+                                }
                               >
                                 <PlusCircle className="h-4 w-4 shrink-0 text-primary" />
                                 Create Booking

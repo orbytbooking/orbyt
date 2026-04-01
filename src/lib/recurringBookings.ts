@@ -410,6 +410,108 @@ export async function createRecurringSeries(
   return { seriesId: series.id, bookingIds: [bookingId] };
 }
 
+/**
+ * When a draft/quote is saved as a real booking with a recurring frequency, attach the existing
+ * row to a new recurring_series (same shape as createRecurringSeries) instead of inserting a second row.
+ */
+export async function attachExistingBookingToRecurringSeries(
+  supabase: SupabaseClient,
+  businessId: string,
+  bookingId: string,
+  templateForSeries: Record<string, unknown>,
+  additionalBookingUpdate: Record<string, unknown>,
+  options: {
+    startDate: string;
+    endDate?: string | null;
+    frequencyName: string;
+    frequencyRepeats?: string | null;
+    occurrencesAhead?: number;
+    sameProvider?: boolean;
+  }
+): Promise<{ seriesId: string }> {
+  const opts = await getStoreOptionsScheduling(businessId);
+  const skipHolidays = opts?.holiday_skip_to_next ?? false;
+  const N = options.occurrencesAhead ?? 8;
+
+  const seriesRow = {
+    business_id: businessId,
+    customer_id: templateForSeries.customer_id ?? null,
+    customer_name: templateForSeries.customer_name ?? null,
+    customer_email: templateForSeries.customer_email ?? null,
+    customer_phone: templateForSeries.customer_phone ?? null,
+    service: templateForSeries.service ?? null,
+    address: templateForSeries.address ?? null,
+    apt_no: templateForSeries.apt_no ?? null,
+    zip_code: templateForSeries.zip_code ?? null,
+    notes: templateForSeries.notes ?? null,
+    total_price: templateForSeries.total_price ?? templateForSeries.amount ?? 0,
+    frequency: options.frequencyName,
+    frequency_repeats: options.frequencyRepeats ?? null,
+    scheduled_time: templateForSeries.scheduled_time ?? templateForSeries.time ?? null,
+    duration_minutes: templateForSeries.duration_minutes ?? null,
+    customization: templateForSeries.customization ?? null,
+    provider_id: templateForSeries.provider_id ?? null,
+    provider_name: templateForSeries.provider_name ?? null,
+    provider_wage: templateForSeries.provider_wage ?? null,
+    provider_wage_type: templateForSeries.provider_wage_type ?? null,
+    payment_method: templateForSeries.payment_method ?? 'cash',
+    start_date: options.startDate,
+    end_date: options.endDate ?? null,
+    occurrences_ahead: N,
+    same_provider: options.sameProvider ?? true,
+    status: 'active',
+  };
+
+  const { data: series, error: seriesError } = await supabase
+    .from('recurring_series')
+    .insert(seriesRow)
+    .select('id')
+    .single();
+
+  if (seriesError || !series) {
+    throw new Error(seriesError?.message ?? 'Failed to create recurring series');
+  }
+
+  const dates = await computeOccurrenceDates(
+    businessId,
+    options.startDate,
+    options.frequencyName,
+    options.frequencyRepeats,
+    N,
+    options.endDate ?? undefined,
+    skipHolidays
+  );
+
+  const firstDate = dates[0] ?? options.startDate;
+  const singleBooking = bookingFromTemplate(
+    { ...templateForSeries, ...seriesRow, id: series.id },
+    firstDate,
+    businessId
+  );
+
+  const merged: Record<string, unknown> = {
+    ...singleBooking,
+    ...additionalBookingUpdate,
+    recurring_series_id: series.id,
+    scheduled_date: firstDate,
+    date: firstDate,
+  };
+  delete merged.id;
+
+  const { error: updErr } = await supabase
+    .from('bookings')
+    .update(merged)
+    .eq('id', bookingId)
+    .eq('business_id', businessId);
+
+  if (updErr) {
+    await supabase.from('recurring_series').delete().eq('id', series.id);
+    throw new Error(updErr.message ?? 'Failed to attach booking to recurring series');
+  }
+
+  return { seriesId: series.id };
+}
+
 type RecurringSeriesRow = {
   id: string;
   start_date: string;

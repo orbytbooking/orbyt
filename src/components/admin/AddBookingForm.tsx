@@ -714,6 +714,12 @@ export function AddBookingForm({
       ? fromUrl.trim()
       : fromProp;
   const editingBookingId = rawBookingId || null;
+  /** Full-page flow from Draft/Quote → Create Booking: same save actions as new booking, not “Update”. */
+  const finalizeFromDraftQuote =
+    !embedded &&
+    !!editingBookingId &&
+    (searchParams.get("finalize") === "1" || searchParams.get("finalize") === "true");
+  const useCreateStyleSaveActions = !editingBookingId || finalizeFromDraftQuote;
   const [loadingBooking, setLoadingBooking] = useState(false);
   const [bookingLoadError, setBookingLoadError] = useState<string | null>(null);
   const [editingSavedStatus, setEditingSavedStatus] = useState<string | null>(null);
@@ -1145,6 +1151,10 @@ const handleAddBooking = async (status: string = 'pending') => {
       body.create_recurring = newBooking.createRecurring || undefined;
       body.recurring_end_date = newBooking.createRecurring ? newBooking.recurringEndDate || null : undefined;
       body.recurring_occurrences_ahead = newBooking.createRecurring ? (newBooking.recurringOccurrencesAhead ?? 8) : undefined;
+    } else if (status !== "draft" && status !== "quote") {
+      body.create_recurring = newBooking.createRecurring || undefined;
+      body.recurring_end_date = newBooking.createRecurring ? newBooking.recurringEndDate || null : undefined;
+      body.recurring_occurrences_ahead = newBooking.createRecurring ? (newBooking.recurringOccurrencesAhead ?? 8) : undefined;
     }
 
     const { data: { session } } = await supabase.auth.getSession();
@@ -1203,9 +1213,11 @@ const handleAddBooking = async (status: string = 'pending') => {
         rawText ||
         'Unknown error';
       const errorHint = result.hint ? `\n\nHint: ${result.hint}` : '';
+      const failVerb =
+        editingBookingId && !finalizeFromDraftQuote ? 'update' : editingBookingId ? 'save' : 'add';
       toast({
         title: 'Error',
-        description: editingBookingId ? `Failed to update booking: ${errorMessage}${errorHint}` : `Failed to add booking: ${errorMessage}${errorHint}`,
+        description: `Failed to ${failVerb} booking: ${errorMessage}${errorHint}`,
         variant: 'destructive',
       });
       return;
@@ -1221,8 +1233,18 @@ const handleAddBooking = async (status: string = 'pending') => {
     }
 
     toast({
-      title: editingBookingId ? 'Booking updated' : 'Booking Added',
-      description: editingBookingId ? `Booking for ${customerName} has been updated.` : `New booking created for ${customerName}`,
+      title:
+        editingBookingId && !finalizeFromDraftQuote
+          ? 'Booking updated'
+          : editingBookingId
+            ? 'Booking saved'
+            : 'Booking Added',
+      description:
+        editingBookingId && !finalizeFromDraftQuote
+          ? `Booking for ${customerName} has been updated.`
+          : editingBookingId
+            ? `Booking for ${customerName} has been saved.`
+            : `New booking created for ${customerName}`,
     });
 
     setTimeout(() => {
@@ -2406,36 +2428,9 @@ const handleAddBooking = async (status: string = 'pending') => {
             </div>
           </div>
 
-          {/* Action Buttons */}
+          {/* Action Buttons — finalize=1 (Create Booking from draft/quote) uses same labels as new booking; true edit uses Update. */}
           <div className="flex flex-col gap-2 w-full">
-            {editingBookingId ? (
-              <>
-                <Button
-                  type="button"
-                  onClick={() => handleAddBooking(editingSavedStatus || "pending")}
-                  className="text-white w-full transition-all duration-200 hover:opacity-90 hover:shadow-lg"
-                  style={{ backgroundColor: "#10B981" }}
-                >
-                  Update Booking
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => handleAddBooking("draft")}
-                  className="text-white w-full transition-all duration-200 hover:opacity-90 hover:shadow-lg"
-                  style={{ backgroundColor: "#A7B3D1" }}
-                >
-                  Save As Draft
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => handleAddBooking("quote")}
-                  className="text-white w-full transition-all duration-200 hover:opacity-90 hover:shadow-lg"
-                  style={{ backgroundColor: "#F5A250" }}
-                >
-                  Save As Quote
-                </Button>
-              </>
-            ) : (
+            {useCreateStyleSaveActions ? (
               <>
                 <Button
                   type="button"
@@ -2458,6 +2453,33 @@ const handleAddBooking = async (status: string = 'pending') => {
                   onClick={() => handleAddBooking('quote')}
                   className="text-white w-full transition-all duration-200 hover:opacity-90 hover:shadow-lg"
                   style={{ backgroundColor: '#F5A250' }}
+                >
+                  Save As Quote
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  onClick={() => handleAddBooking(editingSavedStatus || "pending")}
+                  className="text-white w-full transition-all duration-200 hover:opacity-90 hover:shadow-lg"
+                  style={{ backgroundColor: "#10B981" }}
+                >
+                  Update Booking
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => handleAddBooking("draft")}
+                  className="text-white w-full transition-all duration-200 hover:opacity-90 hover:shadow-lg"
+                  style={{ backgroundColor: "#A7B3D1" }}
+                >
+                  Save As Draft
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => handleAddBooking("quote")}
+                  className="text-white w-full transition-all duration-200 hover:opacity-90 hover:shadow-lg"
+                  style={{ backgroundColor: "#F5A250" }}
                 >
                   Save As Quote
                 </Button>
@@ -4044,7 +4066,11 @@ const handleAddBooking = async (status: string = 'pending') => {
   return (
     <div className={cn("space-y-6", embedded && "pb-1")}>
       {editingBookingId && !embedded && !bookingLoadError && !loadingBooking ? (
-        <p className="text-sm text-muted-foreground">Editing this booking.</p>
+        <p className="text-sm text-muted-foreground">
+          {finalizeFromDraftQuote
+            ? "Create a confirmed booking from this draft or quote, or save it again as draft or quote."
+            : "Editing this booking."}
+        </p>
       ) : null}
       {bookingLoadError ? (
         <Card className="border-destructive">

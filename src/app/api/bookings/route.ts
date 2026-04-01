@@ -362,11 +362,18 @@ export async function POST(request: Request) {
       );
     }
 
-    // Recurring path: create series + N bookings.
+    // Recurring path: create series + one booking row linked to it.
+    // Draft/quote must stay a single row (no series) until confirmed from the admin form.
     // If frequency is non one-time, treat it as recurring even when create_recurring is omitted.
     const freqNorm = (bookingData.frequency || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
     const recurringByFrequency = !!freqNorm && freqNorm !== 'one-time' && freqNorm !== 'onetime';
-    if ((bookingData.create_recurring || recurringByFrequency) && scheduledDate && bookingData.frequency) {
+    const isDraftOrQuote = ['draft', 'quote'].includes(statusStr);
+    if (
+      !isDraftOrQuote &&
+      (bookingData.create_recurring || recurringByFrequency) &&
+      scheduledDate &&
+      bookingData.frequency
+    ) {
       const freqName = (bookingData.frequency || '').toString().trim();
       let frequencyRepeats: string | null = bookingData.frequency_repeats ?? null;
       if (!frequencyRepeats && bookingData.industry_id) {
