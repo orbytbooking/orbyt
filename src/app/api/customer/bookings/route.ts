@@ -455,7 +455,9 @@ export async function POST(request: NextRequest) {
     insert.provider_wage_type = wageResolved.provider_wage_type;
   }
 
-  const createRecurring = body.create_recurring === true || body.create_recurring === 'true';
+  const freqNorm = (frequency || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
+  const recurringByFrequency = !!freqNorm && freqNorm !== 'one-time' && freqNorm !== 'onetime';
+  const createRecurring = body.create_recurring === true || body.create_recurring === 'true' || recurringByFrequency;
   const scheduledDate = (date && String(date).trim()) ? String(date).trim() : null;
   const timeForRecurring = timeForDb || '09:00:00';
 

@@ -1,6 +1,7 @@
 /**
- * Recurring bookings: create N ahead, extend on demand (no cron).
- * Maps frequency to interval, skips holidays when configured.
+ * Recurring bookings: keep one booking row + recurring_series, and generate
+ * occurrence dates from series metadata. We auto-extend `occurrences_ahead`
+ * on demand so recurring series remain effectively ongoing without cron.
  */
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { getStoreOptionsScheduling, isDateHoliday } from './schedulingFilters';
@@ -22,6 +23,50 @@ const WEEKDAY_REPEAT_PATTERNS: Record<string, number[]> = {
   'every-mon-thu': [1, 4],
 };
 
+const TEXT_NUMBERS: Record<string, number> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+};
+
+function normalizeRepeat(raw: string | null | undefined): string {
+  return (raw || '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/_/g, '-');
+}
+
+function parseEveryNUnit(repeatsRaw: string | null | undefined): { n: number; unit: 'day' | 'week' | 'month' | 'year' } | null {
+  const repeats = normalizeRepeat(repeatsRaw);
+
+  // every-2-weeks, every-two-weeks, every-month, every-3-months
+  const m = /^every-([a-z0-9]+)?-?(day|days|week|weeks|month|months|year|years)$/.exec(repeats);
+  if (!m) return null;
+
+  const nRaw = m[1];
+  const unitRaw = m[2];
+  const n =
+    nRaw == null || nRaw === ''
+      ? 1
+      : /^[0-9]+$/.test(nRaw)
+        ? Math.max(1, parseInt(nRaw, 10))
+        : Math.max(1, TEXT_NUMBERS[nRaw] || 1);
+
+  const unit: 'day' | 'week' | 'month' | 'year' =
+    unitRaw.startsWith('day') ? 'day' : unitRaw.startsWith('week') ? 'week' : unitRaw.startsWith('month') ? 'month' : 'year';
+  return { n, unit };
+}
+
 /** Next calendar date strictly after lastDate whose weekday is in allowed (Mon–Fri, Mon & Fri, etc.). */
 function nextAllowedWeekdayAfter(lastDate: string, allowed: number[]): string {
   const d = new Date(lastDate + 'T12:00:00');
@@ -37,12 +82,13 @@ function nextAllowedWeekdayAfter(lastDate: string, allowed: number[]): string {
 /** Frequency name or frequency_repeats -> days to add (fallback when pattern is unknown). */
 function getDaysToAdd(frequencyName: string, frequencyRepeats?: string | null): number {
   const name = (frequencyName || '').toLowerCase().replace(/\s+/g, '-');
-  const repeats = (frequencyRepeats || '').toLowerCase().replace(/\s+/g, '-');
+  const repeats = normalizeRepeat(frequencyRepeats);
 
-  const weeksMatch = /^every-(\d+)-weeks$/.exec(repeats);
-  if (weeksMatch) {
-    const n = Math.max(1, parseInt(weeksMatch[1], 10));
-    return n * 7;
+  const parsedEvery = parseEveryNUnit(repeats);
+  if (parsedEvery) {
+    if (parsedEvery.unit === 'day') return parsedEvery.n;
+    if (parsedEvery.unit === 'week') return parsedEvery.n * 7;
+    if (parsedEvery.unit === 'month' || parsedEvery.unit === 'year') return 0;
   }
   if (repeats === 'every-week') return 7;
 
@@ -79,8 +125,18 @@ export function getNextOccurrenceDateSync(
   frequencyName: string,
   frequencyRepeats?: string | null
 ): string {
-  const repeats = (frequencyRepeats || '').toLowerCase().trim();
+  const repeats = normalizeRepeat(frequencyRepeats);
   const name = (frequencyName || '').toLowerCase().replace(/\s+/g, '-');
+
+  const parsedEvery = parseEveryNUnit(repeats);
+  if (parsedEvery) {
+    const d = new Date(lastDate + 'T12:00:00');
+    if (parsedEvery.unit === 'day') d.setDate(d.getDate() + parsedEvery.n);
+    if (parsedEvery.unit === 'week') d.setDate(d.getDate() + parsedEvery.n * 7);
+    if (parsedEvery.unit === 'month') d.setMonth(d.getMonth() + parsedEvery.n);
+    if (parsedEvery.unit === 'year') d.setFullYear(d.getFullYear() + parsedEvery.n);
+    return d.toISOString().split('T')[0];
+  }
 
   if (repeats.includes('monthly') || name.includes('monthly')) {
     return addInterval(new Date(lastDate + 'T12:00:00'), 0, 'monthly').toISOString().split('T')[0];
@@ -192,8 +248,11 @@ export function getOccurrenceDatesForSeriesSync(series: {
   frequency_repeats?: string | null;
   occurrences_ahead?: number;
 }): string[] {
-  const start = series.start_date;
-  const N = series.occurrences_ahead ?? 8;
+  const start = String(series.start_date || '').trim();
+  if (!start || !/^\d{4}-\d{2}-\d{2}$/.test(start)) return [];
+  // Guardrail: prevent UI blowups if occurrences_ahead grows very large.
+  const rawN = series.occurrences_ahead ?? 8;
+  const N = Math.max(1, Math.min(260, rawN));
   const dates: string[] = [start];
   let current = start;
   for (let i = 1; i < N; i++) {
@@ -351,13 +410,78 @@ export async function createRecurringSeries(
   return { seriesId: series.id, bookingIds: [bookingId] };
 }
 
-/** Recurring series use 1 booking row; we do not add more rows on extend. */
+type RecurringSeriesRow = {
+  id: string;
+  start_date: string;
+  end_date?: string | null;
+  frequency?: string | null;
+  frequency_repeats?: string | null;
+  occurrences_ahead?: number | null;
+  status?: string | null;
+};
+
+/** Recurring series use 1 booking row; extend updates series horizon only. */
 export async function extendRecurringSeries(
-  _supabase: SupabaseClient,
-  _businessId: string,
-  _seriesId: string
+  supabase: SupabaseClient,
+  businessId: string,
+  seriesId: string
 ): Promise<{ created: number }> {
-  return { created: 0 };
+  const { data: series, error } = await supabase
+    .from('recurring_series')
+    .select('id, start_date, end_date, frequency, frequency_repeats, occurrences_ahead, status')
+    .eq('business_id', businessId)
+    .eq('id', seriesId)
+    .maybeSingle();
+
+  if (error || !series) return { created: 0 };
+  if ((series as RecurringSeriesRow).status && (series as RecurringSeriesRow).status !== 'active') {
+    return { created: 0 };
+  }
+
+  const row = series as RecurringSeriesRow;
+  const startDate = String(row.start_date || '').trim();
+  if (!startDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return { created: 0 };
+
+  const currentN = Math.max(1, Number(row.occurrences_ahead ?? 1));
+  // Keep roughly 12 weeks of runway ahead (frequency-aware), without runaway growth.
+  const horizon = new Date();
+  horizon.setDate(horizon.getDate() + 84);
+  const horizonStr = horizon.toISOString().split('T')[0];
+
+  let lastDate = startDate;
+  for (let i = 1; i < currentN; i++) {
+    const nextStr = getNextOccurrenceDateSync(lastDate, row.frequency ?? '', row.frequency_repeats ?? null);
+    if (row.end_date && nextStr > row.end_date) {
+      lastDate = nextStr;
+      break;
+    }
+    lastDate = nextStr;
+  }
+
+  if (row.end_date && lastDate >= row.end_date) return { created: 0 };
+  if (lastDate >= horizonStr) return { created: 0 };
+
+  let addBy = 0;
+  let cursor = lastDate;
+  // Hard limit to avoid huge increments in one call.
+  while (cursor < horizonStr && addBy < 64) {
+    const nextStr = getNextOccurrenceDateSync(cursor, row.frequency ?? '', row.frequency_repeats ?? null);
+    if (row.end_date && nextStr > row.end_date) break;
+    cursor = nextStr;
+    addBy++;
+  }
+  if (addBy <= 0) return { created: 0 };
+
+  const nextN = currentN + addBy;
+
+  const { error: updateError } = await supabase
+    .from('recurring_series')
+    .update({ occurrences_ahead: nextN })
+    .eq('id', seriesId)
+    .eq('business_id', businessId);
+
+  if (updateError) return { created: 0 };
+  return { created: addBy };
 }
 
 /** Extend all active series for a business that need more occurrences */
@@ -373,8 +497,13 @@ export async function extendAllRecurringSeries(
 
   let totalCreated = 0;
   for (const s of seriesList ?? []) {
-    const { created } = await extendRecurringSeries(supabase, businessId, s.id);
-    if (created > 0) totalCreated += created;
+    try {
+      const { created } = await extendRecurringSeries(supabase, businessId, s.id);
+      if (created > 0) totalCreated += created;
+    } catch (e) {
+      // Keep extending other series even if one row is malformed.
+      console.warn('[extendAllRecurringSeries] skip series after error', s.id, e);
+    }
   }
   return { extended: seriesList?.length ?? 0, totalCreated };
 }

@@ -500,6 +500,10 @@ export default function BookingsPage() {
             const completedDates: string[] = Array.isArray(booking.completed_occurrence_dates)
               ? booking.completed_occurrence_dates
               : [];
+            if (!dates.length) {
+              expanded.push(booking);
+              continue;
+            }
             for (const d of dates) {
               const occurrenceStatus = completedDates.includes(d)
                 ? 'completed'
@@ -552,8 +556,15 @@ export default function BookingsPage() {
           providerName = providersMap[booking.provider_id].displayName;
         }
         
+        const normalizedDate = String(booking.date ?? booking.scheduled_date ?? "").trim();
+        const normalizedTime = String(booking.time ?? booking.scheduled_time ?? "").trim();
+
         return {
           ...booking,
+          date: normalizedDate,
+          time: normalizedTime,
+          scheduled_date: booking.scheduled_date ?? (normalizedDate || null),
+          scheduled_time: booking.scheduled_time ?? (normalizedTime || null),
           assignedProvider: providerName,
           provider_id: booking.provider_id || null
         };
