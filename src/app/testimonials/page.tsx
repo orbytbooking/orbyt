@@ -6,61 +6,60 @@ import PlatformHeader from '@/components/PlatformHeader';
 type Testimonial = {
   quote: string;
   author: string;
-  role: string;
+  reviewedAgo: string;
   rating: number;
-  avatar: string;
-  avatarImage?: string;
 };
+
+const testimonialAvatarBgs = [
+  'bg-violet-600',
+  'bg-teal-600',
+  'bg-indigo-600',
+  'bg-emerald-600',
+  'bg-sky-600',
+  'bg-fuchsia-600',
+] as const;
+
+function testimonialInitial(author: string) {
+  return author.trim().charAt(0).toUpperCase() || '?';
+}
 
 const testimonials: Testimonial[] = [
   {
     quote: "Scheduling used to eat up my week. Now it's mostly handled. Reminders go out, clients show up.",
     author: "Sofia Ramirez",
-    role: "Owner, Prime Care Services",
+    reviewedAgo: "4 months ago",
     rating: 5,
-    avatar: "👩‍💼",
-    avatarImage: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=96&h=96&fit=crop&crop=face"
   },
   {
     quote: "Best move we made. Saves us hours every week.",
     author: "Luis Navarro",
-    role: "Operations Manager, Fresh Start",
+    reviewedAgo: "2 weeks ago",
     rating: 5,
-    avatar: "👨‍💼",
-    avatarImage: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=96&h=96&fit=crop&crop=face"
   },
   {
     quote: "Tried a few tools. This one stuck. My team actually uses it, and customers can book on their own.",
     author: "Emma Rivera",
-    role: "Founder, Edge & Fade",
+    reviewedAgo: "5 months ago",
     rating: 5,
-    avatar: "👩‍💻",
-    avatarImage: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=96&h=96&fit=crop&crop=face"
   },
   {
     quote: "Support was great. They got our booking page set up the way we wanted.",
     author: "Anthony Cruz",
-    role: "Director, Elite Cleaners",
+    reviewedAgo: "1 month ago",
     rating: 5,
-    avatar: "🧑‍💼",
-    avatarImage: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=96&h=96&fit=crop&crop=face"
   },
   {
     quote: "Used to track everything in messages and a notebook. Now it's all in one place and clients book online.",
     author: "Daniel Reyes",
-    role: "CEO, Crystal Clear Services",
+    reviewedAgo: "3 months ago",
     rating: 5,
-    avatar: "👩‍🎓",
-    avatarImage: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=96&h=96&fit=crop&crop=face"
   },
   {
     quote: "Set up in a day. Simple, and it actually helped us stay organized.",
     author: "Robert Taylor",
-    role: "CTO, Pristine Pro",
+    reviewedAgo: "6 months ago",
     rating: 5,
-    avatar: "👨‍🔧",
-    avatarImage: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=96&h=96&fit=crop&crop=face"
-  }
+  },
 ];
 
 export default function TestimonialsPage() {
@@ -106,16 +105,15 @@ export default function TestimonialsPage() {
                     &ldquo;{testimonial.quote}&rdquo;
                   </p>
                   <div className="flex items-center gap-4 pt-4 border-t border-white/10">
-                    <div className="shrink-0 w-12 h-12 rounded-full overflow-hidden bg-slate-500/50 flex items-center justify-center ring-2 ring-white/20">
-                      {testimonial.avatarImage ? (
-                        <img src={testimonial.avatarImage} alt={testimonial.author} className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="text-2xl">{testimonial.avatar}</span>
-                      )}
+                    <div
+                      className={`shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-lg font-semibold text-white ring-2 ring-white/20 ${testimonialAvatarBgs[index % testimonialAvatarBgs.length]}`}
+                      aria-hidden
+                    >
+                      {testimonialInitial(testimonial.author)}
                     </div>
                     <div className="min-w-0">
                       <p className="font-semibold text-white">{testimonial.author}</p>
-                      <p className="text-sm text-slate-300">{testimonial.role}</p>
+                      <p className="text-sm text-slate-300">{testimonial.reviewedAgo}</p>
                     </div>
                   </div>
                 </div>

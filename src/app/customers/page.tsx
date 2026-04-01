@@ -9,41 +9,54 @@ const stats = [
   { value: '500+', label: 'Businesses' },
 ];
 
+const testimonialAvatarBgs = [
+  'bg-violet-600',
+  'bg-teal-600',
+  'bg-indigo-600',
+  'bg-emerald-600',
+  'bg-sky-600',
+  'bg-fuchsia-600',
+] as const;
+
+function testimonialInitial(author: string) {
+  return author.trim().charAt(0).toUpperCase() || '?';
+}
+
 const testimonials = [
   {
     quote: "Orbyt Service helped reduce the time I spend scheduling clients. The system keeps track of appointments and reminders, which saves me a lot of time every week.",
     author: "Sofia Ramirez",
-    role: "Owner, Prime Care Services",
+    reviewedAgo: "4 months ago",
     rating: 5,
   },
   {
     quote: "The best investment we've made for our cleaning business. The automated scheduling saves us hours every week.",
     author: "Luis Navarro",
-    role: "Operations Manager, Fresh Start",
+    reviewedAgo: "2 weeks ago",
     rating: 5,
   },
   {
     quote: "I've tried a few booking tools before, but Orbyt Service is by far the easiest one for my team. Our customers can book anytime, and we can manage everything from one dashboard.",
     author: "Emma Rivera",
-    role: "Founder, Edge & Fade",
+    reviewedAgo: "5 months ago",
     rating: 5,
   },
   {
     quote: "The customer support is outstanding. They helped us set up our booking page exactly how we wanted it.",
     author: "Anthony Cruz",
-    role: "Director, Elite Cleaners",
+    reviewedAgo: "1 month ago",
     rating: 5,
   },
   {
     quote: "Orbyt Service has made managing my appointments so much easier. Before, I had to keep track of everything through messages and a notebook. Now my customers can book online and everything is organized in one place.",
     author: "Daniel Reyes",
-    role: "CEO, Crystal Clear Services",
+    reviewedAgo: "3 months ago",
     rating: 5,
   },
   {
     quote: "What I like most about Orbyt Service is how simple it is to use. I was able to set up my services and start accepting bookings the same day. It really helped my cleaning business stay organized.",
     author: "Robert Taylor",
-    role: "CTO, Pristine Pro",
+    reviewedAgo: "6 months ago",
     rating: 5,
   },
 ];
@@ -86,16 +99,26 @@ export default function CustomersPage() {
 
         <h2 className="text-2xl font-bold text-slate-800 mb-6">What our customers say</h2>
         <div className="space-y-6">
-          {testimonials.map((t) => (
+          {testimonials.map((t, i) => (
             <div key={t.author} className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex gap-1 mb-3">
-                {Array.from({ length: t.rating }).map((_, i) => (
-                  <Star key={i} className="h-5 w-5 fill-amber-400 text-amber-400" />
+                {Array.from({ length: t.rating }).map((_, j) => (
+                  <Star key={j} className="h-5 w-5 fill-amber-400 text-amber-400" />
                 ))}
               </div>
               <p className="text-slate-700 mb-4">&ldquo;{t.quote}&rdquo;</p>
-              <p className="font-semibold text-slate-800">{t.author}</p>
-              <p className="text-sm text-slate-500">{t.role}</p>
+              <div className="flex items-center gap-3">
+                <div
+                  className={`shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-sm font-semibold text-white ${testimonialAvatarBgs[i % testimonialAvatarBgs.length]}`}
+                  aria-hidden
+                >
+                  {testimonialInitial(t.author)}
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold text-slate-800">{t.author}</p>
+                  <p className="text-sm text-slate-500">{t.reviewedAgo}</p>
+                </div>
+              </div>
             </div>
           ))}
         </div>
