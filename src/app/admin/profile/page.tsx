@@ -69,6 +69,8 @@ export default function AdminProfilePage() {
     address: "",
     description: ""
   });
+  const [profileCreatedAt, setProfileCreatedAt] = useState<string | null>(null);
+  const [profileUpdatedAt, setProfileUpdatedAt] = useState<string | null>(null);
 
   // Cleanup blob URLs on unmount
   useEffect(() => {
@@ -82,6 +84,10 @@ export default function AdminProfilePage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        const { data: authData } = await supabase.auth.getUser();
+        const authEmail = authData.user?.email?.trim();
+        if (authEmail) setAdminEmail(authEmail);
+
         // Fetch profile data
         const profileResponse = await fetch('/api/admin/profile');
         if (profileResponse.ok) {
@@ -98,6 +104,8 @@ export default function AdminProfilePage() {
             if (profile.email) {
               setAdminEmail(profile.email);
             }
+            setProfileCreatedAt(profile.created_at ?? null);
+            setProfileUpdatedAt(profile.updated_at ?? null);
           }
         }
 
@@ -182,6 +190,11 @@ export default function AdminProfilePage() {
         const errorData = await profileResponse.json().catch(() => ({}));
         console.error('Profile update API error:', errorData);
         throw new Error(errorData.error || 'Failed to update profile');
+      }
+
+      const saved = await profileResponse.json().catch(() => ({}));
+      if (saved?.profile?.updated_at) {
+        setProfileUpdatedAt(saved.profile.updated_at);
       }
       
       localStorage.setItem("adminEmail", adminEmail);
@@ -354,6 +367,36 @@ export default function AdminProfilePage() {
     }
   };
 
+  const formatJoinedDate = (iso: string | null) => {
+    if (!iso) return new Date().toLocaleDateString();
+    try {
+      return new Date(iso).toLocaleDateString();
+    } catch {
+      return new Date().toLocaleDateString();
+    }
+  };
+
+  const formatLastActiveLine = (iso: string | null) => {
+    if (!iso) return 'Last active today';
+    try {
+      const d = new Date(iso);
+      const today = new Date();
+      if (
+        d.getFullYear() === today.getFullYear() &&
+        d.getMonth() === today.getMonth() &&
+        d.getDate() === today.getDate()
+      ) {
+        return 'Last active today';
+      }
+      return `Last active ${d.toLocaleDateString()}`;
+    } catch {
+      return 'Last active today';
+    }
+  };
+
+  const roleDisplay =
+    adminRole.charAt(0).toUpperCase() + adminRole.slice(1).replace(/-/g, ' ');
+
   const handlePasswordChange = () => {
     if (newPassword !== confirmPassword) {
       alert("Passwords do not match!");
@@ -444,32 +487,46 @@ export default function AdminProfilePage() {
           {/* Profile Tab */}
           <TabsContent value="profile" className="space-y-6">
             <div className="grid gap-6 lg:grid-cols-3">
-              {/* Profile Overview Card */}
-              <Card className="lg:col-span-1">
-                <CardHeader className="text-center">
-                  <CardTitle className="flex items-center justify-center gap-2">
-                    <User className="h-5 w-5" />
-                    Profile Overview
-                  </CardTitle>
-                  <CardDescription>
-                    Your profile information
-                  </CardDescription>
+              {/* Profile Overview — matches product “Profile Overview” card */}
+              <Card className="lg:col-span-1 relative overflow-hidden border border-sky-200/70 dark:border-cyan-900/50 bg-gradient-to-br from-sky-50/95 via-white to-cyan-50/85 dark:from-slate-900 dark:via-slate-900/95 dark:to-slate-800 shadow-lg shadow-sky-500/10">
+                <div
+                  className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_60%_at_50%_-15%,rgba(56,189,248,0.18),transparent_55%)]"
+                  aria-hidden
+                />
+                <div
+                  className="pointer-events-none absolute inset-0 opacity-[0.35] dark:opacity-20 bg-[url('data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%2300bcd4\' fill-opacity=\'0.08\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')]"
+                  aria-hidden
+                />
+                <CardHeader className="relative z-10 pb-2">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/80 dark:bg-slate-800/80 border border-sky-200/60 dark:border-cyan-800/50 shadow-sm">
+                      <User className="h-5 w-5 text-slate-800 dark:text-cyan-200" />
+                    </div>
+                    <div className="min-w-0 text-left">
+                      <CardTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                        Profile Overview
+                      </CardTitle>
+                      <CardDescription className="text-slate-600 dark:text-slate-400 mt-0.5">
+                        Your profile information
+                      </CardDescription>
+                    </div>
+                  </div>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="relative group">
-                    <Avatar className="h-24 w-24 mx-auto ring-4 ring-blue-500/20">
+                <CardContent className="relative z-10 space-y-5 pt-0">
+                  <div className="relative group flex flex-col items-center">
+                    <Avatar className="h-28 w-28 ring-4 ring-white/90 dark:ring-slate-700/90 shadow-md">
                       {profilePicture && (profilePicture.startsWith('https://') || profilePicture.startsWith('blob:')) ? (
                         <AvatarImage src={profilePicture} alt={adminName || adminEmail} />
                       ) : null}
-                      <AvatarFallback className="text-2xl font-semibold bg-gradient-to-br from-blue-500 to-purple-600 text-white">
-                        {(adminName || adminEmail || "A").charAt(0).toUpperCase()}
+                      <AvatarFallback className="text-2xl font-semibold bg-gradient-to-br from-sky-500 to-violet-600 text-white">
+                        {(adminName || adminEmail || 'U').charAt(0).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
-                    <div className="absolute bottom-0 right-1/2 translate-x-1/2 translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                    <div className="absolute bottom-0 left-1/2 flex -translate-x-1/2 translate-y-1/2 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-8 w-8 p-0 bg-white dark:bg-slate-800"
+                        className="h-8 w-8 p-0 bg-white dark:bg-slate-800 shadow"
                         onClick={() => document.getElementById('profile-picture-input')?.click()}
                       >
                         <Camera className="h-3 w-3" />
@@ -478,7 +535,7 @@ export default function AdminProfilePage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-8 w-8 p-0 bg-white dark:bg-slate-800"
+                          className="h-8 w-8 p-0 bg-white dark:bg-slate-800 shadow"
                           onClick={removeProfilePicture}
                         >
                           <X className="h-3 w-3" />
@@ -493,28 +550,32 @@ export default function AdminProfilePage() {
                       onChange={handleProfilePictureUpload}
                     />
                   </div>
-                  <div className="text-center space-y-2">
-                    <h3 className="font-semibold text-lg">{adminName || "Admin User"}</h3>
-                    <p className="text-sm text-muted-foreground">{adminEmail}</p>
-                    <div className="flex items-center justify-center gap-2 flex-wrap">
-                      <Badge variant="secondary" className="mt-1">
-                        {adminCompany || "No Company"}
-                      </Badge>
-                      <Badge className={`mt-1 ${getRoleBadgeColor(adminRole)}`}>
+                  <div className="text-center space-y-1.5 pt-4">
+                    <h3 className="font-semibold text-lg text-slate-900 dark:text-slate-50">
+                      {adminName || adminEmail?.split('@')[0] || 'User'}
+                    </h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-400">{adminEmail || '—'}</p>
+                    <div className="flex items-center justify-center gap-2 flex-wrap pt-1">
+                      <span className="inline-flex items-center rounded-full border border-slate-200/80 bg-slate-100/90 px-3 py-1 text-xs font-medium text-slate-800 dark:border-slate-600 dark:bg-slate-800/90 dark:text-slate-200">
+                        ORBYT
+                      </span>
+                      <span
+                        className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${getRoleBadgeColor(adminRole)} border-0`}
+                      >
                         <span className="mr-1">{getRoleIcon(adminRole)}</span>
-                        {adminRole.charAt(0).toUpperCase() + adminRole.slice(1).replace('-', ' ')}
-                      </Badge>
+                        {roleDisplay}
+                      </span>
                     </div>
                   </div>
-                  <Separator />
-                  <div className="space-y-2 text-sm">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Calendar className="h-4 w-4" />
-                      Joined {new Date().toLocaleDateString()}
+                  <Separator className="bg-slate-200/80 dark:bg-slate-700" />
+                  <div className="space-y-2.5 text-sm text-slate-600 dark:text-slate-400">
+                    <div className="flex items-center justify-center gap-2">
+                      <Calendar className="h-4 w-4 shrink-0 text-slate-500" />
+                      <span>Joined {formatJoinedDate(profileCreatedAt)}</span>
                     </div>
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Clock className="h-4 w-4" />
-                      Last active today
+                    <div className="flex items-center justify-center gap-2">
+                      <Clock className="h-4 w-4 shrink-0 text-slate-500" />
+                      <span>{formatLastActiveLine(profileUpdatedAt)}</span>
                     </div>
                   </div>
                 </CardContent>

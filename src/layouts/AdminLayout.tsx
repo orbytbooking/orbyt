@@ -65,7 +65,16 @@ interface Industry {
 const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   const { currentBusiness } = useBusiness();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [adminEmail, setAdminEmail] = useState("Admin");
+  const [adminEmail, setAdminEmail] = useState("");
+  const [accountName, setAccountName] = useState("");
+  const [profilePictureUrl, setProfilePictureUrl] = useState("");
+  const [userRoleLabel, setUserRoleLabel] = useState("");
+
+  const formatRoleLabel = (raw: string | null | undefined) => {
+    const s = String(raw ?? "").trim().toLowerCase();
+    if (!s) return "";
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  };
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const pathname = usePathname();
   const { config } = useWebsiteConfig();
@@ -206,13 +215,70 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
 
   const [openIndustryMenus, setOpenIndustryMenus] = useState<Record<string, boolean>>({});
 
-  // Get admin email and theme from localStorage on client-side only
   useEffect(() => {
-    const email = localStorage.getItem("adminEmail") || "Admin";
-    setAdminEmail(email);
-    const savedTheme = localStorage.getItem("adminTheme") as 'light' | 'dark' || 'dark';
+    const savedTheme = (localStorage.getItem("adminTheme") as 'light' | 'dark') || 'dark';
     setTheme(savedTheme);
   }, []);
+
+  // Session + profile: name, role, avatar (refetch on navigation so /admin/profile saves show up).
+  useEffect(() => {
+    let mounted = true;
+    const hydrateProfile = async () => {
+      const localEmail = localStorage.getItem("adminEmail")?.trim() || "";
+      if (mounted) setAdminEmail(localEmail);
+
+      try {
+        const { data } = await supabase.auth.getSession();
+        const user = data.session?.user;
+        const sessionEmail = user?.email?.trim();
+        if (mounted && sessionEmail) {
+          setAdminEmail(sessionEmail);
+        }
+        const metaRole = formatRoleLabel(user?.user_metadata?.role as string | undefined);
+        if (mounted && metaRole) {
+          setUserRoleLabel(metaRole);
+        }
+
+        const res = await fetch("/api/admin/profile");
+        let profileFullName = "";
+        if (res.ok) {
+          const body = await res.json();
+          const role = body?.profile?.role as string | undefined;
+          if (mounted && role) {
+            setUserRoleLabel(formatRoleLabel(role));
+          }
+          profileFullName = (body?.profile?.full_name as string | undefined)?.trim() ?? "";
+          const rawPic = (body?.profile?.profile_picture as string | undefined)?.trim() ?? "";
+          const validPic =
+            rawPic &&
+            (rawPic.startsWith("https://") ||
+              rawPic.startsWith("http://") ||
+              rawPic.startsWith("blob:"));
+          if (mounted) {
+            setProfilePictureUrl(validPic ? rawPic : "");
+          }
+        } else if (mounted) {
+          setProfilePictureUrl("");
+        }
+
+        const metaName = (user?.user_metadata?.full_name as string | undefined)?.trim() ?? "";
+        const storedName = localStorage.getItem("adminName")?.trim() ?? "";
+        const emailForFallback = sessionEmail || localEmail;
+        const fromEmail = emailForFallback ? emailForFallback.split("@")[0] : "";
+        const displayName =
+          profileFullName || metaName || storedName || fromEmail || "";
+        if (mounted) {
+          setAccountName(displayName);
+        }
+      } catch {
+        // Keep fallback email from localStorage.
+      }
+    };
+    void hydrateProfile();
+    return () => {
+      mounted = false;
+    };
+  }, [pathname]);
 
   useEffect(() => {
     if (currentBusiness) {
@@ -800,20 +866,33 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                   }`}
                 >
                   <Avatar className="h-8 w-8 flex-shrink-0">
-                    <AvatarImage 
-                      src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(adminEmail)}`} 
-                      alt={adminEmail} 
+                    <AvatarImage
+                      src={
+                        profilePictureUrl
+                          ? profilePictureUrl
+                          : `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(accountName || adminEmail || userRoleLabel || "user")}`
+                      }
+                      alt={accountName || adminEmail || "User"}
                       onError={(e) => {
-                        e.currentTarget.style.display = 'none';
+                        if (profilePictureUrl) {
+                          setProfilePictureUrl("");
+                        }
+                        e.currentTarget.style.display = "none";
                       }}
                     />
-                    <AvatarFallback>{adminEmail.charAt(0).toUpperCase()}</AvatarFallback>
+                    <AvatarFallback>
+                      {(accountName || adminEmail || userRoleLabel || "U").charAt(0).toUpperCase()}
+                    </AvatarFallback>
                   </Avatar>
                   {sidebarOpen && (
                     <>
-                      <div className="flex-1 text-left">
-                        <p className="text-sm font-medium text-cyan-300" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{adminEmail.split('@')[0]}</p>
-                        <p className="text-xs text-cyan-300/60 truncate" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{adminEmail}</p>
+                      <div className="flex-1 text-left min-w-0">
+                        <p className="text-sm font-medium text-cyan-300 truncate" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
+                          {accountName || "—"}
+                        </p>
+                        <p className="text-xs text-cyan-300/60 truncate" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
+                          {userRoleLabel || "—"}
+                        </p>
                       </div>
                       <ChevronDown className="h-4 w-4" />
                     </>
@@ -875,7 +954,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
               </h1>
               {pathname === "/admin/dashboard" && (
                 <p className={`text-sm ${theme === 'dark' ? 'text-cyan-300/70' : 'text-black/70'}`} style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
-                  Welcome back, {adminEmail.split('@')[0]}
+                  Welcome back, {accountName || adminEmail.split("@")[0] || "there"}
                 </p>
               )}
             </div>
