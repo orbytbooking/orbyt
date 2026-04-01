@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
 import { getCancellationFeeForBooking } from '@/lib/cancellationFee';
 import { syncBookingCancelled } from '@/lib/googleCalendar';
+import { formatFrequencyRepeatsForDisplay } from '@/lib/industryFrequencyRepeats';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -19,7 +20,7 @@ function formatTimeForDisplay(timeStr: string): string {
   return `${h}:${minutes} ${ampm}`;
 }
 
-function dbToCustomerBooking(row: any): Record<string, unknown> {
+function dbToCustomerBooking(row: any, extras?: { frequencyRepeats?: string | null }): Record<string, unknown> {
   const statusMap: Record<string, string> = {
     pending: 'scheduled',
     confirmed: 'confirmed',
@@ -37,6 +38,7 @@ function dbToCustomerBooking(row: any): Record<string, unknown> {
   let providerName = providerRow
     ? [providerRow.first_name, providerRow.last_name].filter(Boolean).join(' ').trim()
     : (row.provider_name ?? row.assigned_provider ?? '').trim();
+  const repeatsDisp = formatFrequencyRepeatsForDisplay(extras?.frequencyRepeats ?? null);
   return {
     id: row.id,
     service: row.service ?? '',
@@ -54,6 +56,7 @@ function dbToCustomerBooking(row: any): Record<string, unknown> {
     customization: row.customization != null && typeof row.customization === 'object' ? row.customization : undefined,
     cancellationFeeAmount: row.cancellation_fee_amount != null ? Number(row.cancellation_fee_amount) : undefined,
     cancellationFeeCurrency: row.cancellation_fee_currency ?? undefined,
+    ...(repeatsDisp ? { frequencyRepeatsDisplay: repeatsDisp } : {}),
   };
 }
 
@@ -107,6 +110,7 @@ export async function GET(
       notes, total_price, amount, payment_method, payment_status, tip_amount, tip_updated_at,
       customer_name, customer_email, customer_phone, customization, frequency, provider_name,
       cancellation_fee_amount, cancellation_fee_currency,
+      recurring_series_id,
       service_providers ( first_name, last_name )
     `)
     .eq('id', bookingId)
@@ -133,7 +137,22 @@ export async function GET(
     }
   }
 
-  return NextResponse.json({ booking: dbToCustomerBooking(rowForMapping) });
+  let frequencyRepeats: string | null = null;
+  const seriesId = (rowForMapping as { recurring_series_id?: string }).recurring_series_id;
+  if (seriesId) {
+    const { data: seriesRow } = await supabase
+      .from('recurring_series')
+      .select('frequency_repeats')
+      .eq('id', seriesId)
+      .eq('business_id', businessId)
+      .maybeSingle();
+    const fr = (seriesRow as { frequency_repeats?: string } | null)?.frequency_repeats;
+    if (fr != null && String(fr).trim()) frequencyRepeats = String(fr).trim();
+  }
+
+  return NextResponse.json({
+    booking: dbToCustomerBooking(rowForMapping, { frequencyRepeats }),
+  });
 }
 
 /** PATCH - Cancel (or update) a booking as the logged-in customer */
@@ -174,7 +193,9 @@ export async function PATCH(
 
   const { data: booking, error: fetchError } = await supabase
     .from('bookings')
-    .select('id, customer_id, business_id, scheduled_date, scheduled_time, date, time, service_id, google_calendar_event_id')
+    .select(
+      'id, customer_id, business_id, scheduled_date, scheduled_time, date, time, service_id, google_calendar_event_id, recurring_series_id, completed_occurrence_dates, customer_cancelled_occurrence_dates',
+    )
     .eq('id', bookingId)
     .single();
 
@@ -186,11 +207,16 @@ export async function PATCH(
     return NextResponse.json({ error: 'You can only update your own bookings' }, { status: 403 });
   }
 
-  const body = await request.json().catch(() => ({}));
+  const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   const status = body.status === 'canceled' || body.status === 'cancelled' ? 'cancelled' : body.status;
+  const occurrenceDateRaw = typeof body.occurrence_date === 'string' ? body.occurrence_date.slice(0, 10) : '';
+
+  const isRecurring = !!(booking as { recurring_series_id?: string }).recurring_series_id;
+  const perOccurrenceCancel =
+    status === 'cancelled' && isRecurring && occurrenceDateRaw.length >= 8;
 
   const updates: Record<string, unknown> = {};
-  if (status) updates.status = status;
+  if (status && !perOccurrenceCancel) updates.status = status;
 
   // Allow customer to update only their details (Booking Koala-style: edit details + payment only when self-reschedule is off)
   if (typeof body.customer_name === 'string' && body.customer_name.trim()) updates.customer_name = body.customer_name.trim();
@@ -199,7 +225,57 @@ export async function PATCH(
   if (typeof body.address === 'string') updates.address = String(body.address).trim();
   if (typeof body.notes === 'string') updates.notes = String(body.notes).trim();
 
-  if (status === 'cancelled' && booking.business_id) {
+  // Recurring: cancel a single occurrence only (does not cancel the whole series)
+  if (perOccurrenceCancel && booking.business_id) {
+    const { data: cancelSettings } = await supabase
+      .from('business_cancellation_settings')
+      .select('settings')
+      .eq('business_id', booking.business_id)
+      .maybeSingle();
+    const cancelPayload = (cancelSettings?.settings as Record<string, unknown>) || {};
+    if (cancelPayload.allowCustomerSelfCancel === 'no') {
+      return NextResponse.json(
+        { error: 'Online cancellation is not available. Please contact the business to cancel your booking.' },
+        { status: 403 },
+      );
+    }
+    const prevCancelled = Array.isArray(
+      (booking as { customer_cancelled_occurrence_dates?: string[] }).customer_cancelled_occurrence_dates,
+    )
+      ? [...(booking as { customer_cancelled_occurrence_dates: string[] }).customer_cancelled_occurrence_dates]
+      : [];
+    if (prevCancelled.includes(occurrenceDateRaw)) {
+      return NextResponse.json({ success: true, message: 'Occurrence already cancelled' });
+    }
+    const bookingForFee = {
+      ...booking,
+      scheduled_date: occurrenceDateRaw,
+      date: occurrenceDateRaw,
+    };
+    let categoryFee = null;
+    if (booking.service_id) {
+      const { data: cat } = await supabase
+        .from('industry_service_category')
+        .select('cancellation_fee')
+        .eq('id', booking.service_id)
+        .eq('business_id', booking.business_id)
+        .maybeSingle();
+      if (cat?.cancellation_fee) categoryFee = cat.cancellation_fee as Record<string, unknown>;
+    }
+    const fee = getCancellationFeeForBooking(
+      bookingForFee,
+      (cancelSettings?.settings as Record<string, unknown>) || null,
+      categoryFee,
+    );
+    if (fee) {
+      updates.cancellation_fee_amount = fee.amount;
+      updates.cancellation_fee_currency = fee.currency;
+    }
+    updates.customer_cancelled_occurrence_dates = [...prevCancelled, occurrenceDateRaw];
+    updates.updated_at = new Date().toISOString();
+  }
+
+  if (status === 'cancelled' && booking.business_id && !perOccurrenceCancel) {
     const { data: cancelSettings } = await supabase
       .from('business_cancellation_settings')
       .select('settings')
@@ -250,13 +326,21 @@ export async function PATCH(
   }
 
   if (status === 'cancelled' && booking.business_id) {
-    await syncBookingCancelled(booking.business_id, booking).catch(() => {});
     const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
-    await createAdminNotification(booking.business_id, 'cancellation_request', {
-      title: 'Cancellation request',
-      message: `Customer requested to cancel ${bkRef}.`,
-      link: '/admin/bookings',
-    });
+    if (perOccurrenceCancel) {
+      await createAdminNotification(booking.business_id, 'cancellation_request', {
+        title: 'Recurring occurrence cancelled',
+        message: `Customer cancelled one date (${occurrenceDateRaw}) for ${bkRef}.`,
+        link: '/admin/bookings',
+      });
+    } else {
+      await syncBookingCancelled(booking.business_id, booking).catch(() => {});
+      await createAdminNotification(booking.business_id, 'cancellation_request', {
+        title: 'Cancellation request',
+        message: `Customer requested to cancel ${bkRef}.`,
+        link: '/admin/bookings',
+      });
+    }
   }
 
   return NextResponse.json({ booking: updated });

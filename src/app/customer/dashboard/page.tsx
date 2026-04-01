@@ -40,8 +40,9 @@ const CustomerDashboard = () => {
 
   const scheduledBookings = useMemo(() => {
     const list = Array.isArray(bookingsList) ? bookingsList : [];
+    const upcoming = new Set(["scheduled", "confirmed", "in_progress", "pending"]);
     return list
-      .filter((booking) => booking?.status === "scheduled")
+      .filter((booking) => booking?.status && upcoming.has(String(booking.status)))
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [bookingsList]);
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { syncBookingStatusToAdmin, syncProviderStatusToAdmin } from '@/lib/adminProviderSync';
 import { getOccurrenceDatesForSeriesSync } from '@/lib/recurringBookings';
+import { compareBookingsByScheduleAsc } from '@/lib/bookingScheduleSort';
 
 export async function GET(request: NextRequest) {
   try {
@@ -74,6 +75,8 @@ export async function GET(request: NextRequest) {
       `)
       .eq('provider_id', provider.id)
       .eq('business_id', provider.business_id) // CRITICAL: Filter by business ID
+      .order('scheduled_date', { ascending: false, nullsFirst: false })
+      .order('scheduled_time', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false });
 
     if (bookingsError) {
@@ -145,11 +148,7 @@ export async function GET(request: NextRequest) {
           is_recurring: !!(booking as { recurring_series_id?: string }).recurring_series_id,
         };
       });
-      const sorted = [...transformedBookings].sort((a, b) => {
-        const d = (b.date || '').localeCompare(a.date || '');
-        if (d !== 0) return d;
-        return (b.time || '').localeCompare(a.time || '');
-      });
+      const sorted = [...transformedBookings].sort(compareBookingsByScheduleAsc);
       const stats = {
         total: sorted.length,
         pending: sorted.filter(b => b.status === 'pending').length,
@@ -239,11 +238,7 @@ export async function GET(request: NextRequest) {
       return true;
     });
 
-    deduped.sort((a, b) => {
-      const d = (b.date || '').localeCompare(a.date || '');
-      if (d !== 0) return d;
-      return (b.time || '').localeCompare(a.time || '');
-    });
+    deduped.sort(compareBookingsByScheduleAsc);
 
     const transformedBookings = deduped;
 

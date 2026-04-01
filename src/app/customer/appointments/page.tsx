@@ -175,7 +175,7 @@ const CustomerAppointmentsPage = () => {
     const booking = cancelDialogBooking;
     if (!booking) return;
     setCancelDialogBooking(null);
-    setCancellingId(booking.id);
+    setCancellingId(`${booking.id}|${booking.occurrenceDate ?? ""}`);
     try {
       const supabase = getSupabaseCustomerClient();
       const { data: { session } } = await supabase.auth.getSession();
@@ -193,7 +193,10 @@ const CustomerAppointmentsPage = () => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ status: "canceled" }),
+        body: JSON.stringify({
+          status: "canceled",
+          ...(booking.occurrenceDate ? { occurrence_date: booking.occurrenceDate } : {}),
+        }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -205,7 +208,12 @@ const CustomerAppointmentsPage = () => {
         return;
       }
       updateBookings((prev) =>
-        prev.map((item) => (item.id === booking.id ? { ...item, status: "canceled" } : item)),
+        prev.map((item) => {
+          const sameRow =
+            item.id === booking.id &&
+            (item.occurrenceDate ?? "") === (booking.occurrenceDate ?? "");
+          return sameRow ? { ...item, status: "canceled" } : item;
+        }),
       );
       toast({
         title: "Booking canceled",
@@ -349,8 +357,14 @@ const CustomerAppointmentsPage = () => {
                       <Button variant="outline" onClick={() => setCancelDialogBooking(null)}>
                         Keep booking
                       </Button>
-                      <Button variant="destructive" onClick={handleCancelBookingConfirm} disabled={cancellingId === cancelDialogBooking.id}>
-                        {cancellingId === cancelDialogBooking.id ? "Canceling…" : "Cancel booking"}
+                      <Button
+                        variant="destructive"
+                        onClick={handleCancelBookingConfirm}
+                        disabled={cancellingId === `${cancelDialogBooking.id}|${cancelDialogBooking.occurrenceDate ?? ""}`}
+                      >
+                        {cancellingId === `${cancelDialogBooking.id}|${cancelDialogBooking.occurrenceDate ?? ""}`
+                          ? "Canceling…"
+                          : "Cancel booking"}
                       </Button>
                     </div>
                   </div>
@@ -417,6 +431,9 @@ const CustomerAppointmentsPage = () => {
                       <div className="flex items-center gap-3">
                         <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
                         <p className="text-sm"><span className="text-muted-foreground">Frequency</span> <span className="font-medium">{detailsBooking.frequency?.trim() || "—"}</span></p>
+                        {detailsBooking.frequencyRepeatsDisplay?.trim() ? (
+                          <p className="text-sm pl-7"><span className="text-muted-foreground">Repeats every</span> <span className="font-medium">{detailsBooking.frequencyRepeatsDisplay.trim()}</span></p>
+                        ) : null}
                       </div>
                     </div>
 

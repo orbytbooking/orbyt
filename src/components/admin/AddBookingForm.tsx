@@ -5,6 +5,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { serviceCategoriesService, ServiceCategory } from '@/lib/serviceCategories';
 import { getFrequencyDependencies } from '@/lib/frequencyFilter';
+import { filterFrequencyOptionsForServiceCategory } from '@/lib/form1CustomerBooking';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -435,10 +436,12 @@ export function AddBookingForm({
       setFrequencyDependencies(null);
       return;
     }
-    getFrequencyDependencies(selectedIndustryId, newBooking.frequency)
+    getFrequencyDependencies(selectedIndustryId, newBooking.frequency, {
+      businessId: currentBusiness?.id,
+    })
       .then(setFrequencyDependencies)
       .catch(() => setFrequencyDependencies(null));
-  }, [selectedIndustryId, newBooking.frequency]);
+  }, [selectedIndustryId, newBooking.frequency, currentBusiness?.id]);
 
   // Update exclude parameters when frequency dependencies or industry change
   useEffect(() => {
@@ -2770,25 +2773,25 @@ const handleAddBooking = async (status: string = 'pending') => {
                 let availableFrequencies = frequencies;
                 
                 if (newBooking.service) {
-                  // Find the selected service category
                   const selectedServiceCategory = serviceCategories.find(cat => cat.name === newBooking.service);
-                  
+
                   if (selectedServiceCategory && selectedServiceCategory.service_category_frequency) {
-                    // If service has frequency filtering enabled, show only configured frequencies
-                    const selectedFrequencies = selectedServiceCategory.selected_frequencies || [];
-                    availableFrequencies = frequencies.filter(freq => 
-                      selectedFrequencies.some(selectedFreq => 
-                        selectedFreq.toLowerCase().replace(/[-\s]/g, '') === freq.name.toLowerCase().replace(/[-\s]/g, '')
-                      )
+                    const names = frequencies.map((f) => f.name).filter(Boolean);
+                    const filteredNames = filterFrequencyOptionsForServiceCategory(
+                      names,
+                      selectedServiceCategory,
                     );
-                    
+                    const byName = new Map(frequencies.map((f) => [f.name, f]));
+                    availableFrequencies = filteredNames
+                      .map((n) => byName.get(n))
+                      .filter((f): f is (typeof frequencies)[number] => f != null);
+
                     console.log(`Service "${newBooking.service}" frequency filtering:`, {
                       serviceCategory: selectedServiceCategory,
-                      selectedFrequencies: selectedFrequencies,
-                      availableFrequencies: availableFrequencies.map(f => f.name)
+                      selected_frequencies: selectedServiceCategory.selected_frequencies,
+                      availableFrequencies: availableFrequencies.map((f) => f.name),
                     });
                   }
-                  // If service doesn't have frequency filtering, show all frequencies
                 }
                 
                 return availableFrequencies.length > 0 ? (

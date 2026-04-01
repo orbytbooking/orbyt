@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
@@ -50,6 +50,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getSupabaseProviderClient } from "@/lib/supabaseProviderClient";
 import { cn } from "@/lib/utils";
 import { computeProviderNetPayFromBooking } from "@/lib/bookingProviderWage";
+import { compareBookingsByScheduleAsc } from "@/lib/bookingScheduleSort";
 
 type Booking = {
   id: string;
@@ -199,8 +200,33 @@ const ProviderBookings = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [refreshKey, setRefreshKey] = useState(0);
   const [bookingsView, setBookingsView] = useState<"occurrences" | "bookings">("occurrences");
+  const providerBookingsLastHiddenAtRef = useRef<number | null>(null);
   const { toast } = useToast();
   const searchParams = useSearchParams();
+
+  // Same refresh policy as admin calendars: debounced visibility + 2 min poll when tab visible
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "hidden") {
+        providerBookingsLastHiddenAtRef.current = Date.now();
+      } else if (document.visibilityState === "visible" && providerBookingsLastHiddenAtRef.current != null) {
+        if (Date.now() - providerBookingsLastHiddenAtRef.current > 60_000) {
+          setRefreshKey((k) => k + 1);
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        setRefreshKey((k) => k + 1);
+      }
+    }, 120_000);
+    return () => clearInterval(id);
+  }, []);
 
   // Open booking details when arriving with ?bookingId=xxx (e.g. from dashboard View Details)
   useEffect(() => {
@@ -385,12 +411,8 @@ const ProviderBookings = () => {
       );
     }
     
-    // Sort by booking date descending (latest first), then by time descending
-    filtered = [...filtered].sort((a, b) => {
-      const dateCompare = (b.date || "").localeCompare(a.date || "");
-      if (dateCompare !== 0) return dateCompare;
-      return (b.time || "").localeCompare(a.time || "");
-    });
+    // Earliest scheduled slot first (same logic as /api/provider/bookings)
+    filtered = [...filtered].sort(compareBookingsByScheduleAsc);
     
     return filtered;
   };

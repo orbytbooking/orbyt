@@ -4,15 +4,19 @@ import { useCustomerAccount } from '@/hooks/useCustomerAccount';
 export const BOOKINGS_STORAGE_KEY = "customerBookings";
 export const BOOK_AGAIN_STORAGE_KEY = "bookAgainBooking";
 
-export type BookingStatus = "scheduled" | "completed" | "canceled";
+export type BookingStatus = "scheduled" | "completed" | "canceled" | "confirmed" | "in_progress";
 
 export type Booking = {
   id: string;
   service: string;
   provider: string;
   frequency: string;
+  /** Human-readable repeat rule from recurring_series (matches admin "Repeats" line). */
+  frequencyRepeatsDisplay?: string;
   date: string; // yyyy-mm-dd format
   time: string;
+  /** Set for expanded recurring rows so cancel targets one occurrence */
+  occurrenceDate?: string;
   status: BookingStatus;
   address: string;
   contact: string;

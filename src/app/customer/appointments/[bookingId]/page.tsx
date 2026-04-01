@@ -135,6 +135,9 @@ export default function BookingDetailsPage() {
 
   const detailRows = [
     { label: "Frequency", value: booking.frequency?.trim() || "—" },
+    ...(booking.frequencyRepeatsDisplay?.trim()
+      ? [{ label: "Repeats every", value: booking.frequencyRepeatsDisplay.trim() }]
+      : []),
     ...customizationRows,
   ];
 

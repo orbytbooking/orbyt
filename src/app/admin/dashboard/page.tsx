@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_ADMIN_CALENDAR_PREFS, parseAdminCalendarPrefs, type AdminCalendarPrefsState } from "@/lib/adminCalendarPrefs";
 import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
 import { useBusiness } from "@/contexts/BusinessContext";
@@ -47,6 +47,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { AdminBookingsCalendar } from "@/components/admin/AdminBookingsCalendar";
 import { EditBookingSheet } from "@/components/admin/EditBookingSheet";
 import { getOccurrenceDatesForSeriesSync } from "@/lib/recurringBookings";
+import { compareBookingsByScheduleDesc } from "@/lib/bookingScheduleSort";
 
 // Icon mapping for API responses
 const iconMap: Record<string, any> = {
@@ -191,6 +192,8 @@ const Dashboard = () => {
   const [resendReceiptLoading, setResendReceiptLoading] = useState(false);
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [sheetEditBookingId, setSheetEditBookingId] = useState<string | null>(null);
+  const [calendarBookings, setCalendarBookings] = useState<Booking[]>([]);
+  const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
   const { config } = useWebsiteConfig();
   const { currentBusiness } = useBusiness(); // Get current business
   const router = useRouter();
@@ -297,27 +300,35 @@ const Dashboard = () => {
       .catch(() => setExtrasMap({}));
   }, [selectedBooking?.id, industries]);
 
+  const dashboardLastHiddenAtRef = useRef<number | null>(null);
+
   useEffect(() => {
     fetchDashboardData();
-    
-    // Set up auto-refresh every 30 seconds to sync with provider portal updates
-    // This ensures bookings, availability, and provider status changes from provider portal
-    // are reflected in the admin dashboard in near real-time
+
     const refreshInterval = setInterval(() => {
-      fetchDashboardData(false); // Silent refresh
-    }, 30000); // Refresh every 30 seconds
+      if (document.visibilityState !== "visible") return;
+      fetchDashboardData(false);
+      setCalendarRefreshKey((k) => k + 1);
+    }, 120_000);
 
     return () => clearInterval(refreshInterval);
   }, []);
 
-  // Listen for focus events to refresh when admin returns to tab
+  // Refetch when tab was hidden for a while (avoids reload on every focus)
   useEffect(() => {
-    const handleFocus = () => {
-      fetchDashboardData(false); // Silent refresh on focus
+    const onVis = () => {
+      if (document.visibilityState === "hidden") {
+        dashboardLastHiddenAtRef.current = Date.now();
+      } else if (document.visibilityState === "visible" && dashboardLastHiddenAtRef.current != null) {
+        const hiddenMs = Date.now() - dashboardLastHiddenAtRef.current;
+        if (hiddenMs > 60_000) {
+          fetchDashboardData(false);
+          setCalendarRefreshKey((k) => k + 1);
+        }
+      }
     };
-    
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
   // Keep booking summary modal in sync with latest dashboard data (after refresh, assign, or accept)
@@ -331,25 +342,19 @@ const Dashboard = () => {
   }, [data, selectedBooking?.id]);
 
   // Calendar bookings: same source as All Bookings (Supabase + expand recurring with per-occurrence status)
-  const [calendarBookings, setCalendarBookings] = useState<Booking[]>([]);
-  const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
-
   useEffect(() => {
     let cancelled = false;
     async function fetchCalendarBookings() {
       if (!currentBusiness?.id) return;
-      try {
-        await fetch(`/api/admin/recurring/extend?businessId=${currentBusiness.id}`, {
-          headers: { "x-business-id": currentBusiness.id },
-        });
-      } catch (e) {
-        console.warn("Dashboard: recurring extend failed", e);
-      }
+      void fetch(`/api/admin/recurring/extend?businessId=${currentBusiness.id}`, {
+        headers: { "x-business-id": currentBusiness.id },
+      }).catch(() => {});
       if (cancelled) return;
       const { data: bookingsData, error } = await supabase
         .from("bookings")
         .select("*")
         .eq("business_id", currentBusiness.id)
+        .order("scheduled_date", { ascending: false, nullsFirst: false })
         .order("date", { ascending: false });
       if (cancelled || error) {
         if (!cancelled && error) console.error("Dashboard calendar fetch error:", error);
@@ -376,6 +381,10 @@ const Dashboard = () => {
             const completedDates: string[] = Array.isArray(booking.completed_occurrence_dates)
               ? booking.completed_occurrence_dates
               : [];
+            if (!dates.length) {
+              expanded.push(booking);
+              continue;
+            }
             for (const d of dates) {
               const occurrenceStatus = completedDates.includes(d)
                 ? "completed"
@@ -403,7 +412,12 @@ const Dashboard = () => {
             seen.add(key);
             return true;
           })
-          .sort((a: any, b: any) => (b.date || b.scheduled_date || "").localeCompare(a.date || a.scheduled_date || ""));
+          .sort((a: any, b: any) =>
+            compareBookingsByScheduleDesc(
+              { date: a.date || a.scheduled_date, time: a.time || a.scheduled_time },
+              { date: b.date || b.scheduled_date, time: b.time || b.scheduled_time },
+            ),
+          );
       }
       const normalized: Booking[] = list.map((b: any) => {
         const name = b.customer_name || "Unassigned";

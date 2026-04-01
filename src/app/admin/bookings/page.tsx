@@ -108,6 +108,7 @@ import { DraftQuoteLogsDialog } from "@/components/admin/DraftQuoteLogsDialog";
 import { AdminBookingsCalendar } from "@/components/admin/AdminBookingsCalendar";
 import { EditBookingSheet } from "@/components/admin/EditBookingSheet";
 import { getOccurrenceDatesForSeriesSync } from "@/lib/recurringBookings";
+import { compareBookingsByScheduleDesc } from "@/lib/bookingScheduleSort";
 import {
   DEFAULT_ADMIN_CALENDAR_PREFS,
   parseAdminCalendarPrefs,
@@ -420,17 +421,31 @@ export default function BookingsPage() {
   }, [activeTab, adminCalendarPrefs.admin_bookings_default_view]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [refreshKey, setRefreshKey] = useState(0);
+  const lastHiddenAtRef = useRef<number | null>(null);
 
-  // Refetch when user returns to this tab (so calendar matches dashboard after edits elsewhere)
+  // Refetch only after the tab was hidden for a while (avoids reload on every focus click)
   useEffect(() => {
-    const onFocus = () => setRefreshKey((k) => k + 1);
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    const onVis = () => {
+      if (document.visibilityState === "hidden") {
+        lastHiddenAtRef.current = Date.now();
+      } else if (document.visibilityState === "visible" && lastHiddenAtRef.current != null) {
+        const hiddenMs = Date.now() - lastHiddenAtRef.current;
+        if (hiddenMs > 60_000) {
+          setRefreshKey((k) => k + 1);
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
-  // Auto-refresh every 30s like dashboard so calendar stays in sync after edits
+  // Light background sync (was 30s — too heavy for large booking lists)
   useEffect(() => {
-    const interval = setInterval(() => setRefreshKey((k) => k + 1), 30000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        setRefreshKey((k) => k + 1);
+      }
+    }, 120_000);
     return () => clearInterval(interval);
   }, []);
 
@@ -443,11 +458,13 @@ export default function BookingsPage() {
       }
       
       setLoading(true);
+      // Expire drafts + extend recurring series in the background — do not block the bookings query
+      // (awaiting these made the page feel very slow on businesses with many series).
       try {
         const { data: sessionData } = await supabase.auth.getSession();
         const token = sessionData.session?.access_token;
         if (token && currentBusiness?.id) {
-          await fetch("/api/admin/bookings/expire-draft-quotes", {
+          void fetch("/api/admin/bookings/expire-draft-quotes", {
             method: "POST",
             headers: {
               Authorization: `Bearer ${token}`,
@@ -458,21 +475,18 @@ export default function BookingsPage() {
       } catch {
         /* ignore */
       }
-      // Extend recurring series (create next occurrences as needed).
-      // If you delete all bookings in DB but recurring_series rows still exist, this will re-create bookings on load. See docs/BOOKINGS_DELETED_COME_BACK.md.
-      try {
-        await fetch(`/api/admin/recurring/extend?businessId=${currentBusiness.id}`, {
-          headers: { 'x-business-id': currentBusiness.id },
-        });
-      } catch (e) {
-        console.warn('Recurring extend failed:', e);
+      if (currentBusiness?.id) {
+        void fetch(`/api/admin/recurring/extend?businessId=${currentBusiness.id}`, {
+          headers: { "x-business-id": currentBusiness.id },
+        }).catch(() => {});
       }
       if (cancelled) return;
-      // Fetch bookings
+      // Fetch bookings immediately
       const { data: bookingsData, error } = await supabase
         .from('bookings')
         .select('*')
         .eq('business_id', currentBusiness?.id)
+        .order('scheduled_date', { ascending: false, nullsFirst: false })
         .order('date', { ascending: false });
       
       if (cancelled) return;
@@ -521,7 +535,12 @@ export default function BookingsPage() {
             expanded.push(booking);
           }
         }
-        list = expanded.sort((a: any, b: any) => (b.date || b.scheduled_date || '').localeCompare(a.date || a.scheduled_date || ''));
+        list = expanded.sort((a: any, b: any) =>
+          compareBookingsByScheduleDesc(
+            { date: a.date || a.scheduled_date, time: a.time || a.scheduled_time },
+            { date: b.date || b.scheduled_date, time: b.time || b.scheduled_time },
+          ),
+        );
       }
       
       // Fetch providers to get names for bookings with provider_id

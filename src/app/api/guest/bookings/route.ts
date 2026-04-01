@@ -4,6 +4,7 @@ import { createAdminNotification } from '@/lib/adminProviderSync';
 import { processBookingScheduling } from '@/lib/bookingScheduling';
 import { EmailService } from '@/lib/emailService';
 import { syncBookingCreated, createRecurringCalendarEvent } from '@/lib/googleCalendar';
+import { resolveFrequencyRepeatsForBooking } from '@/lib/industryFrequencyRepeats';
 import { getStoreOptionsScheduling, isDateHoliday, getSpotLimits, getBookingCountForDate, getBookingCountForWeek, isTimeSlotAvailableForBooking } from '@/lib/schedulingFilters';
 import { ensureCustomerForAdminBooking } from '@/lib/ensureCustomerForAdminBooking';
 import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProviderWage';
@@ -309,13 +310,7 @@ export async function POST(request: NextRequest) {
       const { data: biz } = await supabase.from('businesses').select('industry_id').eq('id', businessId).single();
       const industryId = (biz as { industry_id?: string } | null)?.industry_id;
       if (industryId) {
-        const { data: freq } = await supabase
-          .from('industry_frequency')
-          .select('frequency_repeats')
-          .eq('industry_id', industryId)
-          .ilike('name', freqName)
-          .maybeSingle();
-        frequencyRepeats = (freq as { frequency_repeats?: string } | null)?.frequency_repeats ?? null;
+        frequencyRepeats = await resolveFrequencyRepeatsForBooking(supabase, businessId, industryId, freqName);
       }
     }
     const endDate = (body.recurring_end_date && String(body.recurring_end_date).trim()) || null;

@@ -1,4 +1,5 @@
 import { IndustryFrequency } from '@/types/booking';
+import { normalizeFrequencyLabelForMatch } from '@/lib/industryFrequencyRepeats';
 
 export interface FrequencyDependencies {
   serviceCategories: string[];
@@ -18,19 +19,36 @@ export interface FilterOptions {
   extras?: Array<{ id: string; name: string }>;
 }
 
+export type GetFrequencyDependenciesOptions = {
+  /** Required to match Form 1 rows in industry_frequency (scoped per business). */
+  businessId?: string;
+};
+
 /**
- * Fetches frequency dependencies for a given industry and frequency
+ * Fetches frequency dependencies for a given industry and frequency (Form 1 → Frequencies → dependencies).
  */
 export async function getFrequencyDependencies(
-  industryId: string, 
-  frequencyName: string
+  industryId: string,
+  frequencyName: string,
+  options?: GetFrequencyDependenciesOptions
 ): Promise<FrequencyDependencies | null> {
+  if (!frequencyName?.trim()) {
+    return null;
+  }
   try {
     console.log(`=== FREQUENCY DEPENDENCIES DEBUG ===`);
     console.log(`Industry ID: ${industryId}`);
+    console.log(`Business ID: ${options?.businessId ?? '(none)'}`);
     console.log(`Frequency Name: ${frequencyName}`);
-    
-    const response = await fetch(`/api/industry-frequency?industryId=${industryId}&includeAll=true`);
+
+    const params = new URLSearchParams();
+    params.set('industryId', industryId);
+    params.set('includeAll', 'true');
+    if (options?.businessId?.trim()) {
+      params.set('businessId', options.businessId.trim());
+    }
+
+    const response = await fetch(`/api/industry-frequency?${params.toString()}`);
     if (!response.ok) {
       console.error('Failed to fetch frequencies:', response.statusText);
       return null;
@@ -41,10 +59,10 @@ export async function getFrequencyDependencies(
     
     const frequencies = data.frequencies || [];
     console.log('Available frequencies:', frequencies);
-    
-    // Find the frequency that matches the selected frequency name
-    const selectedFrequency = frequencies.find((freq: IndustryFrequency) => 
-      freq.name === frequencyName
+
+    const target = normalizeFrequencyLabelForMatch(frequencyName);
+    const selectedFrequency = frequencies.find((freq: IndustryFrequency) =>
+      normalizeFrequencyLabelForMatch(freq.name) === target
     );
     
     console.log('Selected frequency:', selectedFrequency);
@@ -156,9 +174,10 @@ export function filterExtras(
 export async function applyFrequencyFilters(
   industryId: string,
   frequencyName: string,
-  options: FilterOptions
+  options: FilterOptions,
+  depsOptions?: GetFrequencyDependenciesOptions
 ): Promise<FilterOptions> {
-  const dependencies = await getFrequencyDependencies(industryId, frequencyName);
+  const dependencies = await getFrequencyDependencies(industryId, frequencyName, depsOptions);
   
   if (!dependencies) {
     // If no dependencies found, return all options

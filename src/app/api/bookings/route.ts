@@ -7,6 +7,7 @@ import { getStoreOptionsScheduling, isDateHoliday } from '@/lib/schedulingFilter
 import { logNewDraftOrQuote } from '@/lib/draftQuoteLogs';
 import { ensureCustomerForAdminBooking } from '@/lib/ensureCustomerForAdminBooking';
 import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProviderWage';
+import { resolveFrequencyRepeatsForBooking } from '@/lib/industryFrequencyRepeats';
 import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
 
 export async function GET(request: Request) {
@@ -369,13 +370,12 @@ export async function POST(request: Request) {
       const freqName = (bookingData.frequency || '').toString().trim();
       let frequencyRepeats: string | null = bookingData.frequency_repeats ?? null;
       if (!frequencyRepeats && bookingData.industry_id) {
-        const { data: freq } = await supabase
-          .from('industry_frequency')
-          .select('frequency_repeats')
-          .eq('industry_id', bookingData.industry_id)
-          .ilike('name', freqName)
-          .maybeSingle();
-        frequencyRepeats = (freq as { frequency_repeats?: string } | null)?.frequency_repeats ?? null;
+        frequencyRepeats = await resolveFrequencyRepeatsForBooking(
+          supabase,
+          businessId,
+          bookingData.industry_id,
+          freqName
+        );
       }
       const endDate = bookingData.recurring_end_date?.toString().trim() || null;
       const occurrencesAhead = Math.min(Math.max(1, parseInt(bookingData.recurring_occurrences_ahead, 10) || 8), 24);

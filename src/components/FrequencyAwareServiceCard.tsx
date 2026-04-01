@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -10,12 +11,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowLeft } from "lucide-react";
 import QuantitySelector from "@/components/QuantitySelector";
 import styles from "./ServiceCard.module.css";
-import { 
-  getFrequencyDependencies, 
-  filterVariables, 
-  filterExcludeParameters, 
-  filterExtras 
+import {
+  getFrequencyDependencies,
+  type FrequencyDependencies,
 } from "@/lib/frequencyFilter";
+import {
+  filterFrequencyOptionsForServiceCategory,
+  pickEffectiveFrequencyForCard,
+  showServiceDurationOnCustomerBooking,
+} from "@/lib/form1CustomerBooking";
 
 interface ServiceCardProps {
   service: {
@@ -34,6 +38,8 @@ interface ServiceCardProps {
   customization: ServiceCustomization;
   onCustomizationChange: (serviceId: string, customization: ServiceCustomization) => void;
   industryId?: string;
+  /** Business that owns Form 1; required for correct industry_frequency dependency rows. */
+  businessId?: string;
   serviceCategory?: any; // Add service category prop
   availableExtras?: any[]; // Add available extras prop
   availableVariables?: { [key: string]: any[] }; // Add available variables prop
@@ -83,15 +89,34 @@ export default function FrequencyAwareServiceCard({
   customization, 
   onCustomizationChange,
   industryId,
+  businessId,
   serviceCategory,
   availableExtras = [],
   availableVariables = {},
   frequencyOptions = []
 }: ServiceCardProps) {
+  const cardFrequencyOptions = useMemo(
+    () => filterFrequencyOptionsForServiceCategory(frequencyOptions, serviceCategory),
+    [frequencyOptions, serviceCategory],
+  );
+
+  const effectiveFrequency = useMemo(
+    () => pickEffectiveFrequencyForCard(customization.frequency, cardFrequencyOptions),
+    [customization.frequency, cardFrequencyOptions],
+  );
+
+  const showDurationOnCard = showServiceDurationOnCustomerBooking(
+    serviceCategory?.display_service_length_customer,
+  );
+
   const isFlipped = flippedCardId === String(service.id) || flippedCardId === service.id;
   const [isConfirmed, setIsConfirmed] = useState(isSelected);
   // Ref holds the latest customization so Confirm always passes current form values (avoids stale prop after async parent update)
   const latestCustomizationRef = useRef<ServiceCustomization>(customization);
+
+  const [frequencyDependencies, setFrequencyDependencies] =
+    useState<FrequencyDependencies | null>(null);
+  const [rawExcludeParameters, setRawExcludeParameters] = useState<ExcludeParamOption[]>([]);
 
   const [filteredOptions, setFilteredOptions] = useState<{
     bathroomVariables: typeof DEFAULT_BATHROOM_OPTIONS;
@@ -173,11 +198,32 @@ export default function FrequencyAwareServiceCard({
     }
   }, [customization, isFlipped]);
 
-  // Fetch exclude parameters from admin portal API
+  // Match admin AddBookingForm: load frequency dependencies when industry + this card's frequency change
+  useEffect(() => {
+    if (!industryId || !customization.frequency?.trim()) {
+      setFrequencyDependencies(null);
+      return;
+    }
+    let cancelled = false;
+    getFrequencyDependencies(industryId, customization.frequency, {
+      businessId: businessId?.trim() || undefined,
+    })
+      .then((deps) => {
+        if (!cancelled) setFrequencyDependencies(deps);
+      })
+      .catch(() => {
+        if (!cancelled) setFrequencyDependencies(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [industryId, businessId, customization.frequency]);
+
+  // Raw exclude parameters from API (industry-wide); filtered in the next effect like admin
   useEffect(() => {
     const fetchExcludeParameters = async () => {
       if (!industryId) {
-        setFilteredOptions(prev => ({ ...prev, excludeParameters: [] }));
+        setRawExcludeParameters([]);
         return;
       }
 
@@ -192,25 +238,24 @@ export default function FrequencyAwareServiceCard({
               qty_based: param.qty_based,
               maximum_quantity: param.maximum_quantity ?? null,
             }));
-            setFilteredOptions(prev => ({ ...prev, excludeParameters: params }));
+            setRawExcludeParameters(params);
           } else {
-            setFilteredOptions(prev => ({ ...prev, excludeParameters: [] }));
+            setRawExcludeParameters([]);
           }
         } else {
-          setFilteredOptions(prev => ({ ...prev, excludeParameters: [] }));
+          setRawExcludeParameters([]);
         }
       } catch (error) {
-        console.error('Error fetching exclude parameters:', error);
-        setFilteredOptions(prev => ({ ...prev, excludeParameters: [] }));
+        console.error("Error fetching exclude parameters:", error);
+        setRawExcludeParameters([]);
       }
     };
 
     fetchExcludeParameters();
   }, [industryId]);
 
-  // Apply service category dependency-based filtering
+  // Apply service category + frequency dependency filtering (parity with admin AddBookingForm)
   useEffect(() => {
-    // Only run if we actually have service category data
     const toExtraOption = (e: any): ExtraOption => ({
       id: e.id,
       name: e.name,
@@ -218,69 +263,90 @@ export default function FrequencyAwareServiceCard({
       maximum_quantity: e.maximum_quantity ?? null,
     });
 
+    const filterExcludeForDisplay = (
+      raw: ExcludeParamOption[],
+      category: typeof serviceCategory,
+      deps: FrequencyDependencies | null,
+    ): ExcludeParamOption[] => {
+      if (!category) return raw;
+      if (category.service_category_frequency) {
+        if (deps?.excludeParameters && deps.excludeParameters.length > 0) {
+          return raw.filter((p) => deps.excludeParameters.includes(p.name));
+        }
+        return [];
+      }
+      const selected = category.selected_exclude_parameters;
+      if (selected && selected.length > 0) {
+        return raw.filter((p) => selected.includes(p.name));
+      }
+      return [];
+    };
+
     if (!serviceCategory || (!availableExtras?.length && !availableVariables)) {
-      // If no service category or no available data, use available data
-      // Variables are displayed dynamically, so we only need to track extras and exclude parameters
-      setFilteredOptions(prev => ({
-        bathroomVariables: DEFAULT_BATHROOM_OPTIONS, // Not used - variables displayed dynamically
-        sqftVariables: DEFAULT_SQFT_OPTIONS, // Not used - variables displayed dynamically
-        bedroomVariables: DEFAULT_BEDROOM_OPTIONS, // Not used - variables displayed dynamically
-        excludeParameters: prev.excludeParameters || [], // Preserve exclude parameters from API fetch
-        extras: availableExtras?.length > 0 ? availableExtras.map(toExtraOption) : [], // Full extra objects for qty_based / maximum_quantity
-      }));
-      return;
-    }
-
-    const applyServiceCategoryFilters = () => {
-      // Variables are now displayed dynamically from availableVariables
-      // No need to filter them here - all categories are shown
-      
-      // Filter extras based on service category selection (keep full objects for qty_based / maximum_quantity)
-      const categoryExtras = serviceCategory.extras || [];
-      let filteredExtras: ExtraOption[] = [];
-      
-      if (categoryExtras.length > 0 && availableExtras?.length > 0) {
-        filteredExtras = (availableExtras || [])
-          .filter(extra => categoryExtras.includes(extra.id))
-          .map(toExtraOption);
-      }
-      
-      if (filteredExtras.length === 0 && availableExtras?.length > 0) {
-        filteredExtras = availableExtras.map(toExtraOption);
-      }
-      
-      // Exclude parameters come from API fetch (preserve existing fetched ones)
-      const currentExcludeParams = filteredOptions.excludeParameters || [];
-
-      const newFilteredOptions = {
+      setFilteredOptions({
         bathroomVariables: DEFAULT_BATHROOM_OPTIONS,
         sqftVariables: DEFAULT_SQFT_OPTIONS,
         bedroomVariables: DEFAULT_BEDROOM_OPTIONS,
-        excludeParameters: currentExcludeParams,
-        extras: filteredExtras,
-      };
-
-      // Prevent unnecessary state updates by comparing with current state
-      setFilteredOptions(prev => {
-        const hasChanged = 
-          JSON.stringify(prev.bathroomVariables) !== JSON.stringify(newFilteredOptions.bathroomVariables) ||
-          JSON.stringify(prev.sqftVariables) !== JSON.stringify(newFilteredOptions.sqftVariables) ||
-          JSON.stringify(prev.bedroomVariables) !== JSON.stringify(newFilteredOptions.bedroomVariables) ||
-          JSON.stringify(prev.excludeParameters) !== JSON.stringify(newFilteredOptions.excludeParameters) ||
-          JSON.stringify(prev.extras) !== JSON.stringify(newFilteredOptions.extras);
-        
-        return hasChanged ? newFilteredOptions : prev;
+        excludeParameters: serviceCategory
+          ? filterExcludeForDisplay(rawExcludeParameters, serviceCategory, frequencyDependencies)
+          : rawExcludeParameters,
+        extras: availableExtras?.length > 0 ? availableExtras.map(toExtraOption) : [],
       });
+      return;
+    }
+
+    let filteredExtras: ExtraOption[] = [];
+
+    if (serviceCategory.service_category_frequency) {
+      if (frequencyDependencies?.extras && frequencyDependencies.extras.length > 0 && availableExtras?.length) {
+        filteredExtras = availableExtras
+          .filter((e) => frequencyDependencies.extras.includes(String(e.id)))
+          .map(toExtraOption);
+      }
+    } else {
+      const categoryExtras = serviceCategory.extras || [];
+      if (categoryExtras.length > 0 && availableExtras?.length) {
+        filteredExtras = availableExtras
+          .filter((extra) => categoryExtras.includes(extra.id))
+          .map(toExtraOption);
+      }
+    }
+
+    const excludeParameters = filterExcludeForDisplay(
+      rawExcludeParameters,
+      serviceCategory,
+      frequencyDependencies,
+    );
+
+    const newFilteredOptions = {
+      bathroomVariables: DEFAULT_BATHROOM_OPTIONS,
+      sqftVariables: DEFAULT_SQFT_OPTIONS,
+      bedroomVariables: DEFAULT_BEDROOM_OPTIONS,
+      excludeParameters,
+      extras: filteredExtras,
     };
 
-    applyServiceCategoryFilters();
-  }, [serviceCategory?.id, JSON.stringify(availableExtras), JSON.stringify(availableVariables)]);
+    setFilteredOptions((prev) => {
+      const hasChanged =
+        JSON.stringify(prev.bathroomVariables) !== JSON.stringify(newFilteredOptions.bathroomVariables) ||
+        JSON.stringify(prev.sqftVariables) !== JSON.stringify(newFilteredOptions.sqftVariables) ||
+        JSON.stringify(prev.bedroomVariables) !== JSON.stringify(newFilteredOptions.bedroomVariables) ||
+        JSON.stringify(prev.excludeParameters) !== JSON.stringify(newFilteredOptions.excludeParameters) ||
+        JSON.stringify(prev.extras) !== JSON.stringify(newFilteredOptions.extras);
+
+      return hasChanged ? newFilteredOptions : prev;
+    });
+  }, [
+    serviceCategory,
+    availableExtras,
+    availableVariables,
+    rawExcludeParameters,
+    frequencyDependencies,
+  ]);
 
   const handleCardClick = () => {
-    // Allow flipping any card at any time
-    if (!isFlipped) {
-      onFlip(service.id);
-    }
+    if (isFlipped) return;
+    onFlip(service.id);
   };
 
   const handleBack = (e: React.MouseEvent) => {
@@ -293,7 +359,7 @@ export default function FrequencyAwareServiceCard({
 
     // Only require frequency when the admin has configured at least one frequency option
     const visibleFields: string[] = [];
-    if (frequencyOptions.length > 0 && !customization.frequency) {
+    if (cardFrequencyOptions.length > 0 && !customization.frequency?.trim()) {
       visibleFields.push("frequency");
     }
 
@@ -312,10 +378,10 @@ export default function FrequencyAwareServiceCard({
       return;
     }
 
-    // Use ref so we pass the latest form values (prop can be stale before parent re-renders)
-    const toSend = latestCustomizationRef.current;
+    const raw = latestCustomizationRef.current;
+    const freq = pickEffectiveFrequencyForCard(raw.frequency, cardFrequencyOptions);
+    const toSend: ServiceCustomization = { ...raw, frequency: freq };
 
-    // Push to parent first so state is committed before we flip (avoids re-render with default prop overwriting ref)
     onCustomizationChange(service.id, toSend);
     onSelect(service.name, toSend);
 
@@ -349,8 +415,13 @@ export default function FrequencyAwareServiceCard({
               )}
             </div>
             <div className={styles.serviceDescription}>{service.description}</div>
+            {showDurationOnCard && service.duration && service.duration !== "—" && (
+              <div className="mt-2 text-sm text-slate-600">Service length: {service.duration}</div>
+            )}
           </div>
-          <div className={styles.clickPrompt}>Click to customize your service</div>
+          <div className={styles.clickPrompt}>
+            Click to customize your service
+          </div>
         </div>
 
         {/* Back Side */}
@@ -360,41 +431,49 @@ export default function FrequencyAwareServiceCard({
             <p className={styles.backSubtitle}>{service.name}</p>
 
             <div className={styles.customizationForm}>
-              {/* Frequency */}
+              {/* Frequency — dropdown (matches variable categories on this card) */}
               <div className={styles.formField}>
                 <label className={styles.fieldLabel}>Frequency</label>
-                <Select
-                  value={customization.frequency || ""}
-                  onValueChange={(value) => {
-                    if (value !== customization.frequency) {
+                {cardFrequencyOptions.length > 0 ? (
+                  <Select
+                    value={effectiveFrequency || ""}
+                    onValueChange={(value) => {
+                      if (value === customization.frequency) return;
                       const updated = { ...customization, frequency: value };
                       latestCustomizationRef.current = updated;
                       onCustomizationChange(service.id, updated);
-                    }
-                  }}
-                >
-                  <SelectTrigger className={styles.selectTrigger}>
-                    <SelectValue placeholder="Select frequency" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {frequencyOptions.length > 0 ? (
-                      frequencyOptions.map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {option}
+                    }}
+                  >
+                    <SelectTrigger className={styles.selectTrigger}>
+                      <SelectValue placeholder="Select frequency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {cardFrequencyOptions.map((opt) => (
+                        <SelectItem key={opt} value={opt}>
+                          {opt}
                         </SelectItem>
-                      ))
-                    ) : (
-                      <SelectItem value="__no_frequencies_configured__" disabled>
-                        No frequencies configured
-                      </SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-gray-300 p-4 text-sm text-muted-foreground">
+                    {frequencyOptions.length > 0
+                      ? `No frequencies configured for "${service.name}"`
+                      : "Select a service to see available frequencies"}
+                  </div>
+                )}
               </div>
 
-              {/* All Variable Categories from Admin Portal (dynamically rendered) */}
+              {/* Variable categories — grid matches admin AddBookingForm */}
               {variableCategoryEntries.length > 0 && (
-                <div className="grid grid-cols-2 gap-3">
+                <div
+                  className={cn(
+                    "grid gap-4",
+                    variableCategoryEntries.length === 1 && "md:grid-cols-1",
+                    variableCategoryEntries.length === 2 && "md:grid-cols-2",
+                    variableCategoryEntries.length > 2 && "md:grid-cols-3",
+                  )}
+                >
                   {variableCategoryEntries.map(([categoryName, vars]) => {
                     const options = vars.map((v: any) => v?.name).filter(Boolean);
                     const currentValue = getVariableCategoryValue(categoryName);
@@ -450,7 +529,7 @@ export default function FrequencyAwareServiceCard({
                     htmlFor={`partial-${service.id}`}
                     className="text-sm font-medium leading-none text-slate-700 peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
                   >
-                    This is partial cleaning only
+                    This Is Partial Cleaning Only
                   </label>
                 </div>
               </div>

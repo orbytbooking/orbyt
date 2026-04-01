@@ -5,6 +5,7 @@ import { EmailService } from "@/lib/emailService";
 import { syncBookingCreated, createRecurringCalendarEvent } from "@/lib/googleCalendar";
 import { ensureCustomerForAdminBooking } from "@/lib/ensureCustomerForAdminBooking";
 import { resolveProviderWageFromBodyOrStoreDefault } from "@/lib/bookingProviderWage";
+import { resolveFrequencyRepeatsForBooking } from "@/lib/industryFrequencyRepeats";
 
 function normalizeTimeForDb(timeStr: string): string | null {
   if (!timeStr || typeof timeStr !== "string") return null;
@@ -163,13 +164,7 @@ export async function materializeGuestBookingFromIntentPayload(
       const { data: biz } = await supabase.from("businesses").select("industry_id").eq("id", businessId).single();
       const industryId = (biz as { industry_id?: string } | null)?.industry_id;
       if (industryId) {
-        const { data: freq } = await supabase
-          .from("industry_frequency")
-          .select("frequency_repeats")
-          .eq("industry_id", industryId)
-          .ilike("name", freqName)
-          .maybeSingle();
-        frequencyRepeats = (freq as { frequency_repeats?: string } | null)?.frequency_repeats ?? null;
+        frequencyRepeats = await resolveFrequencyRepeatsForBooking(supabase, businessId, industryId, freqName);
       }
     }
     const endDate = (body.recurring_end_date && String(body.recurring_end_date).trim()) || null;
@@ -442,13 +437,7 @@ export async function materializeCustomerBookingFromIntentPayload(
       const { data: biz } = await supabase.from("businesses").select("industry_id").eq("id", businessId).single();
       const industryId = (biz as { industry_id?: string } | null)?.industry_id;
       if (industryId) {
-        const { data: freq } = await supabase
-          .from("industry_frequency")
-          .select("frequency_repeats")
-          .eq("industry_id", industryId)
-          .ilike("name", freqName)
-          .maybeSingle();
-        frequencyRepeats = (freq as { frequency_repeats?: string } | null)?.frequency_repeats ?? null;
+        frequencyRepeats = await resolveFrequencyRepeatsForBooking(supabase, businessId, industryId, freqName);
       }
     }
     const endDate = (body.recurring_end_date && String(body.recurring_end_date).trim()) || null;

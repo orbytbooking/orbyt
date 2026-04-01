@@ -6,6 +6,9 @@ import { EmailService } from '@/lib/emailService';
 import { syncBookingCreated, createRecurringCalendarEvent } from '@/lib/googleCalendar';
 import { getStoreOptionsScheduling, isDateHoliday, getSpotLimits, getBookingCountForDate, getBookingCountForWeek, isTimeSlotAvailableForBooking } from '@/lib/schedulingFilters';
 import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProviderWage';
+import { getOccurrenceDatesForSeriesSync } from '@/lib/recurringBookings';
+import { formatFrequencyRepeatsForDisplay, resolveFrequencyRepeatsForBooking } from '@/lib/industryFrequencyRepeats';
+import { compareBookingsByScheduleAsc } from '@/lib/bookingScheduleSort';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -47,14 +50,22 @@ function normalizeTimeForDb(timeStr: string): string | null {
 }
 
 /** Map DB booking row to customer portal Booking format. providerNameById is used when join didn't return provider (e.g. FK to different table). */
-function dbToCustomerBooking(row: any, providerNameById?: Record<string, string>): {
+function dbToCustomerBooking(
+  row: any,
+  providerNameById?: Record<string, string>,
+  extras?: {
+    occurrenceDate?: string;
+    occurrenceStatusOverride?: string;
+    frequencyRepeats?: string | null;
+  },
+): {
   id: string;
   service: string;
   provider: string;
   frequency: string;
   date: string;
   time: string;
-  status: 'scheduled' | 'completed' | 'canceled';
+  status: 'scheduled' | 'completed' | 'canceled' | 'confirmed' | 'in_progress';
   address: string;
   contact: string;
   notes: string;
@@ -62,6 +73,8 @@ function dbToCustomerBooking(row: any, providerNameById?: Record<string, string>
   tipAmount?: number;
   tipUpdatedAt?: string;
   customization?: Record<string, unknown>;
+  occurrenceDate?: string;
+  frequencyRepeatsDisplay?: string;
 } {
   const statusMap: Record<string, string> = {
     pending: 'scheduled',
@@ -73,6 +86,7 @@ function dbToCustomerBooking(row: any, providerNameById?: Record<string, string>
   const date = row.date ?? row.scheduled_date ?? '';
   const rawTime = row.time ?? row.scheduled_time ?? '';
   const time = formatTimeForDisplay(String(rawTime));
+  const rawStatus = extras?.occurrenceStatusOverride ?? row.status;
   const totalPrice = Number(row.total_price);
   const amount = Number(row.amount);
   const price = (totalPrice && !Number.isNaN(totalPrice)) ? totalPrice : ((amount && !Number.isNaN(amount)) ? amount : 0);
@@ -83,6 +97,8 @@ function dbToCustomerBooking(row: any, providerNameById?: Record<string, string>
   if (!providerName && row.provider_id && providerNameById?.[row.provider_id]) {
     providerName = providerNameById[row.provider_id];
   }
+  const mappedStatus = statusMap[rawStatus] ?? (rawStatus ?? 'scheduled');
+  const repeatsDisp = formatFrequencyRepeatsForDisplay(extras?.frequencyRepeats ?? null);
   return {
     id: row.id,
     service: row.service ?? '',
@@ -90,7 +106,7 @@ function dbToCustomerBooking(row: any, providerNameById?: Record<string, string>
     frequency: row.frequency && String(row.frequency).trim() ? String(row.frequency).trim() : '',
     date,
     time,
-    status: statusMap[row.status] ?? (row.status ?? 'scheduled'),
+    status: mappedStatus as 'scheduled' | 'completed' | 'canceled' | 'confirmed' | 'in_progress',
     address: row.address ?? '',
     contact: row.customer_phone ?? row.customer_email ?? '',
     notes: row.notes ?? '',
@@ -100,6 +116,8 @@ function dbToCustomerBooking(row: any, providerNameById?: Record<string, string>
     customization: row.customization != null && typeof row.customization === 'object' ? row.customization : undefined,
     cancellationFeeAmount: row.cancellation_fee_amount != null ? Number(row.cancellation_fee_amount) : undefined,
     cancellationFeeCurrency: row.cancellation_fee_currency ?? undefined,
+    ...(extras?.occurrenceDate ? { occurrenceDate: extras.occurrenceDate } : {}),
+    ...(repeatsDisp ? { frequencyRepeatsDisplay: repeatsDisp } : {}),
   };
 }
 
@@ -189,7 +207,109 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const bookings = rawRows.map((row: any) => dbToCustomerBooking(row, providerNameById));
+  // Expand recurring series into one row per occurrence (same idea as admin / provider portals)
+  const recurringIds = [
+    ...new Set(
+      rawRows.filter((b: { recurring_series_id?: string }) => b.recurring_series_id).map((b: { recurring_series_id: string }) => b.recurring_series_id),
+    ),
+  ];
+  let seriesById: Record<string, Record<string, unknown>> = {};
+  if (recurringIds.length > 0) {
+    const { data: seriesList } = await supabase
+      .from('recurring_series')
+      .select('id, start_date, end_date, frequency, frequency_repeats, occurrences_ahead, scheduled_time')
+      .eq('business_id', businessId)
+      .in('id', recurringIds);
+    seriesById = (seriesList || []).reduce((acc: Record<string, Record<string, unknown>>, s: Record<string, unknown>) => {
+      if (s?.id) acc[String(s.id)] = s;
+      return acc;
+    }, {});
+  }
+
+  const expanded: Array<{
+    row: any;
+    occurrenceDate?: string;
+    occurrenceStatusOverride?: string;
+    frequencyRepeatsFromSeries?: string | null;
+  }> = [];
+  for (const row of rawRows) {
+    const seriesId = (row as { recurring_series_id?: string }).recurring_series_id;
+    const series = seriesId ? seriesById[seriesId] : null;
+    const frequencyRepeatsFromSeries = series
+      ? ((series as { frequency_repeats?: string | null }).frequency_repeats ?? null)
+      : null;
+    if (series) {
+      const dates = getOccurrenceDatesForSeriesSync(series as never);
+      const timeStr = String(series.scheduled_time ?? row.scheduled_time ?? row.time ?? '');
+      const completedDates: string[] = Array.isArray((row as { completed_occurrence_dates?: string[] }).completed_occurrence_dates)
+        ? (row as { completed_occurrence_dates: string[] }).completed_occurrence_dates
+        : [];
+      const cancelledByCustomer: string[] = Array.isArray(
+        (row as { customer_cancelled_occurrence_dates?: string[] }).customer_cancelled_occurrence_dates,
+      )
+        ? (row as { customer_cancelled_occurrence_dates: string[] }).customer_cancelled_occurrence_dates
+        : [];
+      const masterCancelled = (row as { status?: string }).status === 'cancelled';
+
+      if (!dates.length) {
+        expanded.push({ row, frequencyRepeatsFromSeries });
+        continue;
+      }
+      for (const d of dates) {
+        let occurrenceStatusOverride: string;
+        if (masterCancelled || cancelledByCustomer.includes(d)) {
+          occurrenceStatusOverride = 'cancelled';
+        } else if (completedDates.includes(d)) {
+          occurrenceStatusOverride = 'completed';
+        } else {
+          const st = String((row as { status?: string }).status ?? 'confirmed');
+          if (st === 'pending') occurrenceStatusOverride = 'pending';
+          else if (st === 'in_progress') occurrenceStatusOverride = 'in_progress';
+          else occurrenceStatusOverride = 'confirmed';
+        }
+        expanded.push({
+          row: {
+            ...row,
+            date: d,
+            scheduled_date: d,
+            time: timeStr,
+            scheduled_time: timeStr,
+          },
+          occurrenceDate: d,
+          occurrenceStatusOverride,
+          frequencyRepeatsFromSeries,
+        });
+      }
+    } else {
+      expanded.push({ row });
+    }
+  }
+
+  const seen = new Set<string>();
+  const deduped = expanded.filter((item) => {
+    const r = item.row;
+    const d = String(r.date ?? r.scheduled_date ?? '').slice(0, 10);
+    const t = String(r.time ?? r.scheduled_time ?? '');
+    const key = `${r.id}-${d}-${t}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  deduped.sort((a, b) =>
+    compareBookingsByScheduleAsc(
+      { date: a.row.date ?? a.row.scheduled_date, time: a.row.time ?? a.row.scheduled_time },
+      { date: b.row.date ?? b.row.scheduled_date, time: b.row.time ?? b.row.scheduled_time },
+    ),
+  );
+
+  const bookings = deduped.map((item) =>
+    dbToCustomerBooking(item.row, providerNameById, {
+      occurrenceDate: item.occurrenceDate,
+      occurrenceStatusOverride: item.occurrenceStatusOverride,
+      frequencyRepeats: item.frequencyRepeatsFromSeries,
+    }),
+  );
   return NextResponse.json({ bookings });
 }
 
@@ -468,13 +588,7 @@ export async function POST(request: NextRequest) {
       const { data: biz } = await supabase.from('businesses').select('industry_id').eq('id', businessId).single();
       const industryId = (biz as { industry_id?: string } | null)?.industry_id;
       if (industryId) {
-        const { data: freq } = await supabase
-          .from('industry_frequency')
-          .select('frequency_repeats')
-          .eq('industry_id', industryId)
-          .ilike('name', freqName)
-          .maybeSingle();
-        frequencyRepeats = (freq as { frequency_repeats?: string } | null)?.frequency_repeats ?? null;
+        frequencyRepeats = await resolveFrequencyRepeatsForBooking(supabase, businessId, industryId, freqName);
       }
     }
     const endDate = (body.recurring_end_date && String(body.recurring_end_date).trim()) || null;

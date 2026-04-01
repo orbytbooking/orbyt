@@ -11,14 +11,16 @@ export const useCustomerBookings = () => {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
 
-  /** Dedupe by id (keep first) so duplicate keys never reach the UI (e.g. after assign + email refetch). */
+  /** Dedupe by booking id + occurrence (recurring expands to many rows per id). */
   const dedupeById = useCallback((list: Booking[]): Booking[] => {
     if (!Array.isArray(list) || list.length === 0) return list;
     const seen = new Set<string>();
     return list.filter((b) => {
       const id = b?.id;
-      if (!id || seen.has(id)) return false;
-      seen.add(id);
+      if (!id) return false;
+      const key = `${id}::${b.occurrenceDate ?? ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
       return true;
     });
   }, []);

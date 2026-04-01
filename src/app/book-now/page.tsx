@@ -29,6 +29,24 @@ import Link from "next/link";
 import Navigation from "@/components/Navigation";
 import FrequencyAwareServiceCard, { ServiceCustomization } from "@/components/FrequencyAwareServiceCard";
 import { Booking, fetchBookingById } from "@/lib/customer-bookings";
+import { formatFrequencyRepeatsForDisplay } from "@/lib/industryFrequencyRepeats";
+import {
+  computeCustomerBookingTotals,
+  computeEffectiveServiceAndExtras,
+  computeFrequencyDiscountAmount,
+  computePartialCleaningDiscount,
+  type CustomerFrequencyMeta,
+} from "@/lib/customerFrequencyPricing";
+import {
+  buildCustomerAvailableVariables,
+  pricingParamAppliesToSelection,
+  type PricingParamRow,
+} from "@/lib/pricingParameterVisibility";
+import {
+  getFrequencyDependencies,
+  type FrequencyDependencies,
+} from "@/lib/frequencyFilter";
+import { isServiceCategoryVisibleOnPublicBooking } from "@/lib/form1CustomerBooking";
 import styles from "./BookingPage.module.css";
 import { useCustomerAccount } from "@/hooks/useCustomerAccount";
 import { getSupabaseCustomerClient } from "@/lib/supabaseCustomerClient";
@@ -336,14 +354,19 @@ function BookingPageContent() {
   const [storedAddress, setStoredAddress] = useState<StoredAddress | null>(null);
   const { customerName, customerEmail, customerPhone, customerAddress, accountLoading } = useCustomerAccount(false);
   const { config } = useWebsiteConfig();
-  const [pricingRows, setPricingRows] = useState<PricingTier[]>([]);
   /** Payment provider for current business (stripe | authorize_net) - used for payment step labels */
   const [paymentProvider, setPaymentProvider] = useState<"stripe" | "authorize_net">("stripe");
-  /** All pricing parameters (all variable categories) for summing Bedroom + Bathroom + Living Room + Sq Ft + Storage + etc. */
-  const [allPricingParams, setAllPricingParams] = useState<{ variable_category: string; name: string; price: number; service_category: string | null; frequency: string }[]>([]);
   const [availableExtras, setAvailableExtras] = useState<any[]>([]);
-  const [availableVariables, setAvailableVariables] = useState<{ [key: string]: any[] }>({});
+  /** Full industry_pricing_parameter rows; dropdowns are derived with admin-matching filters */
+  const [pricingParametersFull, setPricingParametersFull] = useState<PricingParamRow[]>([]);
   const [frequencyOptions, setFrequencyOptions] = useState<string[]>([]);
+  /** Per-label industry_frequency fields (repeats pattern + admin discount / recurring rules). */
+  const [frequencyMetaByName, setFrequencyMetaByName] = useState<Record<string, CustomerFrequencyMeta>>({});
+  /** Same role as admin AddBookingForm `newBooking.frequency` — drives Form 1 dependency rules (service list, extras, etc.). */
+  const [bookingFrequencyForFilters, setBookingFrequencyForFilters] = useState("");
+  const [serviceListFrequencyDeps, setServiceListFrequencyDeps] =
+    useState<FrequencyDependencies | null>(null);
+  const [excludeParametersList, setExcludeParametersList] = useState<Array<{ name: string; price?: number; qty_based?: boolean }>>([]);
   const [dynamicTimeSlots, setDynamicTimeSlots] = useState<string[]>([]);
   const [availableProviders, setAvailableProviders] = useState<any[]>([]);
   const [providersLoading, setProvidersLoading] = useState(false);
@@ -392,6 +415,14 @@ function BookingPageContent() {
   const [cancellationPolicyDisclaimer, setCancellationPolicyDisclaimer] = useState<string | null>(null);
   const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null);
 
+  const getCouponDiscountAmount = useCallback((subtotal: number) => {
+    if (!appliedCoupon || subtotal <= 0) return 0;
+    if (appliedCoupon.discountType === "percentage") {
+      return Math.max(0, Math.min(subtotal, (subtotal * appliedCoupon.discountValue) / 100));
+    }
+    return Math.max(0, Math.min(subtotal, appliedCoupon.discountValue));
+  }, [appliedCoupon]);
+
   // Handle phone number input to ensure it's a valid number
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>, field: any) => {
     const value = e.target.value;
@@ -419,6 +450,71 @@ function BookingPageContent() {
 
   const selectedIndustryLabel = selectedIndustry?.label ?? "";
   const selectedIndustryId = selectedIndustry?.id ?? "";
+
+  const selectedFrequencyTrim = serviceCustomization?.frequency?.trim() ?? "";
+
+  /** For payment summary after a service is confirmed (selected service + customization frequency). */
+  const availableVariables = useMemo(
+    () => buildCustomerAvailableVariables(pricingParametersFull, selectedService, selectedFrequencyTrim),
+    [pricingParametersFull, selectedService, selectedFrequencyTrim],
+  );
+
+  const allPricingParams = useMemo(
+    () =>
+      pricingParametersFull.map((p) => ({
+        variable_category: String(p.variable_category ?? "").trim(),
+        name: String(p.name ?? ""),
+        price: typeof p.price === "number" ? p.price : Number(p.price) || 0,
+        service_category:
+          p.service_category != null && String(p.service_category).trim() !== ""
+            ? String(p.service_category).trim()
+            : null,
+        frequency: String(p.frequency ?? ""),
+        show_based_on_frequency: Boolean(p.show_based_on_frequency),
+        show_based_on_service_category: Boolean(p.show_based_on_service_category),
+      })),
+    [pricingParametersFull],
+  );
+
+  const pricingRows = useMemo(() => {
+    if (!pricingParametersFull.length || !selectedService) return [] as PricingTier[];
+    const svcName = String(selectedService.name ?? "");
+    const paramsForSelection = pricingParametersFull.filter((p) =>
+      pricingParamAppliesToSelection(
+        {
+          show_based_on_frequency: p.show_based_on_frequency,
+          frequency: p.frequency,
+          show_based_on_service_category: p.show_based_on_service_category,
+          service_category: p.service_category,
+        },
+        selectedFrequencyTrim,
+        svcName,
+      ),
+    );
+    const categoryKeys = Object.keys(
+      buildCustomerAvailableVariables(pricingParametersFull, selectedService, selectedFrequencyTrim),
+    );
+    const areaLikeKey = categoryKeys.find((k) => /sqft|area|square|meter|size/i.test(String(k)));
+    const tierCategoryKey = areaLikeKey ?? categoryKeys[0];
+    const tierParams = tierCategoryKey
+      ? paramsForSelection
+          .filter((p) => String(p.variable_category ?? "").trim() === tierCategoryKey)
+          .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+      : [];
+    return tierParams.map((p: PricingParamRow, i: number) => ({
+      id: i + 1,
+      name: String(p.name ?? ""),
+      price: typeof p.price === "number" ? p.price : Number(p.price) || 0,
+      time: p.time_minutes != null ? `${p.time_minutes} min` : "",
+      display: String(p.display ?? ""),
+      serviceCategory: selectedIndustryLabel,
+      frequency: String(p.frequency ?? ""),
+      serviceCategoryFilter:
+        p.service_category != null && String(p.service_category).trim() !== ""
+          ? String(p.service_category).trim()
+          : null,
+    }));
+  }, [pricingParametersFull, selectedService, selectedFrequencyTrim, selectedIndustryLabel]);
 
   useEffect(() => {
     const fetchIndustries = async () => {
@@ -604,82 +700,6 @@ function BookingPageContent() {
     }
   }, [industryOptions, selectedCategory]);
 
-  // Fetch service categories for selected industry from admin portal
-  useEffect(() => {
-    const industryId = selectedIndustryId;
-    const businessIdParam = searchParams.get("business");
-
-    if (!industryId || !businessIdParam) {
-      setServiceCategories([]);
-      return;
-    }
-
-    const fetchServiceCategories = async () => {
-      setServiceCategoriesLoading(true);
-      try {
-        const response = await fetch(
-          `/api/service-categories?industryId=${industryId}&businessId=${businessIdParam}`
-        );
-        const data = await response.json();
-
-        if (!response.ok) {
-          console.error("Failed to fetch service categories:", data.error);
-          setServiceCategories([]);
-          return;
-        }
-
-        const categories = data.serviceCategories ?? [];
-        const displayVisible = (display: string | undefined) =>
-          !display || display.includes("customer_frontend") || display.includes("customer");
-
-        const mapped = categories
-          .filter((cat: any) => displayVisible(cat.display))
-          .map((cat: any) => {
-            const hours = cat.service_category_time?.hours ?? "0";
-            const minutes = cat.service_category_time?.minutes ?? "0";
-            const duration =
-              cat.service_category_time?.enabled
-                ? `${hours}h ${minutes}m`.replace(/^0h /, "").replace(/ 0m$/, "m")
-                : "—";
-            const price = cat.service_category_price?.enabled && cat.service_category_price?.price
-              ? parseFloat(String(cat.service_category_price.price)) || 0
-              : 0;
-
-            return {
-              id: cat.id,
-              name: cat.name,
-              description: cat.description || `Professional ${cat.name} service.`,
-              price,
-              duration,
-              image: cat.icon || "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=400&h=300&fit=crop",
-              features: [],
-              raw: cat,
-            };
-          });
-
-        setServiceCategories(mapped);
-      } catch (error) {
-        console.error("Error fetching service categories:", error);
-        setServiceCategories([]);
-      } finally {
-        setServiceCategoriesLoading(false);
-      }
-    };
-
-    fetchServiceCategories();
-  }, [selectedIndustryId, searchParams]);
-
-  // Keep selected service in sync when service categories are refetched (same id/name, new object reference)
-  useEffect(() => {
-    if (!selectedService || !serviceCategories.length) return;
-    const match = serviceCategories.find(
-      (s) => s.id === selectedService.id || s.name === selectedService.name
-    );
-    if (match && match !== selectedService) {
-      setSelectedService(match);
-    }
-  }, [serviceCategories]);
-
   // Fetch extras and variables from admin portal
   useEffect(() => {
     const industryId = selectedIndustryId;
@@ -687,7 +707,7 @@ function BookingPageContent() {
 
     if (!industryId || !businessIdParam) {
       setAvailableExtras([]);
-      setAvailableVariables({});
+      setPricingParametersFull([]);
       return;
     }
 
@@ -700,7 +720,11 @@ function BookingPageContent() {
           if (extrasData.extras && Array.isArray(extrasData.extras)) {
             // Filter extras that should be displayed on customer frontend
             const visibleExtras = extrasData.extras.filter(
-              (e: any) => e && (e.display === "frontend-backend-admin" || e.display === "Both" || e.display === "Booking" || e.display === "customer_frontend")
+              (e: any) =>
+                e &&
+                (e.display === "frontend-backend-admin" ||
+                  e.display === "Both" ||
+                  e.display === "Booking"),
             );
             setAvailableExtras(visibleExtras);
           } else {
@@ -710,77 +734,23 @@ function BookingPageContent() {
           setAvailableExtras([]);
         }
 
-        // Fetch pricing parameters (variables) from industry form 1 – used for dropdowns and tier pricing
+        // Pricing parameters: store full rows; dropdowns/tiers are derived with admin-matching filters
         const variablesResponse = await fetch(`/api/pricing-parameters?industryId=${industryId}`);
         if (variablesResponse.ok) {
           const variablesData = await variablesResponse.json();
           if (variablesData.pricingParameters && Array.isArray(variablesData.pricingParameters)) {
-            const params = variablesData.pricingParameters as any[];
-            // Group variables by the admin-configured variable_category label (no hardcoded categories)
-            const groupedVariables: { [key: string]: any[] } = {};
-            params.forEach((param: any) => {
-              const rawCategory = String(param.variable_category ?? "").trim();
-              if (!rawCategory) return;
-              if (!groupedVariables[rawCategory]) {
-                groupedVariables[rawCategory] = [];
-              }
-              groupedVariables[rawCategory].push({
-                id: param.id,
-                name: param.name,
-                variable_category: rawCategory,
-              });
-            });
-            setAvailableVariables(groupedVariables);
-
-            // Build pricing tiers from the same data (for getServicePrice by area/size)
-            // Prefer a category that looks like area/size (sqft, area, square, meter); else use first category
-            const categoryKeys = Object.keys(groupedVariables);
-            const areaLikeKey = categoryKeys.find(
-              (k) => /sqft|area|square|meter|size/i.test(String(k))
-            );
-            const tierCategoryKey = areaLikeKey ?? categoryKeys[0];
-            const tierParams = tierCategoryKey
-              ? (params
-                  .filter((p: any) => String(p.variable_category ?? "").trim() === tierCategoryKey)
-                  .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0)))
-              : [];
-            const tiers: PricingTier[] = tierParams.map((p: any, i: number) => ({
-              id: i + 1,
-              name: String(p.name ?? ""),
-              price: typeof p.price === "number" ? p.price : Number(p.price) || 0,
-              time: p.time_minutes != null ? `${p.time_minutes} min` : "",
-              display: String(p.display ?? ""),
-              serviceCategory: selectedIndustryLabel,
-              frequency: String(p.frequency ?? ""),
-              serviceCategoryFilter: p.service_category != null && String(p.service_category).trim() !== "" ? String(p.service_category).trim() : null,
-            }));
-            setPricingRows(tiers);
-
-            // Store all params so we can sum every variable category (Bedroom + Bathroom + Living Room + Sq Ft + Storage, etc.)
-            setAllPricingParams(
-              params.map((p: any) => ({
-                variable_category: String(p.variable_category ?? "").trim(),
-                name: String(p.name ?? ""),
-                price: typeof p.price === "number" ? p.price : Number(p.price) || 0,
-                service_category: p.service_category != null && String(p.service_category).trim() !== "" ? String(p.service_category).trim() : null,
-                frequency: String(p.frequency ?? ""),
-              }))
-            );
+            setPricingParametersFull(variablesData.pricingParameters as PricingParamRow[]);
           } else {
-            setAvailableVariables({});
-            setPricingRows([]);
-            setAllPricingParams([]);
+            setPricingParametersFull([]);
           }
         } else {
-          setAvailableVariables({});
-          setPricingRows([]);
-          setAllPricingParams([]);
+          setPricingParametersFull([]);
         }
 
       } catch (error) {
         console.error("Error fetching extras and variables:", error);
         setAvailableExtras([]);
-        setAvailableVariables({});
+        setPricingParametersFull([]);
       }
     };
 
@@ -829,6 +799,139 @@ function BookingPageContent() {
   const existingAddressAvailable = Boolean(storedAddress?.address || customerAddress);
   const disableAddressFields = addressPreference === "existing" && existingAddressAvailable;
 
+  const [hasLocationBasedFrequencies, setHasLocationBasedFrequencies] = useState(false);
+
+  useEffect(() => {
+    if (!selectedIndustryId) {
+      setHasLocationBasedFrequencies(false);
+      return;
+    }
+    const bid = searchParams.get("business");
+    if (!bid) {
+      setHasLocationBasedFrequencies(false);
+      return;
+    }
+    let cancelled = false;
+    fetch(
+      `/api/industry-frequency?industryId=${encodeURIComponent(selectedIndustryId)}&businessId=${encodeURIComponent(bid)}&includeAll=true`,
+    )
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        const freqs = data.frequencies || [];
+        setHasLocationBasedFrequencies(
+          freqs.some((f: { show_based_on_location?: boolean }) => f?.show_based_on_location === true),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setHasLocationBasedFrequencies(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedIndustryId, searchParams]);
+
+  const locationZipNormalized = String(zipCode ?? "").trim().replace(/\s/g, "");
+  const locationInputValidForBooking =
+    locationManagement === "none"
+      ? true
+      : locationManagement === "name"
+        ? locationZipNormalized.length >= 2
+        : locationZipNormalized.length >= 5;
+
+  /** Matches admin AddBookingForm: no service list until zip/location is valid when industry uses location-based frequencies. */
+  const needsLocationBeforeServices =
+    hasLocationBasedFrequencies && locationManagement !== "none" && !locationInputValidForBooking;
+
+  useEffect(() => {
+    if (!needsLocationBeforeServices) return;
+    setSelectedService(null);
+    setServiceCustomization(null);
+    setCardCustomizations({});
+    setFlippedCardId(null);
+    form.setValue("service", "");
+  }, [needsLocationBeforeServices, form]);
+
+  // Service categories: same location gate as admin AddBookingForm
+  useEffect(() => {
+    const industryId = selectedIndustryId;
+    const businessIdParam = searchParams.get("business");
+
+    if (!industryId || !businessIdParam) {
+      setServiceCategories([]);
+      return;
+    }
+
+    if (needsLocationBeforeServices) {
+      setServiceCategories([]);
+      setServiceCategoriesLoading(false);
+      return;
+    }
+
+    const fetchServiceCategories = async () => {
+      setServiceCategoriesLoading(true);
+      try {
+        const response = await fetch(
+          `/api/service-categories?industryId=${industryId}&businessId=${businessIdParam}`,
+        );
+        const data = await response.json();
+
+        if (!response.ok) {
+          console.error("Failed to fetch service categories:", data.error);
+          setServiceCategories([]);
+          return;
+        }
+
+        const categories = data.serviceCategories ?? [];
+
+        const mapped = categories
+          .filter((cat: any) => isServiceCategoryVisibleOnPublicBooking(cat.display))
+          .map((cat: any) => {
+            const hours = cat.service_category_time?.hours ?? "0";
+            const minutes = cat.service_category_time?.minutes ?? "0";
+            const duration =
+              cat.service_category_time?.enabled
+                ? `${hours}h ${minutes}m`.replace(/^0h /, "").replace(/ 0m$/, "m")
+                : "—";
+            const price =
+              cat.service_category_price?.enabled && cat.service_category_price?.price
+                ? parseFloat(String(cat.service_category_price.price)) || 0
+                : 0;
+
+            return {
+              id: cat.id,
+              name: cat.name,
+              description: cat.description || `Professional ${cat.name} service.`,
+              price,
+              duration,
+              image: cat.icon || "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=400&h=300&fit=crop",
+              features: [],
+              raw: cat,
+            };
+          });
+
+        setServiceCategories(mapped);
+      } catch (error) {
+        console.error("Error fetching service categories:", error);
+        setServiceCategories([]);
+      } finally {
+        setServiceCategoriesLoading(false);
+      }
+    };
+
+    fetchServiceCategories();
+  }, [selectedIndustryId, searchParams, needsLocationBeforeServices]);
+
+  useEffect(() => {
+    if (!selectedService || !serviceCategories.length) return;
+    const match = serviceCategories.find(
+      (s) => s.id === selectedService.id || s.name === selectedService.name,
+    );
+    if (match && match !== selectedService) {
+      setSelectedService(match);
+    }
+  }, [serviceCategories, selectedService]);
+
   // Fetch frequencies (location-based: pass zipcode when available; businessId required for correct scope).
   // Ref runs on deps; we read zip from form inside so the entered value is always used.
   const fetchFrequenciesRef = useRef<() => void>(() => {});
@@ -837,6 +940,12 @@ function BookingPageContent() {
     const businessIdParam = searchParams.get("business");
     if (!industryId || !businessIdParam) {
       setFrequencyOptions([]);
+      setFrequencyMetaByName({});
+      return;
+    }
+    if (needsLocationBeforeServices) {
+      setFrequencyOptions([]);
+      setFrequencyMetaByName({});
       return;
     }
     const url = new URL("/api/industry-frequency", window.location.origin);
@@ -855,23 +964,50 @@ function BookingPageContent() {
         if (res.ok) {
           const data = await res.json();
           if (data.frequencies && Array.isArray(data.frequencies)) {
-            const names = (data.frequencies as any[])
-              .filter((f: any) => f?.is_active !== false)
-              .map((f: any) => f.name || f.occurrence_time)
-              .filter(Boolean);
+            const rows = (data.frequencies as any[]).filter(
+              (f: any) =>
+                f?.is_active !== false &&
+                (!f.display || f.display === "Both" || f.display === "Booking"),
+            );
+            const names = rows.map((f: any) => f.name || f.occurrence_time).filter(Boolean);
+            const metaMap: Record<string, CustomerFrequencyMeta> = {};
+            for (const f of rows) {
+              const n = (f?.name || f?.occurrence_time) as string | undefined;
+              if (!n) continue;
+              metaMap[String(n).trim()] = {
+                frequency_repeats: f.frequency_repeats != null ? String(f.frequency_repeats).trim() : undefined,
+                occurrence_time: f.occurrence_time,
+                discount:
+                  f.discount != null && !Number.isNaN(Number(f.discount)) ? Number(f.discount) : undefined,
+                discount_type: f.discount_type,
+                frequency_discount: f.frequency_discount,
+                shorter_job_length: f.shorter_job_length,
+                shorter_job_length_by: f.shorter_job_length_by,
+                exclude_first_appointment: Boolean(f.exclude_first_appointment),
+              };
+            }
             setFrequencyOptions(names);
+            setFrequencyMetaByName(metaMap);
           } else {
             setFrequencyOptions([]);
+            setFrequencyMetaByName({});
           }
         } else {
           setFrequencyOptions([]);
+          setFrequencyMetaByName({});
         }
       } catch (err) {
         console.error("Error fetching frequencies:", err);
         setFrequencyOptions([]);
+        setFrequencyMetaByName({});
       }
     };
     fetchFrequenciesRef.current = () => {
+      if (needsLocationBeforeServices) {
+        setFrequencyOptions([]);
+        setFrequencyMetaByName({});
+        return;
+      }
       const zip = String(form.getValues("zipCode") ?? "").trim().replace(/\s/g, "");
       const minLen = locationManagement === "name" ? 2 : 5;
       const u = new URL("/api/industry-frequency", window.location.origin);
@@ -885,21 +1021,143 @@ function BookingPageContent() {
         .then((res) => res.ok ? res.json() : { frequencies: [] })
         .then((data) => {
           if (data.frequencies && Array.isArray(data.frequencies)) {
-            const names = (data.frequencies as any[])
-              .filter((f: any) => f?.is_active !== false)
-              .map((f: any) => f.name || f.occurrence_time)
-              .filter(Boolean);
+            const rows = (data.frequencies as any[]).filter(
+              (f: any) =>
+                f?.is_active !== false &&
+                (!f.display || f.display === "Both" || f.display === "Booking"),
+            );
+            const names = rows.map((f: any) => f.name || f.occurrence_time).filter(Boolean);
+            const metaMap: Record<string, CustomerFrequencyMeta> = {};
+            for (const f of rows) {
+              const n = (f?.name || f?.occurrence_time) as string | undefined;
+              if (!n) continue;
+              metaMap[String(n).trim()] = {
+                frequency_repeats: f.frequency_repeats != null ? String(f.frequency_repeats).trim() : undefined,
+                occurrence_time: f.occurrence_time,
+                discount:
+                  f.discount != null && !Number.isNaN(Number(f.discount)) ? Number(f.discount) : undefined,
+                discount_type: f.discount_type,
+                frequency_discount: f.frequency_discount,
+                shorter_job_length: f.shorter_job_length,
+                shorter_job_length_by: f.shorter_job_length_by,
+                exclude_first_appointment: Boolean(f.exclude_first_appointment),
+              };
+            }
             setFrequencyOptions(names);
-          } else setFrequencyOptions([]);
+            setFrequencyMetaByName(metaMap);
+          } else {
+            setFrequencyOptions([]);
+            setFrequencyMetaByName({});
+          }
         })
-        .catch(() => setFrequencyOptions([]));
+        .catch(() => {
+          setFrequencyOptions([]);
+          setFrequencyMetaByName({});
+        });
     };
     doFetch();
-  }, [selectedIndustryId, searchParams, zipCode, locationManagement, wildcardZipEnabled]);
+  }, [
+    selectedIndustryId,
+    searchParams,
+    zipCode,
+    locationManagement,
+    wildcardZipEnabled,
+    needsLocationBeforeServices,
+  ]);
 
   const refetchFrequenciesOnZipChange = useCallback(() => {
     fetchFrequenciesRef.current();
   }, []);
+
+  useEffect(() => {
+    if (!selectedIndustryId) {
+      setExcludeParametersList([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/exclude-parameters?industryId=${encodeURIComponent(selectedIndustryId)}`)
+      .then((res) => (res.ok ? res.json() : { excludeParameters: [] }))
+      .then((data) => {
+        if (cancelled) return;
+        const list = Array.isArray(data.excludeParameters) ? data.excludeParameters : [];
+        setExcludeParametersList(
+          list.map((p: { name?: string; price?: number; qty_based?: boolean }) => ({
+            name: String(p.name ?? ""),
+            price: typeof p.price === "number" ? p.price : undefined,
+            qty_based: Boolean(p.qty_based),
+          })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setExcludeParametersList([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedIndustryId]);
+
+  // Form 1 parity (admin AddBookingForm): scope frequency when industry changes
+  useEffect(() => {
+    setBookingFrequencyForFilters("");
+    setServiceListFrequencyDeps(null);
+  }, [selectedIndustryId]);
+
+  // Default frequency to first available option (matches admin default frequency behavior)
+  useEffect(() => {
+    if (frequencyOptions.length === 0) return;
+    setBookingFrequencyForFilters((prev) => {
+      if (prev && frequencyOptions.includes(prev)) return prev;
+      return frequencyOptions[0];
+    });
+  }, [frequencyOptions]);
+
+  // Load Form 1 frequency dependencies for filtering service categories (admin serviceCategories effect)
+  useEffect(() => {
+    if (!selectedIndustryId || !businessIdFromUrl.trim() || !bookingFrequencyForFilters.trim()) {
+      setServiceListFrequencyDeps(null);
+      return;
+    }
+    let cancelled = false;
+    getFrequencyDependencies(selectedIndustryId, bookingFrequencyForFilters, {
+      businessId: businessIdFromUrl,
+    })
+      .then((deps) => {
+        if (!cancelled) setServiceListFrequencyDeps(deps);
+      })
+      .catch(() => {
+        if (!cancelled) setServiceListFrequencyDeps(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedIndustryId, businessIdFromUrl, bookingFrequencyForFilters]);
+
+  /** Service cards visible for current Form 1 frequency (admin filters by frequencyDependencies.serviceCategories). */
+  const categoryServicesForForm = useMemo(() => {
+    if (limitedEditMode) return serviceCategories;
+    return serviceCategories.filter((svc) => {
+      const raw = svc.raw;
+      if (!raw?.service_category_frequency) return true;
+      if (serviceListFrequencyDeps?.serviceCategories?.length) {
+        return serviceListFrequencyDeps.serviceCategories.includes(String(raw.id));
+      }
+      return false;
+    });
+  }, [limitedEditMode, serviceCategories, serviceListFrequencyDeps]);
+
+  // If frequency filter hides the selected service, clear selection (admin would not list it)
+  useEffect(() => {
+    if (limitedEditMode) return;
+    if (!selectedService) return;
+    const stillVisible = categoryServicesForForm.some(
+      (s) => s.id === selectedService.id || s.name === selectedService.name,
+    );
+    if (!stillVisible) {
+      setSelectedService(null);
+      setServiceCustomization(null);
+      form.setValue("service", "");
+    }
+  }, [categoryServicesForForm, selectedService, limitedEditMode, form]);
 
   // Handle provider selection
   const handleProviderSelect = (provider: any) => {
@@ -1099,6 +1357,9 @@ function BookingPageContent() {
   const handleCustomizationChange = (serviceId: string | number, customization: ServiceCustomization) => {
     const key = cardKey(serviceId);
     if (flippedCardId != null && cardKey(flippedCardId) === key) {
+      if (customization.frequency?.trim()) {
+        setBookingFrequencyForFilters(customization.frequency.trim());
+      }
       setCardCustomizations(prev => ({
         ...prev,
         [key]: customization
@@ -1113,16 +1374,24 @@ function BookingPageContent() {
   // Get customization for a specific card (normalize id so number/string from API always hits same key)
   const getCardCustomization = (serviceId: string | number): ServiceCustomization => {
     const key = cardKey(serviceId);
-    return cardCustomizations[key] || {
-      frequency: "",
-      squareMeters: "",
-      bedroom: "",
-      bathroom: "",
-      extras: [],
-      isPartialCleaning: false,
-      excludedAreas: [],
-      excludeQuantities: {},
-      variableCategories: {},
+    const defaultFreq = bookingFrequencyForFilters || "";
+    const stored = cardCustomizations[key];
+    if (!stored) {
+      return {
+        frequency: defaultFreq,
+        squareMeters: "",
+        bedroom: "",
+        bathroom: "",
+        extras: [],
+        isPartialCleaning: false,
+        excludedAreas: [],
+        excludeQuantities: {},
+        variableCategories: {},
+      };
+    }
+    return {
+      ...stored,
+      frequency: stored.frequency?.trim() ? stored.frequency : defaultFreq,
     };
   };
 
@@ -1306,14 +1575,6 @@ function BookingPageContent() {
     }
   }, [currentStep, router, searchParams]);
 
-  function getCouponDiscountAmount(subtotal: number) {
-    if (!appliedCoupon || subtotal <= 0) return 0;
-    if (appliedCoupon.discountType === "percentage") {
-      return Math.max(0, Math.min(subtotal, (subtotal * appliedCoupon.discountValue) / 100));
-    }
-    return Math.max(0, Math.min(subtotal, appliedCoupon.discountValue));
-  }
-
   const addBookingToStorage = useCallback(async (paymentMethod: "cash" | "online" = "cash") => {
     if (!bookingData || !serviceCustomization || !selectedService) {
       toast({
@@ -1428,7 +1689,7 @@ function BookingPageContent() {
                     code: appliedCoupon.code,
                     discount_type: appliedCoupon.discountType,
                     discount_value: appliedCoupon.discountValue,
-                    discount_amount: getCouponDiscountAmount(tot.subtotal),
+                    discount_amount: tot.couponDiscount,
                   },
                 }
               : {}),
@@ -1436,9 +1697,15 @@ function BookingPageContent() {
           coupon_code: appliedCoupon?.code,
           coupon_discount_type: appliedCoupon?.discountType,
           coupon_discount_value: appliedCoupon?.discountValue,
-          coupon_discount_amount: appliedCoupon ? getCouponDiscountAmount(tot.subtotal) : undefined,
+          coupon_discount_amount: appliedCoupon ? tot.couponDiscount : undefined,
           ...(isRecurringFreq
-            ? { create_recurring: true, recurring_occurrences_ahead: 8 }
+            ? {
+                create_recurring: true,
+                recurring_occurrences_ahead: 8,
+                ...(frequencyMetaByName[selectedFreq]?.frequency_repeats
+                  ? { frequency_repeats: frequencyMetaByName[selectedFreq].frequency_repeats }
+                  : {}),
+              }
             : {}),
         };
 
@@ -1503,7 +1770,21 @@ function BookingPageContent() {
       });
     }
     return null;
-  }, [bookingData, serviceCustomization, selectedService, toast, searchParams, form, availableProviders, showProviderStep, appliedCoupon, getCouponDiscountAmount, storeDefaultProviderWage]);
+  }, [
+    bookingData,
+    serviceCustomization,
+    selectedService,
+    toast,
+    searchParams,
+    form,
+    availableProviders,
+    showProviderStep,
+    appliedCoupon,
+    getCouponDiscountAmount,
+    storeDefaultProviderWage,
+    frequencyMetaByName,
+    excludeParametersList,
+  ]);
 
   // Handle service selection (persist to card customizations so selection survives re-renders)
   const handleServiceSelect = (serviceName: string, customization?: ServiceCustomization) => {
@@ -1604,8 +1885,16 @@ function BookingPageContent() {
         (p) =>
           p.variable_category === categoryKey &&
           p.name === optionName &&
-          (!p.service_category || listContains(p.service_category, serviceName)) &&
-          (!p.frequency || listContains(p.frequency, selectedFrequency))
+          pricingParamAppliesToSelection(
+            {
+              show_based_on_frequency: p.show_based_on_frequency,
+              frequency: p.frequency,
+              show_based_on_service_category: p.show_based_on_service_category,
+              service_category: p.service_category,
+            },
+            selectedFrequency,
+            serviceName,
+          ),
       );
       if (param && typeof param.price === "number" && !Number.isNaN(param.price)) {
         sum += param.price;
@@ -1618,8 +1907,16 @@ function BookingPageContent() {
         (p) =>
           /sqft|area|square|meter|size/i.test(p.variable_category) &&
           p.name === serviceCustomization.squareMeters &&
-          (!p.service_category || listContains(p.service_category, serviceName)) &&
-          (!p.frequency || listContains(p.frequency, selectedFrequency))
+          pricingParamAppliesToSelection(
+            {
+              show_based_on_frequency: p.show_based_on_frequency,
+              frequency: p.frequency,
+              show_based_on_service_category: p.show_based_on_service_category,
+              service_category: p.service_category,
+            },
+            selectedFrequency,
+            serviceName,
+          ),
       );
       if (areaLikeParam && typeof areaLikeParam.price === "number" && !Number.isNaN(areaLikeParam.price)) {
         sum += areaLikeParam.price;
@@ -1647,8 +1944,6 @@ function BookingPageContent() {
   const getServicePrice = (serviceName: string) => {
     if (!selectedCategory) return 0;
 
-    const selectedFrequency = serviceCustomization?.frequency?.trim() || "";
-
     if (pricingRows.length > 0 && serviceCustomization) {
       const areaOption =
         serviceCustomization.squareMeters ||
@@ -1666,10 +1961,7 @@ function BookingPageContent() {
               tier.serviceCategoryFilter === selectedService.id ||
               (selectedService.raw && tier.serviceCategoryFilter === String((selectedService.raw as any).id))
             ));
-          const matchesFrequency =
-            !tier.frequency ||
-            listContains(tier.frequency, selectedFrequency);
-          return matchesService && matchesFrequency && tier.name === areaOption;
+          return matchesService && tier.name === areaOption;
         });
         const tier = applicableTiers[0] ?? pricingRows.find((t) => t.name === areaOption);
         if (tier && typeof tier.price === "number" && !Number.isNaN(tier.price)) {
@@ -1682,6 +1974,57 @@ function BookingPageContent() {
     const service = serviceCategories.find((s) => s.name === serviceName);
     return service?.price ?? 0;
   };
+
+  /** Totals aligned with admin AddBookingForm: partial → frequency discount → coupon → tax */
+  function calculateTotal() {
+    if (!bookingData || !serviceCustomization || !selectedService) {
+      const z = {
+        lineSubtotal: 0,
+        partialCleaningDiscount: 0,
+        frequencyDiscount: 0,
+        baseBeforeCoupon: 0,
+        couponDiscount: 0,
+        discountedSubtotal: 0,
+        tax: 0,
+        total: 0,
+        subtotal: 0,
+      };
+      return z;
+    }
+    const serviceName = bookingData.service || selectedService.name;
+    const variableSubtotal = getVariableCategoriesSubtotal(serviceName);
+    const extrasSubtotal = getExtrasSubtotal();
+    const { effectiveServiceTotal } = computeEffectiveServiceAndExtras({
+      variableSubtotal,
+      extrasSubtotal,
+      fallbackServicePrice: getServicePrice(serviceName),
+      selectedServiceListPrice: selectedService.price,
+    });
+    const partialCleaningDiscount = computePartialCleaningDiscount(
+      Boolean(serviceCustomization.isPartialCleaning),
+      serviceCustomization.excludedAreas,
+      serviceCustomization.excludeQuantities,
+      excludeParametersList,
+    );
+    const selectedFreq = serviceCustomization.frequency?.trim() || "";
+    const freqMeta = selectedFreq ? frequencyMetaByName[selectedFreq] : undefined;
+    const frequencyDiscount = computeFrequencyDiscountAmount({
+      freqMeta,
+      effectiveServiceTotal,
+      extrasTotal: extrasSubtotal,
+      partialCleaningDiscount,
+      isFirstAppointment: true,
+    });
+    const out = computeCustomerBookingTotals({
+      effectiveServiceTotal,
+      extrasSubtotal,
+      partialCleaningDiscount,
+      frequencyDiscount,
+      taxRate: 0.08,
+      getCouponDiscountAmount,
+    });
+    return { ...out, subtotal: out.lineSubtotal };
+  }
 
   const applyCustomerCoupon = useCallback(async () => {
     const codeRaw = (form.getValues("couponCode") || "").trim();
@@ -1721,18 +2064,13 @@ function BookingPageContent() {
       return;
     }
 
-    const serviceName = bookingData?.service || selectedService?.name;
-    const variableSubtotal = serviceName ? getVariableCategoriesSubtotal(serviceName) : 0;
-    const extrasSubtotal = getExtrasSubtotal();
-    let subtotalNow = variableSubtotal + extrasSubtotal;
-    if (subtotalNow === 0 && serviceName) subtotalNow = getServicePrice(serviceName);
-    if (subtotalNow === 0 && selectedService?.price != null && selectedService.price > 0) subtotalNow = selectedService.price;
+    const baseBeforeCoupon = calculateTotal().baseBeforeCoupon;
 
-    if (data.min_order != null && Number(data.min_order) > Number(subtotalNow || 0)) {
+    if (data.min_order != null && Number(data.min_order) > Number(baseBeforeCoupon || 0)) {
       setAppliedCoupon(null);
       toast({
         title: "Minimum order not met",
-        description: `Coupon requires at least $${Number(data.min_order).toFixed(2)} subtotal.`,
+        description: `Coupon requires at least $${Number(data.min_order).toFixed(2)} after frequency and partial-cleaning discounts (before coupon).`,
         variant: "destructive",
       });
       return;
@@ -1801,34 +2139,15 @@ function BookingPageContent() {
 
     const normalizedCode = (data.code || codeRaw).trim();
     setAppliedCoupon({ code: normalizedCode, discountType, discountValue });
-    const discountAmount = discountType === "percentage"
-      ? Math.max(0, Math.min(subtotalNow, (subtotalNow * discountValue) / 100))
-      : Math.max(0, Math.min(subtotalNow, discountValue));
+    const discountAmount =
+      discountType === "percentage"
+        ? Math.max(0, Math.min(baseBeforeCoupon, (baseBeforeCoupon * discountValue) / 100))
+        : Math.max(0, Math.min(baseBeforeCoupon, discountValue));
     toast({
       title: "Coupon applied",
       description: `${normalizedCode} applied: -$${discountAmount.toFixed(2)}`,
     });
-  }, [form, searchParams, toast, bookingData, selectedService, getVariableCategoriesSubtotal, getExtrasSubtotal]);
-
-  // Calculate total from pricing parameters: sum all variable categories + extras; fallback to single-tier or service category price
-  const calculateTotal = () => {
-    if (!bookingData) return { subtotal: 0, tax: 0, total: 0 };
-    const serviceName = bookingData.service || selectedService?.name;
-    const variableSubtotal = serviceName ? getVariableCategoriesSubtotal(serviceName) : 0;
-    const extrasSubtotal = getExtrasSubtotal();
-    let subtotal = variableSubtotal + extrasSubtotal;
-    if (subtotal === 0 && serviceName) {
-      subtotal = getServicePrice(serviceName);
-    }
-    if (subtotal === 0 && selectedService?.price != null && selectedService.price > 0) {
-      subtotal = selectedService.price;
-    }
-    const couponDiscount = getCouponDiscountAmount(subtotal);
-    const discountedSubtotal = Math.max(0, subtotal - couponDiscount);
-    const tax = discountedSubtotal * 0.08; // 8% tax
-    const total = discountedSubtotal + tax;
-    return { subtotal, couponDiscount, discountedSubtotal, tax, total };
-  };
+  }, [form, searchParams, toast, bookingData, selectedService, serviceCustomization, frequencyMetaByName, excludeParametersList, getVariableCategoriesSubtotal, getExtrasSubtotal, getServicePrice, getCouponDiscountAmount]);
 
   // Handle cash payment
   const handleCashPayment = async () => {
@@ -1945,7 +2264,7 @@ function BookingPageContent() {
                   code: appliedCoupon.code,
                   discount_type: appliedCoupon.discountType,
                   discount_value: appliedCoupon.discountValue,
-                  discount_amount: getCouponDiscountAmount(tot.subtotal),
+                  discount_amount: tot.couponDiscount,
                 },
               }
             : {}),
@@ -1953,8 +2272,16 @@ function BookingPageContent() {
         coupon_code: appliedCoupon?.code,
         coupon_discount_type: appliedCoupon?.discountType,
         coupon_discount_value: appliedCoupon?.discountValue,
-        coupon_discount_amount: appliedCoupon ? getCouponDiscountAmount(tot.subtotal) : undefined,
-        ...(isRecurringFreq ? { create_recurring: true, recurring_occurrences_ahead: 8 } : {}),
+        coupon_discount_amount: appliedCoupon ? tot.couponDiscount : undefined,
+        ...(isRecurringFreq
+          ? {
+              create_recurring: true,
+              recurring_occurrences_ahead: 8,
+              ...(frequencyMetaByName[selectedFreq]?.frequency_repeats
+                ? { frequency_repeats: frequencyMetaByName[selectedFreq].frequency_repeats }
+                : {}),
+            }
+          : {}),
       };
 
       const parseRes = async (r: Response) => {
@@ -2027,6 +2354,8 @@ function BookingPageContent() {
     getCouponDiscountAmount,
     storeDefaultProviderWage,
     paymentProvider,
+    frequencyMetaByName,
+    excludeParametersList,
   ]);
 
   // Handle online payment via Stripe Checkout (redirect)
@@ -2204,7 +2533,15 @@ function BookingPageContent() {
 
   // Payment Screen
   if (currentStep === "payment" && bookingData && selectedService && serviceCustomization) {
-    const { subtotal, couponDiscount, tax, total } = calculateTotal();
+    const {
+      subtotal,
+      lineSubtotal,
+      partialCleaningDiscount,
+      frequencyDiscount,
+      couponDiscount,
+      tax,
+      total,
+    } = calculateTotal();
     summaryTotalRef.current = total;
     const bid = searchParams.get("business");
 
@@ -2257,6 +2594,17 @@ function BookingPageContent() {
                   <div className={styles.summaryItem}>
                     <strong>Frequency:</strong> {serviceCustomization.frequency || "—"}
                   </div>
+                  {(() => {
+                    const sf = serviceCustomization.frequency?.trim() || "";
+                    const raw = sf ? frequencyMetaByName[sf]?.frequency_repeats : "";
+                    const disp = formatFrequencyRepeatsForDisplay(raw || null);
+                    if (!disp) return null;
+                    return (
+                      <div className={styles.summaryItem}>
+                        <strong>Repeats:</strong> {disp}
+                      </div>
+                    );
+                  })()}
                   {Object.keys(availableVariables).length > 0
                     ? Object.keys(availableVariables).map((categoryKey) => {
                         const value =
@@ -2311,9 +2659,21 @@ function BookingPageContent() {
                   </div>
                   <div className={styles.divider}></div>
                   <div className={styles.priceRow}>
-                    <span>Service Fee:</span>
-                    <span>${subtotal.toFixed(2)}</span>
+                    <span>Subtotal:</span>
+                    <span>${(lineSubtotal ?? subtotal).toFixed(2)}</span>
                   </div>
+                  {partialCleaningDiscount > 0 && (
+                    <div className={styles.priceRow}>
+                      <span>Partial cleaning discount:</span>
+                      <span className="text-green-600">-${partialCleaningDiscount.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {frequencyDiscount > 0 && (
+                    <div className={styles.priceRow}>
+                      <span>Frequency discount:</span>
+                      <span className="text-green-600">-${frequencyDiscount.toFixed(2)}</span>
+                    </div>
+                  )}
                   {couponDiscount > 0 && (
                     <div className={styles.priceRow}>
                       <span>Coupon Discount:</span>
@@ -2401,7 +2761,6 @@ function BookingPageContent() {
 
   // Booking Details Form
   if (currentStep === "details" && selectedCategory) {
-    const categoryServices = serviceCategories;
     const showSummary = selectedService && serviceCustomization;
     const { subtotal, tax, total } = showSummary ? calculateTotal() : { subtotal: 0, tax: 0, total: 0 };
     
@@ -2490,9 +2849,9 @@ function BookingPageContent() {
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-8 w-8 animate-spin text-cyan-500" />
                 </div>
-              ) : categoryServices.length > 0 ? (
+              ) : categoryServicesForForm.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {categoryServices.map((service) => (
+                  {categoryServicesForForm.map((service) => (
                     <FrequencyAwareServiceCard
                       key={service.id}
                       service={service}
@@ -2503,12 +2862,28 @@ function BookingPageContent() {
                       customization={getCardCustomization(service.id)}
                       onCustomizationChange={handleCustomizationChange}
                       industryId={selectedIndustryId}
+                      businessId={businessIdFromUrl}
                       serviceCategory={service.raw}
                       availableExtras={availableExtras}
-                      availableVariables={availableVariables}
+                      availableVariables={buildCustomerAvailableVariables(
+                        pricingParametersFull,
+                        { name: service.name, raw: service.raw },
+                        getCardCustomization(service.id).frequency?.trim() ||
+                          bookingFrequencyForFilters ||
+                          "",
+                      )}
                       frequencyOptions={frequencyOptions}
                     />
                   ))}
+                </div>
+              ) : needsLocationBeforeServices ? (
+                <div className="flex flex-col gap-1 rounded-md border border-input bg-muted/50 px-3 py-4 text-sm text-muted-foreground">
+                  <span>
+                    {locationManagement === "name"
+                      ? "Enter your city or town above to see available services."
+                      : "Enter zip code above to see available services."}
+                  </span>
+                  <p className="text-xs">Services follow your location, matching admin booking.</p>
                 </div>
               ) : (
                 <div className="rounded-2xl border border-dashed border-cyan-300 bg-cyan-50/70 p-8 text-center">
@@ -2524,7 +2899,7 @@ function BookingPageContent() {
             )}
 
             {/* Customer Information Form - visible below service cards, or only section in limited edit */}
-            {(limitedEditMode || categoryServices.length > 0) && (
+            {(limitedEditMode || categoryServicesForForm.length > 0) && (
               <div id="customer-form" className={styles.formContainer}>
                 <h2 className="text-2xl font-bold mb-6">Customer Information</h2>
                 <Form {...form}>
