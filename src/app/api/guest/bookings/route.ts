@@ -6,6 +6,7 @@ import { EmailService } from '@/lib/emailService';
 import { syncBookingCreated, createRecurringCalendarEvent } from '@/lib/googleCalendar';
 import { getStoreOptionsScheduling, isDateHoliday, getSpotLimits, getBookingCountForDate, getBookingCountForWeek, isTimeSlotAvailableForBooking } from '@/lib/schedulingFilters';
 import { ensureCustomerForAdminBooking } from '@/lib/ensureCustomerForAdminBooking';
+import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProviderWage';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -242,6 +243,17 @@ export async function POST(request: NextRequest) {
   }
   if (durationMinutes > 0) insert.duration_minutes = durationMinutes;
 
+  const { data: storeWageOpts } = await supabase
+    .from('business_store_options')
+    .select('default_provider_wage, default_provider_wage_type')
+    .eq('business_id', businessId)
+    .maybeSingle();
+  const wageResolved = resolveProviderWageFromBodyOrStoreDefault(body as Record<string, unknown>, storeWageOpts);
+  if (wageResolved) {
+    insert.provider_wage = wageResolved.provider_wage;
+    insert.provider_wage_type = wageResolved.provider_wage_type;
+  }
+
   const createRecurring = body.create_recurring === true || body.create_recurring === 'true';
   const scheduledDate = date || null;
   const timeForRecurring = timeForDb || '09:00:00';
@@ -323,6 +335,10 @@ export async function POST(request: NextRequest) {
     if (/customization/i.test(msg)) delete insertFallback.customization;
     if (/frequency/i.test(msg)) delete insertFallback.frequency;
     if (/provider_name/i.test(msg)) delete insertFallback.provider_name;
+    if (/provider_wage/i.test(msg)) {
+      delete insertFallback.provider_wage;
+      delete insertFallback.provider_wage_type;
+    }
     const retry = await supabase.from('bookings').insert(insertFallback).select().single();
     booking = retry.data;
     error = retry.error;

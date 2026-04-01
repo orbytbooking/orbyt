@@ -12,6 +12,7 @@ import {
   shortBookingRefForLogs,
 } from '@/lib/draftQuoteLogs';
 import { ensureCustomerForAdminBooking } from '@/lib/ensureCustomerForAdminBooking';
+import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProviderWage';
 import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
 
 export async function GET(
@@ -129,15 +130,17 @@ export async function PUT(
       const finalStatus = bookingData.service_provider_id
         ? (bookingData.status === 'pending' ? 'confirmed' : bookingData.status)
         : (bookingData.status || 'pending');
-      let providerWage: number | null = null;
-      let providerWageType: string | null = null;
-      if (bookingData.provider_wage != null && bookingData.provider_wage_type) {
-        const w = parseFloat(String(bookingData.provider_wage));
-        if (!isNaN(w) && w >= 0) {
-          providerWage = w;
-          providerWageType = String(bookingData.provider_wage_type);
-        }
-      }
+      const { data: storeWageOpts } = await supabase
+        .from('business_store_options')
+        .select('default_provider_wage, default_provider_wage_type')
+        .eq('business_id', businessId)
+        .maybeSingle();
+      const wageResolved = resolveProviderWageFromBodyOrStoreDefault(
+        bookingData as Record<string, unknown>,
+        storeWageOpts
+      );
+      const providerWage = wageResolved?.provider_wage ?? null;
+      const providerWageType = wageResolved?.provider_wage_type ?? null;
       const customerEmail = (bookingData.customer_email || '').toString().trim();
       const customerName = (bookingData.customer_name || '').toString().trim();
       const customerPhone = (bookingData.customer_phone || '').toString().trim() || null;
@@ -198,6 +201,11 @@ export async function PUT(
         updated_at: new Date().toISOString(),
       };
       if (providerName) built.provider_name = providerName;
+      if (bookingData.frequency !== undefined) {
+        const f = bookingData.frequency;
+        built.frequency =
+          f != null && String(f).trim() ? String(f).trim() : null;
+      }
       const hasPartialCleaning = Boolean(bookingData.is_partial_cleaning);
       const excludedAreas = Array.isArray(bookingData.excluded_areas) ? bookingData.excluded_areas : [];
       const excludeQuantities = bookingData.exclude_quantities && typeof bookingData.exclude_quantities === 'object' && !Array.isArray(bookingData.exclude_quantities) ? bookingData.exclude_quantities : {};

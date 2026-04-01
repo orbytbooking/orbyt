@@ -38,6 +38,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import { formatProviderWageDisplay } from "@/lib/formatProviderWage";
 import { supabase } from "@/lib/supabaseClient";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { CreateInvoiceDialog } from "@/components/admin/CreateInvoiceDialog";
@@ -102,6 +103,7 @@ export default function CustomerProfilePage() {
     frequency?: string;
     customization?: Record<string, unknown>;
     providerWage?: number | null;
+    providerWageType?: string | null;
     durationMinutes?: number | null;
     privateCustomerNotes?: string[];
     privateBookingNotes?: string[];
@@ -687,6 +689,7 @@ export default function CustomerProfilePage() {
             frequency: b.frequency,
             customization: b.customization,
             providerWage: b.provider_wage != null ? Number(b.provider_wage) : undefined,
+            providerWageType: b.provider_wage_type != null ? String(b.provider_wage_type) : undefined,
             durationMinutes: b.duration_minutes != null ? Number(b.duration_minutes) : undefined,
             cancellationFeeAmount: b.cancellation_fee_amount != null ? Number(b.cancellation_fee_amount) : undefined,
             cancellationFeeCurrency: b.cancellation_fee_currency ?? undefined,
@@ -2943,15 +2946,21 @@ export default function CustomerProfilePage() {
                         : selectedBooking.date || "—"}
                     />
                     <DetailRow label="Assigned to" value={selectedBooking.provider?.name || "Unassigned"} className="font-bold text-gray-900" />
-                    {selectedBooking.providerWage != null && selectedBooking.providerWage > 0 && (
-                      <div className="flex justify-between items-center gap-3 min-w-0 flex-wrap sm:flex-nowrap">
-                        <span className="text-gray-500 text-sm shrink-0">Provider payment</span>
-                        <span className="text-sm font-medium text-right shrink-0">
-                          ${Number(selectedBooking.providerWage).toFixed(2)}
-                          <Link href="/admin/settings" className="text-blue-600 hover:underline ml-1.5 text-xs whitespace-nowrap">Learn more</Link>
-                        </span>
-                      </div>
-                    )}
+                    {(() => {
+                      const wageLabel = formatProviderWageDisplay(
+                        selectedBooking.providerWage,
+                        selectedBooking.providerWageType
+                      );
+                      return wageLabel != null ? (
+                        <div className="flex justify-between items-center gap-3 min-w-0 flex-wrap sm:flex-nowrap">
+                          <span className="text-gray-500 text-sm shrink-0">Provider payment</span>
+                          <span className="text-sm font-medium text-right shrink-0">
+                            {wageLabel}
+                            <Link href="/admin/settings" className="text-blue-600 hover:underline ml-1.5 text-xs whitespace-nowrap">Learn more</Link>
+                          </span>
+                        </div>
+                      ) : null;
+                    })()}
                     {(selectedBooking.aptNo || selectedBooking.address) && (
                       <DetailRow
                         label="Location"

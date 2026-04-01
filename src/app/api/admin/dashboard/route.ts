@@ -351,6 +351,7 @@ export async function GET(request: NextRequest) {
             customization: booking.customization,
             durationMinutes: booking.duration_minutes != null ? Number(booking.duration_minutes) : null,
             providerWage: booking.provider_wage != null ? Number(booking.provider_wage) : null,
+            providerWageType: booking.provider_wage_type != null ? String(booking.provider_wage_type) : null,
             aptNo: booking.apt_no,
             address: booking.address
           };
@@ -377,6 +378,7 @@ export async function GET(request: NextRequest) {
             customization: null,
             durationMinutes: null,
             providerWage: null,
+            providerWageType: null,
             aptNo: null,
             address: null
           };
@@ -438,6 +440,7 @@ export async function GET(request: NextRequest) {
             customization: booking.customization,
             durationMinutes: booking.duration_minutes != null ? Number(booking.duration_minutes) : null,
             providerWage: booking.provider_wage != null ? Number(booking.provider_wage) : null,
+            providerWageType: booking.provider_wage_type != null ? String(booking.provider_wage_type) : null,
             aptNo: booking.apt_no,
             address: booking.address
           };
@@ -464,6 +467,7 @@ export async function GET(request: NextRequest) {
             customization: null,
             durationMinutes: null,
             providerWage: null,
+            providerWageType: null,
             aptNo: null,
             address: null
           };

@@ -348,6 +348,43 @@ function BookingPageContent() {
   const [availableProviders, setAvailableProviders] = useState<any[]>([]);
   const [providersLoading, setProvidersLoading] = useState(false);
   const [schedulingType, setSchedulingType] = useState<string>("accepted_automatically");
+  /** Mirrors admin add-booking: send store default pay in the POST body (same keys as AddBookingForm). */
+  const [storeDefaultProviderWage, setStoreDefaultProviderWage] = useState<{
+    wage: string;
+    type: "percentage" | "fixed" | "hourly";
+  } | null>(null);
+
+  const businessIdFromUrl = searchParams.get("business") ?? "";
+
+  useEffect(() => {
+    if (!businessIdFromUrl) {
+      setStoreDefaultProviderWage(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/admin/store-options?businessId=${encodeURIComponent(businessIdFromUrl)}`,
+          { headers: { "x-business-id": businessIdFromUrl } }
+        );
+        const data = await res.json();
+        if (cancelled || !res.ok || !data.options) return;
+        const w = data.options.default_provider_wage;
+        const t = data.options.default_provider_wage_type;
+        if (w != null && Number(w) > 0 && (t === "percentage" || t === "fixed" || t === "hourly")) {
+          setStoreDefaultProviderWage({ wage: String(w), type: t });
+        } else {
+          setStoreDefaultProviderWage(null);
+        }
+      } catch {
+        if (!cancelled) setStoreDefaultProviderWage(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [businessIdFromUrl]);
 
   // Ref to store the total shown in the booking summary so we send that exact amount when saving (avoids stale closure giving 0)
   const summaryTotalRef = useRef<number>(0);
@@ -1377,6 +1414,12 @@ function BookingPageContent() {
           payment_method: paymentMethod,
           provider_id: selectedProviderId || undefined,
           provider_name: selectedProviderObj?.name ?? undefined,
+          ...(storeDefaultProviderWage
+            ? {
+                provider_wage: storeDefaultProviderWage.wage,
+                provider_wage_type: storeDefaultProviderWage.type,
+              }
+            : {}),
           customization: {
             ...(newBooking.customization ?? {}),
             ...(appliedCoupon
@@ -1460,7 +1503,7 @@ function BookingPageContent() {
       });
     }
     return null;
-  }, [bookingData, serviceCustomization, selectedService, toast, searchParams, form, availableProviders, showProviderStep, appliedCoupon, getCouponDiscountAmount]);
+  }, [bookingData, serviceCustomization, selectedService, toast, searchParams, form, availableProviders, showProviderStep, appliedCoupon, getCouponDiscountAmount, storeDefaultProviderWage]);
 
   // Handle service selection (persist to card customizations so selection survives re-renders)
   const handleServiceSelect = (serviceName: string, customization?: ServiceCustomization) => {
@@ -1885,6 +1928,12 @@ function BookingPageContent() {
         payment_method: "online",
         provider_id: selectedProviderId || undefined,
         provider_name: selectedProviderObj?.name ?? undefined,
+        ...(storeDefaultProviderWage
+          ? {
+              provider_wage: storeDefaultProviderWage.wage,
+              provider_wage_type: storeDefaultProviderWage.type,
+            }
+          : {}),
         customization: {
           ...(newBooking.customization ?? {}),
           ...(appliedCoupon
@@ -1929,7 +1978,7 @@ function BookingPageContent() {
       toast({ title: "Error", description: "Failed to create booking. Please try again.", variant: "destructive" });
       return null;
     }
-  }, [bookingData, serviceCustomization, selectedService, searchParams, form, availableProviders, showProviderStep, appliedCoupon, getCouponDiscountAmount]);
+  }, [bookingData, serviceCustomization, selectedService, searchParams, form, availableProviders, showProviderStep, appliedCoupon, getCouponDiscountAmount, storeDefaultProviderWage]);
 
   // Handle online payment via Stripe Checkout (redirect)
   const handleOnlinePayment = async (_values?: z.infer<typeof paymentSchema>) => {

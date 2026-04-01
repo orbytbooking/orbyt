@@ -49,6 +49,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSupabaseProviderClient } from "@/lib/supabaseProviderClient";
 import { cn } from "@/lib/utils";
+import { computeProviderNetPayFromBooking } from "@/lib/bookingProviderWage";
 
 type Booking = {
   id: string;
@@ -73,6 +74,8 @@ type Booking = {
   payment_method?: string | null;
   provider_wage?: number | null;
   provider_wage_type?: string | null;
+  /** From API: numeric total for pay estimate */
+  total_price_number?: number;
   is_recurring?: boolean;
 };
 
@@ -842,7 +845,20 @@ const ProviderBookings = () => {
                   </CollapsibleTrigger>
                   <CollapsibleContent className="overflow-visible">
                     <div className="px-4 pb-4 space-y-0">
-                      {[
+                      {(() => {
+                        const grossFallback = parseFloat(
+                          String(selectedBooking.amount || "").replace(/[^0-9.-]/g, "")
+                        );
+                        const estimatedPay = computeProviderNetPayFromBooking({
+                          total_price:
+                            selectedBooking.total_price_number ??
+                            (Number.isFinite(grossFallback) ? grossFallback : null),
+                          provider_wage: selectedBooking.provider_wage,
+                          provider_wage_type: selectedBooking.provider_wage_type,
+                          duration_minutes: selectedBooking.duration_minutes,
+                          notes: selectedBooking.notes,
+                        });
+                        return [
                         { label: 'Booking id', value: selectedBooking.id },
                         { label: 'Zip/Postal code', value: selectedBooking.zip_code || '—' },
                         { label: 'Industry', value: '—' },
@@ -888,10 +904,19 @@ const ProviderBookings = () => {
                                 : `$${Number(selectedBooking.provider_wage).toFixed(2)}`
                             : '—',
                         },
+                        ...(estimatedPay != null
+                          ? [
+                              {
+                                label: 'Estimated pay (this job)',
+                                value: `$${estimatedPay.toFixed(2)}`,
+                              },
+                            ]
+                          : []),
                         { label: 'Location', value: [selectedBooking.location, selectedBooking.apt_no ? `Apt ${selectedBooking.apt_no}` : null, selectedBooking.zip_code].filter(Boolean).join(', ') || '—' },
                         { label: 'Payment method', value: selectedBooking.payment_method ? String(selectedBooking.payment_method).toLowerCase() : '—' },
                         { label: 'Price details', value: selectedBooking.amount },
-                      ].map(({ label, value }) => (
+                      ];
+                      })().map(({ label, value }) => (
                         <div key={label} className="flex justify-between items-start gap-4 py-1.5 min-w-0 border-b border-border/50 last:border-0">
                           <span className="text-muted-foreground text-sm shrink-0">{label}</span>
                           <span className="text-sm font-medium text-right break-words break-all min-w-0 flex-1">{value}</span>

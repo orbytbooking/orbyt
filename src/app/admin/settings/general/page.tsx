@@ -114,6 +114,9 @@ interface StoreOptions {
   admin_calendar_month_display?: 'names' | 'dots';
   admin_calendar_multi_booking_layout?: 'side_by_side' | 'overlapped';
   admin_calendar_hide_non_working_hours?: boolean;
+  /** Default pay for customer/guest bookings (no per-booking wage UI) */
+  default_provider_wage?: number | null;
+  default_provider_wage_type?: 'percentage' | 'fixed' | 'hourly' | null;
 }
 
 // All IANA time zones (from Intl when available, else fallback list)
@@ -167,6 +170,8 @@ const SCHEDULING_DEFAULT_OPTIONS: StoreOptions = {
   admin_calendar_month_display: 'names',
   admin_calendar_multi_booking_layout: 'side_by_side',
   admin_calendar_hide_non_working_hours: false,
+  default_provider_wage: null,
+  default_provider_wage_type: null,
 };
 
 // Simple rich text editor for reschedule/cancellation messages
@@ -693,6 +698,18 @@ export default function GeneralSettingsPage() {
 
   const handleSaveScheduling = async () => {
     if (!currentBusiness?.id) return;
+    const dtype = schedulingOptions.default_provider_wage_type;
+    const dnum = schedulingOptions.default_provider_wage;
+    if (dtype) {
+      if (dnum == null || !Number.isFinite(Number(dnum)) || Number(dnum) <= 0) {
+        toast.error("Please enter a valid amount.");
+        return;
+      }
+      if (dtype === "percentage" && Number(dnum) > 100) {
+        toast.error("Percentage cannot exceed 100.");
+        return;
+      }
+    }
     setSchedulingSaving(true);
     try {
       const res = await fetch("/api/admin/store-options", {
@@ -704,6 +721,11 @@ export default function GeneralSettingsPage() {
       if (!res.ok) throw new Error(data.error || "Failed to save");
       setSchedulingOptions(data.options ? { ...SCHEDULING_DEFAULT_OPTIONS, ...data.options } : schedulingOptions);
       toast.success("Scheduling settings saved");
+      if (data.default_provider_wage_migration_required) {
+        toast.warning(
+          "Other settings saved. Default provider pay needs DB migration: run database/migrations/092_default_provider_wage_store_options.sql in Supabase SQL Editor, then save again."
+        );
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save");
     } finally {
@@ -4538,7 +4560,89 @@ export default function GeneralSettingsPage() {
                         </Button>
                       </div>
                       {providerOptionsExpanded && (
+                        <TooltipProvider>
                         <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
+                            <div className="rounded-lg border p-4 space-y-3 max-w-2xl">
+                              <div className="flex items-start gap-1.5">
+                                <Label className="font-semibold leading-snug">
+                                  What would you like to set the default pay for all your providers?
+                                </Label>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button type="button" className="inline-flex text-muted-foreground hover:text-foreground shrink-0 mt-0.5">
+                                      <Info className="h-4 w-4" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-xs">
+                                    Applied automatically to bookings from your book-now page and the customer dashboard when no wage is sent. You can still set pay per booking in admin.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </div>
+                              <p className="text-sm text-muted-foreground">
+                                Customers cannot set provider wages on their booking flow; use this so new jobs still have pay configured.
+                              </p>
+                              <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+                                <div className="flex-1 min-w-0 space-y-1.5">
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    step={schedulingOptions.default_provider_wage_type === "percentage" ? 1 : 0.01}
+                                    max={schedulingOptions.default_provider_wage_type === "percentage" ? 100 : undefined}
+                                    placeholder="Amount"
+                                    disabled={!schedulingOptions.default_provider_wage_type}
+                                    value={
+                                      schedulingOptions.default_provider_wage != null &&
+                                      Number.isFinite(Number(schedulingOptions.default_provider_wage))
+                                        ? String(schedulingOptions.default_provider_wage)
+                                        : ""
+                                    }
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      if (v === "") {
+                                        setSchedulingOptions((o) => ({ ...o, default_provider_wage: null }));
+                                        return;
+                                      }
+                                      const n = parseFloat(v);
+                                      setSchedulingOptions((o) => ({
+                                        ...o,
+                                        default_provider_wage: Number.isFinite(n) ? n : null,
+                                      }));
+                                    }}
+                                    className={cn(
+                                      "dark:text-white",
+                                      !schedulingOptions.default_provider_wage_type && "opacity-60"
+                                    )}
+                                  />
+                                </div>
+                                <Select
+                                  value={schedulingOptions.default_provider_wage_type ?? "none"}
+                                  onValueChange={(v) => {
+                                    if (v === "none") {
+                                      setSchedulingOptions((o) => ({
+                                        ...o,
+                                        default_provider_wage_type: null,
+                                        default_provider_wage: null,
+                                      }));
+                                    } else {
+                                      setSchedulingOptions((o) => ({
+                                        ...o,
+                                        default_provider_wage_type: v as "percentage" | "fixed" | "hourly",
+                                      }));
+                                    }
+                                  }}
+                                >
+                                  <SelectTrigger className="w-full sm:w-[200px] dark:text-white">
+                                    <SelectValue placeholder="Type" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="none">None</SelectItem>
+                                    <SelectItem value="percentage">Percentage</SelectItem>
+                                    <SelectItem value="fixed">Fixed amount</SelectItem>
+                                    <SelectItem value="hourly">Hourly</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
                             <div className="flex items-center justify-between rounded-lg border p-4">
                               <div>
                                 <Label className="font-semibold">Show provider score/rating to customers</Label>
@@ -4570,6 +4674,7 @@ export default function GeneralSettingsPage() {
                               />
                             </div>
                         </div>
+                        </TooltipProvider>
                       )}
                     </div>
                     <div className="flex justify-end">

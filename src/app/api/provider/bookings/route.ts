@@ -108,6 +108,8 @@ export async function GET(request: NextRequest) {
       payment_method?: string | null;
       provider_wage?: number | null;
       provider_wage_type?: string | null;
+      /** Numeric job total for pay estimates (same basis as admin) */
+      total_price_number?: number;
       is_recurring?: boolean;
       occurrence_count?: number;
     };
@@ -139,6 +141,7 @@ export async function GET(request: NextRequest) {
           payment_method: (b.payment_method as string) || null,
           provider_wage: b.provider_wage != null ? Number(b.provider_wage) : null,
           provider_wage_type: (b.provider_wage_type as string) || null,
+          total_price_number: Number(booking.total_price ?? booking.amount ?? 0) || 0,
           is_recurring: !!(booking as { recurring_series_id?: string }).recurring_series_id,
         };
       });
@@ -202,6 +205,7 @@ export async function GET(request: NextRequest) {
         payment_method: (b.payment_method as string) || null,
         provider_wage: b.provider_wage != null ? Number(b.provider_wage) : null,
         provider_wage_type: (b.provider_wage_type as string) || null,
+        total_price_number: Number(booking.total_price ?? booking.amount ?? 0) || 0,
       };
       const seriesId = (booking as { recurring_series_id?: string }).recurring_series_id;
       const series = seriesId ? seriesById[seriesId] : null;

@@ -42,6 +42,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { formatProviderWageDisplay } from "@/lib/formatProviderWage";
 import { supabase } from "@/lib/supabaseClient";
 import { AdminBookingsCalendar } from "@/components/admin/AdminBookingsCalendar";
 import { EditBookingSheet } from "@/components/admin/EditBookingSheet";
@@ -81,6 +82,7 @@ type Booking = {
   customization?: Record<string, unknown> | null;
   durationMinutes?: number | null;
   providerWage?: number | null;
+  providerWageType?: string | null;
   aptNo?: string | null;
   address?: string | null;
 };
@@ -427,6 +429,7 @@ const Dashboard = () => {
           customization: b.customization,
           durationMinutes: b.duration_minutes != null ? Number(b.duration_minutes) : null,
           providerWage: b.provider_wage != null ? Number(b.provider_wage) : null,
+          providerWageType: b.provider_wage_type != null ? String(b.provider_wage_type) : null,
           aptNo: b.apt_no,
           address: b.address,
           provider_id: b.provider_id,
@@ -759,13 +762,19 @@ const Dashboard = () => {
           <AdminBookingsCalendar
             title="Upcoming Bookings"
             bookings={calendarBookings.map((b) => ({
+              ...b,
               id: b.id,
               date: b.date,
               time: b.time,
               status: b.status,
               customer_name: b.customerName ?? b.customer?.name,
               service: b.service,
-              ...b,
+              industry_name: industries[0]?.name,
+              customer_phone: b.customer?.phone,
+              address: b.address ?? undefined,
+              frequency: b.frequency,
+              duration_minutes: b.durationMinutes ?? undefined,
+              assignedProvider: b.provider?.name ?? undefined,
             }))}
             onBookingClick={(booking) => {
               const withProvider = data?.availableProviders?.find(
@@ -987,15 +996,20 @@ const Dashboard = () => {
                       />
                     )}
                     <DetailRow label="Assigned to" value={selectedBooking.provider?.name || (selectedBooking as any).provider_name || "Unassigned"} />
-                    {(selectedBooking.providerWage ?? (selectedBooking as any).provider_wage) != null && (selectedBooking.providerWage ?? (selectedBooking as any).provider_wage) > 0 && (
-                      <div className="flex justify-between items-center gap-4 py-1.5 min-w-0">
-                        <span className="text-muted-foreground text-sm shrink-0">Provider payment</span>
-                        <span className="text-sm font-medium text-right break-words min-w-0 flex-1">
-                          ${Number(selectedBooking.providerWage ?? (selectedBooking as any).provider_wage).toFixed(2)}
-                          <Link href="/admin/settings" className="text-orange-600 hover:underline ml-1.5 text-xs">Learn more</Link>
-                        </span>
-                      </div>
-                    )}
+                    {(() => {
+                      const wageNum = selectedBooking.providerWage ?? (selectedBooking as any).provider_wage;
+                      const wageType = selectedBooking.providerWageType ?? (selectedBooking as any).provider_wage_type;
+                      const wageLabel = formatProviderWageDisplay(wageNum, wageType);
+                      return wageLabel != null ? (
+                        <div className="flex justify-between items-center gap-4 py-1.5 min-w-0">
+                          <span className="text-muted-foreground text-sm shrink-0">Provider payment</span>
+                          <span className="text-sm font-medium text-right break-words min-w-0 flex-1">
+                            {wageLabel}
+                            <Link href="/admin/settings" className="text-orange-600 hover:underline ml-1.5 text-xs">Learn more</Link>
+                          </span>
+                        </div>
+                      ) : null;
+                    })()}
                     {(selectedBooking.aptNo || selectedBooking.address || (selectedBooking as any).apt_no) && (
                       <DetailRow
                         label="Location"

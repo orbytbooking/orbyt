@@ -56,6 +56,9 @@ export interface BusinessStoreOptions {
   admin_calendar_month_display: 'names' | 'dots';
   admin_calendar_multi_booking_layout: 'side_by_side' | 'overlapped';
   admin_calendar_hide_non_working_hours: boolean;
+  /** Applied to guest/customer bookings when they do not send provider wage */
+  default_provider_wage: number | null;
+  default_provider_wage_type: 'percentage' | 'fixed' | 'hourly' | null;
 }
 
 const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
@@ -100,7 +103,14 @@ const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
   admin_calendar_month_display: 'names',
   admin_calendar_multi_booking_layout: 'side_by_side',
   admin_calendar_hide_non_working_hours: false,
+  default_provider_wage: null,
+  default_provider_wage_type: null,
 };
+
+function storeOptionsErrorMissingDefaultWageColumn(message: string): boolean {
+  const m = message.toLowerCase();
+  return m.includes('default_provider_wage') && (m.includes('column') || m.includes('schema'));
+}
 
 async function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -145,6 +155,71 @@ export async function PUT(request: NextRequest) {
     const businessId = request.headers.get('x-business-id') || body.businessId;
     if (!businessId) {
       return NextResponse.json({ error: 'Business ID required' }, { status: 400 });
+    }
+
+    const supabase = await getSupabase();
+
+    let wageColumnsAvailable = true;
+    let existing: {
+      id?: string;
+      default_provider_wage?: unknown;
+      default_provider_wage_type?: unknown;
+    } | null = null;
+
+    const selWage = await supabase
+      .from('business_store_options')
+      .select('id, default_provider_wage, default_provider_wage_type')
+      .eq('business_id', businessId)
+      .maybeSingle();
+
+    if (selWage.error && storeOptionsErrorMissingDefaultWageColumn(selWage.error.message || '')) {
+      wageColumnsAvailable = false;
+      const selId = await supabase
+        .from('business_store_options')
+        .select('id')
+        .eq('business_id', businessId)
+        .maybeSingle();
+      if (selId.error) {
+        console.error('Store options fetch existing error:', selId.error);
+        return NextResponse.json({ error: selId.error.message }, { status: 500 });
+      }
+      existing = selId.data;
+    } else if (selWage.error) {
+      console.error('Store options fetch existing error:', selWage.error);
+      return NextResponse.json({ error: selWage.error.message }, { status: 500 });
+    } else {
+      existing = selWage.data;
+    }
+
+    const parseStoredWage = (row: {
+      default_provider_wage?: unknown;
+      default_provider_wage_type?: unknown;
+    } | null): { w: number | null; t: 'percentage' | 'fixed' | 'hourly' | null } => {
+      if (!row) return { w: null, t: null };
+      const w = row.default_provider_wage != null ? Number(row.default_provider_wage) : NaN;
+      const tr = row.default_provider_wage_type != null ? String(row.default_provider_wage_type).trim().toLowerCase() : '';
+      const t = tr === 'percentage' || tr === 'fixed' || tr === 'hourly' ? tr : null;
+      if (Number.isFinite(w) && w > 0 && t) return { w, t };
+      return { w: null, t: null };
+    };
+
+    const prevWage = parseStoredWage(existing);
+    let default_provider_wage: number | null = prevWage.w;
+    let default_provider_wage_type: 'percentage' | 'fixed' | 'hourly' | null = prevWage.t;
+
+    if ('default_provider_wage' in body || 'default_provider_wage_type' in body) {
+      const wRaw = body.default_provider_wage;
+      const tRaw = body.default_provider_wage_type;
+      default_provider_wage = null;
+      default_provider_wage_type = null;
+      if (wRaw != null && wRaw !== '' && tRaw != null && String(tRaw).trim()) {
+        const w = Number(wRaw);
+        const t = String(tRaw).trim().toLowerCase();
+        if (Number.isFinite(w) && w > 0 && (t === 'percentage' || t === 'fixed' || t === 'hourly')) {
+          default_provider_wage = t === 'percentage' ? Math.min(100, w) : w;
+          default_provider_wage_type = t;
+        }
+      }
     }
 
     const update: Partial<BusinessStoreOptions> = {
@@ -211,42 +286,79 @@ export async function PUT(request: NextRequest) {
         ? body.admin_calendar_multi_booking_layout
         : 'side_by_side',
       admin_calendar_hide_non_working_hours: body.admin_calendar_hide_non_working_hours === true,
+      default_provider_wage,
+      default_provider_wage_type,
       updated_at: new Date().toISOString(),
     };
 
-    const supabase = await getSupabase();
-    const { data: existing } = await supabase
-      .from('business_store_options')
-      .select('id')
-      .eq('business_id', businessId)
-      .maybeSingle();
+    if (!wageColumnsAvailable) {
+      delete (update as Record<string, unknown>).default_provider_wage;
+      delete (update as Record<string, unknown>).default_provider_wage_type;
+    }
 
     if (existing?.id) {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('business_store_options')
         .update(update)
         .eq('business_id', businessId)
         .select()
         .single();
 
+      if (error && storeOptionsErrorMissingDefaultWageColumn(error.message || '')) {
+        wageColumnsAvailable = false;
+        const update2 = { ...update } as Record<string, unknown>;
+        delete update2.default_provider_wage;
+        delete update2.default_provider_wage_type;
+        const retry = await supabase
+          .from('business_store_options')
+          .update(update2)
+          .eq('business_id', businessId)
+          .select()
+          .single();
+        data = retry.data;
+        error = retry.error;
+      }
+
       if (error) {
         console.error('Store options update error:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
-      return NextResponse.json({ options: data });
+      const merged = data ? { ...DEFAULT_OPTIONS, ...(data as Record<string, unknown>) } : null;
+      return NextResponse.json({
+        options: merged,
+        default_provider_wage_migration_required: !wageColumnsAvailable,
+      });
     }
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('business_store_options')
       .insert({ business_id: businessId, ...update })
       .select()
       .single();
 
+    if (error && storeOptionsErrorMissingDefaultWageColumn(error.message || '')) {
+      wageColumnsAvailable = false;
+      const update2 = { ...update } as Record<string, unknown>;
+      delete update2.default_provider_wage;
+      delete update2.default_provider_wage_type;
+      const retry = await supabase
+        .from('business_store_options')
+        .insert({ business_id: businessId, ...update2 })
+        .select()
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
+
     if (error) {
       console.error('Store options insert error:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
-    return NextResponse.json({ options: data });
+    const merged = data ? { ...DEFAULT_OPTIONS, ...(data as Record<string, unknown>) } : null;
+    return NextResponse.json({
+      options: merged,
+      default_provider_wage_migration_required: !wageColumnsAvailable,
+    });
   } catch (e) {
     console.error('Store options PUT:', e);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

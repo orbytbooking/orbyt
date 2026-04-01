@@ -57,6 +57,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import Link from "next/link";
+import { formatProviderWageDisplay } from "@/lib/formatProviderWage";
 import {
   Search, 
   Filter, 
@@ -1568,7 +1569,7 @@ export default function BookingsPage() {
       {/* Calendar View - same component as dashboard */}
       {viewMode === "calendar" && (
         <AdminBookingsCalendar
-          bookings={filteredBookings}
+          bookings={filteredBookings.map((b) => ({ ...b, industry_name: industries[0]?.name }))}
           onBookingClick={handleViewDetails}
           currentDate={currentDate}
           onMonthChange={setCurrentDate}
@@ -1818,15 +1819,21 @@ export default function BookingsPage() {
                         />
                       )}
                       <DetailRow label="Assigned to" value={selectedBooking.assignedProvider || (selectedBooking as any).provider_name || "Unassigned"} />
-                      {(selectedBooking as any).provider_wage != null && (selectedBooking as any).provider_wage > 0 && (
-                        <div className="flex justify-between items-center gap-4 py-1.5 min-w-0">
-                          <span className="text-muted-foreground text-sm shrink-0">Provider payment</span>
-                          <span className="text-sm font-medium text-right break-words min-w-0 flex-1">
-                            ${Number((selectedBooking as any).provider_wage).toFixed(2)}
-                            <Link href="/admin/settings" className="text-orange-600 hover:underline ml-1.5 text-xs">Learn more</Link>
-                          </span>
-                        </div>
-                      )}
+                      {(() => {
+                        const wageLabel = formatProviderWageDisplay(
+                          (selectedBooking as any).provider_wage,
+                          (selectedBooking as any).provider_wage_type
+                        );
+                        return wageLabel != null ? (
+                          <div className="flex justify-between items-center gap-4 py-1.5 min-w-0">
+                            <span className="text-muted-foreground text-sm shrink-0">Provider payment</span>
+                            <span className="text-sm font-medium text-right break-words min-w-0 flex-1">
+                              {wageLabel}
+                              <Link href="/admin/settings" className="text-orange-600 hover:underline ml-1.5 text-xs">Learn more</Link>
+                            </span>
+                          </div>
+                        ) : null;
+                      })()}
                       {((selectedBooking as any).apt_no || selectedBooking.address) && (
                         <DetailRow
                           label="Location"

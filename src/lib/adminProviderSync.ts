@@ -1,5 +1,6 @@
 // Admin-Provider synchronization utilities
 import { createClient } from '@supabase/supabase-js';
+import { hoursForHourlyProviderPay } from '@/lib/bookingProviderWage';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -135,7 +136,7 @@ export async function calculateProviderEarnings(bookingId: string, providerId: s
     // Get booking details including provider wage override
     const { data: booking, error: bookingError } = await supabaseAdmin
       .from('bookings')
-      .select('total_price, service_id, provider_wage, provider_wage_type, scheduled_date, scheduled_time, notes')
+      .select('total_price, service_id, provider_wage, provider_wage_type, scheduled_date, scheduled_time, notes, duration_minutes')
       .eq('id', bookingId)
       .eq('provider_id', providerId)
       .eq('business_id', businessId)
@@ -163,13 +164,10 @@ export async function calculateProviderEarnings(bookingId: string, providerId: s
         netAmount = booking.provider_wage;
         commissionAmount = grossAmount - netAmount;
       } else if (booking.provider_wage_type === 'hourly') {
-        // Hourly rate - need to calculate hours from duration
-        // Try to extract duration from notes or use default
-        let hours = 1; // Default to 1 hour
-        const durationMatch = booking.notes?.match(/(\d+)\s*(?:hour|hr|h)/i);
-        if (durationMatch) {
-          hours = parseFloat(durationMatch[1]) || 1;
-        }
+        const hours = hoursForHourlyProviderPay({
+          duration_minutes: (booking as { duration_minutes?: number | null }).duration_minutes,
+          notes: booking.notes,
+        });
         netAmount = booking.provider_wage * hours;
         commissionAmount = grossAmount - netAmount;
       }
@@ -197,12 +195,10 @@ export async function calculateProviderEarnings(bookingId: string, providerId: s
           netAmount = payRate.flat_rate || 0;
           commissionAmount = grossAmount - netAmount;
         } else if (payRate.rate_type === 'hourly') {
-          // Try to extract duration from notes or use default
-          let hours = 1;
-          const durationMatch = booking.notes?.match(/(\d+)\s*(?:hour|hr|h)/i);
-          if (durationMatch) {
-            hours = parseFloat(durationMatch[1]) || 1;
-          }
+          const hours = hoursForHourlyProviderPay({
+            duration_minutes: (booking as { duration_minutes?: number | null }).duration_minutes,
+            notes: booking.notes,
+          });
           netAmount = (payRate.hourly_rate || 0) * hours;
           commissionAmount = grossAmount - netAmount;
         }
@@ -245,13 +241,10 @@ export async function calculateProviderEarnings(bookingId: string, providerId: s
         earningsData.flat_rate_used = booking.provider_wage;
       } else if (booking.provider_wage_type === 'hourly') {
         earningsData.hourly_rate_used = booking.provider_wage;
-        // Try to extract and store hours worked
-        let hours = 1;
-        const durationMatch = booking.notes?.match(/(\d+)\s*(?:hour|hr|h)/i);
-        if (durationMatch) {
-          hours = parseFloat(durationMatch[1]) || 1;
-        }
-        earningsData.hours_worked = hours;
+        earningsData.hours_worked = hoursForHourlyProviderPay({
+          duration_minutes: (booking as { duration_minutes?: number | null }).duration_minutes,
+          notes: booking.notes,
+        });
       }
     }
 

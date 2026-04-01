@@ -2,7 +2,12 @@ import type { Config } from "tailwindcss";
 
 export default {
   darkMode: ["class"],
-  content: ["./src/**/*.{js,ts,jsx,tsx,mdx}"],
+  content: [
+    "./src/**/*.{js,ts,jsx,tsx,mdx}",
+    // API routes have no Tailwind classes; excluding avoids build failures when a route
+    // file is missing briefly (sync/cache) and speeds content scanning.
+    "!./src/app/api/**",
+  ],
   prefix: "",
   theme: {
     container: {

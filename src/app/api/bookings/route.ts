@@ -6,6 +6,7 @@ import { syncBookingCreated, createRecurringCalendarEvent } from '@/lib/googleCa
 import { getStoreOptionsScheduling, isDateHoliday } from '@/lib/schedulingFilters';
 import { logNewDraftOrQuote } from '@/lib/draftQuoteLogs';
 import { ensureCustomerForAdminBooking } from '@/lib/ensureCustomerForAdminBooking';
+import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProviderWage';
 import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
 
 export async function GET(request: Request) {
@@ -166,16 +167,17 @@ export async function POST(request: Request) {
 
     const totalWithTax = baseAmount + taxAmount;
 
-    // Parse provider wage if provided
-    let providerWage = null;
-    let providerWageType = null;
-    if (bookingData.provider_wage && bookingData.provider_wage_type) {
-      const wageValue = parseFloat(bookingData.provider_wage);
-      if (!isNaN(wageValue) && wageValue >= 0) {
-        providerWage = wageValue;
-        providerWageType = bookingData.provider_wage_type; // 'percentage', 'fixed', or 'hourly'
-      }
-    }
+    const { data: storeWageOpts } = await supabase
+      .from('business_store_options')
+      .select('default_provider_wage, default_provider_wage_type')
+      .eq('business_id', businessId)
+      .maybeSingle();
+    const wageResolved = resolveProviderWageFromBodyOrStoreDefault(
+      bookingData as Record<string, unknown>,
+      storeWageOpts
+    );
+    const providerWage = wageResolved?.provider_wage ?? null;
+    const providerWageType = wageResolved?.provider_wage_type ?? null;
 
     const customerEmail = (bookingData.customer_email || '').toString().trim();
     const customerName = (bookingData.customer_name || '').toString().trim();
@@ -220,6 +222,10 @@ export async function POST(request: Request) {
       customer_name: bookingData.customer_name || null,
       customer_phone: bookingData.customer_phone || null,
       service: bookingData.service || null,
+      frequency:
+        bookingData.frequency != null && String(bookingData.frequency).trim()
+          ? String(bookingData.frequency).trim()
+          : null,
       date: bookingData.date || null,
       time: bookingData.time || null,
       customer_id: customerId,
