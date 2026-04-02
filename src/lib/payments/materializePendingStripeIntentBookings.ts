@@ -7,6 +7,7 @@ import { resolveProviderWageFromBodyOrStoreDefault } from "@/lib/bookingProvider
 import { resolveFrequencyRepeatsForBooking } from "@/lib/industryFrequencyRepeats";
 import { parseDurationMinutesFromBookingPayload } from "@/lib/bookingDuration";
 import { sendCustomerFacingBookingEmailAfterScheduling } from "@/lib/sendCustomerBookingConfirmedEmail";
+import { evaluateMarketingCouponCustomerScope } from "@/lib/marketingCouponCustomerScope";
 
 function normalizeTimeForDb(timeStr: string): string | null {
   if (!timeStr || typeof timeStr !== "string") return null;
@@ -97,6 +98,37 @@ export async function materializeGuestBookingFromIntentPayload(
 
   if (!customerId) {
     return { ok: false, error: "customer_record_failed" };
+  }
+
+  const couponCodeMat = (body.coupon_code ?? "").toString().trim();
+  if (couponCodeMat) {
+    const { data: mcMat, error: mcMatErr } = await supabase
+      .from("marketing_coupons")
+      .select("code, coupon_config, usage_limit")
+      .eq("business_id", businessId)
+      .ilike("code", couponCodeMat)
+      .eq("active", true)
+      .maybeSingle();
+    if (mcMatErr) {
+      console.error("materializeGuest marketing_coupons:", mcMatErr);
+      return { ok: false, error: "coupon_lookup_failed" };
+    }
+    if (!mcMat) {
+      return { ok: false, error: "invalid_coupon" };
+    }
+    const scopeMat = await evaluateMarketingCouponCustomerScope(supabase, {
+      businessId,
+      couponCode: String(mcMat.code || couponCodeMat).trim(),
+      couponConfig: mcMat.coupon_config,
+      customerEmail,
+      usageLimit: mcMat.usage_limit ?? null,
+      requireStrongIdentity: true,
+      customerAuthUserId: null,
+      authenticatedEmail: null,
+    });
+    if (!scopeMat.ok) {
+      return { ok: false, error: "coupon_not_allowed" };
+    }
   }
 
   const customizationRaw = body.customization;
@@ -300,6 +332,38 @@ export async function materializeCustomerBookingFromIntentPayload(
 
   if ((customer as { access_blocked?: boolean }).access_blocked || (customer as { booking_blocked?: boolean }).booking_blocked) {
     return { ok: false, error: "customer_blocked" };
+  }
+
+  const customerEmailMat = String((customer as { email?: string }).email ?? "").trim();
+  const couponCodeCust = (body.coupon_code ?? "").toString().trim();
+  if (couponCodeCust) {
+    const { data: mcCust, error: mcCustErr } = await supabase
+      .from("marketing_coupons")
+      .select("code, coupon_config, usage_limit")
+      .eq("business_id", businessId)
+      .ilike("code", couponCodeCust)
+      .eq("active", true)
+      .maybeSingle();
+    if (mcCustErr) {
+      console.error("materializeCustomer marketing_coupons:", mcCustErr);
+      return { ok: false, error: "coupon_lookup_failed" };
+    }
+    if (!mcCust) {
+      return { ok: false, error: "invalid_coupon" };
+    }
+    const scopeCust = await evaluateMarketingCouponCustomerScope(supabase, {
+      businessId,
+      couponCode: String(mcCust.code || couponCodeCust).trim(),
+      couponConfig: mcCust.coupon_config,
+      customerEmail: customerEmailMat || null,
+      usageLimit: mcCust.usage_limit ?? null,
+      requireStrongIdentity: true,
+      customerAuthUserId: authUserId,
+      authenticatedEmail: customerEmailMat || null,
+    });
+    if (!scopeCust.ok) {
+      return { ok: false, error: "coupon_not_allowed" };
+    }
   }
 
   const date = (body.date ?? "").toString().trim();

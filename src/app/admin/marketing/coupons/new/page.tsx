@@ -36,6 +36,7 @@ export default function NewCouponPage() {
   });
   const [formEnabledByIndustry, setFormEnabledByIndustry] = useState<Record<string, boolean>>({});
   const [selectedLocationsByIndustry, setSelectedLocationsByIndustry] = useState<Record<string, string[]>>({});
+  const [locationOptionsCountByIndustry, setLocationOptionsCountByIndustry] = useState<Record<string, number>>({});
   const [selectedServicesByIndustry, setSelectedServicesByIndustry] = useState<Record<string, string[]>>({});
   const [serviceCategoryOptions, setServiceCategoryOptions] = useState<string[]>([]);
   const [locationOptions, setLocationOptions] = useState<string[]>([]);
@@ -167,6 +168,7 @@ export default function NewCouponPage() {
           .filter((name: string) => name.length > 0);
         const uniqueNames = Array.from(new Set(names));
         setLocationOptions(uniqueNames);
+        setLocationOptionsCountByIndustry((prev) => ({ ...prev, [activeIndustry]: uniqueNames.length }));
         setSelectedLocationsByIndustry((prev) => ({
           ...prev,
           [activeIndustry]: prev[activeIndustry]?.length ? prev[activeIndustry] : uniqueNames,
@@ -223,6 +225,7 @@ export default function NewCouponPage() {
             industryEnabled,
             formEnabledByIndustry,
             selectedLocationsByIndustry,
+            locationOptionsCountByIndustry,
             selectedServicesByIndustry,
             limitations,
           },

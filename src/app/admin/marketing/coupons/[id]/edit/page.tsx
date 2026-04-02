@@ -39,6 +39,7 @@ export default function EditCouponPage() {
   });
   const [formEnabledByIndustry, setFormEnabledByIndustry] = useState<Record<string, boolean>>({});
   const [selectedLocationsByIndustry, setSelectedLocationsByIndustry] = useState<Record<string, string[]>>({});
+  const [locationOptionsCountByIndustry, setLocationOptionsCountByIndustry] = useState<Record<string, number>>({});
   const [selectedServicesByIndustry, setSelectedServicesByIndustry] = useState<Record<string, string[]>>({});
   const [serviceCategoryOptions, setServiceCategoryOptions] = useState<string[]>([]);
   const [locationOptions, setLocationOptions] = useState<string[]>([]);
@@ -178,6 +179,7 @@ export default function EditCouponPage() {
           .filter((name: string) => name.length > 0);
         const uniqueNames: string[] = Array.from(new Set(names));
         setLocationOptions(uniqueNames);
+        setLocationOptionsCountByIndustry((prev) => ({ ...prev, [activeIndustry]: uniqueNames.length }));
         setSelectedLocationsByIndustry((prev) => {
           const existing = prev[activeIndustry];
           return {
@@ -255,6 +257,9 @@ export default function EditCouponPage() {
           } else if (Array.isArray(config.selectedLocations) && activeIndustry) {
             setSelectedLocationsByIndustry((prev) => ({ ...prev, [activeIndustry]: config.selectedLocations }));
           }
+          if (config.locationOptionsCountByIndustry && typeof config.locationOptionsCountByIndustry === 'object') {
+            setLocationOptionsCountByIndustry(config.locationOptionsCountByIndustry);
+          }
           if (config.selectedServicesByIndustry && typeof config.selectedServicesByIndustry === 'object') {
             setSelectedServicesByIndustry(config.selectedServicesByIndustry);
           } else if (Array.isArray(config.selectedServices) && activeIndustry) {
@@ -329,6 +334,7 @@ export default function EditCouponPage() {
             industryEnabled,
             formEnabledByIndustry,
             selectedLocationsByIndustry,
+            locationOptionsCountByIndustry,
             selectedServicesByIndustry,
             limitations,
           },

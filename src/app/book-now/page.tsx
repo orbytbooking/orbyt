@@ -63,6 +63,12 @@ import {
   normalizeFrequencyRepeatKey,
 } from "@/lib/frequencyRepeatWeekdayCalendar";
 import { serializePricingSummaryForCustomization } from "@/lib/customerBookingPricingDisplay";
+import {
+  getMarketingCouponGateFailure,
+  shouldEnforceMarketingCouponLocationSubset,
+} from "@/lib/marketingCouponGate";
+import { couponRequiresCustomerEmailForScope } from "@/lib/marketingCouponCustomerScope";
+import { getTodayLocalDate } from "@/lib/date-utils";
 import styles from "./BookingPage.module.css";
 import { useCustomerAccount } from "@/hooks/useCustomerAccount";
 import { getSupabaseCustomerClient } from "@/lib/supabaseCustomerClient";
@@ -2151,7 +2157,9 @@ function BookingPageContent() {
 
   /** Totals aligned with admin AddBookingForm: partial → frequency discount → coupon → tax */
   function calculateTotal() {
-    if (!bookingData || !serviceCustomization || !selectedService) {
+    // Coupon + summary can run on the details step before `bookingData` exists (set only after Confirm Booking).
+    // Pricing only needs the selected service + customization, same as the payment step.
+    if (!serviceCustomization || !selectedService) {
       const z = {
         lineSubtotal: 0,
         effectiveServiceTotal: 0,
@@ -2167,7 +2175,7 @@ function BookingPageContent() {
       };
       return z;
     }
-    const serviceName = bookingData.service || selectedService.name;
+    const serviceName = String(bookingData?.service || selectedService.name || "").trim() || selectedService.name;
     const variableSubtotal = getVariableCategoriesSubtotal(serviceName);
     const extrasSubtotal = getExtrasSubtotal();
     const { effectiveServiceTotal } = computeEffectiveServiceAndExtras({
@@ -2214,21 +2222,34 @@ function BookingPageContent() {
       return;
     }
 
-    const { data, error } = await getSupabaseCustomerClient()
-      .from("marketing_coupons")
-      .select("code, discount_type, discount_value, active, start_date, end_date, min_order, coupon_config")
-      .eq("business_id", currentBusinessId)
-      .ilike("code", codeRaw)
-      .eq("active", true)
-      .maybeSingle();
-
-    if (error || !data) {
+    const couponRes = await fetch(
+      `/api/guest/marketing-coupon?business_id=${encodeURIComponent(currentBusinessId)}&code=${encodeURIComponent(codeRaw)}`
+    );
+    if (!couponRes.ok) {
+      setAppliedCoupon(null);
+      toast({ title: "Invalid coupon", description: "Coupon not found or inactive.", variant: "destructive" });
+      return;
+    }
+    const couponPayload = (await couponRes.json()) as {
+      coupon?: {
+        code: string;
+        discount_type: string;
+        discount_value: number;
+        active: boolean;
+        start_date: string | null;
+        end_date: string | null;
+        min_order: number | null;
+        coupon_config: unknown;
+      };
+    };
+    const data = couponPayload.coupon;
+    if (!data) {
       setAppliedCoupon(null);
       toast({ title: "Invalid coupon", description: "Coupon not found or inactive.", variant: "destructive" });
       return;
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getTodayLocalDate();
     if (data.start_date && data.start_date > today) {
       setAppliedCoupon(null);
       toast({ title: "Coupon not started", description: "This coupon is not active yet.", variant: "destructive" });
@@ -2252,57 +2273,114 @@ function BookingPageContent() {
       return;
     }
 
-    const couponConfig = data.coupon_config as
-      | {
-          formEnabled?: boolean;
-          formEnabledByIndustry?: Record<string, boolean>;
-          selectedServices?: string[];
-          selectedServicesByIndustry?: Record<string, string[]>;
-          selectedLocations?: string[];
-        }
-      | null
-      | undefined;
-
-    const formEnabledByIndustry = couponConfig?.formEnabledByIndustry;
-    const hasAnyEnabledIndustry =
-      formEnabledByIndustry && typeof formEnabledByIndustry === "object"
-        ? Object.values(formEnabledByIndustry).some((value) => value === true)
-        : true;
-    if (couponConfig?.formEnabled === false || hasAnyEnabledIndustry === false) {
-      setAppliedCoupon(null);
-      toast({
-        title: "Coupon unavailable",
-        description: "This coupon is currently disabled.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const selectedServices = Array.isArray(couponConfig?.selectedServices)
-      ? couponConfig?.selectedServices.filter((s) => typeof s === "string" && s.trim().length > 0)
-      : [];
-    const selectedServicesByIndustry = couponConfig?.selectedServicesByIndustry;
-    const aggregatedIndustryServices =
-      selectedServicesByIndustry && typeof selectedServicesByIndustry === "object"
-        ? Object.values(selectedServicesByIndustry).flatMap((services) =>
-            Array.isArray(services) ? services.filter((s) => typeof s === "string" && s.trim().length > 0) : []
-          )
-        : [];
-    const applicableServices = Array.from(new Set([...selectedServices, ...aggregatedIndustryServices]));
-    if (applicableServices.length > 0) {
-      const normalizedService = String(serviceName || "").trim().toLowerCase();
-      const matchesService = applicableServices.some(
-        (service) => service.trim().toLowerCase() === normalizedService
-      );
-      if (!matchesService) {
+    const emailForScope = String(form.getValues("email") || customerEmail || "").trim();
+    if (couponRequiresCustomerEmailForScope(data.coupon_config)) {
+      if (!emailForScope.includes("@")) {
         setAppliedCoupon(null);
         toast({
-          title: "Coupon not valid for this service",
-          description: "This coupon cannot be applied to the selected service.",
+          title: "Email required",
+          description: "Enter your email before applying this coupon. It’s used to verify new/existing customer rules and one-time use.",
           variant: "destructive",
         });
         return;
       }
+      const scopeUrl = new URL("/api/guest/marketing-coupon-scope", window.location.origin);
+      scopeUrl.searchParams.set("business_id", currentBusinessId);
+      scopeUrl.searchParams.set("code", codeRaw);
+      scopeUrl.searchParams.set("email", emailForScope);
+      scopeUrl.searchParams.set("enforce_identity", "true");
+      const {
+        data: { session },
+      } = await getSupabaseCustomerClient().auth.getSession();
+      const scopeRes = await fetch(scopeUrl.toString(), {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : undefined,
+      });
+      const scopeJson = (await scopeRes.json().catch(() => ({}))) as {
+        ok?: boolean;
+        title?: string;
+        description?: string;
+        error?: string;
+      };
+      if (!scopeRes.ok) {
+        setAppliedCoupon(null);
+        toast({
+          title: "Could not verify coupon",
+          description: scopeJson.error || "Please try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (scopeJson.ok === false) {
+        setAppliedCoupon(null);
+        toast({
+          title: scopeJson.title || "Coupon not available",
+          description: scopeJson.description || "This coupon cannot be applied for this email.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    // Local calendar date only (same idea as AddBookingForm YYYY-MM-DD → Date(y, m-1, d))
+    const rawDate = bookingData?.date ?? form.getValues("date");
+    let bookingDateForCoupon: Date | null = null;
+    if (rawDate) {
+      const d = rawDate instanceof Date ? rawDate : new Date(rawDate as string | number);
+      if (!Number.isNaN(d.getTime())) {
+        bookingDateForCoupon = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      }
+    }
+    const customization = form.getValues("customization");
+    const freqForCoupon = String(
+      serviceCustomization?.frequency ?? customization?.frequency ?? ""
+    ).trim();
+    const zipNorm = String(form.getValues("zipCode") ?? "").trim().replace(/\s/g, "");
+    const addrLine = String(form.getValues("address") ?? "").trim();
+    const locationCandidate = [zipNorm, addrLine].filter(Boolean).join(" ").trim();
+
+    let resolvedLocationLabels: string[] | undefined = undefined;
+    if (
+      shouldEnforceMarketingCouponLocationSubset(data.coupon_config, selectedIndustryLabel) &&
+      currentBusinessId &&
+      selectedIndustryId &&
+      (locationManagement === "zip" || locationManagement === "name")
+    ) {
+      const zipFieldRaw = String(form.getValues("zipCode") ?? "").trim();
+      const minLen = locationManagement === "name" ? 2 : 5;
+      const inputForApi = locationManagement === "zip" ? zipNorm : zipFieldRaw;
+      if (inputForApi.replace(/\s/g, "").length >= minLen) {
+        try {
+          const params = new URLSearchParams({
+            business_id: currentBusinessId,
+            industry_id: selectedIndustryId,
+            input: inputForApi,
+            mode: locationManagement,
+          });
+          const res = await fetch(`/api/guest/resolve-industry-locations-for-zip?${params.toString()}`);
+          if (res.ok) {
+            const j = (await res.json()) as { labels?: string[] };
+            resolvedLocationLabels = Array.isArray(j.labels) ? j.labels : [];
+          }
+        } catch {
+          resolvedLocationLabels = undefined;
+        }
+      } else {
+        resolvedLocationLabels = [];
+      }
+    }
+
+    const gate = getMarketingCouponGateFailure(data.coupon_config, {
+      industryLabel: selectedIndustryLabel,
+      serviceName: String(form.getValues("service") || bookingData?.service || selectedService?.name || "").trim(),
+      bookingDate: bookingDateForCoupon,
+      frequencyLabel: freqForCoupon,
+      locationCandidate,
+      resolvedLocationLabels,
+    });
+    if (gate) {
+      setAppliedCoupon(null);
+      toast({ title: gate.title, description: gate.description, variant: "destructive" });
+      return;
     }
 
     const discountType: "percentage" | "fixed" = data.discount_type === "percentage" ? "percentage" : "fixed";
@@ -2323,7 +2401,24 @@ function BookingPageContent() {
       title: "Coupon applied",
       description: `${normalizedCode} applied: -$${discountAmount.toFixed(2)}`,
     });
-  }, [form, searchParams, toast, bookingData, selectedService, serviceCustomization, frequencyMetaByName, excludeParametersList, getVariableCategoriesSubtotal, getExtrasSubtotal, getServicePrice, getCouponDiscountAmount]);
+  }, [
+    form,
+    searchParams,
+    toast,
+    customerEmail,
+    bookingData,
+    selectedService,
+    serviceCustomization,
+    selectedIndustryLabel,
+    selectedIndustryId,
+    locationManagement,
+    frequencyMetaByName,
+    excludeParametersList,
+    getVariableCategoriesSubtotal,
+    getExtrasSubtotal,
+    getServicePrice,
+    getCouponDiscountAmount,
+  ]);
 
   // Handle cash payment
   const handleCashPayment = async () => {

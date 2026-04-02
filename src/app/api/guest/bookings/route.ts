@@ -9,6 +9,7 @@ import { getStoreOptionsScheduling, isDateHoliday, getSpotLimits, getBookingCoun
 import { ensureCustomerForAdminBooking } from '@/lib/ensureCustomerForAdminBooking';
 import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProviderWage';
 import { parseDurationMinutesFromBookingPayload } from '@/lib/bookingDuration';
+import { evaluateMarketingCouponCustomerScope } from '@/lib/marketingCouponCustomerScope';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -177,6 +178,43 @@ export async function POST(request: NextRequest) {
           message: 'We could not save your contact profile. Please try again or call us to book.',
         },
         { status: 500 }
+      );
+    }
+  }
+
+  const couponCodeRaw = (body.coupon_code ?? '').toString().trim();
+  if (couponCodeRaw) {
+    const { data: mc, error: mcErr } = await supabase
+      .from('marketing_coupons')
+      .select('code, coupon_config, usage_limit')
+      .eq('business_id', businessId)
+      .ilike('code', couponCodeRaw)
+      .eq('active', true)
+      .maybeSingle();
+    if (mcErr) {
+      console.error('guest/bookings marketing_coupons:', mcErr);
+      return NextResponse.json({ error: 'Coupon lookup failed' }, { status: 500 });
+    }
+    if (!mc) {
+      return NextResponse.json(
+        { error: 'INVALID_COUPON', message: 'This coupon code is not valid or is no longer active.' },
+        { status: 400 }
+      );
+    }
+    const scope = await evaluateMarketingCouponCustomerScope(supabase, {
+      businessId,
+      couponCode: String(mc.code || couponCodeRaw).trim(),
+      couponConfig: mc.coupon_config,
+      customerEmail,
+      usageLimit: mc.usage_limit ?? null,
+      requireStrongIdentity: true,
+      customerAuthUserId: null,
+      authenticatedEmail: null,
+    });
+    if (!scope.ok) {
+      return NextResponse.json(
+        { error: 'COUPON_NOT_ALLOWED', title: scope.title, message: scope.description },
+        { status: 400 }
       );
     }
   }

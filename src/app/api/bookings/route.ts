@@ -11,6 +11,10 @@ import { resolveFrequencyRepeatsForBooking } from '@/lib/industryFrequencyRepeat
 import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
 import { sendCustomerFacingBookingEmailAfterScheduling } from '@/lib/sendCustomerBookingConfirmedEmail';
 import { finalStatusForAdminBooking, providerIdFromBookingPayload } from '@/lib/adminBookingStatus';
+import {
+  couponRequiresCustomerEmailForScope,
+  evaluateMarketingCouponCustomerScope,
+} from '@/lib/marketingCouponCustomerScope';
 
 type AdminBookingRow = {
   id: string;
@@ -158,6 +162,53 @@ export async function POST(request: Request) {
             { status: 400 }
           );
         }
+      }
+    }
+
+    const couponCodeEarly =
+      typeof bookingData.coupon_code === 'string' ? bookingData.coupon_code.trim() : '';
+    if (couponCodeEarly) {
+      const custEmail = (bookingData.customer_email ?? bookingData.email ?? '').toString().trim();
+      const { data: mcCoupon, error: mcCouponErr } = await supabase
+        .from('marketing_coupons')
+        .select('code, coupon_config, usage_limit')
+        .eq('business_id', businessId)
+        .ilike('code', couponCodeEarly)
+        .eq('active', true)
+        .maybeSingle();
+      if (mcCouponErr) {
+        console.error('bookings POST marketing_coupons:', mcCouponErr);
+        return NextResponse.json({ error: 'Coupon lookup failed' }, { status: 500 });
+      }
+      if (!mcCoupon) {
+        return NextResponse.json(
+          { error: 'INVALID_COUPON', message: 'This coupon code is not valid or is no longer active.' },
+          { status: 400 }
+        );
+      }
+      if (couponRequiresCustomerEmailForScope(mcCoupon.coupon_config) && !custEmail.includes('@')) {
+        return NextResponse.json(
+          {
+            error: 'COUPON_EMAIL_REQUIRED',
+            message:
+              'Customer email is required for this coupon (new/existing customer or one-time use per email).',
+          },
+          { status: 400 }
+        );
+      }
+      const scope = await evaluateMarketingCouponCustomerScope(supabase, {
+        businessId,
+        couponCode: String(mcCoupon.code || couponCodeEarly).trim(),
+        couponConfig: mcCoupon.coupon_config,
+        customerEmail: custEmail || null,
+        usageLimit: mcCoupon.usage_limit ?? null,
+        requireStrongIdentity: false,
+      });
+      if (!scope.ok) {
+        return NextResponse.json(
+          { error: 'COUPON_NOT_ALLOWED', title: scope.title, message: scope.description },
+          { status: 400 }
+        );
       }
     }
 

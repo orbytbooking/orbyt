@@ -32,6 +32,11 @@ import { BookingPhoneInput } from "@/components/admin/BookingPhoneInput";
 import { PHONE_FIELD_HELPER_TEXT } from "@/components/ui/phone-field";
 import { isValidPhoneNumber } from "react-phone-number-input";
 import { resolveQtyBasedExtraLine } from "@/lib/extraQtyPricing";
+import {
+  getMarketingCouponGateFailure,
+  shouldEnforceMarketingCouponLocationSubset,
+} from "@/lib/marketingCouponGate";
+import { couponRequiresCustomerEmailForScope } from "@/lib/marketingCouponCustomerScope";
 
 /** `YYYY-MM-DD` for `<input type="date" />` (handles ISO strings from API). */
 function normalizeBookingDateInput(raw: unknown): string {
@@ -1973,55 +1978,103 @@ const handleAddBooking = async (status: string = 'pending') => {
         return;
       }
 
-      const couponConfig = data.coupon_config as
-        | {
-            formEnabled?: boolean;
-            formEnabledByIndustry?: Record<string, boolean>;
-            selectedServices?: string[];
-            selectedServicesByIndustry?: Record<string, string[]>;
-            selectedLocations?: string[];
-          }
-        | null
-        | undefined;
-
-      const formEnabledByIndustry = couponConfig?.formEnabledByIndustry;
-      const hasAnyEnabledIndustry =
-        formEnabledByIndustry && typeof formEnabledByIndustry === "object"
-          ? Object.values(formEnabledByIndustry).some((value) => value === true)
-          : true;
-      if (couponConfig?.formEnabled === false || hasAnyEnabledIndustry === false) {
-        toast({
-          title: "Coupon unavailable",
-          description: "This coupon is currently disabled.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const selectedServices = Array.isArray(couponConfig?.selectedServices)
-        ? couponConfig?.selectedServices.filter((s) => typeof s === "string" && s.trim().length > 0)
-        : [];
-      const selectedServicesByIndustry = couponConfig?.selectedServicesByIndustry;
-      const aggregatedIndustryServices =
-        selectedServicesByIndustry && typeof selectedServicesByIndustry === "object"
-          ? Object.values(selectedServicesByIndustry).flatMap((services) =>
-              Array.isArray(services) ? services.filter((s) => typeof s === "string" && s.trim().length > 0) : []
-            )
-          : [];
-      const applicableServices = Array.from(new Set([...selectedServices, ...aggregatedIndustryServices]));
-      if (applicableServices.length > 0) {
-        const bookingService = String(newBooking.service || "").trim().toLowerCase();
-        const matchesService = applicableServices.some(
-          (service) => service.trim().toLowerCase() === bookingService
-        );
-        if (!matchesService) {
+      const emailForScope = (newBooking.email || "").trim();
+      if (couponRequiresCustomerEmailForScope(data.coupon_config)) {
+        if (!emailForScope.includes("@")) {
           toast({
-            title: "Coupon not valid for this service",
-            description: "This coupon cannot be applied to the selected service.",
+            title: "Email required",
+            description: "Enter the customer email before applying this coupon (new/existing or one-time rules).",
             variant: "destructive",
           });
           return;
         }
+        const scopeUrl = new URL("/api/guest/marketing-coupon-scope", window.location.origin);
+        scopeUrl.searchParams.set("business_id", currentBusiness.id);
+        scopeUrl.searchParams.set("code", rawInput);
+        scopeUrl.searchParams.set("email", emailForScope);
+        const scopeRes = await fetch(scopeUrl.toString());
+        const scopeJson = (await scopeRes.json().catch(() => ({}))) as {
+          ok?: boolean;
+          title?: string;
+          description?: string;
+          error?: string;
+        };
+        if (!scopeRes.ok) {
+          toast({
+            title: "Could not verify coupon",
+            description: scopeJson.error || "Please try again.",
+            variant: "destructive",
+          });
+          return;
+        }
+        if (scopeJson.ok === false) {
+          toast({
+            title: scopeJson.title || "Coupon not available",
+            description: scopeJson.description || "This coupon cannot be applied for this email.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
+      const industryLabel = industries.find((i) => i.id === selectedIndustryId)?.name?.trim() ?? "";
+      let bookingDateForCoupon: Date | null = null;
+      if (newBooking.selectedDate?.trim()) {
+        const ymd = normalizeBookingDateInput(newBooking.selectedDate);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+          const [y, mo, day] = ymd.split("-").map((n) => parseInt(n, 10));
+          bookingDateForCoupon = new Date(y, mo - 1, day);
+        }
+      }
+      const zipNorm = newBooking.zipCode?.trim().replace(/\s/g, "") ?? "";
+      const addrLine = newBooking.address?.trim() ?? "";
+      const locationCandidate = [zipNorm, addrLine].filter(Boolean).join(" ").trim();
+
+      let resolvedLocationLabels: string[] | undefined = undefined;
+      if (
+        shouldEnforceMarketingCouponLocationSubset(data.coupon_config, industryLabel) &&
+        currentBusiness?.id &&
+        selectedIndustryId
+      ) {
+        const rawField = newBooking.zipCode?.trim() ?? "";
+        const isLikelyZip = /^\d{5}/.test(zipNorm) && zipNorm.length >= 5;
+        const mode: "zip" | "name" | "none" = isLikelyZip ? "zip" : rawField.length >= 2 ? "name" : "none";
+        if (mode !== "none") {
+          const input = mode === "zip" ? zipNorm : rawField;
+          const minLen = mode === "zip" ? 5 : 2;
+          if (input.replace(/\s/g, "").length >= minLen) {
+            try {
+              const params = new URLSearchParams({
+                business_id: currentBusiness.id,
+                industry_id: selectedIndustryId,
+                input,
+                mode,
+              });
+              const res = await fetch(`/api/guest/resolve-industry-locations-for-zip?${params.toString()}`);
+              if (res.ok) {
+                const j = (await res.json()) as { labels?: string[] };
+                resolvedLocationLabels = Array.isArray(j.labels) ? j.labels : [];
+              }
+            } catch {
+              resolvedLocationLabels = undefined;
+            }
+          } else {
+            resolvedLocationLabels = [];
+          }
+        }
+      }
+
+      const gate = getMarketingCouponGateFailure(data.coupon_config, {
+        industryLabel,
+        serviceName: String(newBooking.service || "").trim(),
+        bookingDate: bookingDateForCoupon,
+        frequencyLabel: String(newBooking.frequency || "").trim(),
+        locationCandidate,
+        resolvedLocationLabels,
+      });
+      if (gate) {
+        toast({ title: gate.title, description: gate.description, variant: "destructive" });
+        return;
       }
 
       const discountType = data.discount_type === "percentage" ? "percentage" : "fixed";
