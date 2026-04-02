@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Clock,
@@ -36,6 +36,39 @@ type DriveFile = {
   uploadedAt: string;
   url?: string;
 };
+
+function isImageDriveFile(f: DriveFile): boolean {
+  if (f.fileType === "image") return true;
+  return /\.(png|jpe?g|gif|webp|avif|svg|bmp|heic)$/i.test(f.name || "");
+}
+
+function DriveFileCardPreview({
+  file,
+  renderIcon,
+}: {
+  file: DriveFile;
+  renderIcon: (f: DriveFile) => ReactNode;
+}) {
+  const [thumbFailed, setThumbFailed] = useState(false);
+  const showThumb = isImageDriveFile(file) && Boolean(file.url) && !thumbFailed;
+
+  if (showThumb) {
+    return (
+      <div className="mb-3 aspect-[4/3] w-full overflow-hidden rounded-md border border-border bg-muted">
+        {/* eslint-disable-next-line @next/next/no-img-element -- signed Supabase URLs; remotePatterns vary */}
+        <img
+          src={file.url}
+          alt=""
+          className="h-full w-full object-cover"
+          loading="lazy"
+          onError={() => setThumbFailed(true)}
+        />
+      </div>
+    );
+  }
+
+  return <div className="mb-3 flex items-start justify-between">{renderIcon(file)}</div>;
+}
 
 export default function CustomerDrivePage() {
   const router = useRouter();
@@ -195,27 +228,16 @@ export default function CustomerDrivePage() {
                             type="button"
                             className="w-full text-left"
                             onClick={() =>
-                              file.fileType === "image" && file.url ? setPreview(file) : handleOpen(file)
+                              isImageDriveFile(file) && file.url ? setPreview(file) : handleOpen(file)
                             }
                           >
-                            <div className="flex items-start justify-between mb-3">
-                              <div className="flex-1">{getFileIcon(file)}</div>
-                            </div>
+                            <DriveFileCardPreview file={file} renderIcon={getFileIcon} />
                             <p className="font-medium text-sm truncate mb-1">{file.name}</p>
                             <div className="flex items-center justify-between text-xs text-muted-foreground">
                               <span>{file.size}</span>
                               <span>{new Date(file.uploadedAt).toLocaleDateString()}</span>
                             </div>
                           </button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="w-full mt-3"
-                            onClick={() => handleOpen(file)}
-                          >
-                            <Download className="h-4 w-4 mr-2" />
-                            Open
-                          </Button>
                         </CardContent>
                       </Card>
                     ))}

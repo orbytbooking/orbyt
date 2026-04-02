@@ -607,9 +607,10 @@ export const useWebsiteConfig = () => {
               const businessResponse = await fetch(`/api/businesses?business_id=${businessId}`);
               if (businessResponse.ok) {
                 const businessData = await businessResponse.json();
-                if (businessData.businesses && businessData.businesses.length > 0) {
-                  const currentBusiness = businessData.businesses.find((biz: any) => biz.id === businessId);
-                  if (currentBusiness && currentBusiness.name) {
+                const bizList = (businessData.businesses ?? businessData.data ?? []) as { id?: string; name?: string }[];
+                if (bizList.length > 0) {
+                  const currentBusiness = bizList.find((biz: any) => biz.id === businessId) ?? bizList[0];
+                  if (currentBusiness?.name) {
                     businessName = currentBusiness.name;
                   }
                 }

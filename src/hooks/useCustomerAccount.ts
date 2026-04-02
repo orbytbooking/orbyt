@@ -65,7 +65,7 @@ export const useCustomerAccount = (requireAuth: boolean = true) => {
           .select('id, name, email, phone, address, avatar, email_notifications, sms_notifications, push_notifications, businesses(name)')
           .eq('auth_user_id', session.user.id)
           .eq('business_id', businessId)
-          .single();
+          .maybeSingle();
 
         if (error || !customer) {
           // Only log error if we expect to find customer data (when user is logged in)
