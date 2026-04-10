@@ -1,6 +1,13 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
-import { getAuthorizeNetApiUrl } from "@/lib/payments/authorizeNetEnvironment";
+import {
+  ensureAbsoluteAppBase,
+  getAuthorizeNetApiUrl,
+  getAuthorizeNetSessionCluster,
+  normalizeUrlForAuthorizeNetHostedReturn,
+  sanitizeAuthorizeNetOrderText,
+  toAbsoluteHostedPaymentUrl,
+} from "@/lib/payments/authorizeNetEnvironment";
 
 export type CreateCheckoutParams = {
   /** Existing booking row (admin charges, Authorize.net book-now, legacy Stripe). */
@@ -236,17 +243,28 @@ async function createAuthorizeNetCheckout(params: {
 
   const apiUrl = getAuthorizeNetApiUrl();
 
-  const successUrl = `${origin}/book-now?authorize_net=success&booking_id=${bookingId}&business=${businessId || ""}`;
-  const cancelUrl = `${origin}/book-now?authorize_net=cancel&business=${businessId || ""}`;
+  const baseApp = ensureAbsoluteAppBase(origin);
+  const successUrl = normalizeUrlForAuthorizeNetHostedReturn(
+    toAbsoluteHostedPaymentUrl(
+      baseApp,
+      `/book-now?authorize_net=success&booking_id=${encodeURIComponent(bookingId)}&business=${encodeURIComponent(businessId || "")}`
+    )
+  );
+  const cancelUrl = normalizeUrlForAuthorizeNetHostedReturn(
+    toAbsoluteHostedPaymentUrl(
+      baseApp,
+      `/book-now?authorize_net=cancel&business=${encodeURIComponent(businessId || "")}`
+    )
+  );
 
   const amount = (Math.round(amountInCents) / 100).toFixed(2);
   const transactionRef = `ORBYT-${bookingId}-${Date.now()}`;
 
   const hostedPaymentReturnOptions = JSON.stringify({
-    showReceipt: false,
-    url: successUrl,
+    showReceipt: true,
+    url: String(successUrl),
     urlText: "Continue",
-    cancelUrl,
+    cancelUrl: String(cancelUrl),
     cancelUrlText: "Cancel",
   });
 
@@ -256,13 +274,13 @@ async function createAuthorizeNetCheckout(params: {
         name: apiLoginId,
         transactionKey,
       },
+      refId: transactionRef.slice(0, 20),
       transactionRequest: {
         transactionType: "authCaptureTransaction",
         amount,
-        referenceId: transactionRef.slice(0, 20),
         order: {
           invoiceNumber: transactionRef.slice(0, 20),
-          description: (lineItemDescription || "Booking payment").slice(0, 255),
+          description: sanitizeAuthorizeNetOrderText(lineItemDescription || "Booking payment", 255),
         },
       },
       hostedPaymentSettings: {
@@ -316,8 +334,14 @@ async function createAuthorizeNetCheckout(params: {
     throw new Error("Authorize.net did not return a payment token");
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || origin;
-  const redirectUrl = `${baseUrl}/api/authorize-net/redirect?token=${encodeURIComponent(token)}`;
+  const baseUrl = normalizeUrlForAuthorizeNetHostedReturn(
+    ensureAbsoluteAppBase(process.env.NEXT_PUBLIC_APP_URL || origin)
+  );
+  const cluster = getAuthorizeNetSessionCluster();
+  const redirectUrl = toAbsoluteHostedPaymentUrl(
+    baseUrl,
+    `/api/authorize-net/redirect?token=${encodeURIComponent(token)}&anet_env=${encodeURIComponent(cluster)}`
+  );
 
   return {
     url: redirectUrl,

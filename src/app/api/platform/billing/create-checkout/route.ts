@@ -15,6 +15,7 @@ import {
   platformAuthorizeNetCredentialsConfigured,
 } from "@/lib/platform-billing/platformBillingProvider";
 import { startPlatformAuthorizeNetCheckout } from "@/lib/platform-billing/authorizeNetPlatformCheckout";
+import { resolveRequestAppBaseUrl } from "@/lib/payments/resolveRequestAppBaseUrl";
 
 export const dynamic = "force-dynamic";
 
@@ -105,10 +106,7 @@ export async function POST(request: Request) {
   const interval: "monthly" | "yearly" =
     billingInterval === "yearly" ? "yearly" : "monthly";
 
-  const origin =
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-    request.headers.get("origin")?.replace(/\/$/, "") ||
-    "";
+  const origin = resolveRequestAppBaseUrl(request);
 
   const defaultSuccess = `${origin}/admin/settings/account?tab=billing&platform_sub=success`;
   const defaultCancel = `${origin}/admin/settings/account?tab=billing&platform_sub=cancel`;
@@ -156,7 +154,7 @@ export async function POST(request: Request) {
       });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.error("[create-checkout] Authorize.Net:", msg);
+      console.warn("[create-checkout] Authorize.Net checkout failed:", msg);
       return NextResponse.json({ error: msg || "Could not start Authorize.Net checkout" }, { status: 400 });
     }
   }

@@ -99,7 +99,8 @@ export default function Onboarding() {
       const j = checkoutJson as { error?: string; details?: string };
       const detail = j.details ? ` ${j.details}` : '';
       throw new Error(
-        (j.error || 'Could not start secure checkout. Configure Stripe Price IDs (price_...) in .env.') + detail
+        (j.error ||
+          "Could not start checkout. For Stripe: set Price IDs in .env. For Authorize.Net: set PLATFORM_AUTHORIZE_NET_* and NEXT_PUBLIC_APP_URL (http://...).") + detail
       );
     }
     const j = checkoutJson as { url?: string; clientSecret?: string };
@@ -385,9 +386,12 @@ export default function Onboarding() {
       await redirectToStripeCheckout(businessData.id, form.plan);
       return;
       
-    } catch (err: any) {
-      console.error('Onboarding error:', err);
-      setError(err.message || 'An error occurred during onboarding');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "An error occurred during onboarding";
+      setError(msg);
+      if (process.env.NODE_ENV === "development") {
+        console.debug("[onboarding] handleSubmit:", err);
+      }
     } finally {
       setLoading(false);
     }

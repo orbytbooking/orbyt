@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveHostedPaymentFormActionFromRedirectSearchParams } from "@/lib/payments/authorizeNetEnvironment";
 
 /**
  * Accept Hosted requires POST to redirect. This route receives the token and
@@ -11,7 +12,7 @@ export async function GET(request: NextRequest) {
     return new NextResponse("Missing token", { status: 400 });
   }
 
-  const actionUrl = "https://accept.authorize.net/payment/payment";
+  const actionUrl = resolveHostedPaymentFormActionFromRedirectSearchParams(request.nextUrl.searchParams);
 
   const html = `<!DOCTYPE html>
 <html>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/auth-helpers";
 import { completePlatformAuthorizeNetCheckout } from "@/lib/platform-billing/completePlatformAuthorizeNetCheckout";
+import { ensureAbsoluteAppBase } from "@/lib/payments/authorizeNetEnvironment";
 
 export const dynamic = "force-dynamic";
 
@@ -50,8 +51,9 @@ async function handle(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  const appOrigin =
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || request.nextUrl.origin;
+  const appOrigin = ensureAbsoluteAppBase(
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || request.nextUrl.origin || ""
+  );
 
   if (!transId) {
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Payment</title></head><body>
@@ -67,13 +69,14 @@ async function handle(request: NextRequest): Promise<NextResponse> {
     appOrigin,
   });
 
-  if (!result.ok) {
+  if (result.ok === false) {
+    const { error, httpStatus } = result;
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Payment</title></head><body>
-<p>${escapeHtml(result.error)}</p>
+<p>${escapeHtml(error)}</p>
 <p><a href="${appOrigin}/admin/settings/account?tab=billing">Back to billing</a></p>
 </body></html>`;
     return new NextResponse(html, {
-      status: result.httpStatus ?? 500,
+      status: httpStatus ?? 500,
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }

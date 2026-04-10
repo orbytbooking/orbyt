@@ -1,5 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getAuthorizeNetApiUrl } from "@/lib/payments/authorizeNetEnvironment";
+import {
+  ensureAbsoluteAppBase,
+  getAuthorizeNetApiUrl,
+  getAuthorizeNetSessionCluster,
+  normalizeUrlForAuthorizeNetHostedReturn,
+  sanitizeAuthorizeNetOrderText,
+  toAbsoluteHostedPaymentUrl,
+} from "@/lib/payments/authorizeNetEnvironment";
 import { getPlatformAuthorizeCredentials } from "@/lib/platform-billing/authorizeNetPlatformApi";
 
 function randomInvoiceToken(): string {
@@ -59,15 +66,39 @@ export async function startPlatformAuthorizeNetCheckout(params: {
     throw new Error(insErr.message);
   }
 
-  const baseApp = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || params.origin.replace(/\/$/, "");
-  const successUrl = `${baseApp}${params.successReturnPath.startsWith("/") ? "" : "/"}${params.successReturnPath}`;
+  /** Prefer request-derived origin first so local checkout is not overridden by a stale NEXT_PUBLIC_APP_URL. */
+  const baseApp = normalizeUrlForAuthorizeNetHostedReturn(
+    ensureAbsoluteAppBase(
+      params.origin?.replace(/\/$/, "").replace(/\r/g, "").trim() ||
+        process.env.NEXT_PUBLIC_APP_URL?.replace(/\r/g, "").replace(/\/$/, "").trim() ||
+        ""
+    )
+  );
+  const successUrl = normalizeUrlForAuthorizeNetHostedReturn(
+    toAbsoluteHostedPaymentUrl(baseApp, params.successReturnPath)
+  );
+  const cancelAbsolute = normalizeUrlForAuthorizeNetHostedReturn(
+    toAbsoluteHostedPaymentUrl(baseApp, params.cancelUrl)
+  );
+  for (const [label, u] of [
+    ["return url", successUrl],
+    ["cancel url", cancelAbsolute],
+  ] as const) {
+    if (!u || !/^https?:\/\//i.test(u.trim())) {
+      throw new Error(
+        `Authorize.Net ${label} must be an absolute URL starting with http:// or https:// (got "${u ?? ""}"). ` +
+          "Set NEXT_PUBLIC_APP_URL=http://localhost:3000 in .env for local dev and restart the server."
+      );
+    }
+  }
   const amount = (params.amountCents / 100).toFixed(2);
 
+  /** showReceipt: true matches Authorize samples; redirect integrations still honor url after receipt. */
   const hostedPaymentReturnOptions = JSON.stringify({
-    showReceipt: false,
-    url: successUrl,
+    showReceipt: true,
+    url: String(successUrl),
     urlText: "Continue",
-    cancelUrl: params.cancelUrl,
+    cancelUrl: String(cancelAbsolute),
     cancelUrlText: "Cancel",
   });
 
@@ -77,16 +108,16 @@ export async function startPlatformAuthorizeNetCheckout(params: {
         name: creds.apiLoginId,
         transactionKey: creds.transactionKey,
       },
+      refId: token.slice(0, 20),
       transactionRequest: {
         transactionType: "authCaptureTransaction",
         amount,
-        referenceId: token,
         profile: {
           createProfile: true,
         },
         order: {
           invoiceNumber: token,
-          description: params.lineDescription.slice(0, 255),
+          description: sanitizeAuthorizeNetOrderText(params.lineDescription, 255),
         },
       },
       hostedPaymentSettings: {
@@ -133,7 +164,7 @@ export async function startPlatformAuthorizeNetCheckout(params: {
   if (resp.messages?.resultCode === "Error") {
     const errText =
       resp.messages.message?.map((m) => m.text).filter(Boolean).join("; ") ?? "Unknown error";
-    throw new Error(`Authorize.Net: ${errText}`);
+    throw new Error(errText);
   }
 
   const hostedToken = resp.token ?? data.token;
@@ -141,6 +172,7 @@ export async function startPlatformAuthorizeNetCheckout(params: {
     throw new Error("Authorize.Net did not return a payment token");
   }
 
-  const redirectUrl = `${baseApp}/api/authorize-net/redirect?token=${encodeURIComponent(hostedToken)}`;
+  const cluster = getAuthorizeNetSessionCluster();
+  const redirectUrl = `${baseApp}/api/authorize-net/redirect?token=${encodeURIComponent(hostedToken)}&anet_env=${encodeURIComponent(cluster)}`;
   return { url: redirectUrl, token };
 }
