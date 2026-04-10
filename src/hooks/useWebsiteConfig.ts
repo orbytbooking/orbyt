@@ -558,6 +558,29 @@ export const useWebsiteConfig = () => {
         if (businessId) {
           console.log('🔍 Loading website config from database for business ID:', businessId);
 
+          try {
+            const pubRes = await fetch(
+              `/api/public/website-config?business_id=${encodeURIComponent(businessId)}`,
+              { cache: 'no-store' }
+            );
+            if (pubRes.ok) {
+              const pubJson = await pubRes.json().catch(() => ({}));
+              const raw = pubJson?.config;
+              if (
+                raw &&
+                typeof raw === 'object' &&
+                Array.isArray((raw as WebsiteConfig).sections)
+              ) {
+                const configWithHeader = ensureHeaderSection(raw as WebsiteConfig);
+                setConfig(configWithHeader);
+                setIsLoading(false);
+                return;
+              }
+            }
+          } catch (pubErr) {
+            console.warn('Public website-config fetch failed, falling back to client DB:', pubErr);
+          }
+
           const { data: businessConfig, error } = await supabase
             .from('business_website_configs')
             .select('config')

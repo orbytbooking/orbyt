@@ -137,7 +137,11 @@ export default function BusinessWebsite({ params }: BusinessWebsiteProps) {
           case 'reviews':
             return <div key={section.id} id="reviews"><Reviews data={section.data} /></div>;
           case 'faqs':
-            return <div key={section.id} id="faqs"><FAQs data={section.data} /></div>;
+            return (
+              <div key={section.id} id="faqs">
+                <FAQs data={section.data} businessId={businessId || undefined} />
+              </div>
+            );
           case 'contact':
             return <div key={section.id} id="contact"><Contact data={section.data} /></div>;
           case 'footer':

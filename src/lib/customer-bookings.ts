@@ -20,6 +20,8 @@ export type Booking = {
   occurrenceDate?: string;
   status: BookingStatus;
   address: string;
+  /** From DB `zip_code` when available (rebook / location-based booking). */
+  zipCode?: string;
   contact: string;
   notes: string;
   price: number;

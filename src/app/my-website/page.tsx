@@ -243,7 +243,11 @@ export default function BuilderLanding() {
 
           case 'faqs':
 
-            return <div key={section.id} id="faqs"><FAQs data={section.data} /></div>;
+            return (
+              <div key={section.id} id="faqs">
+                <FAQs data={section.data} businessId={businessId ?? undefined} />
+              </div>
+            );
 
           case 'contact':
 

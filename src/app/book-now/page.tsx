@@ -302,6 +302,80 @@ const findServiceMatch = (serviceName: string) => {
   return null;
 };
 
+/** Admin service categories (same shape as book-now state) for rebook resolution. */
+type RebookServiceCategoryCard = {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  duration: string;
+  image: string;
+  features: string[];
+  raw?: unknown;
+};
+
+async function fetchServiceCategoriesMappedForRebook(
+  businessId: string,
+  industryId: string,
+): Promise<RebookServiceCategoryCard[]> {
+  const response = await fetch(
+    `/api/service-categories?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessId)}`,
+  );
+  if (!response.ok) return [];
+  const data = await response.json();
+  const categories = (data.serviceCategories ?? []) as Array<Record<string, unknown>>;
+  return categories
+    .filter((cat) => isServiceCategoryVisibleOnPublicBooking(cat.display as string | undefined))
+    .map((cat: Record<string, unknown>) => {
+      const sct = cat.service_category_time as { hours?: string; minutes?: string; enabled?: boolean } | undefined;
+      const scp = cat.service_category_price as { enabled?: boolean; price?: string | number } | undefined;
+      const hours = sct?.hours ?? "0";
+      const minutes = sct?.minutes ?? "0";
+      const duration =
+        sct?.enabled ? `${hours}h ${minutes}m`.replace(/^0h /, "").replace(/ 0m$/, "m") : "—";
+      const price =
+        scp?.enabled && scp?.price ? parseFloat(String(scp.price)) || 0 : 0;
+      return {
+        id: String(cat.id ?? ""),
+        name: String(cat.name ?? ""),
+        description: (cat.description as string) || `Professional ${String(cat.name ?? "")} service.`,
+        price,
+        duration,
+        image:
+          (cat.icon as string) ||
+          "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=400&h=300&fit=crop",
+        features: [] as string[],
+        raw: cat,
+      };
+    })
+    .filter((c) => c.id && c.name);
+}
+
+async function resolveRebookServiceAcrossIndustries(
+  businessId: string,
+  industryOptions: Array<{ id?: string; key: string; label: string }>,
+  serviceName: string,
+): Promise<{ industryKey: string; service: RebookServiceCategoryCard } | null> {
+  const name = String(serviceName ?? "").trim();
+  if (!name) return null;
+  for (const ind of industryOptions) {
+    const industryId = ind.id?.trim();
+    if (!industryId) continue;
+    const mapped = await fetchServiceCategoriesMappedForRebook(businessId, industryId);
+    const hit = mapped.find((svc) => serviceLabelsMatch(svc.name, name));
+    if (hit) {
+      return { industryKey: ind.key, service: hit };
+    }
+  }
+  return null;
+}
+
+function extractZipFromAddressForRebook(address: string): string {
+  const m = String(address ?? "").match(/\b(\d{5})(-\d{4})?\b/);
+  if (!m) return "";
+  return m[1] + (m[2] ?? "");
+}
+
 const normalizeSelectValue = (value: string | undefined, options: readonly string[]) => {
   if (!value) return "";
   const normalized = value.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -378,6 +452,8 @@ function BookingPageContent() {
   const editOnlyParam = searchParams.get("editOnly");
   const limitedEditMode = Boolean(bookingIdParam && editOnlyParam === "details-payment");
   const [businessName, setBusinessName] = useState<string>('');
+  /** From `GET /api/businesses` (`logo_url`) — fallback when website builder has no logo. */
+  const [businessLogoUrl, setBusinessLogoUrl] = useState<string>('');
   const [businessId, setBusinessId] = useState<string>('');
   const [currentStep, setCurrentStep] = useState<BookingStep>("category");
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>(null);
@@ -405,6 +481,45 @@ function BookingPageContent() {
   const [storedAddress, setStoredAddress] = useState<StoredAddress | null>(null);
   const { customerName, customerEmail, customerPhone, customerAddress, accountLoading } = useCustomerAccount(false);
   const { config } = useWebsiteConfig();
+
+  const bookNowNavLogo = useMemo(() => {
+    const fromBranding = config?.branding?.logo?.trim();
+    const header = (
+      config?.sections?.find((s) => s.type === "header")?.data as { logo?: string } | undefined
+    )?.logo?.trim();
+    const fromBusiness = businessLogoUrl?.trim();
+    return fromBranding || header || fromBusiness || "/images/orbit.png";
+  }, [businessLogoUrl, config]);
+
+  const bookNowNavigationProps = useMemo(() => {
+    const companyName = businessName || config?.branding?.companyName || "Cleaning Service";
+    const logo = bookNowNavLogo;
+    const headerSection = config?.sections?.find((s) => s.type === "header")?.data as
+      | {
+          companyName?: string;
+          logo?: string;
+          showNavigation?: boolean;
+          navigationLinks?: Array<{ text: string; url: string }>;
+        }
+      | undefined;
+    return {
+      branding: {
+        ...(config?.branding ?? {}),
+        companyName,
+        logo,
+      },
+      headerData: {
+        companyName,
+        logo,
+        showNavigation: true,
+        navigationLinks: [] as Array<{ text: string; url: string }>,
+        ...headerSection,
+        companyName,
+        logo,
+      },
+    };
+  }, [businessName, config, bookNowNavLogo]);
+
   /** Payment provider for current business (stripe | authorize_net) - used for payment step labels */
   const [paymentProvider, setPaymentProvider] = useState<"stripe" | "authorize_net">("stripe");
   const [availableExtras, setAvailableExtras] = useState<any[]>([]);
@@ -478,6 +593,11 @@ function BookingPageContent() {
 
   const isAccountLocked = !accountLoading && Boolean(customerName || customerEmail);
   const [prefilledBookingId, setPrefilledBookingId] = useState<string | null>(null);
+  /** Loaded from API; customization applied in a second step when pricing tiers exist. */
+  const [rebookSourceBooking, setRebookSourceBooking] = useState<Booking | null>(null);
+  const rebookWaitStartedAtRef = useRef<number | null>(null);
+  /** Avoid infinite retries when rebook fetch or service match fails for this URL. */
+  const rebookGiveUpRef = useRef<string | null>(null);
   const [recentBookingId, setRecentBookingId] = useState<string | null>(null);
   const [rescheduleMessageLimitedEdit, setRescheduleMessageLimitedEdit] = useState<string | null>(null);
 
@@ -650,23 +770,26 @@ function BookingPageContent() {
         setBusinessId(currentBusinessId);
         
         try {
-          // Special case for ORBYT business
-          if (currentBusinessId === '879ec172-e1dd-475d-b57d-0033fae0b30e') {
-            setBusinessName('ORBYT');
-            return;
-          }
-          
-          // Try to get business name from businesses API first
+          // Try to get business name + logo from businesses API first (public lookup; includes logo_url)
           const response = await fetch(`/api/businesses?business_id=${currentBusinessId}`);
           if (response.ok) {
             const data = await response.json();
             if (data.businesses && data.businesses.length > 0) {
-              const business = data.businesses[0];
+              const business = data.businesses[0] as {
+                name?: string;
+                business_name?: string;
+                display_name?: string;
+                title?: string;
+                logo_url?: string | null;
+              };
               const name = business.name || business.business_name || business.display_name || business.title || 'Cleaning Service';
               setBusinessName(name);
+              const rawLogo = business.logo_url != null ? String(business.logo_url).trim() : "";
+              setBusinessLogoUrl(rawLogo);
               return;
             }
           }
+          setBusinessLogoUrl("");
           
           // Fallback to industries API with multiple field name attempts
           const industriesResponse = await fetch(`/api/industries?business_id=${currentBusinessId}`);
@@ -686,13 +809,16 @@ function BookingPageContent() {
           
           // Final fallback if no data found
           setBusinessName('Cleaning Service');
+          setBusinessLogoUrl("");
         } catch (error) {
           console.error('Error fetching business name:', error);
           setBusinessName('Cleaning Service');
+          setBusinessLogoUrl("");
         }
       } else {
         // No business ID found, set fallback
         setBusinessName('Cleaning Service');
+        setBusinessLogoUrl("");
       }
     };
 
@@ -1462,34 +1588,19 @@ function BookingPageContent() {
   };
 
   useEffect(() => {
-    const loadBookingData = async () => {
-      if (!bookingIdParam || prefilledBookingId === bookingIdParam) return;
+    setPrefilledBookingId(null);
+    setRebookSourceBooking(null);
+    rebookWaitStartedAtRef.current = null;
+    rebookGiveUpRef.current = null;
+  }, [bookingIdParam]);
 
-      const currentBusinessId = searchParams.get("business") ?? null;
-      const sourceBooking = await fetchBookingById(currentBusinessId, bookingIdParam);
-      if (!sourceBooking) return;
+  /** Rebook / book-again: resolve real admin service + industry, then apply prefill after pricing tiers load. */
+  useEffect(() => {
+    if (!bookingIdParam || prefilledBookingId === bookingIdParam) return;
 
-    const match = findServiceMatch(sourceBooking.service);
-    if (!match) {
-      toast({
-        title: "Service unavailable",
-        description: `${sourceBooking.service} is no longer offered. Please choose another service.`,
-        variant: "destructive",
-      });
-      return;
-    }
+    const currentBusinessId = searchParams.get("business")?.trim() || null;
+    if (!currentBusinessId) return;
 
-    setPrefilledBookingId(bookingIdParam);
-
-    const { categoryKey, service } = match;
-    setSelectedCategory(categoryKey);
-    setSelectedService(service);
-    setFlippedCardId(null);
-    setCurrentStep("details");
-
-    const existingCustomization = getCardCustomization(service.id);
-    
-    // Type for booking customization from database
     type BookingCustomization = {
       frequency?: string;
       squareMeters?: string;
@@ -1501,8 +1612,6 @@ function BookingPageContent() {
       excludeQuantities?: Record<string, number>;
       variableCategories?: { [categoryName: string]: string };
     };
-
-    const presetCustomization = (sourceBooking.customization as BookingCustomization) ?? {};
 
     const normalizeExtrasFromString = (value: unknown): string[] => {
       if (Array.isArray(value)) {
@@ -1517,71 +1626,202 @@ function BookingPageContent() {
       return [];
     };
 
-    const presetExtras: { name: string; quantity: number }[] = normalizeExtrasArray(normalizeExtrasFromString(presetCustomization.extras));
-    const existingExtras: { name: string; quantity: number }[] = normalizeExtrasArray(normalizeExtrasFromString(existingCustomization.extras));
+    let cancelled = false;
 
-    // Use area options from API (pricing tiers) when available so rebook keeps admin-configured values
-    const areaOptionsForRebook = pricingRows.length > 0
-      ? pricingRows.map((t) => t.name)
-      : [...AREA_SIZE_OPTIONS];
-    const rebookCustomization: ServiceCustomization = {
-      frequency:
-        normalizeSelectValue(sourceBooking.frequency, FREQUENCY_OPTIONS) ||
-        normalizeSelectValue(existingCustomization.frequency, FREQUENCY_OPTIONS) ||
-        normalizeSelectValue(presetCustomization.frequency, FREQUENCY_OPTIONS),
-      squareMeters:
-        normalizeSelectValue(presetCustomization.squareMeters, areaOptionsForRebook) ||
-        normalizeSelectValue(existingCustomization.squareMeters, areaOptionsForRebook),
-      bedroom:
-        normalizeSelectValue(presetCustomization.bedroom, BEDROOM_OPTIONS) ||
-        normalizeSelectValue(existingCustomization.bedroom, BEDROOM_OPTIONS),
-      bathroom:
-        normalizeSelectValue(presetCustomization.bathroom, BATHROOM_OPTIONS) ||
-        normalizeSelectValue(existingCustomization.bathroom, BATHROOM_OPTIONS),
-      extras: presetExtras.length ? presetExtras : (existingExtras.length ? normalizeExtrasArray(existingExtras) : []),
-      isPartialCleaning:
-        presetCustomization.isPartialCleaning ?? existingCustomization.isPartialCleaning ?? false,
-      excludedAreas: presetCustomization.excludedAreas ?? existingCustomization.excludedAreas ?? [],
-      excludeQuantities: presetCustomization.excludeQuantities ?? existingCustomization.excludeQuantities ?? {},
-      variableCategories: presetCustomization.variableCategories ?? existingCustomization.variableCategories ?? {},
+    const run = async () => {
+      if (rebookGiveUpRef.current === bookingIdParam) return;
+
+      // Phase 1 — fetch booking + match service (admin catalog), stash for phase 2
+      if (!rebookSourceBooking && industryOptions.length > 0) {
+        const sourceBooking = await fetchBookingById(currentBusinessId, bookingIdParam);
+        if (cancelled) return;
+        if (!sourceBooking) {
+          rebookGiveUpRef.current = bookingIdParam;
+          return;
+        }
+
+        const zipPref =
+          (sourceBooking.zipCode && String(sourceBooking.zipCode).trim()) ||
+          extractZipFromAddressForRebook(sourceBooking.address);
+        if (zipPref) {
+          form.setValue("zipCode", zipPref);
+        }
+
+        let resolved = await resolveRebookServiceAcrossIndustries(
+          currentBusinessId,
+          industryOptions,
+          sourceBooking.service,
+        );
+        if (!resolved) {
+          const staticMatch = findServiceMatch(sourceBooking.service);
+          if (staticMatch) {
+            resolved = {
+              industryKey: staticMatch.categoryKey,
+              service: staticMatch.service as unknown as RebookServiceCategoryCard,
+            };
+          }
+        }
+
+        if (!resolved) {
+          rebookGiveUpRef.current = bookingIdParam;
+          if (!cancelled) {
+            toast({
+              title: "Service unavailable",
+              description: `${sourceBooking.service} is no longer offered. Please choose another service.`,
+              variant: "destructive",
+            });
+          }
+          return;
+        }
+
+        const { industryKey, service } = resolved;
+        const presetCustomization = (sourceBooking.customization as BookingCustomization) ?? {};
+        const freqNorm =
+          normalizeSelectValue(sourceBooking.frequency, FREQUENCY_OPTIONS) ||
+          normalizeSelectValue(presetCustomization.frequency, FREQUENCY_OPTIONS) ||
+          "";
+
+        if (cancelled) return;
+        setSelectedCategory(industryKey);
+        setSelectedService(service as (typeof serviceCategories)[number]);
+        setFlippedCardId(null);
+        setCurrentStep("details");
+        if (freqNorm) {
+          setBookingFrequencyForFilters(freqNorm);
+        }
+        setServiceCustomization({
+          frequency: freqNorm,
+          squareMeters: "",
+          bedroom: "",
+          bathroom: "",
+          extras: [],
+          isPartialCleaning: false,
+          excludedAreas: [],
+          excludeQuantities: {},
+          variableCategories: {},
+        });
+        rebookWaitStartedAtRef.current = Date.now();
+        setRebookSourceBooking(sourceBooking);
+        return;
+      }
+
+      // Phase 2 — full customization + form once tiers / categories are ready
+      if (!rebookSourceBooking || prefilledBookingId === bookingIdParam) return;
+      if (!selectedService) return;
+      if (serviceCategoriesLoading) return;
+
+      const waitedMs =
+        rebookWaitStartedAtRef.current != null
+          ? Date.now() - rebookWaitStartedAtRef.current
+          : 0;
+      const waitingForTiers =
+        pricingParametersFull.length > 0 && pricingRows.length === 0 && waitedMs < 4000;
+      if (waitingForTiers) return;
+
+      const sourceBooking = rebookSourceBooking;
+      const existingCustomization = getCardCustomization(selectedService.id);
+      const presetCustomization = (sourceBooking.customization as BookingCustomization) ?? {};
+
+      const presetExtras: { name: string; quantity: number }[] = normalizeExtrasArray(
+        normalizeExtrasFromString(presetCustomization.extras),
+      );
+      const existingExtras: { name: string; quantity: number }[] = normalizeExtrasArray(
+        normalizeExtrasFromString(existingCustomization.extras),
+      );
+
+      const areaOptionsForRebook =
+        pricingRows.length > 0 ? pricingRows.map((t) => t.name) : [...AREA_SIZE_OPTIONS];
+      const rebookCustomization: ServiceCustomization = {
+        frequency:
+          normalizeSelectValue(sourceBooking.frequency, FREQUENCY_OPTIONS) ||
+          normalizeSelectValue(existingCustomization.frequency, FREQUENCY_OPTIONS) ||
+          normalizeSelectValue(presetCustomization.frequency, FREQUENCY_OPTIONS),
+        squareMeters:
+          normalizeSelectValue(presetCustomization.squareMeters, areaOptionsForRebook) ||
+          normalizeSelectValue(existingCustomization.squareMeters, areaOptionsForRebook),
+        bedroom:
+          normalizeSelectValue(presetCustomization.bedroom, BEDROOM_OPTIONS) ||
+          normalizeSelectValue(existingCustomization.bedroom, BEDROOM_OPTIONS),
+        bathroom:
+          normalizeSelectValue(presetCustomization.bathroom, BATHROOM_OPTIONS) ||
+          normalizeSelectValue(existingCustomization.bathroom, BATHROOM_OPTIONS),
+        extras: presetExtras.length
+          ? presetExtras
+          : existingExtras.length
+            ? normalizeExtrasArray(existingExtras)
+            : [],
+        isPartialCleaning:
+          presetCustomization.isPartialCleaning ?? existingCustomization.isPartialCleaning ?? false,
+        excludedAreas: presetCustomization.excludedAreas ?? existingCustomization.excludedAreas ?? [],
+        excludeQuantities:
+          presetCustomization.excludeQuantities ?? existingCustomization.excludeQuantities ?? {},
+        variableCategories:
+          presetCustomization.variableCategories ?? existingCustomization.variableCategories ?? {},
+      };
+
+      setServiceCustomization(rebookCustomization);
+      form.setValue("customization", toFormCustomization(rebookCustomization), { shouldValidate: true });
+      setCardCustomizations((prev) => ({
+        ...prev,
+        [cardKey(selectedService.id)]: rebookCustomization,
+      }));
+
+      form.setValue("service", sourceBooking.service);
+      if (sourceBooking.address) {
+        form.setValue("address", sourceBooking.address);
+        form.setValue("addressPreference", "new");
+      }
+      form.setValue("notes", sourceBooking.notes ?? "");
+      if (sourceBooking.time) {
+        form.setValue("time", sourceBooking.time);
+      }
+
+      const parsedDate = new Date(`${sourceBooking.date}T00:00:00`);
+      if (!Number.isNaN(parsedDate.getTime())) {
+        form.setValue("date", parsedDate);
+      }
+
+      const contactRaw = String(sourceBooking.contact ?? "").trim();
+      if (contactRaw && !contactRaw.includes("@")) {
+        const e164 = normalizeStoredPhoneToE164(contactRaw, guessDefaultCountry());
+        if (e164) form.setValue("phone", e164);
+      }
+
+      const zipAgain =
+        (sourceBooking.zipCode && String(sourceBooking.zipCode).trim()) ||
+        extractZipFromAddressForRebook(sourceBooking.address);
+      if (zipAgain) {
+        form.setValue("zipCode", zipAgain);
+      }
+
+      setPrefilledBookingId(bookingIdParam);
+      setRebookSourceBooking(null);
+      rebookWaitStartedAtRef.current = null;
+
+      toast({
+        title: "Details loaded",
+        description: "Review the pre-filled booking and make any adjustments you need.",
+      });
     };
 
-    setServiceCustomization(rebookCustomization);
-    form.setValue("customization", toFormCustomization(rebookCustomization), { shouldValidate: true });
-    setCardCustomizations((prev) => ({
-      ...prev,
-      [cardKey(service.id)]: rebookCustomization,
-    }));
-
-    form.setValue("service", sourceBooking.service);
-    if (sourceBooking.address) {
-      form.setValue("address", sourceBooking.address);
-      form.setValue("addressPreference", "new");
-    }
-    form.setValue("notes", sourceBooking.notes ?? "");
-    if (sourceBooking.time) {
-      form.setValue("time", sourceBooking.time);
-    }
-
-    const parsedDate = new Date(`${sourceBooking.date}T00:00:00`);
-    if (!Number.isNaN(parsedDate.getTime())) {
-      form.setValue("date", parsedDate);
-    }
-
-    const contactRaw = String(sourceBooking.contact ?? "").trim();
-    if (contactRaw && !contactRaw.includes("@")) {
-      const e164 = normalizeStoredPhoneToE164(contactRaw, guessDefaultCountry());
-      if (e164) form.setValue("phone", e164);
-    }
-
-    toast({
-      title: "Details loaded",
-      description: "Review the pre-filled booking and make any adjustments you need.",
-    });
+    void run();
+    return () => {
+      cancelled = true;
     };
-
-    loadBookingData();
-  }, [bookingIdParam, prefilledBookingId, form, toast, pricingRows, searchParams]);
+    // getCardCustomization omitted from deps (phase 2 reads it after selectedService updates).
+  }, [
+    bookingIdParam,
+    prefilledBookingId,
+    rebookSourceBooking,
+    industryOptions,
+    selectedService,
+    serviceCategoriesLoading,
+    pricingRows,
+    pricingParametersFull,
+    searchParams,
+    form,
+    toast,
+  ]);
 
   useEffect(() => {
     if (!limitedEditMode) return;
@@ -2704,19 +2944,7 @@ function BookingPageContent() {
     const categoriesAvailable = industryOptions.length > 0;
     return (
       <div className="min-h-screen">
-        <Navigation 
-          branding={{
-            ...config?.branding,
-            companyName: businessName || config?.branding?.companyName || 'Cleaning Service',
-            logo: businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo || '/images/orbit.png')
-          }} 
-          headerData={config?.sections?.find(s => s.type === 'header')?.data || {
-            companyName: businessName || config?.branding?.companyName || 'Cleaning Service',
-            logo: businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo || '/images/orbit.png'),
-            showNavigation: true,
-            navigationLinks: []
-          }}
-        />
+        <Navigation branding={bookNowNavigationProps.branding} headerData={bookNowNavigationProps.headerData} />
         <div className={styles.bookingContainer}>
           <div className="container mx-auto px-4 py-16 max-w-4xl">
             <div className={styles.header}>
@@ -2776,19 +3004,7 @@ function BookingPageContent() {
   if (currentStep === "success") {
     return (
       <div className="min-h-screen">
-        <Navigation 
-          branding={{
-            ...config?.branding,
-            companyName: businessName || config?.branding?.companyName || 'Cleaning Service',
-            logo: businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo || '/images/orbit.png')
-          }} 
-          headerData={config?.sections?.find(s => s.type === 'header')?.data || {
-            companyName: businessName || config?.branding?.companyName || 'Cleaning Service',
-            logo: businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo || '/images/orbit.png'),
-            showNavigation: true,
-            navigationLinks: []
-          }}
-        />
+        <Navigation branding={bookNowNavigationProps.branding} headerData={bookNowNavigationProps.headerData} />
         <div className={styles.bookingContainer}>
           <div className="container mx-auto px-4 py-16 max-w-4xl">
             <div className={styles.successMessage}>
@@ -2835,19 +3051,7 @@ function BookingPageContent() {
 
     return (
       <div className="min-h-screen">
-        <Navigation 
-          branding={{
-            ...config?.branding,
-            companyName: businessName || config?.branding?.companyName || 'Cleaning Service',
-            logo: businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo || '/images/orbit.png')
-          }} 
-          headerData={config?.sections?.find(s => s.type === 'header')?.data || {
-            companyName: businessName || config?.branding?.companyName || 'Cleaning Service',
-            logo: businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo || '/images/orbit.png'),
-            showNavigation: true,
-            navigationLinks: []
-          }}
-        />
+        <Navigation branding={bookNowNavigationProps.branding} headerData={bookNowNavigationProps.headerData} />
         <div className={styles.bookingContainer}>
           <div className="container mx-auto px-4 py-16 max-w-6xl">
             <div className={styles.header}>
@@ -3056,19 +3260,7 @@ function BookingPageContent() {
     
     return (
       <div className="min-h-screen">
-        <Navigation 
-          branding={{
-            ...config?.branding,
-            companyName: businessName || config?.branding?.companyName || 'Cleaning Service',
-            logo: businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo || '/images/orbit.png')
-          }} 
-          headerData={config?.sections?.find(s => s.type === 'header')?.data || {
-            companyName: businessName || config?.branding?.companyName || 'Cleaning Service',
-            logo: businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo || '/images/orbit.png'),
-            showNavigation: true,
-            navigationLinks: []
-          }}
-        />
+        <Navigation branding={bookNowNavigationProps.branding} headerData={bookNowNavigationProps.headerData} />
         <div className={styles.bookingContainer}>
           <div className="container mx-auto px-4 py-16 max-w-6xl">
             <div className={styles.header}>

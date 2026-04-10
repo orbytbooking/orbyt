@@ -5,22 +5,24 @@ import {
   isDateHoliday,
   getSpotLimits,
   getBookingCountForDate,
-  getReserveSlotSettings,
+  getReserveSlotSettingsAndBlocks,
   getBookingCountByTimeForDate,
   getDayNameFromDate,
   getCalendarDayOfWeek,
   normalizeTimeToHHmm,
+  filterDisplaySlotsByReservedBlocks,
 } from '@/lib/schedulingFilters';
+import type { ReserveSlotSettings } from '@/lib/schedulingFilters';
 
 /** Booking Koala-style: filter time slots by per-time-spot capacity from Reserve Slot settings */
 async function filterSlotsByReserveSlotCapacity(
   slots: string[],
   businessId: string,
   dateStr: string | null,
-  supabase: any
+  supabase: any,
+  settings: ReserveSlotSettings | null
 ): Promise<string[]> {
   if (!dateStr || !slots.length) return slots;
-  const settings = await getReserveSlotSettings(businessId);
   if (!settings?.maximumByDay) return slots;
   const dayName = getDayNameFromDate(dateStr);
   const dayConfig = settings.maximumByDay[dayName];
@@ -41,6 +43,19 @@ async function filterSlotsByReserveSlotCapacity(
     const hhmm = normalizeTimeToHHmm(displayTime);
     return allowedHHmm.has(hhmm);
   });
+}
+
+/** Capacity limits + admin reserved time blocks (single settings read per request when date set) */
+async function applyReserveSlotPipeline(
+  rawSlots: string[],
+  businessId: string,
+  dateStr: string | null,
+  supabase: any
+): Promise<string[]> {
+  if (!dateStr) return rawSlots;
+  const { settings, reservedBlocks } = await getReserveSlotSettingsAndBlocks(businessId);
+  const capped = await filterSlotsByReserveSlotCapacity(rawSlots, businessId, dateStr, supabase, settings);
+  return filterDisplaySlotsByReservedBlocks(capped, dateStr, reservedBlocks);
 }
 
 export async function GET(request: Request) {
@@ -89,7 +104,7 @@ export async function GET(request: Request) {
           new Date(2000, 0, 1, h, 30, 0).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
         );
       }
-      const filtered = await filterSlotsByReserveSlotCapacity(defaultSlots, businessId, date, supabaseAdmin);
+      const filtered = await applyReserveSlotPipeline(defaultSlots, businessId, date, supabaseAdmin);
       return NextResponse.json({ timeSlots: filtered });
     }
 
@@ -181,22 +196,12 @@ export async function GET(request: Request) {
       }
 
       // Booking Koala-style: per-time-spot capacity from Reserve Slot settings
-      const filteredDefault = await filterSlotsByReserveSlotCapacity(
-        defaultSlots,
-        businessId,
-        date,
-        supabaseAdmin
-      );
+      const filteredDefault = await applyReserveSlotPipeline(defaultSlots, businessId, date, supabaseAdmin);
       return NextResponse.json({ timeSlots: filteredDefault });
     }
 
     // Booking Koala-style: per-time-spot capacity from Reserve Slot settings
-    const filteredSlots = await filterSlotsByReserveSlotCapacity(
-      fullTimeSlots,
-      businessId,
-      date,
-      supabaseAdmin
-    );
+    const filteredSlots = await applyReserveSlotPipeline(fullTimeSlots, businessId, date, supabaseAdmin);
     return NextResponse.json({ timeSlots: filteredSlots });
 
   } catch (error) {

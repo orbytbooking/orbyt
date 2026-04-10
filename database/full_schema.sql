@@ -164,6 +164,7 @@ CREATE TABLE public.business_reserve_slot_settings (
   business_id uuid NOT NULL,
   maximum_by_day jsonb NOT NULL DEFAULT '{}'::jsonb,
   quick_add_spots jsonb NOT NULL DEFAULT '[]'::jsonb,
+  extended_settings jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   CONSTRAINT business_reserve_slot_settings_pkey PRIMARY KEY (id),

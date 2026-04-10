@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,10 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { useBusiness } from "@/contexts/BusinessContext";
 import {
+  RESERVE_SLOT_SETTINGS_LEGACY_KEY,
+  reserveSlotSettingsStorageKey,
+} from "@/lib/reserveSlotSettingsStorage";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -27,6 +31,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 /** Per-time-slot row in Maximum settings table */
 interface MaximumSettingsSlot {
@@ -94,12 +99,67 @@ const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
 /** Sunday first for Maximum settings table */
 const DAYS_MAXIMUM = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-const RESERVE_SLOT_STORAGE_KEY = 'reserveSlotSettings';
-
 const INTERVAL_HOURS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const INTERVAL_MINUTES = [0, 15, 30, 45];
 const HOURS_12 = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const MERIDIANS = ['AM', 'PM'] as const;
+
+/** Compact number field for max-jobs steppers: wide enough for 3 digits, tight padding, no spin buttons */
+const maxJobsInputClassName =
+  'h-8 w-[4.75rem] min-w-[4.75rem] shrink-0 px-2 py-0 text-center text-sm tabular-nums rounded-md border-border [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
+
+const maxJobsInputClassNameDaily =
+  'h-9 w-[4.75rem] min-w-[4.75rem] shrink-0 px-2 py-0 text-center text-sm tabular-nums rounded-md border-teal-500/30 bg-teal-500/5 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
+
+function buildDefaultMaximumByDay(): Record<string, { enabled: boolean; slots: MaximumSettingsSlot[] }> {
+  const o: Record<string, { enabled: boolean; slots: MaximumSettingsSlot[] }> = {};
+  DAYS_MAXIMUM.forEach((d) => {
+    o[d] = { enabled: d !== 'Sunday', slots: [] };
+  });
+  return o;
+}
+
+function normalizeMaximumSlot(s: unknown): MaximumSettingsSlot | null {
+  if (!s || typeof s !== 'object') return null;
+  const o = s as Record<string, unknown>;
+  if (typeof o.time !== 'string') return null;
+  const t = /^(\d{1,2}):(\d{2})/.exec(o.time.trim());
+  const time = t ? `${t[1].padStart(2, '0')}:${t[2]}` : o.time.slice(0, 5);
+  return {
+    id: typeof o.id === 'string' ? o.id : `slot-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    time,
+    maxJobs: typeof o.maxJobs === 'number' ? o.maxJobs : parseInt(String(o.maxJobs ?? 0), 10) || 0,
+    displayOn: o.displayOn === 'Admin only' ? 'Admin only' : 'Both',
+  };
+}
+
+function mergeMaximumByDayFromApi(raw: unknown): Record<string, { enabled: boolean; slots: MaximumSettingsSlot[] }> {
+  const base = buildDefaultMaximumByDay();
+  if (!raw || typeof raw !== 'object') return base;
+  for (const d of DAYS_MAXIMUM) {
+    const v = (raw as Record<string, unknown>)[d];
+    if (v && typeof v === 'object' && 'slots' in v) {
+      const vo = v as { enabled?: unknown; slots?: unknown };
+      const slotsRaw = Array.isArray(vo.slots) ? vo.slots : [];
+      const slots = slotsRaw.map(normalizeMaximumSlot).filter((x): x is MaximumSettingsSlot => x != null);
+      base[d] = {
+        enabled: typeof vo.enabled === 'boolean' ? vo.enabled : base[d].enabled,
+        slots,
+      };
+    }
+  }
+  return base;
+}
+
+function buildDefaultDailySettings(): DailySettings[] {
+  return DAYS.map((day) => ({
+    day,
+    enabled: day !== 'Sunday',
+    startTime: '09:00',
+    endTime: '17:00',
+    maxSlots: 10,
+  }));
+}
 
 export default function ReserveSlotPage() {
   const { currentBusiness } = useBusiness();
@@ -116,11 +176,7 @@ export default function ReserveSlotPage() {
 
   // Maximum settings table: quick-add template + per-day slots
   const [quickAddSpots, setQuickAddSpots] = useState<string[]>([]);
-  const [maximumByDay, setMaximumByDay] = useState<Record<string, { enabled: boolean; slots: MaximumSettingsSlot[] }>>(() => {
-    const o: Record<string, { enabled: boolean; slots: MaximumSettingsSlot[] }> = {};
-    DAYS_MAXIMUM.forEach(d => { o[d] = { enabled: d !== 'Sunday', slots: [] }; });
-    return o;
-  });
+  const [maximumByDay, setMaximumByDay] = useState(() => buildDefaultMaximumByDay());
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [quickAddForm, setQuickAddForm] = useState<{
     intervalHours: number;
@@ -151,15 +207,7 @@ export default function ReserveSlotPage() {
   const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
 
   // Daily Settings
-  const [dailySettings, setDailySettings] = useState<DailySettings[]>(
-    DAYS.map(day => ({
-      day,
-      enabled: day !== 'Sunday',
-      startTime: '09:00',
-      endTime: '17:00',
-      maxSlots: 10,
-    }))
-  );
+  const [dailySettings, setDailySettings] = useState<DailySettings[]>(() => buildDefaultDailySettings());
 
   // Time Slots (existing functionality)
   const [slots, setSlots] = useState<TimeSlot[]>([]);
@@ -222,29 +270,60 @@ export default function ReserveSlotPage() {
   // Daily settings: edit Display on for a slot (opens dialog with Admin only / Both)
   const [displayOnEditSlot, setDisplayOnEditSlot] = useState<{ dayName: string; slotId: string; displayOn: 'Both' | 'Admin only'; timeLabel: string } | null>(null);
 
-  // Load settings: API (spot limits, holidays) takes precedence when business exists; fallback to localStorage
+  /** Edit time spot (Maximum tab): time + max jobs + display */
+  const [maximumSlotEdit, setMaximumSlotEdit] = useState<{
+    day: string;
+    slotId: string;
+    time: string;
+    maxJobs: number;
+    displayOn: 'Both' | 'Admin only';
+  } | null>(null);
+
+  /** After tenant switch or refresh, block persist until load finishes so we don't copy prior tenant state into the new key. */
+  const reserveSlotLoadGenRef = useRef(0);
+  const reserveSlotPersistAllowedRef = useRef(false);
+  const [reserveSlotPersistTick, setReserveSlotPersistTick] = useState(0);
+  const reserveSlotApiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load settings: with business, APIs are source of truth; localStorage fallback on failure / no business
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    reserveSlotPersistAllowedRef.current = false;
+    const loadGen = ++reserveSlotLoadGenRef.current;
     const load = async () => {
       try {
-        const saved = localStorage.getItem(RESERVE_SLOT_STORAGE_KEY);
-        if (saved) {
-          const data = JSON.parse(saved);
-          if (data.dailySettings) setDailySettings(data.dailySettings);
-          if (data.slots) setSlots(data.slots);
-          if (data.bookingSpots) setBookingSpots(data.bookingSpots);
-          if (Array.isArray(data.quickAddSpots)) setQuickAddSpots(data.quickAddSpots);
-          if (data.maximumByDay && typeof data.maximumByDay === 'object') setMaximumByDay(data.maximumByDay);
+        const storageKey = reserveSlotSettingsStorageKey(currentBusiness?.id);
+        let raw = localStorage.getItem(storageKey);
+        if (!raw && currentBusiness?.id) {
+          raw = localStorage.getItem(RESERVE_SLOT_SETTINGS_LEGACY_KEY);
         }
-        if (currentBusiness?.id) {
+        const saved = raw;
+
+        if (!currentBusiness?.id) {
+          if (saved) {
+            const data = JSON.parse(saved);
+            if (data.maxSettings) setMaxSettings(data.maxSettings);
+            if (data.dailySettings) setDailySettings(data.dailySettings);
+            if (data.slots) setSlots(data.slots);
+            if (data.bookingSpots) setBookingSpots(data.bookingSpots);
+            if (Array.isArray(data.quickAddSpots)) setQuickAddSpots(data.quickAddSpots);
+            if (data.maximumByDay && typeof data.maximumByDay === 'object') {
+              setMaximumByDay(mergeMaximumByDayFromApi(data.maximumByDay));
+            }
+            if (data.holidays) setHolidays(data.holidays);
+          }
+        } else {
           const [limitsRes, holidaysRes, reserveSlotRes] = await Promise.all([
             fetch(`/api/admin/business-spot-limits?businessId=${currentBusiness.id}`, { headers: { 'x-business-id': currentBusiness.id } }),
             fetch(`/api/admin/business-holidays?businessId=${currentBusiness.id}`, { headers: { 'x-business-id': currentBusiness.id } }),
             fetch(`/api/admin/reserve-slot-settings?businessId=${currentBusiness.id}`, { headers: { 'x-business-id': currentBusiness.id } }),
           ]);
-          const limitsData = await limitsRes.json();
-          const holidaysData = await holidaysRes.json();
-          const reserveSlotData = await reserveSlotRes.json();
+          const [limitsData, holidaysData, reserveSlotData] = await Promise.all([
+            limitsRes.json(),
+            holidaysRes.json(),
+            reserveSlotRes.json(),
+          ]);
+
           if (limitsData.spotLimits && typeof limitsData.spotLimits === 'object') {
             const l = limitsData.spotLimits;
             setMaxSettings({
@@ -258,84 +337,134 @@ export default function ReserveSlotPage() {
             const data = JSON.parse(saved);
             if (data.maxSettings) setMaxSettings(data.maxSettings);
           }
-          if (Array.isArray(holidaysData.holidays) && holidaysData.holidays.length > 0) {
-            setHolidays(holidaysData.holidays.map((h: { id: string; name: string; holiday_date: string; recurring: boolean; created_at?: string }) => ({
-              id: h.id,
-              name: h.name,
-              date: h.holiday_date,
-              recurring: !!h.recurring,
-              createdAt: h.created_at || '',
-            })));
+
+          if (holidaysRes.ok && Array.isArray(holidaysData.holidays)) {
+            setHolidays(
+              holidaysData.holidays.map((h: { id: string; name: string; holiday_date: string; recurring: boolean; created_at?: string }) => ({
+                id: h.id,
+                name: h.name,
+                date: h.holiday_date,
+                recurring: !!h.recurring,
+                createdAt: h.created_at || '',
+              }))
+            );
           } else if (saved) {
             const data = JSON.parse(saved);
             if (data.holidays) setHolidays(data.holidays);
           }
-          if (!reserveSlotData.error) {
-            if (reserveSlotData.maximumByDay && typeof reserveSlotData.maximumByDay === 'object') {
-              setMaximumByDay(reserveSlotData.maximumByDay);
+
+          if (reserveSlotRes.ok && !reserveSlotData.error) {
+            const mergedMax = mergeMaximumByDayFromApi(reserveSlotData.maximumByDay);
+            setMaximumByDay(mergedMax);
+            setQuickAddSpots(Array.isArray(reserveSlotData.quickAddSpots) ? reserveSlotData.quickAddSpots : []);
+            const ext = reserveSlotData.extendedSettings;
+            if (ext && typeof ext === 'object') {
+              if (Array.isArray(ext.dailySettings) && ext.dailySettings.length > 0) {
+                setDailySettings(ext.dailySettings as DailySettings[]);
+              } else {
+                setDailySettings(buildDefaultDailySettings());
+              }
+              if (Array.isArray(ext.slots)) setSlots(ext.slots as TimeSlot[]);
+              else setSlots([]);
+              if (ext.bookingSpots && typeof ext.bookingSpots === 'object' && 'locations' in ext.bookingSpots) {
+                setBookingSpots(ext.bookingSpots as BookingSpotsConfig);
+              } else {
+                setBookingSpots({ locations: [] });
+              }
             }
-            if (Array.isArray(reserveSlotData.quickAddSpots)) {
-              setQuickAddSpots(reserveSlotData.quickAddSpots);
-            }
+            setExpandedDays(new Set(DAYS_MAXIMUM.filter((d) => (mergedMax[d]?.slots?.length ?? 0) > 0)));
           } else if (saved) {
             const data = JSON.parse(saved);
-            if (data.maximumByDay && typeof data.maximumByDay === 'object') setMaximumByDay(data.maximumByDay);
+            if (data.maximumByDay && typeof data.maximumByDay === 'object') setMaximumByDay(mergeMaximumByDayFromApi(data.maximumByDay));
             if (Array.isArray(data.quickAddSpots)) setQuickAddSpots(data.quickAddSpots);
+            if (data.dailySettings) setDailySettings(data.dailySettings);
+            if (data.slots) setSlots(data.slots);
+            if (data.bookingSpots) setBookingSpots(data.bookingSpots);
           }
-        } else if (saved) {
-          const data = JSON.parse(saved);
-          if (data.maxSettings) setMaxSettings(data.maxSettings);
-          if (data.holidays) setHolidays(data.holidays);
         }
       } catch (e) {
         console.error('Error loading settings:', e);
+      } finally {
+        if (loadGen === reserveSlotLoadGenRef.current) {
+          reserveSlotPersistAllowedRef.current = true;
+          queueMicrotask(() => setReserveSlotPersistTick((t) => t + 1));
+        }
       }
     };
     load();
-  }, [currentBusiness?.id, dailyRefreshKey]);
+  }, [currentBusiness?.id]);
 
-  // Save to localStorage and persist maxSettings/holidays to API when business exists
+  // localStorage cache (per-business key)
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (!reserveSlotPersistAllowedRef.current) return;
     try {
-      localStorage.setItem(RESERVE_SLOT_STORAGE_KEY, JSON.stringify({
-        maxSettings,
-        dailySettings,
-        slots,
-        holidays,
-        bookingSpots,
-        quickAddSpots,
-        maximumByDay,
-      }));
-      if (currentBusiness?.id) {
-        Promise.all([
-          fetch('/api/admin/business-spot-limits', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', 'x-business-id': currentBusiness.id },
-            body: JSON.stringify({
-              businessId: currentBusiness.id,
-              max_bookings_per_day: maxSettings.maxBookingsPerDay,
-              max_bookings_per_week: maxSettings.maxBookingsPerWeek,
-              max_bookings_per_month: maxSettings.maxBookingsPerMonth,
-              max_advance_booking_days: maxSettings.maxAdvanceBookingDays,
-              enabled: maxSettings.enabled,
-            }),
-          }),
-          fetch('/api/admin/reserve-slot-settings', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', 'x-business-id': currentBusiness.id },
-            body: JSON.stringify({
-              businessId: currentBusiness.id,
-              maximumByDay,
-              quickAddSpots,
-            }),
-          }),
-        ]).catch(() => {});
-      }
+      const storageKey = reserveSlotSettingsStorageKey(currentBusiness?.id);
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          maxSettings,
+          dailySettings,
+          slots,
+          holidays,
+          bookingSpots,
+          quickAddSpots,
+          maximumByDay,
+        })
+      );
     } catch (e) {
       console.error('Error saving settings:', e);
     }
-  }, [maxSettings, dailySettings, slots, holidays, bookingSpots, quickAddSpots, maximumByDay, currentBusiness?.id]);
+  }, [reserveSlotPersistTick, maxSettings, dailySettings, slots, holidays, bookingSpots, quickAddSpots, maximumByDay, currentBusiness?.id]);
+
+  // Debounced API persist: spot limits + reserve slot row (maximum + quick add + extended)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!reserveSlotPersistAllowedRef.current || !currentBusiness?.id) return;
+    if (reserveSlotApiDebounceRef.current) clearTimeout(reserveSlotApiDebounceRef.current);
+    reserveSlotApiDebounceRef.current = setTimeout(() => {
+      Promise.all([
+        fetch('/api/admin/business-spot-limits', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'x-business-id': currentBusiness.id },
+          body: JSON.stringify({
+            businessId: currentBusiness.id,
+            max_bookings_per_day: maxSettings.maxBookingsPerDay,
+            max_bookings_per_week: maxSettings.maxBookingsPerWeek,
+            max_bookings_per_month: maxSettings.maxBookingsPerMonth,
+            max_advance_booking_days: maxSettings.maxAdvanceBookingDays,
+            enabled: maxSettings.enabled,
+          }),
+        }),
+        fetch('/api/admin/reserve-slot-settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'x-business-id': currentBusiness.id },
+          body: JSON.stringify({
+            businessId: currentBusiness.id,
+            maximumByDay,
+            quickAddSpots,
+            extendedSettings: {
+              dailySettings,
+              slots,
+              bookingSpots,
+            },
+          }),
+        }),
+      ]).catch(() => {});
+    }, 700);
+    return () => {
+      if (reserveSlotApiDebounceRef.current) clearTimeout(reserveSlotApiDebounceRef.current);
+    };
+  }, [
+    reserveSlotPersistTick,
+    maxSettings,
+    dailySettings,
+    slots,
+    bookingSpots,
+    quickAddSpots,
+    maximumByDay,
+    currentBusiness?.id,
+  ]);
 
   // Dates to show in Daily grid: filter range or 7 days from start
   const dailyGridDates = React.useMemo(() => {
@@ -552,8 +681,7 @@ export default function ReserveSlotPage() {
 
   // Maximum Settings Handlers
   const handleMaxSettingsChange = (field: keyof MaximumSettings, value: number | boolean) => {
-    setMaxSettings(prev => ({ ...prev, [field]: value }));
-    toast.success('Maximum settings updated');
+    setMaxSettings((prev) => ({ ...prev, [field]: value }));
   };
 
   const formatTime24 = (time: string) => {
@@ -694,11 +822,51 @@ export default function ReserveSlotPage() {
     toast.success('Time spot removed');
   };
 
+  const openMaximumSlotEdit = (day: string, slot: MaximumSettingsSlot) => {
+    const t = slot.time.trim();
+    const m = /^(\d{1,2}):(\d{2})/.exec(t);
+    const timeVal = m ? `${m[1].padStart(2, '0')}:${m[2]}` : '09:00';
+    setMaximumSlotEdit({
+      day,
+      slotId: slot.id,
+      time: timeVal,
+      maxJobs: slot.maxJobs,
+      displayOn: slot.displayOn,
+    });
+  };
+
+  const saveMaximumSlotEdit = () => {
+    if (!maximumSlotEdit) return;
+    const { day, slotId, time, maxJobs, displayOn } = maximumSlotEdit;
+    const m = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
+    if (!m) {
+      toast.error('Use time as HH:mm (24-hour).');
+      return;
+    }
+    const h = Math.min(23, Math.max(0, parseInt(m[1], 10)));
+    const min = Math.min(59, Math.max(0, parseInt(m[2], 10)));
+    const timeKey = `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+    const others = (maximumByDay[day]?.slots ?? []).filter((s) => s.id !== slotId).map((s) => s.time);
+    if (others.includes(timeKey)) {
+      toast.error('Another spot already uses this time on that day.');
+      return;
+    }
+    setMaximumByDay((prev) => ({
+      ...prev,
+      [day]: {
+        ...prev[day],
+        slots: (prev[day]?.slots ?? []).map((s) =>
+          s.id === slotId ? { ...s, time: timeKey, maxJobs: Math.max(0, maxJobs), displayOn } : s
+        ),
+      },
+    }));
+    setMaximumSlotEdit(null);
+    toast.success('Time spot updated');
+  };
+
   const resetMaximumToDefault = () => {
     if (!confirm('Reset all maximum settings to default? This will clear time spots for all days.')) return;
-    const o: Record<string, { enabled: boolean; slots: MaximumSettingsSlot[] }> = {};
-    DAYS_MAXIMUM.forEach(d => { o[d] = { enabled: d !== 'Sunday', slots: [] }; });
-    setMaximumByDay(o);
+    setMaximumByDay(buildDefaultMaximumByDay());
     setQuickAddSpots([]);
     toast.success('Reset to default');
   };
@@ -712,7 +880,12 @@ export default function ReserveSlotPage() {
       const res = await fetch('/api/admin/reserve-slot-settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'x-business-id': currentBusiness.id },
-        body: JSON.stringify({ businessId: currentBusiness.id, maximumByDay, quickAddSpots }),
+        body: JSON.stringify({
+          businessId: currentBusiness.id,
+          maximumByDay,
+          quickAddSpots,
+          extendedSettings: { dailySettings, slots, bookingSpots },
+        }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -1034,105 +1207,166 @@ export default function ReserveSlotPage() {
                 </div>
               </div>
 
-              {/* Table: one row per day when empty; when slots exist, one row per slot like image: Time spot | [- 20 +] | Both pill | Edit Delete. Circular plus adds spots. */}
-              <div className="rounded-md border overflow-x-auto bg-white dark:bg-background">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-muted/30">
-                      <th className="text-left font-medium p-3">Day</th>
-                      <th className="text-left font-medium p-3">Time spot</th>
-                      <th className="text-left font-medium p-3">Max jobs</th>
-                      <th className="text-left font-medium p-3">Display on</th>
-                      <th className="text-left font-medium p-3 w-28">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {DAYS_MAXIMUM.map(day => {
+              {/* Maximum settings: bordered grid table for clear row/column alignment */}
+              <div className="rounded-lg border border-border bg-card shadow-sm overflow-hidden">
+                <Table className="border-collapse text-sm [&_th]:border [&_th]:border-border [&_td]:border [&_td]:border-border">
+                  <TableHeader className="[&_tr]:border-b-0">
+                    <TableRow className="border-0 hover:bg-transparent">
+                      <TableHead className="h-11 min-w-[7.5rem] bg-muted/60 px-3 py-2 text-left text-foreground font-semibold">
+                        Day
+                      </TableHead>
+                      <TableHead className="h-11 min-w-[6.5rem] bg-muted/60 px-3 py-2 text-left text-foreground font-semibold">
+                        Time spot
+                      </TableHead>
+                      <TableHead className="h-11 min-w-[10.5rem] bg-muted/60 px-3 py-2 text-left text-foreground font-semibold">
+                        Max jobs
+                      </TableHead>
+                      <TableHead className="h-11 min-w-[7rem] bg-muted/60 px-3 py-2 text-left text-foreground font-semibold">
+                        Display on
+                      </TableHead>
+                      <TableHead className="h-11 w-28 min-w-[7rem] bg-muted/60 px-3 py-2 text-left text-foreground font-semibold">
+                        Actions
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody className="[&_tr:last-child]:border-b-0 [&_tr]:border-0">
+                    {DAYS_MAXIMUM.map((day) => {
                       const row = maximumByDay[day] ?? { enabled: true, slots: [] };
                       const slots = row.slots;
                       const hasSlots = slots.length > 0;
                       const isExpanded = expandedDays.has(day);
                       if (!hasSlots) {
                         return (
-                          <tr key={day} className="hover:bg-muted/10">
-                            <td className="p-3 font-medium">{day}</td>
-                            <td className="p-3 text-muted-foreground">—</td>
-                            <td className="p-3">—</td>
-                            <td className="p-3">—</td>
-                            <td className="p-3">
-                              <Button variant="outline" size="icon" className="h-9 w-9 rounded-full border-border bg-white dark:bg-background hover:bg-muted/50" onClick={() => openQuickAddForDay(day)} title="Add spots (Quick Add)">
+                          <TableRow key={day} className="border-0 hover:bg-muted/30">
+                            <TableCell className="px-3 py-2.5 font-medium align-middle">{day}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-muted-foreground align-middle">—</TableCell>
+                            <TableCell className="px-3 py-2.5 text-muted-foreground align-middle">—</TableCell>
+                            <TableCell className="px-3 py-2.5 text-muted-foreground align-middle">—</TableCell>
+                            <TableCell className="px-3 py-2.5 align-middle">
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                className="h-9 w-9 rounded-full border-border bg-background hover:bg-muted/50"
+                                onClick={() => openQuickAddForDay(day)}
+                                title="Add spots (Quick Add)"
+                              >
                                 <Plus className="h-4 w-4 text-muted-foreground" />
                               </Button>
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         );
                       }
                       if (!isExpanded) {
                         return (
-                          <tr key={day} className="hover:bg-muted/10">
-                            <td className="p-3 font-medium">{day}</td>
-                            <td className="p-3 text-muted-foreground">—</td>
-                            <td className="p-3">—</td>
-                            <td className="p-3">—</td>
-                            <td className="p-3">
-                              <Button variant="outline" size="icon" className="h-9 w-9 rounded-full border-border bg-white dark:bg-background hover:bg-muted/50" onClick={() => expandDay(day)} title="Display added slots">
+                          <TableRow key={day} className="border-0 hover:bg-muted/30">
+                            <TableCell className="px-3 py-2.5 font-medium align-middle">{day}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-muted-foreground align-middle">—</TableCell>
+                            <TableCell className="px-3 py-2.5 text-muted-foreground align-middle">—</TableCell>
+                            <TableCell className="px-3 py-2.5 text-muted-foreground align-middle">—</TableCell>
+                            <TableCell className="px-3 py-2.5 align-middle">
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                className="h-9 w-9 rounded-full border-border bg-background hover:bg-muted/50"
+                                onClick={() => expandDay(day)}
+                                title="Display added slots"
+                              >
                                 <Plus className="h-4 w-4 text-muted-foreground" />
                               </Button>
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         );
                       }
                       return (
                         <React.Fragment key={day}>
-                          <tr className="hover:bg-muted/5">
-                            <td className="p-3 font-medium align-top border-r border-border/50" rowSpan={1 + slots.length}>
+                          <TableRow className="border-0 hover:bg-muted/20">
+                            <TableCell className="px-3 py-2.5 font-medium align-top" rowSpan={1 + slots.length}>
                               {day}
-                            </td>
-                            <td className="p-3 text-muted-foreground">—</td>
-                            <td className="p-3">—</td>
-                            <td className="p-3">—</td>
-                            <td className="p-3">
-                              <Button variant="outline" size="icon" className="h-9 w-9 rounded-full border-border bg-white dark:bg-background hover:bg-muted/50" onClick={() => collapseDay(day)} title="Hide slots">
+                            </TableCell>
+                            <TableCell className="px-3 py-2.5 text-muted-foreground align-middle">—</TableCell>
+                            <TableCell className="px-3 py-2.5 text-muted-foreground align-middle">—</TableCell>
+                            <TableCell className="px-3 py-2.5 text-muted-foreground align-middle">—</TableCell>
+                            <TableCell className="px-3 py-2.5 align-middle">
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                className="h-9 w-9 rounded-full border-border bg-background hover:bg-muted/50"
+                                onClick={() => collapseDay(day)}
+                                title="Hide slots"
+                              >
                                 <Minus className="h-4 w-4 text-muted-foreground" />
                               </Button>
-                            </td>
-                          </tr>
-                          {slots.map((slot, i) => (
-                            <tr key={slot.id} className="hover:bg-muted/5">
-                              <td className="p-3">{formatTime24(slot.time)}</td>
-                              <td className="p-3">
-                                <div className="flex items-center gap-1 w-fit">
-                                  <Button type="button" variant="outline" size="icon" className="h-8 w-8 rounded-md shrink-0 bg-muted/30 border-border hover:bg-muted/50" onClick={() => updateSlotMaxJobs(day, slot.id, -1)}>
+                            </TableCell>
+                          </TableRow>
+                          {slots.map((slot) => (
+                            <TableRow key={slot.id} className="border-0 hover:bg-muted/20">
+                              <TableCell className="px-3 py-2.5 align-middle font-medium tabular-nums">
+                                {formatTime24(slot.time)}
+                              </TableCell>
+                              <TableCell className="px-3 py-2.5 align-middle whitespace-nowrap">
+                                <div className="inline-flex items-center justify-center gap-1">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-8 w-8 rounded-md shrink-0 bg-muted/40 border-border hover:bg-muted/60"
+                                    onClick={() => updateSlotMaxJobs(day, slot.id, -1)}
+                                  >
                                     <Minus className="h-4 w-4" />
                                   </Button>
-                                  <Input type="number" min={0} className="h-8 w-14 text-center rounded-md border-border" value={slot.maxJobs} onChange={e => setSlotMaxJobsValue(day, slot.id, parseInt(e.target.value) || 0)} />
-                                  <Button type="button" variant="outline" size="icon" className="h-8 w-8 rounded-md shrink-0 bg-muted/30 border-border hover:bg-muted/50" onClick={() => updateSlotMaxJobs(day, slot.id, 1)}>
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    inputMode="numeric"
+                                    className={maxJobsInputClassName}
+                                    value={slot.maxJobs}
+                                    onChange={(e) => setSlotMaxJobsValue(day, slot.id, parseInt(e.target.value, 10) || 0)}
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-8 w-8 rounded-md shrink-0 bg-muted/40 border-border hover:bg-muted/60"
+                                    onClick={() => updateSlotMaxJobs(day, slot.id, 1)}
+                                  >
                                     <Plus className="h-4 w-4" />
                                   </Button>
                                 </div>
-                              </td>
-                              <td className="p-3">
-                                <Badge className="bg-green-500/15 text-green-800 dark:text-green-300 border-0 font-normal rounded-full px-3 py-0.5">
+                              </TableCell>
+                              <TableCell className="px-3 py-2.5 align-middle">
+                                <Badge className="bg-green-500/15 text-green-800 dark:text-green-300 border border-green-500/20 font-normal rounded-full px-3 py-0.5">
                                   {slot.displayOn}
                                 </Badge>
-                              </td>
-                              <td className="p-3">
+                              </TableCell>
+                              <TableCell className="px-3 py-2.5 align-middle">
                                 <div className="flex items-center gap-0.5">
-                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" title="Edit" onClick={() => toast.info('Edit time spot')}>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                    title="Edit"
+                                    onClick={() => openMaximumSlotEdit(day, slot)}
+                                  >
                                     <Edit className="h-4 w-4" />
                                   </Button>
-                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" title="Delete" onClick={() => deleteMaximumSlot(day, slot.id)}>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                    title="Delete"
+                                    onClick={() => deleteMaximumSlot(day, slot.id)}
+                                  >
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
                                 </div>
-                              </td>
-                            </tr>
+                              </TableCell>
+                            </TableRow>
                           ))}
                         </React.Fragment>
                       );
                     })}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
 
               {/* Quick Add dialog - layout matches reference: title centered, sections with labels above dropdowns */}
@@ -1306,6 +1540,74 @@ export default function ReserveSlotPage() {
                   <DialogFooter className="flex gap-2 sm:justify-end shrink-0 pt-2 border-t">
                     <Button variant="destructive" onClick={() => setQuickAddOpen(false)}>Cancel</Button>
                     <Button onClick={submitQuickAdd}>Add</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              <Dialog open={!!maximumSlotEdit} onOpenChange={(open) => !open && setMaximumSlotEdit(null)}>
+                <DialogContent className="sm:max-w-md bg-white dark:bg-background">
+                  <DialogHeader>
+                    <DialogTitle>Edit time spot{maximumSlotEdit ? ` — ${maximumSlotEdit.day}` : ''}</DialogTitle>
+                    <DialogDescription>24-hour time (HH:mm), max jobs, and where the spot appears.</DialogDescription>
+                  </DialogHeader>
+                  {maximumSlotEdit && (
+                    <div className="space-y-4 py-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-max-slot-time">Time (HH:mm)</Label>
+                        <Input
+                          id="edit-max-slot-time"
+                          value={maximumSlotEdit.time}
+                          onChange={(e) => setMaximumSlotEdit((prev) => (prev ? { ...prev, time: e.target.value } : null))}
+                          placeholder="09:00"
+                          className="font-mono tabular-nums"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-max-slot-jobs">Max jobs</Label>
+                        <Input
+                          id="edit-max-slot-jobs"
+                          type="number"
+                          min={0}
+                          value={maximumSlotEdit.maxJobs}
+                          onChange={(e) =>
+                            setMaximumSlotEdit((prev) =>
+                              prev ? { ...prev, maxJobs: parseInt(e.target.value, 10) || 0 } : null
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Display on</Label>
+                        <RadioGroup
+                          value={maximumSlotEdit.displayOn}
+                          onValueChange={(v) =>
+                            setMaximumSlotEdit((prev) =>
+                              prev ? { ...prev, displayOn: v as 'Both' | 'Admin only' } : null
+                            )
+                          }
+                          className="flex gap-4"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="Both" id="edit-max-display-both" />
+                            <label htmlFor="edit-max-display-both" className="text-sm cursor-pointer">
+                              Both
+                            </label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="Admin only" id="edit-max-display-admin" />
+                            <label htmlFor="edit-max-display-admin" className="text-sm cursor-pointer">
+                              Admin only
+                            </label>
+                          </div>
+                        </RadioGroup>
+                      </div>
+                    </div>
+                  )}
+                  <DialogFooter className="gap-2">
+                    <Button variant="outline" onClick={() => setMaximumSlotEdit(null)}>
+                      Cancel
+                    </Button>
+                    <Button onClick={saveMaximumSlotEdit}>Save</Button>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
@@ -1486,7 +1788,7 @@ export default function ReserveSlotPage() {
                               <td key={timeCol} className="p-4 border-r border-border/50 last:border-r-0 align-top min-w-[260px]">
                                 <div className="space-y-3">
                                   <div className="text-sm font-medium text-muted-foreground">Available jobs</div>
-                                  <div className="flex items-center gap-1">
+                                  <div className="inline-flex items-center gap-1">
                                     <Button
                                       type="button"
                                       variant="outline"
@@ -1499,7 +1801,8 @@ export default function ReserveSlotPage() {
                                     <Input
                                       type="number"
                                       min={0}
-                                      className="h-9 w-16 text-center rounded-md border-teal-500/30 bg-teal-500/5 text-sm"
+                                      inputMode="numeric"
+                                      className={maxJobsInputClassNameDaily}
                                       value={slot.maxJobs}
                                       onChange={(e) => setSlotMaxJobsValue(dayName, slot.id, parseInt(e.target.value, 10) || 0)}
                                     />

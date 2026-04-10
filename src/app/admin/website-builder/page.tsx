@@ -240,6 +240,7 @@ function SortableSectionBlock({
   sectionIndex,
   totalSections,
   websiteConfig,
+  previewBusinessId,
   onSelect,
   onMoveUp,
   onMoveDown,
@@ -252,6 +253,7 @@ function SortableSectionBlock({
   sectionIndex: number;
   totalSections: number;
   websiteConfig: WebsiteConfig;
+  previewBusinessId?: string;
   onSelect: () => void;
   onMoveUp: (e: React.MouseEvent) => void;
   onMoveDown: (e: React.MouseEvent) => void;
@@ -324,7 +326,11 @@ function SortableSectionBlock({
           {section.type === 'how-it-works' && <div id="how-it-works"><HowItWorks data={section.data} /></div>}
           {section.type === 'services' && <div id="services"><ServicesSection data={section.data} /></div>}
           {section.type === 'reviews' && <div id="reviews"><Reviews data={section.data} /></div>}
-          {section.type === 'faqs' && <div id="faqs"><FAQs data={section.data} /></div>}
+          {section.type === 'faqs' && (
+            <div id="faqs">
+              <FAQs data={section.data} businessId={previewBusinessId} />
+            </div>
+          )}
           {section.type === 'contact' && <div id="contact"><Contact data={section.data} /></div>}
           {section.type === 'footer' && <div id="footer"><Footer data={section.data} branding={websiteConfig.branding} headerData={websiteConfig.sections.find(s => s.type === 'header')?.data} /></div>}
         </div>
@@ -802,6 +808,7 @@ export default function WebsiteBuilderPage() {
                       sectionIndex={i}
                       totalSections={websiteConfig.sections.length}
                       websiteConfig={websiteConfig}
+                      previewBusinessId={currentBusiness?.id}
                       onSelect={() => setSelectedSection(section.id)}
                       onMoveUp={(e) => { e.stopPropagation(); moveSection(section.id, 'up'); }}
                       onMoveDown={(e) => { e.stopPropagation(); moveSection(section.id, 'down'); }}

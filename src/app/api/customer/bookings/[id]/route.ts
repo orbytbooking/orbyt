@@ -50,6 +50,9 @@ function dbToCustomerBooking(row: any, extras?: { frequencyRepeats?: string | nu
     time,
     status: statusMap[row.status] ?? (row.status ?? 'scheduled'),
     address: row.address ?? '',
+    ...(row.zip_code != null && String(row.zip_code).trim()
+      ? { zipCode: String(row.zip_code).trim() }
+      : {}),
     contact: row.customer_phone ?? row.customer_email ?? '',
     notes: row.notes ?? '',
     price,

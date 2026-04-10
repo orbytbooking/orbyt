@@ -95,11 +95,23 @@ export async function POST(request: NextRequest) {
           companyName = config.branding.companyName;
         }
         const sections = config.sections || [];
-        const faqSection = sections.find((s) => s.type === "faqs");
-        if (faqSection?.data?.faqs && Array.isArray(faqSection.data.faqs)) {
-          faqs = (faqSection.data.faqs as Array<{ question?: string; answer?: string }>)
-            .filter((f) => f.question && f.answer)
-            .map((f) => ({ question: f.question!, answer: f.answer! }));
+        const { data: dbFaqRows, error: dbFaqErr } = await supabase
+          .from("orbyt_faqs")
+          .select("question, answer, sort_order")
+          .eq("business_id", businessId)
+          .order("sort_order", { ascending: true });
+
+        if (!dbFaqErr && dbFaqRows && dbFaqRows.length > 0) {
+          faqs = dbFaqRows
+            .filter((r) => r.question && r.answer)
+            .map((r) => ({ question: r.question as string, answer: r.answer as string }));
+        } else {
+          const faqSection = sections.find((s) => s.type === "faqs");
+          if (faqSection?.data?.faqs && Array.isArray(faqSection.data.faqs)) {
+            faqs = (faqSection.data.faqs as Array<{ question?: string; answer?: string }>)
+              .filter((f) => f.question && f.answer)
+              .map((f) => ({ question: f.question!, answer: f.answer! }));
+          }
         }
         const servicesSection = sections.find((s) => s.type === "services");
         if (servicesSection?.data?.services && Array.isArray(servicesSection.data.services)) {

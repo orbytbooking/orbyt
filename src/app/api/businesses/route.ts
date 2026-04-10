@@ -20,7 +20,7 @@ async function getBusinessByIdForPublicLookup(businessId: string) {
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
   const { data: row, error } = await admin
     .from('businesses')
-    .select('id, name, plan, category')
+    .select('id, name, plan, category, logo_url')
     .eq('id', businessId)
     .maybeSingle();
   if (error) {

@@ -111,16 +111,92 @@ export interface ReserveSlotSettings {
   maximumByDay: Record<string, ReserveSlotDayConfig>;
 }
 
-export async function getReserveSlotSettings(businessId: string): Promise<ReserveSlotSettings | null> {
-  if (!supabaseUrl || !supabaseServiceKey) return null;
+/** Admin "reserved time" blocks from reserve-slot settings (extended_settings.slots) */
+export interface ReserveSlotReservedBlock {
+  startDate: string;
+  endDate: string;
+  startTime: string;
+  endTime: string;
+}
+
+function parseReservedBlocksFromExtended(ext: unknown): ReserveSlotReservedBlock[] {
+  if (!ext || typeof ext !== 'object') return [];
+  const slots = (ext as { slots?: unknown }).slots;
+  if (!Array.isArray(slots)) return [];
+  return slots.filter((x): x is ReserveSlotReservedBlock => {
+    if (!x || typeof x !== 'object') return false;
+    const o = x as Record<string, unknown>;
+    return (
+      typeof o.startDate === 'string' &&
+      typeof o.endDate === 'string' &&
+      typeof o.startTime === 'string' &&
+      typeof o.endTime === 'string'
+    );
+  });
+}
+
+/** Single DB read: per-day max slots + admin reserved time blocks */
+export async function getReserveSlotSettingsAndBlocks(businessId: string): Promise<{
+  settings: ReserveSlotSettings | null;
+  reservedBlocks: ReserveSlotReservedBlock[];
+}> {
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return { settings: null, reservedBlocks: [] };
+  }
   const supabase = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
   const { data, error } = await supabase
     .from('business_reserve_slot_settings')
-    .select('maximum_by_day')
+    .select('maximum_by_day, extended_settings')
     .eq('business_id', businessId)
     .maybeSingle();
-  if (error || !data?.maximum_by_day || typeof data.maximum_by_day !== 'object') return null;
-  return { maximumByDay: data.maximum_by_day as Record<string, ReserveSlotDayConfig> };
+  if (error || !data) return { settings: null, reservedBlocks: [] };
+  const settings =
+    data.maximum_by_day && typeof data.maximum_by_day === 'object'
+      ? { maximumByDay: data.maximum_by_day as Record<string, ReserveSlotDayConfig> }
+      : null;
+  const reservedBlocks = parseReservedBlocksFromExtended(data.extended_settings);
+  return { settings, reservedBlocks };
+}
+
+export async function getReserveSlotSettings(businessId: string): Promise<ReserveSlotSettings | null> {
+  const { settings } = await getReserveSlotSettingsAndBlocks(businessId);
+  return settings;
+}
+
+function hhmmToMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map((x) => parseInt(x, 10));
+  if (Number.isNaN(h) || Number.isNaN(m)) return -1;
+  return h * 60 + m;
+}
+
+/** True if this calendar date + customer-facing time string falls inside an admin reserved block */
+export function isBookingTimeReservedForDate(
+  dateStr: string,
+  timeDisplay: string,
+  blocks: ReserveSlotReservedBlock[]
+): boolean {
+  if (!blocks.length || !dateStr) return false;
+  const thhmm = normalizeTimeToHHmm(timeDisplay);
+  if (!thhmm) return false;
+  const tMin = hhmmToMinutes(thhmm);
+  if (tMin < 0) return false;
+  for (const b of blocks) {
+    if (dateStr < b.startDate || dateStr > b.endDate) continue;
+    const a = hhmmToMinutes(normalizeTimeToHHmm(b.startTime));
+    const e = hhmmToMinutes(normalizeTimeToHHmm(b.endTime));
+    if (a < 0 || e < 0 || e <= a) continue;
+    if (tMin >= a && tMin <= e) return true;
+  }
+  return false;
+}
+
+export function filterDisplaySlotsByReservedBlocks(
+  slots: string[],
+  dateStr: string,
+  blocks: ReserveSlotReservedBlock[]
+): string[] {
+  if (!blocks.length || !dateStr || !slots.length) return slots;
+  return slots.filter((s) => !isBookingTimeReservedForDate(dateStr, s, blocks));
 }
 
 /** Normalize DB time (e.g. "09:00:00"), Date, ISO string, or display ("9:00 AM") to "HH:mm" for comparison */
@@ -203,7 +279,8 @@ export async function isTimeSlotAvailableForBooking(
   dateStr: string,
   timeStr: string
 ): Promise<boolean> {
-  const settings = await getReserveSlotSettings(businessId);
+  const { settings, reservedBlocks } = await getReserveSlotSettingsAndBlocks(businessId);
+  if (isBookingTimeReservedForDate(dateStr, timeStr, reservedBlocks)) return false;
   if (!settings?.maximumByDay) return true;
   const dayName = getDayNameFromDate(dateStr);
   const dayConfig = settings.maximumByDay[dayName];
