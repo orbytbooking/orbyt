@@ -5,6 +5,7 @@ import {
   createUnauthorizedResponse,
   createForbiddenResponse,
 } from '@/lib/auth-helpers';
+import { assertUserHasAdminModuleAccess } from '@/lib/bookingApiAuth';
 
 /**
  * GET: List completed bookings for charges
@@ -26,13 +27,11 @@ export async function GET(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
-    const { data: owned } = await supabaseAuth
-      .from('businesses')
-      .select('id')
-      .eq('id', businessId)
-      .eq('owner_id', user.id)
-      .maybeSingle();
-    if (!owned) {
+    const access = await assertUserHasAdminModuleAccess(user.id, businessId, 'bookings');
+    if (access === 'no_service_role') {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
+    if (access === 'denied') {
       return createForbiddenResponse('You do not have access to this business');
     }
 

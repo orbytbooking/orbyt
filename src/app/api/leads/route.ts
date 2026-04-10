@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { MultiTenantHelper } from '@/lib/multiTenantSupabase';
+import { userCanAccessAdminModuleForBusiness } from '@/lib/bookingApiAuth';
 
 export async function GET(request: Request) {
   try {
@@ -40,20 +41,14 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Business context required' }, { status: 400 });
     }
 
-    // Verify user has access to this business (MVP: simple ownership check)
-    console.log('Checking business access for user:', user.id, 'business:', businessId);
-    const { data: businessAccess, error: accessError } = await supabase
-      .from('businesses')
-      .select('id')
-      .eq('owner_id', user.id)
-      .eq('id', businessId)
-      .single();
-
-    console.log('Business access result:', { data: businessAccess, error: accessError?.message });
-
-    if (accessError || !businessAccess) {
-      console.error('Access denied:', accessError);
-      return NextResponse.json({ error: 'Access denied to this business', details: accessError?.message }, { status: 403 });
+    const canAccess = await userCanAccessAdminModuleForBusiness(
+      supabase,
+      user.id,
+      businessId,
+      'leads'
+    );
+    if (!canAccess) {
+      return NextResponse.json({ error: 'Access denied to this business' }, { status: 403 });
     }
 
     // Set business context and fetch leads
@@ -137,18 +132,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Business context required' }, { status: 400 });
     }
 
-    // Verify user has permission to create leads (MVP: simple ownership check)
-    const { data: businessAccess, error: accessError } = await supabase
-      .from('businesses')
-      .select('id, owner_id')
-      .eq('owner_id', user.id)
-      .eq('id', businessId)
-      .single();
-
-    console.log('Business access result:', { data: businessAccess, error: accessError?.message });
-
-    if (accessError || !businessAccess) {
-      console.error('Access denied:', accessError);
+    const canAccess = await userCanAccessAdminModuleForBusiness(
+      supabase,
+      user.id,
+      businessId,
+      'leads'
+    );
+    if (!canAccess) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
@@ -222,15 +212,13 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Business context required' }, { status: 400 });
     }
 
-    // Verify user has permission to update leads (MVP: simple ownership check)
-    const { data: businessAccess, error: accessError } = await supabase
-      .from('businesses')
-      .select('id, owner_id')
-      .eq('owner_id', user.id)
-      .eq('id', businessId)
-      .single();
-
-    if (accessError || !businessAccess) {
+    const canAccess = await userCanAccessAdminModuleForBusiness(
+      supabase,
+      user.id,
+      businessId,
+      'leads'
+    );
+    if (!canAccess) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
@@ -298,15 +286,13 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Business context required' }, { status: 400 });
     }
 
-    // Verify user has permission to delete leads (MVP: simple ownership check)
-    const { data: businessAccess, error: accessError } = await supabase
-      .from('businesses')
-      .select('id, owner_id')
-      .eq('owner_id', user.id)
-      .eq('id', businessId)
-      .single();
-
-    if (accessError || !businessAccess) {
+    const canAccess = await userCanAccessAdminModuleForBusiness(
+      supabase,
+      user.id,
+      businessId,
+      'leads'
+    );
+    if (!canAccess) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 

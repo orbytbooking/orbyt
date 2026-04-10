@@ -1123,23 +1123,27 @@ export default function Home() {
               whileHover={{ y: -6, scale: 1.02, boxShadow: '0 24px 48px -12px rgba(15,23,42,0.2)' }}
             >
               <h3 className="text-xl font-bold text-slate-800 mb-2">Starter</h3>
-              <p className="text-slate-600 text-sm mb-6">Solo or small crew. Get in Orbyt without the bloat.</p>
+              <p className="text-slate-600 text-sm mb-6">Solo operators and small teams</p>
               <div className="mb-6 flex items-baseline">
-                <span className="text-4xl font-bold text-sky-500">$19</span>
+                <span className="text-4xl font-bold text-sky-500">$25</span>
                 <span className="text-slate-600 text-sm ml-1">monthly</span>
               </div>
               <ul className="space-y-3 mb-8 text-sm text-slate-700 min-h-[200px]">
                 <li className="flex items-center gap-2">
                   <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
-                  Core scheduling & calendar
+                  3 provider accounts
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
+                  1 campaign
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
+                  Basic website builder
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
                   Unlimited bookings
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
-                  Email support
                 </li>
               </ul>
               <div className="mt-auto">
@@ -1160,27 +1164,31 @@ export default function Home() {
               whileHover={{ y: -6, scale: 1.02, boxShadow: '0 24px 48px -12px rgba(15,23,42,0.2)' }}
             >
               <h3 className="text-xl font-bold text-slate-800 mb-2">Growth</h3>
-              <p className="text-slate-600 text-sm mb-6">Bigger team, more automation. The loop gets smarter.</p>
+              <p className="text-slate-600 text-sm mb-6">Growing teams that need more</p>
               <div className="mb-6 flex items-baseline">
-                <span className="text-4xl font-bold text-sky-500">$49</span>
+                <span className="text-4xl font-bold text-sky-500">$55</span>
                 <span className="text-slate-600 text-sm ml-1">monthly</span>
               </div>
               <ul className="space-y-3 mb-8 text-sm text-slate-700 min-h-[200px]">
                 <li className="flex items-center gap-2">
                   <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
-                  Advanced scheduling & routing
+                  10 provider accounts
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
+                  5 campaigns
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
+                  Advanced website builder
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
+                  Hiring workspace
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
                   Unlimited bookings
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
-                  Email & chat support
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
-                  Custom branding
                 </li>
               </ul>
               <div className="mt-auto">
@@ -1201,27 +1209,31 @@ export default function Home() {
               whileHover={{ y: -6, scale: 1.02, boxShadow: '0 24px 48px -12px rgba(15,23,42,0.2)' }}
             >
               <h3 className="text-xl font-bold text-slate-800 mb-2">Premium</h3>
-              <p className="text-slate-600 text-sm mb-6">Full Orbyt. API, priority support, no limits.</p>
+              <p className="text-slate-600 text-sm mb-6">Everything unlocked</p>
               <div className="mb-6 flex items-baseline">
-                <span className="text-4xl font-bold text-sky-500">$110</span>
+                <span className="text-4xl font-bold text-sky-500">$149</span>
                 <span className="text-slate-600 text-sm ml-1">monthly</span>
               </div>
               <ul className="space-y-3 mb-8 text-sm text-slate-700 min-h-[200px]">
                 <li className="flex items-center gap-2">
                   <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
-                  Everything in Growth
+                  Unlimited provider accounts
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
+                  Unlimited campaigns
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
+                  Advanced + custom website builder
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
+                  Hiring workspace
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
                   Unlimited bookings
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
-                  Priority support
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
-                  API access
                 </li>
               </ul>
               <div className="mt-auto">
@@ -1259,7 +1271,7 @@ export default function Home() {
                     <p className="font-medium">Growth: growing teams that need advanced automation and greater control.</p>
                   </div>
                   <div className="rounded-xl border border-slate-200/80 bg-slate-100/90 dark:bg-slate-800/40 dark:border-slate-700/80 shadow-sm overflow-hidden border-b-0 px-4 py-3.5">
-                    <p className="font-medium">Pro: established businesses that want full access to all features.</p>
+                    <p className="font-medium">Premium: everything unlocked — unlimited scale and advanced customization.</p>
                   </div>
                 </div>
               }
@@ -1293,16 +1305,16 @@ export default function Home() {
                   </AccordionContent>
                 </AccordionItem>
 
-                <AccordionItem value="pro" className="rounded-xl border border-slate-200/80 bg-slate-100/90 dark:bg-slate-800/40 dark:border-slate-700/80 shadow-sm overflow-hidden border-b-0">
+                <AccordionItem value="premium" className="rounded-xl border border-slate-200/80 bg-slate-100/90 dark:bg-slate-800/40 dark:border-slate-700/80 shadow-sm overflow-hidden border-b-0">
                   <AccordionTrigger className="px-4 py-3.5 text-left hover:no-underline hover:bg-slate-200/40 dark:hover:bg-slate-700/40 transition-colors [&[data-state=open]]:rounded-none">
-                    Pro: established businesses that want full access to all features.
+                    Premium: everything unlocked — unlimited scale and advanced customization.
                   </AccordionTrigger>
                   <AccordionContent className="px-4 pb-4 pt-0">
                     <ul className="space-y-2 text-sm text-muted-foreground">
-                      <li><span className="font-medium text-foreground">Everything in Growth:</span> Includes all features from the Starter and Growth plans.</li>
-                      <li><span className="font-medium text-foreground">Priority support:</span> Skip the line with priority response times from our team.</li>
-                      <li><span className="font-medium text-foreground">API access:</span> Connect Orbyt Service to your other tools and internal systems.</li>
-                      <li><span className="font-medium text-foreground">Advanced reporting:</span> Deeper insights into revenue, team performance, and customer behavior.</li>
+                      <li><span className="font-medium text-foreground">Unlimited provider accounts &amp; campaigns:</span> No caps on team size or marketing campaigns.</li>
+                      <li><span className="font-medium text-foreground">Advanced + custom website builder:</span> Full branding control and custom layouts.</li>
+                      <li><span className="font-medium text-foreground">Hiring workspace:</span> Recruit and manage candidates alongside your operations.</li>
+                      <li><span className="font-medium text-foreground">Priority support &amp; API:</span> Faster help and deeper integrations when you need them.</li>
                     </ul>
                   </AccordionContent>
                 </AccordionItem>

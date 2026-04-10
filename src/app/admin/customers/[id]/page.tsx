@@ -47,8 +47,11 @@ import { useBusiness } from "@/contexts/BusinessContext";
 import { CreateInvoiceDialog } from "@/components/admin/CreateInvoiceDialog";
 import { Elements, CardElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { loadStripe, type Stripe as StripeJs } from "@stripe/stripe-js";
-
-const CUSTOMERS_STORAGE_KEY = "adminCustomers";
+import {
+  getStoredAdminCustomersJson,
+  getStoredAdminCustomerExtrasJson,
+  adminCustomerApiHeaders,
+} from "@/lib/adminCustomersStorage";
 
 type FileItem = {
   id: string;
@@ -86,7 +89,6 @@ export default function CustomerProfilePage() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [ratingForm, setRatingForm] = useState({ provider: "", score: 5, comment: "" });
   const id = params?.id;
-  const CUSTOMER_EXTRAS_KEY = "adminCustomerExtras"; // fallback when API fails
   const { toast } = useToast();
   type Booking = {
     id: string;
@@ -175,6 +177,7 @@ export default function CustomerProfilePage() {
   const [invoiceStatusConfirm, setInvoiceStatusConfirm] = useState<{ id: string; action: "paid" | "pending" } | null>(null);
   const [invoiceDeleteConfirmId, setInvoiceDeleteConfirmId] = useState<string | null>(null);
   const { currentBusiness } = useBusiness();
+  const customerTenantHeaders = useMemo(() => adminCustomerApiHeaders(currentBusiness?.id), [currentBusiness?.id]);
   const [industries, setIndustries] = useState<{ id: string; name: string }[]>([]);
   const [extrasMap, setExtrasMap] = useState<Record<string, string>>({});
 
@@ -205,7 +208,7 @@ export default function CustomerProfilePage() {
       try {
         const res = await fetch(`/api/admin/customers/${id}/add-card-link`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...customerTenantHeaders },
           body: JSON.stringify({
             businessId: currentBusiness.id,
             message: addCardLinkMessage,
@@ -463,7 +466,7 @@ export default function CustomerProfilePage() {
       if (id && typeof id === "string") {
         await fetch(`/api/admin/customers/${id}`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...customerTenantHeaders },
           body: JSON.stringify({ billingCards: next }),
         });
       }
@@ -583,7 +586,7 @@ export default function CustomerProfilePage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/admin/customers/${id}`);
+        const res = await fetch(`/api/admin/customers/${id}`, { headers: { ...customerTenantHeaders } });
         const data = await res.json();
         if (cancelled) return;
           if (res.ok && data?.customer) {
@@ -638,15 +641,15 @@ export default function CustomerProfilePage() {
           if (Array.isArray(c.addresses) && c.addresses.length > 0) setAddresses(c.addresses as { id: string; aptNo: string; location: string; zip: string; isDefault: boolean }[]);
           else setAddresses([]);
         } else {
-          const stored = localStorage.getItem(CUSTOMERS_STORAGE_KEY);
+          const stored = getStoredAdminCustomersJson(currentBusiness?.id);
           if (stored) {
             const list: Customer[] = JSON.parse(stored);
             const found = list.find((c) => String(c.id) === String(id));
             if (found) setCustomer(found);
           }
           setButtonStates({ isActive: true, isBlocked: false, isBookingBlocked: false, isSubscribed: true });
-          // Fallback: extras from localStorage when API failed (backwards compat)
-          const extrasRaw = localStorage.getItem(CUSTOMER_EXTRAS_KEY);
+          // Fallback: extras from localStorage when API failed (backwards compat; per-business key)
+          const extrasRaw = getStoredAdminCustomerExtrasJson(currentBusiness?.id);
           if (extrasRaw && typeof id === "string") {
             try {
               const map = JSON.parse(extrasRaw) as Record<string, any>;
@@ -661,7 +664,7 @@ export default function CustomerProfilePage() {
         }
       } catch {
         if (cancelled) return;
-        const stored = localStorage.getItem(CUSTOMERS_STORAGE_KEY);
+        const stored = getStoredAdminCustomersJson(currentBusiness?.id);
         if (stored) {
           try {
             const list: Customer[] = JSON.parse(stored);
@@ -672,7 +675,7 @@ export default function CustomerProfilePage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [id]);
+  }, [id, currentBusiness?.id]);
 
   // Fetch this customer's bookings from API for Dashboard calendar
   useEffect(() => {
@@ -1005,7 +1008,7 @@ export default function CustomerProfilePage() {
     try {
       const res = await fetch(`/api/admin/customers/${id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...customerTenantHeaders },
         body: JSON.stringify({
           name: `${profileToSave.firstName} ${profileToSave.lastName}`.trim(),
           email: profileToSave.email,
@@ -1045,7 +1048,7 @@ export default function CustomerProfilePage() {
     try {
       const res = await fetch(`/api/admin/customers/${id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...customerTenantHeaders },
         body: JSON.stringify({ contacts: nextContacts, addresses: nextAddresses }),
       });
       if (!res.ok) {
@@ -1081,12 +1084,20 @@ export default function CustomerProfilePage() {
   const addTag = async (optionalName?: string) => {
     const name = (optionalName ?? newTag).trim();
     if (!name || tags.includes(name) || !id) return;
+    if (!currentBusiness?.id) {
+      toast({ title: "Missing business", description: "Select a workspace first.", variant: "destructive" });
+      return;
+    }
     const next = [...tags, name];
     setTags(next);
     setNewTag("");
     setTagsOpen(false);
     setTagsLoading(true);
-    const { error } = await supabase.from("customers").update({ tags: next }).eq("id", id);
+    const { error } = await supabase
+      .from("customers")
+      .update({ tags: next })
+      .eq("id", id)
+      .eq("business_id", currentBusiness.id);
     setTagsLoading(false);
     if (error) {
       setTags(tags);
@@ -1097,11 +1108,19 @@ export default function CustomerProfilePage() {
   };
 
   const removeTag = async (tagToRemove: string) => {
+    if (!currentBusiness?.id) {
+      toast({ title: "Missing business", description: "Select a workspace first.", variant: "destructive" });
+      return;
+    }
     const next = tags.filter((t) => t !== tagToRemove);
     const prev = [...tags];
     setTags(next);
     setTagsLoading(true);
-    const { error } = await supabase.from("customers").update({ tags: next }).eq("id", id);
+    const { error } = await supabase
+      .from("customers")
+      .update({ tags: next })
+      .eq("id", id)
+      .eq("business_id", currentBusiness.id);
     setTagsLoading(false);
     if (error) {
       setTags(prev);
@@ -1142,7 +1161,7 @@ export default function CustomerProfilePage() {
     try {
       const res = await fetch(`/api/admin/customers/${id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...customerTenantHeaders },
         body: JSON.stringify({ [field]: value }),
       });
       if (!res.ok) throw new Error("Failed");
@@ -2181,7 +2200,7 @@ export default function CustomerProfilePage() {
                   try {
                     const res = await fetch(`/api/admin/customers/${id}/add-card-link`, {
                       method: "POST",
-                      headers: { "Content-Type": "application/json" },
+                      headers: { "Content-Type": "application/json", ...customerTenantHeaders },
                       body: JSON.stringify({
                         businessId: currentBusiness.id,
                         message: addCardLinkMessage,
@@ -2271,7 +2290,7 @@ export default function CustomerProfilePage() {
                   try {
                     await fetch(`/api/admin/customers/${id}`, {
                       method: "PUT",
-                      headers: { "Content-Type": "application/json" },
+                      headers: { "Content-Type": "application/json", ...customerTenantHeaders },
                       body: JSON.stringify({ addresses: next }),
                     });
                   } catch {

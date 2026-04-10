@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseClient';
+import { gateMarketingTenantApi } from '@/lib/marketingTenantGate';
 
 export async function GET(request: NextRequest) {
   try {
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
     const { searchParams } = new URL(request.url);
     const business_id = searchParams.get('business_id');
 
-    if (!business_id) {
-      return NextResponse.json({ error: 'Business ID is required' }, { status: 400 });
-    }
+    const denied = await gateMarketingTenantApi(request, business_id);
+    if (denied) return denied;
 
     const { data, error } = await supabaseAdmin
       .from('marketing_scripts')
@@ -30,12 +33,18 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
     const body = await request.json();
     const { business_id, title, category, content } = body;
 
     if (!business_id || !title || !category || !content) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
+
+    const denied = await gateMarketingTenantApi(request, business_id);
+    if (denied) return denied;
 
     const { data, error } = await supabaseAdmin
       .from('marketing_scripts')
@@ -62,12 +71,18 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
     const body = await request.json();
     const { id, business_id, title, category, content } = body;
 
     if (!id || !business_id) {
       return NextResponse.json({ error: 'Script ID and Business ID are required' }, { status: 400 });
     }
+
+    const denied = await gateMarketingTenantApi(request, business_id);
+    if (denied) return denied;
 
     const updateData: any = {};
     if (title !== undefined) updateData.title = title.trim();
@@ -97,6 +112,9 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const business_id = searchParams.get('business_id');
@@ -104,6 +122,9 @@ export async function DELETE(request: NextRequest) {
     if (!id || !business_id) {
       return NextResponse.json({ error: 'Script ID and Business ID are required' }, { status: 400 });
     }
+
+    const denied = await gateMarketingTenantApi(request, business_id);
+    if (denied) return denied;
 
     const { error } = await supabaseAdmin
       .from('marketing_scripts')

@@ -1,17 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseClient';
 import { Resend } from 'resend';
+import { gateMarketingTenantApi } from '@/lib/marketingTenantGate';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function GET(request: NextRequest) {
   try {
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
     const { searchParams } = new URL(request.url);
     const business_id = searchParams.get('business_id');
 
     if (!business_id) {
       return NextResponse.json({ error: 'Business ID is required' }, { status: 400 });
     }
+
+    const gate = await gateMarketingTenantApi(request, business_id);
+    if (gate) return gate;
 
     const { data, error } = await supabaseAdmin
       .from('email_campaigns')
@@ -33,12 +40,18 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
     const body = await request.json();
     const { business_id, subject, body: campaignBody, template, recipients, sent_at } = body;
 
     if (!business_id || !subject || !campaignBody || !template) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
+
+    const gate = await gateMarketingTenantApi(request, business_id);
+    if (gate) return gate;
 
     // Create campaign in database first
     const { data: campaignData, error: campaignError } = await supabaseAdmin
@@ -173,12 +186,18 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
     const body = await request.json();
     const { id, business_id, subject, body: campaignBody, template, recipients, sent_at } = body;
 
     if (!id || !business_id) {
       return NextResponse.json({ error: 'Campaign ID and Business ID are required' }, { status: 400 });
     }
+
+    const gate = await gateMarketingTenantApi(request, business_id);
+    if (gate) return gate;
 
     const updateData: any = {};
     if (subject !== undefined) updateData.subject = subject.trim();
@@ -292,6 +311,9 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const business_id = searchParams.get('business_id');
@@ -299,6 +321,9 @@ export async function DELETE(request: NextRequest) {
     if (!id || !business_id) {
       return NextResponse.json({ error: 'Campaign ID and Business ID are required' }, { status: 400 });
     }
+
+    const gate = await gateMarketingTenantApi(request, business_id);
+    if (gate) return gate;
 
     const { error } = await supabaseAdmin
       .from('email_campaigns')

@@ -4,6 +4,7 @@ import {
   createUnauthorizedResponse,
   createServiceRoleClient,
 } from "@/lib/auth-helpers";
+import { getPlatformBillingProvider } from "@/lib/platform-billing/platformBillingProvider";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest) {
   const { data: sub } = await admin
     .from("platform_subscriptions")
     .select(
-      "id, status, current_period_start, current_period_end, stripe_customer_id, stripe_subscription_id, plan_id"
+      "id, status, current_period_start, current_period_end, stripe_customer_id, stripe_subscription_id, authorize_net_customer_profile_id, authorize_net_payment_profile_id, authorize_net_subscription_id, plan_id"
     )
     .eq("business_id", businessId)
     .maybeSingle();
@@ -64,12 +65,15 @@ export async function GET(request: NextRequest) {
 
   const { data: payments } = await admin
     .from("platform_payments")
-    .select("id, amount_cents, currency, paid_at, status, description, stripe_invoice_id")
+    .select(
+      "id, amount_cents, currency, paid_at, status, description, stripe_invoice_id, authorize_net_trans_id"
+    )
     .eq("business_id", businessId)
     .order("paid_at", { ascending: false })
     .limit(20);
 
   return NextResponse.json({
+    platformBillingProvider: getPlatformBillingProvider(),
     businessPlan: (business as { plan: string }).plan,
     subscription: sub
       ? {
@@ -79,6 +83,14 @@ export async function GET(request: NextRequest) {
           currentPeriodEnd: (sub as { current_period_end?: string }).current_period_end ?? null,
           stripeCustomerId: (sub as { stripe_customer_id?: string | null }).stripe_customer_id ?? null,
           stripeSubscriptionId: (sub as { stripe_subscription_id?: string | null }).stripe_subscription_id ?? null,
+          authorizeNetCustomerProfileId:
+            (sub as { authorize_net_customer_profile_id?: string | null }).authorize_net_customer_profile_id ??
+            null,
+          authorizeNetPaymentProfileId:
+            (sub as { authorize_net_payment_profile_id?: string | null }).authorize_net_payment_profile_id ??
+            null,
+          authorizeNetSubscriptionId:
+            (sub as { authorize_net_subscription_id?: string | null }).authorize_net_subscription_id ?? null,
         }
       : null,
     plan,

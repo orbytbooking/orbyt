@@ -9,6 +9,7 @@ import {
   getRequestClientIp,
   insertQuoteActivityLog,
 } from "@/lib/draftQuoteLogs";
+import { assertUserHasAdminModuleAccess } from "@/lib/bookingApiAuth";
 
 export async function PATCH(
   request: NextRequest,
@@ -39,14 +40,11 @@ export async function PATCH(
       return NextResponse.json({ error: "Business context required" }, { status: 400 });
     }
 
-    const { data: businessAccess, error: accessError } = await supabase
-      .from("businesses")
-      .select("id, owner_id")
-      .eq("owner_id", user.id)
-      .eq("id", businessId)
-      .single();
-
-    if (accessError || !businessAccess) {
+    const access = await assertUserHasAdminModuleAccess(user.id, businessId, "bookings");
+    if (access === "no_service_role") {
+      return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
+    }
+    if (access === "denied") {
       return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
     }
 

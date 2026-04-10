@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseClient';
+import { gateCrmTenantModuleApi } from '@/lib/marketingTenantGate';
 
 export async function GET(request: NextRequest) {
   try {
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
     const { searchParams } = new URL(request.url);
     const business_id = searchParams.get('business_id');
 
-    if (!business_id) {
-      return NextResponse.json({ error: 'Business ID is required' }, { status: 400 });
-    }
+    const denied = await gateCrmTenantModuleApi(request, business_id, 'customers');
+    if (denied) return denied;
 
     const { data, error } = await supabaseAdmin
       .from('customers')

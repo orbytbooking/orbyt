@@ -77,9 +77,9 @@ export default function PricingDetailsPage() {
     return v !== undefined ? v : fallback;
   };
 
-  const priceStarter = formatPrice('starter', 19);
-  const priceGrowth = formatPrice('growth', 49);
-  const pricePremium = formatPrice('premium', 110);
+  const priceStarter = formatPrice('starter', 25);
+  const priceGrowth = formatPrice('growth', 55);
+  const pricePremium = formatPrice('premium', 149);
 
   return (
     <div className="min-h-screen bg-slate-50">

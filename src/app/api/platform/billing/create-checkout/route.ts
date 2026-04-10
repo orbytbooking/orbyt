@@ -10,6 +10,11 @@ import {
   resolvePlatformStripePriceId,
 } from "@/lib/platform-billing/stripePlatformSubscription";
 import { ensureStripeEmbeddedReturnUrl } from "@/lib/platform-billing/embeddedCheckoutReturnUrl";
+import {
+  getPlatformBillingProvider,
+  platformAuthorizeNetCredentialsConfigured,
+} from "@/lib/platform-billing/platformBillingProvider";
+import { startPlatformAuthorizeNetCheckout } from "@/lib/platform-billing/authorizeNetPlatformCheckout";
 
 export const dynamic = "force-dynamic";
 
@@ -35,17 +40,12 @@ function resolveSafeRedirectUrl(
 }
 
 /**
- * Start Stripe Checkout in subscription mode for the platform plan (charges your main Stripe account).
+ * Start platform plan checkout: Stripe subscription or Authorize.Net Accept Hosted + ARB (see PLATFORM_BILLING_PROVIDER).
  * Body: { businessId: string, planSlug: string }  e.g. "starter" | "growth" | "premium"
  */
 export async function POST(request: Request) {
   const user = await getAuthenticatedUser();
   if (!user) return createUnauthorizedResponse();
-
-  const secret = process.env.STRIPE_SECRET_KEY;
-  if (!secret) {
-    return NextResponse.json({ error: "STRIPE_SECRET_KEY is not configured" }, { status: 500 });
-  }
 
   let body: {
     businessId?: string;
@@ -101,6 +101,70 @@ export async function POST(request: Request) {
   }
 
   const amountCents = (planRow as { amount_cents: number }).amount_cents ?? 0;
+  const billingInterval = (planRow as { billing_interval: string }).billing_interval;
+  const interval: "monthly" | "yearly" =
+    billingInterval === "yearly" ? "yearly" : "monthly";
+
+  const origin =
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
+    request.headers.get("origin")?.replace(/\/$/, "") ||
+    "";
+
+  const defaultSuccess = `${origin}/admin/settings/account?tab=billing&platform_sub=success`;
+  const defaultCancel = `${origin}/admin/settings/account?tab=billing&platform_sub=cancel`;
+
+  const successUrlEarly = resolveSafeRedirectUrl(body.successUrl, defaultSuccess, origin);
+  const cancelUrlEarly = resolveSafeRedirectUrl(body.cancelUrl, defaultCancel, origin);
+
+  if (getPlatformBillingProvider() === "authorize_net") {
+    if (!platformAuthorizeNetCredentialsConfigured()) {
+      return NextResponse.json(
+        {
+          error:
+            "Platform Authorize.Net is selected but credentials are missing. Set PLATFORM_AUTHORIZE_NET_API_LOGIN_ID and PLATFORM_AUTHORIZE_NET_TRANSACTION_KEY.",
+        },
+        { status: 500 }
+      );
+    }
+    if (amountCents <= 0) {
+      return NextResponse.json(
+        {
+          error:
+            "This plan has no positive amount in the database. Authorize.Net platform checkout requires amount_cents > 0 (run migration 072 / update platform_subscription_plans).",
+        },
+        { status: 400 }
+      );
+    }
+    const planName = (planRow as { name: string }).name ?? planSlug;
+    try {
+      const { url, token } = await startPlatformAuthorizeNetCheckout({
+        supabase: admin,
+        businessId,
+        pendingOwnerId: null,
+        planSlug,
+        amountCents,
+        billingInterval: interval,
+        lineDescription: `Orbyt — ${planName}`,
+        origin,
+        successReturnPath: "/api/platform/billing/authorize-net/return",
+        cancelUrl: cancelUrlEarly,
+      });
+      return NextResponse.json({
+        url,
+        sessionId: token,
+        provider: "authorize_net" as const,
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[create-checkout] Authorize.Net:", msg);
+      return NextResponse.json({ error: msg || "Could not start Authorize.Net checkout" }, { status: 400 });
+    }
+  }
+
+  const secret = process.env.STRIPE_SECRET_KEY;
+  if (!secret) {
+    return NextResponse.json({ error: "STRIPE_SECRET_KEY is not configured" }, { status: 500 });
+  }
 
   const priceId = resolvePlatformStripePriceId(
     planSlug,
@@ -150,16 +214,8 @@ export async function POST(request: Request) {
   const existingCustomerId =
     (subRow as { stripe_customer_id?: string | null } | null)?.stripe_customer_id?.trim() || null;
 
-  const origin =
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-    request.headers.get("origin")?.replace(/\/$/, "") ||
-    "";
-
-  const defaultSuccess = `${origin}/admin/settings/account?tab=billing&platform_sub=success`;
-  const defaultCancel = `${origin}/admin/settings/account?tab=billing&platform_sub=cancel`;
-
-  const successUrl = resolveSafeRedirectUrl(body.successUrl, defaultSuccess, origin);
-  const cancelUrl = resolveSafeRedirectUrl(body.cancelUrl, defaultCancel, origin);
+  const successUrl = successUrlEarly;
+  const cancelUrl = cancelUrlEarly;
   const embedded = body.embedded === true;
   const returnUrlEmbedded = ensureStripeEmbeddedReturnUrl(successUrl);
 

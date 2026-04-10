@@ -8,6 +8,7 @@ import {
   createUnauthorizedResponse,
   createForbiddenResponse,
 } from '@/lib/auth-helpers';
+import { assertUserHasAdminModuleAccess } from '@/lib/bookingApiAuth';
 
 async function tryUpdateCardDetailsFromStripe(params: {
   supabase: ReturnType<typeof createClient>;
@@ -92,13 +93,11 @@ export async function POST(
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    const { data: owned } = await supabase
-      .from('businesses')
-      .select('id')
-      .eq('id', businessId)
-      .eq('owner_id', user.id)
-      .maybeSingle();
-    if (!owned) {
+    const access = await assertUserHasAdminModuleAccess(user.id, businessId, 'bookings');
+    if (access === 'no_service_role') {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
+    if (access === 'denied') {
       return createForbiddenResponse('You do not have access to this business');
     }
 

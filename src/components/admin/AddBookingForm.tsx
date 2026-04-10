@@ -25,6 +25,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { Plus, Minus, Search, X, User, Mail, Phone, Shirt, Sofa, Droplets, Wind, Trash2, Flower2, Flame, Warehouse, Paintbrush, CreditCard } from "lucide-react";
 import Image from "next/image";
 import { useBusiness } from "@/contexts/BusinessContext";
+import { adminCustomerApiHeaders } from "@/lib/adminCustomersStorage";
 import { getTodayLocalDate, formatDateLocal } from "@/lib/date-utils";
 import { differenceInCalendarDays, startOfDay } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -963,7 +964,9 @@ export function AddBookingForm({
       // Fetch full customer to get phone and address if not passed
       const fetchCustomer = async () => {
         try {
-          const res = await fetch(`/api/admin/customers/${customerId}`);
+          const res = await fetch(`/api/admin/customers/${customerId}`, {
+            headers: adminCustomerApiHeaders(currentBusiness?.id),
+          });
           const data = await res.json();
           if (res.ok && data?.customer) {
             const c = data.customer;
@@ -979,7 +982,7 @@ export function AddBookingForm({
       };
       fetchCustomer();
     }
-  }, [searchParams, editingBookingId]);
+  }, [searchParams, editingBookingId, currentBusiness?.id]);
 
   // Handle customer search
   const handleCustomerSearch = (search: string) => {

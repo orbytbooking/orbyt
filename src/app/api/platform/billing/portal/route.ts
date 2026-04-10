@@ -5,6 +5,7 @@ import {
   createUnauthorizedResponse,
   createServiceRoleClient,
 } from "@/lib/auth-helpers";
+import { getPlatformBillingProvider } from "@/lib/platform-billing/platformBillingProvider";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,17 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const user = await getAuthenticatedUser();
   if (!user) return createUnauthorizedResponse();
+
+  if (getPlatformBillingProvider() === "authorize_net") {
+    return NextResponse.json(
+      {
+        error:
+          "Self-serve billing portal is not wired for Authorize.Net platform subscriptions yet. Contact Orbyt support to update your card or cancel.",
+        code: "authorize_net_portal",
+      },
+      { status: 501 }
+    );
+  }
 
   const secret = process.env.STRIPE_SECRET_KEY;
   if (!secret) {

@@ -1085,8 +1085,14 @@ export default function BookingsPage() {
     try {
       await fetch('/api/admin/bookings/notify-provider', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookingId: selectedBooking.id }),
+        headers: {
+          'Content-Type': 'application/json',
+          ...(currentBusiness?.id ? { 'x-business-id': currentBusiness.id } : {}),
+        },
+        body: JSON.stringify({
+          bookingId: selectedBooking.id,
+          ...(currentBusiness?.id ? { businessId: currentBusiness.id } : {}),
+        }),
       });
     } catch {
       // Non-blocking: email is best-effort

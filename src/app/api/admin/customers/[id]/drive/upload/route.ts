@@ -5,6 +5,7 @@ import {
   createUnauthorizedResponse,
   createForbiddenResponse,
 } from '@/lib/auth-helpers';
+import { assertUserCanManageBusinessTenant } from '@/lib/bookingApiAuth';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -55,18 +56,15 @@ export async function POST(
       auth: { persistSession: false },
     });
 
-    const { data: business, error: bizErr } = await supabase
-      .from('businesses')
-      .select('id')
-      .eq('id', businessIdRaw)
-      .eq('owner_id', user.id)
-      .maybeSingle();
-
-    if (bizErr || !business) {
-      return NextResponse.json({ error: 'Business not found or access denied' }, { status: 404 });
+    const access = await assertUserCanManageBusinessTenant(user.id, businessIdRaw);
+    if (access === 'no_service_role') {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
+    if (access === 'denied') {
+      return NextResponse.json({ error: 'Business not found or access denied' }, { status: 403 });
     }
 
-    const businessId = business.id;
+    const businessId = businessIdRaw;
 
     const { data: cust, error: custErr } = await supabase
       .from('customers')

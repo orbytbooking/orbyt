@@ -57,6 +57,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { parseCustomerCsv } from "@/lib/parseCustomerCsv";
+import { adminCustomerApiHeaders } from "@/lib/adminCustomersStorage";
 
 // Mock data fallback
 const defaultCustomers = [
@@ -129,6 +130,7 @@ const Customers = () => {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { currentBusiness } = useBusiness();
+  const customerTenantHeaders = useMemo(() => adminCustomerApiHeaders(currentBusiness?.id), [currentBusiness?.id]);
   useLogo();
   const [searchTerm, setSearchTerm] = useState("");
   const [customers, setCustomers] = useState<Customer[]>(defaultCustomers);
@@ -385,7 +387,7 @@ const Customers = () => {
     try {
       const res = await fetch(`/api/admin/customers/${customer.id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...customerTenantHeaders },
         body: JSON.stringify({ status: newStatus }),
       });
       if (res.ok) {
@@ -406,7 +408,7 @@ const Customers = () => {
     try {
       const res = await fetch(`/api/admin/customers/${customer.id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...customerTenantHeaders },
         body: JSON.stringify({ booking_blocked: newVal }),
       });
       if (res.ok) {
@@ -463,7 +465,7 @@ const Customers = () => {
       : [addr, ""];
     let company = "", gender = "unspecified", notes = "", smsReminders = true;
     try {
-      const res = await fetch(`/api/admin/customers/${customer.id}`);
+      const res = await fetch(`/api/admin/customers/${customer.id}`, { headers: { ...customerTenantHeaders } });
       const data = await res.json();
       if (res.ok && data?.customer) {
         const c = data.customer;
@@ -504,7 +506,7 @@ const Customers = () => {
     try {
       const res = await fetch(`/api/admin/customers/${editCustomer.id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...customerTenantHeaders },
         body: JSON.stringify({
           name,
           email: editCustomer.email,
@@ -548,11 +550,21 @@ const Customers = () => {
 
     console.log('Attempting to delete customer:', customer.id, customer.name);
 
+    if (!currentBusiness?.id) {
+      toast({
+        title: "Error",
+        description: "Select a workspace before deleting a customer.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     // Delete from database
     const { error, data } = await supabase
       .from('customers')
       .delete()
-      .eq('id', customer.id);
+      .eq('id', customer.id)
+      .eq('business_id', currentBusiness.id);
 
     console.log('Delete response:', { error, data });
 
@@ -613,7 +625,7 @@ const Customers = () => {
     if (data?.id) {
       await fetch(`/api/admin/customers/${data.id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...customerTenantHeaders },
         body: JSON.stringify({
           firstName: fn,
           lastName: ln,

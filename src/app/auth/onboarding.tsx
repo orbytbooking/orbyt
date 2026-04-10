@@ -672,7 +672,7 @@ export default function Onboarding() {
               <p className="text-gray-500">Select the plan that fits your business needs</p>
               <p className="text-sm text-gray-600 mt-3 max-w-2xl mx-auto">
                 After your business is created, you&apos;ll complete secure <strong>Stripe</strong> checkout for the plan you chose
-                (Starter <strong>$19</strong>/mo, Growth <strong>$49</strong>/mo, Premium <strong>$110</strong>/mo). Same billing as Settings → Account → Plans.
+                (Starter <strong>$25</strong>/mo, Growth <strong>$55</strong>/mo, Premium <strong>$149</strong>/mo). Same billing as Settings → Account → Plans.
               </p>
             </motion.div>
             
@@ -681,39 +681,42 @@ export default function Onboarding() {
                 { 
                   id: 'starter', 
                   name: 'Starter', 
-                  price: 19, 
+                  price: 25, 
                   popular: false,
-                  description: 'Solo or small crew. Get in Orbyt without the bloat.',
+                  description: 'Solo operators and small teams',
                   features: [
-                    'Core scheduling & calendar',
+                    '3 provider accounts',
+                    '1 campaign',
+                    'Basic website builder',
                     'Unlimited bookings',
-                    'Email support',
                   ] 
                 },
                 { 
                   id: 'growth', 
                   name: 'Growth', 
-                  price: 49, 
+                  price: 55, 
                   popular: true,
-                  description: 'Bigger team, more automation. The loop gets smarter.',
+                  description: 'Growing teams that need more',
                   features: [
-                    'Advanced scheduling & routing',
+                    '10 provider accounts',
+                    '5 campaigns',
+                    'Advanced website builder',
+                    'Hiring workspace',
                     'Unlimited bookings',
-                    'Email & chat support',
-                    'Custom branding',
                   ] 
                 },
                 { 
                   id: 'premium', 
                   name: 'Premium', 
-                  price: 110, 
+                  price: 149, 
                   popular: false,
-                  description: 'Full Orbyt. API, priority support, no limits.',
+                  description: 'Everything unlocked',
                   features: [
-                    'Everything in Growth',
+                    'Unlimited provider accounts',
+                    'Unlimited campaigns',
+                    'Advanced + custom website builder',
+                    'Hiring workspace',
                     'Unlimited bookings',
-                    'Priority support',
-                    'API access',
                   ] 
                 },
               ].map((plan) => (
@@ -898,8 +901,8 @@ export default function Onboarding() {
                     </div>
                     <div className="opacity-75 text-xs">
                       <p>
-                        {form.plan === 'starter' ? '$19/mo' : 
-                         form.plan === 'growth' ? '$49/mo' : '$110/mo'}
+                        {form.plan === 'starter' ? '$25/mo' : 
+                         form.plan === 'growth' ? '$55/mo' : '$149/mo'}
                       </p>
                     </div>
                   </div>
@@ -1005,8 +1008,8 @@ export default function Onboarding() {
                                form.plan === 'growth' ? 'Growth' : 'Premium'}
                             </h5>
                             <p className="text-base font-bold text-orange-600">
-                              {form.plan === 'starter' ? '$19' : 
-                               form.plan === 'growth' ? '$49' : '$110'}
+                              {form.plan === 'starter' ? '$25' : 
+                               form.plan === 'growth' ? '$55' : '$149'}
                               <span className="text-xs font-normal text-gray-500">/month</span>
                             </p>
                           </div>
@@ -1026,19 +1029,25 @@ export default function Onboarding() {
                                   <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                   </svg>
-                                  Core scheduling &amp; calendar
+                                  3 provider accounts
+                                </div>
+                                <div className="flex items-center">
+                                  <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  1 campaign
+                                </div>
+                                <div className="flex items-center">
+                                  <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  Basic website builder
                                 </div>
                                 <div className="flex items-center">
                                   <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                   </svg>
                                   Unlimited bookings
-                                </div>
-                                <div className="flex items-center">
-                                  <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                  </svg>
-                                  Email support
                                 </div>
                               </>
                             )}
@@ -1048,19 +1057,31 @@ export default function Onboarding() {
                                   <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                   </svg>
-                                  Advanced scheduling &amp; routing
+                                  10 provider accounts
                                 </div>
                                 <div className="flex items-center">
                                   <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                   </svg>
-                                  Email &amp; chat support
+                                  5 campaigns
                                 </div>
                                 <div className="flex items-center">
                                   <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                   </svg>
-                                  Custom branding
+                                  Advanced website builder
+                                </div>
+                                <div className="flex items-center">
+                                  <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  Hiring workspace
+                                </div>
+                                <div className="flex items-center">
+                                  <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  Unlimited bookings
                                 </div>
                               </>
                             )}
@@ -1070,19 +1091,31 @@ export default function Onboarding() {
                                   <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                   </svg>
-                                  Everything in Growth
+                                  Unlimited provider accounts
                                 </div>
                                 <div className="flex items-center">
                                   <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                   </svg>
-                                  Priority support
+                                  Unlimited campaigns
                                 </div>
                                 <div className="flex items-center">
                                   <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                   </svg>
-                                  API access
+                                  Advanced + custom website builder
+                                </div>
+                                <div className="flex items-center">
+                                  <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  Hiring workspace
+                                </div>
+                                <div className="flex items-center">
+                                  <svg className="w-3 h-3 text-green-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  Unlimited bookings
                                 </div>
                               </>
                             )}

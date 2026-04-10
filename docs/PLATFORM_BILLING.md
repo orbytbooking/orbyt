@@ -1,69 +1,120 @@
-# Platform billing (Orbyt subscriptions via Stripe)
+# Platform billing (Orbyt workspace subscriptions)
 
-Businesses pay **Orbyt** for their workspace plan using your **main** Stripe account (`STRIPE_SECRET_KEY`). This is separate from **customer booking** payments (which may use Connect or the business’s own keys).
+Businesses pay **Orbyt** for their workspace plan. That revenue can go through **Stripe** or **Authorize.Net** (your **platform** merchant account). This is separate from **customer booking** payments (each tenant may use Stripe Connect or their own Stripe / Authorize.Net keys under **Admin → Billing**).
+
+---
+
+## Choose a provider (environment)
+
+| Env | Effect |
+|-----|--------|
+| `PLATFORM_BILLING_PROVIDER=stripe` | Platform checkout uses Stripe only (needs Stripe Price IDs). |
+| `PLATFORM_BILLING_PROVIDER=authorize_net` | Platform checkout uses Authorize.Net Accept Hosted + ARB. |
+| *(unset)* | If `PLATFORM_AUTHORIZE_NET_API_LOGIN_ID` **and** `PLATFORM_AUTHORIZE_NET_TRANSACTION_KEY` are set → **Authorize.Net**. Otherwise → **Stripe**. |
+
+**Authorize.Net sandbox vs live:** `AUTHORIZE_NET_ENVIRONMENT=production` for live API; omit or use non-`production` for sandbox (`apitest.authorize.net`).
+
+**App URL:** `NEXT_PUBLIC_APP_URL` must match the public site (used for Accept Hosted return URLs).
+
+---
 
 ## 1. Database
 
 Run migrations (in order as needed):
 
-- `database/migrations/071_platform_subscription_stripe.sql` — Stripe columns on plans / `platform_subscriptions` / `platform_payments`
-- `database/migrations/075_pending_owner_onboarding.sql` — **deferred owner signup** (email + encrypted password + payload until Stripe payment succeeds)
+- `071_platform_subscription_stripe.sql` — Stripe columns on plans / `platform_subscriptions` / `platform_payments`
+- `075_pending_owner_onboarding.sql` — deferred owner signup (encrypted password until payment completes)
+- `105_platform_billing_authorize_net.sql` — Authorize.Net columns + `platform_authorize_net_checkout_sessions` (required for platform Authorize.Net)
 
-Pending passwords are encrypted using a key derived from **`SUPABASE_SERVICE_ROLE_KEY`** (no extra env). Optionally set **`PENDING_OWNER_SECRET`** if you want an encryption key independent of service-role rotation.
+Pending passwords use a key derived from **`SUPABASE_SERVICE_ROLE_KEY`**. Optionally set **`PENDING_OWNER_SECRET`**.
 
-## 2. Stripe Dashboard
+Plans are **Starter**, **Growth**, **Premium** — slugs `starter`, `growth`, `premium`. Amounts in **`platform_subscription_plans.amount_cents`**. For **Authorize.Net platform checkout**, each paid plan must have **`amount_cents` > 0** (no $0 hosted checkout).
 
-1. **Products → Prices**  
-   Create recurring prices for **Pro** and **Enterprise** (monthly or yearly, matching `platform_subscription_plans.billing_interval`).
+---
 
-2. **Link prices** (pick one):
-   - Set `platform_subscription_plans.stripe_price_id` in Supabase for each plan row, **or**
-   - Set env vars: `STRIPE_PLATFORM_PRICE_STARTER`, `STRIPE_PLATFORM_PRICE_GROWTH`, `STRIPE_PLATFORM_PRICE_PREMIUM` (see `.env.example`).  
-     Legacy: `STRIPE_PLATFORM_PRICE_PRO` / `STRIPE_PLATFORM_PRICE_ENTERPRISE` still resolve for Growth / Premium.
+## 2A. Stripe (platform)
 
-Plans are **Starter** ($19), **Growth** ($49), **Premium** ($110) — slugs `starter`, `growth`, `premium`. Run migration `072_platform_plans_starter_growth_premium.sql` if upgrading from `pro`/`enterprise`.
+1. **Products → Prices** — recurring prices matching `platform_subscription_plans.billing_interval` (`monthly` / `yearly`).
+2. **Link prices:** set `platform_subscription_plans.stripe_price_id` **or** env `STRIPE_PLATFORM_PRICE_STARTER`, `STRIPE_PLATFORM_PRICE_GROWTH`, `STRIPE_PLATFORM_PRICE_PREMIUM` (legacy: `STRIPE_PLATFORM_PRICE_PRO` / `STRIPE_PLATFORM_PRICE_ENTERPRISE`).
+3. **Customer portal** — [Stripe Billing portal](https://dashboard.stripe.com/settings/billing/portal) for “Manage subscription”.
+4. **Webhooks** — `https://<your-domain>/api/stripe/webhook` — at least: `checkout.session.completed`, `invoice.paid`, `customer.subscription.updated`, `customer.subscription.deleted`. Set **`STRIPE_WEBHOOK_SECRET`**.
 
-3. **Customer portal**  
-   [Settings → Billing → Customer portal](https://dashboard.stripe.com/settings/billing/portal) — enable so “Manage subscription” works.
+**Env:** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, optional `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` for embedded platform checkout.
 
-4. **Webhooks**  
-   Endpoint: `https://<your-domain>/api/stripe/webhook`  
-   Subscribe at least to:
-   - `checkout.session.completed`
-   - `invoice.paid`
-   - `customer.subscription.updated`
-   - `customer.subscription.deleted`  
+Local dev: **`docs/STRIPE_LOCAL_WEBHOOKS.md`**.
 
-   Set `STRIPE_WEBHOOK_SECRET` to the signing secret for this endpoint.
+---
 
-   **Local dev:** Stripe cannot reach `localhost` without the Stripe CLI — see **`docs/STRIPE_LOCAL_WEBHOOKS.md`**. If payment succeeds but no user is created, the webhook likely never hit your machine.
+## 2B. Authorize.Net (platform)
+
+Use a **dedicated Orbyt merchant account** (not a tenant’s booking keys).
+
+### Credentials (server only)
+
+| Variable | Source |
+|----------|--------|
+| `PLATFORM_AUTHORIZE_NET_API_LOGIN_ID` | Merchant UI → API Credentials & Keys |
+| `PLATFORM_AUTHORIZE_NET_TRANSACTION_KEY` | Same (may only show once when generated) |
+
+### Account capabilities (must be enabled)
+
+- **Accept Hosted** — `getHostedPaymentPage` for the first charge.
+- **Customer Information Manager (CIM)** — hosted request uses `createProfile: true` so ARB can use stored payment profiles.
+- **Automated Recurring Billing (ARB)** — recurring workspace fee after the first payment.
+
+### Return URL / transaction id
+
+After payment, the browser should hit **`/api/platform/billing/authorize-net/return`** with a **transaction id** (common query names: `transId`, `transaction_id`, …) or POST body fields the gateway sends. If the id is missing, configure Authorize.Net return / relay settings or extend the route to match your merchant’s response format.
+
+### What you do **not** need for current platform code
+
+- **Public Client Key** — not used for this server-side Accept Hosted flow (tenants may still use it in admin Billing for their own integration).
+- **Stripe Price IDs** — not used for platform billing when Authorize.Net is selected.
+
+### Limitations (current app)
+
+- **Self-serve portal** (card update / cancel) is **not** wired for platform Authorize.Net — `/api/platform/billing/portal` returns 501; owners contact support or use the Authorize.Net merchant UI.
+- **ARB renewal** charges may not appear in `platform_payments` until you add **Authorize.Net webhooks** (future work).
+
+---
 
 ## 3. App routes
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/api/platform/billing/status?businessId=` | Current plan + recent platform payments (owner) |
-| `POST` | `/api/platform/billing/ensure-subscription` | Body `{ businessId, planSlug? }` — upsert `platform_subscriptions` (owner); used after onboarding creates a business |
-| `POST` | `/api/platform/billing/create-checkout` | Body `{ businessId, planSlug, successUrl?, cancelUrl? }` → Stripe Checkout (subscription); requires logged-in owner |
-| `POST` | `/api/platform/billing/create-checkout-pending` | Body `{ pendingId, planSlug? }` → Checkout **before** auth user exists (deferred signup) |
-| `POST` | `/api/auth/pending-owner-register` | Saves onboarding + encrypted password → `{ pendingId }` |
-| `POST` | `/api/auth/finalize-pending-checkout` | After Stripe success: creates session tokens (magic link) |
-| `POST` | `/api/platform/billing/portal` | Body `{ businessId }` → Stripe Customer Portal |
+| `GET` | `/api/platform/billing/status?businessId=` | Plan + subscription + `platformBillingProvider` (owner) |
+| `POST` | `/api/platform/billing/ensure-subscription` | `{ businessId, planSlug? }` — upsert `platform_subscriptions` |
+| `POST` | `/api/platform/billing/create-checkout` | Logged-in owner → Stripe **or** Authorize.Net (from `PLATFORM_BILLING_PROVIDER` / env) |
+| `POST` | `/api/platform/billing/create-checkout-pending` | Deferred signup → same provider |
+| `GET`/`POST` | `/api/platform/billing/authorize-net/return` | Authorize.Net return handler (completes ARB + DB sync) |
+| `POST` | `/api/auth/pending-owner-register` | Saves onboarding → `{ pendingId }` |
+| `POST` | `/api/auth/finalize-pending-checkout` | Stripe: `{ stripeSessionId }` — Authorize.Net: `{ pendingOwnerId, provider: "authorize_net" }` |
+| `POST` | `/api/platform/billing/portal` | Stripe Customer Portal only (501 if platform is Authorize.Net) |
 
-### Onboarding (deferred signup)
+**Deferred signup (Stripe):** … → Stripe → webhook `processPendingOwnerCheckout` → `/auth/onboarding/complete?stripe_session_id=…` → finalize.
 
-New owners: **no** `auth.users` row until Stripe payment succeeds. Flow: signup form → onboarding → **`pending-owner-register`** → **`create-checkout-pending`** → Stripe → webhook **`processPendingOwnerCheckout`** creates user + business + billing → browser lands on **`/auth/onboarding/complete`** → **`finalize-pending-checkout`** returns Supabase tokens → dashboard.
+**Deferred signup (Authorize.Net):** … → Accept Hosted → `/api/platform/billing/authorize-net/return` → user + business created → redirect to `/auth/onboarding/complete?pending_id=…&provider=authorize_net` → finalize.
 
-Legacy path (already logged in, business exists, payment still pending): **ensure-subscription** + **create-checkout** with cookies.
-
-> If Supabase requires **email confirmation** before a session exists, API calls may return 401 until the user confirms — configure project auth accordingly or test with confirmation disabled.
+---
 
 ## 4. Admin UI
 
-**Admin → Settings → Account → Plans** uses `BillingPlatformSubscription` to upgrade and open the portal.
+**Admin → Settings → Account → Plans** (`BillingPlatformSubscription`) — upgrade flow and (Stripe only) “Manage subscription”.
 
-## 5. Behavior
+---
 
-- **Starter** still uses Stripe Checkout for new signups (deferred flow). `amount_cents = 0` in DB is OK if a real **Price ID** is configured.
-- After successful Checkout, the webhook syncs `platform_subscriptions`, updates `businesses.plan`, and `invoice.paid` inserts into `platform_payments`.
-- Canceling via Stripe sets subscription to canceled and downgrades `businesses.plan` to `starter`.
+## 5. Tenant vs platform (do not confuse)
+
+| Integration | Where it lives | Env / DB |
+|-------------|----------------|----------|
+| **Orbyt SaaS fee** (this doc) | `PLATFORM_*` Authorize.Net **or** main Stripe + `STRIPE_SECRET_KEY` | Server env |
+| **Booking payments** | Per business: Stripe Connect / keys **or** tenant Authorize.Net in **Admin → Billing** | `businesses.*` |
+
+Tenants can keep **Stripe as an option** for bookings regardless of platform billing provider.
+
+---
+
+## 6. References
+
+- Tenant Authorize.Net credential steps: **`docs/INTEGRATION_CREDENTIALS_GUIDE.md`** (Part 2) — same *types* of keys as platform, different env names (`PLATFORM_*` for Orbyt only).
+- Env template: **`.env.example`**.

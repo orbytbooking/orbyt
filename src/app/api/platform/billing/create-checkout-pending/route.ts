@@ -6,6 +6,11 @@ import {
   resolvePlatformStripePriceId,
 } from "@/lib/platform-billing/stripePlatformSubscription";
 import { ensureStripeEmbeddedReturnUrl } from "@/lib/platform-billing/embeddedCheckoutReturnUrl";
+import {
+  getPlatformBillingProvider,
+  platformAuthorizeNetCredentialsConfigured,
+} from "@/lib/platform-billing/platformBillingProvider";
+import { startPlatformAuthorizeNetCheckout } from "@/lib/platform-billing/authorizeNetPlatformCheckout";
 
 export const dynamic = "force-dynamic";
 
@@ -30,15 +35,10 @@ function resolveSafeRedirectUrl(
 }
 
 /**
- * Start Stripe Checkout for a pending owner (no Supabase session yet).
+ * Start platform checkout for a pending owner (no Supabase session yet): Stripe or Authorize.Net.
  * Body: { pendingId, planSlug?, successUrl?, cancelUrl? }
  */
 export async function POST(request: Request) {
-  const secret = process.env.STRIPE_SECRET_KEY;
-  if (!secret) {
-    return NextResponse.json({ error: "STRIPE_SECRET_KEY is not configured" }, { status: 500 });
-  }
-
   const admin = createServiceRoleClient();
   if (!admin) {
     return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
 
   const { data: planRow, error: planError } = await admin
     .from("platform_subscription_plans")
-    .select("id, name, slug, amount_cents, stripe_price_id, is_active")
+    .select("id, name, slug, amount_cents, billing_interval, stripe_price_id, is_active")
     .eq("slug", planSlug)
     .maybeSingle();
 
@@ -94,6 +94,68 @@ export async function POST(request: Request) {
   }
 
   const amountCents = (planRow as { amount_cents: number }).amount_cents ?? 0;
+  const billingInterval = (planRow as { billing_interval: string }).billing_interval;
+  const interval: "monthly" | "yearly" =
+    billingInterval === "yearly" ? "yearly" : "monthly";
+
+  const origin =
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
+    request.headers.get("origin")?.replace(/\/$/, "") ||
+    "";
+
+  const defaultCancel = `${origin}/auth/onboarding?payment=cancel&pending=${encodeURIComponent(pendingId)}`;
+
+  if (getPlatformBillingProvider() === "authorize_net") {
+    if (!platformAuthorizeNetCredentialsConfigured()) {
+      return NextResponse.json(
+        {
+          error:
+            "Platform Authorize.Net is selected but credentials are missing. Set PLATFORM_AUTHORIZE_NET_API_LOGIN_ID and PLATFORM_AUTHORIZE_NET_TRANSACTION_KEY.",
+        },
+        { status: 500 }
+      );
+    }
+    if (amountCents <= 0) {
+      return NextResponse.json(
+        {
+          error:
+            "This plan has no positive amount. Authorize.Net checkout requires amount_cents > 0 on platform_subscription_plans.",
+        },
+        { status: 400 }
+      );
+    }
+    const planName = (planRow as { name: string }).name ?? planSlug;
+    const cancelUrl = resolveSafeRedirectUrl(body.cancelUrl, defaultCancel, origin);
+    try {
+      const { url, token } = await startPlatformAuthorizeNetCheckout({
+        supabase: admin,
+        businessId: null,
+        pendingOwnerId: pendingId,
+        planSlug,
+        amountCents,
+        billingInterval: interval,
+        lineDescription: `Orbyt — ${planName}`,
+        origin,
+        successReturnPath: "/api/platform/billing/authorize-net/return",
+        cancelUrl,
+      });
+      return NextResponse.json({
+        url,
+        sessionId: token,
+        provider: "authorize_net" as const,
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[create-checkout-pending] Authorize.Net:", msg);
+      return NextResponse.json({ error: msg || "Could not start Authorize.Net checkout" }, { status: 400 });
+    }
+  }
+
+  const secret = process.env.STRIPE_SECRET_KEY;
+  if (!secret) {
+    return NextResponse.json({ error: "STRIPE_SECRET_KEY is not configured" }, { status: 500 });
+  }
+
   const priceId = resolvePlatformStripePriceId(
     planSlug,
     (planRow as { stripe_price_id?: string | null }).stripe_price_id
@@ -127,13 +189,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const origin =
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-    request.headers.get("origin")?.replace(/\/$/, "") ||
-    "";
-
   const defaultSuccess = `${origin}/auth/onboarding/complete?stripe_session_id={CHECKOUT_SESSION_ID}`;
-  const defaultCancel = `${origin}/auth/onboarding?payment=cancel&pending=${encodeURIComponent(pendingId)}`;
 
   const successUrl = resolveSafeRedirectUrl(body.successUrl, defaultSuccess, origin);
   const cancelUrl = resolveSafeRedirectUrl(body.cancelUrl, defaultCancel, origin);

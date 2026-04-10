@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabaseClient';
+import { gateMarketingTenantApi } from '@/lib/marketingTenantGate';
 
 const couponSchema = z.object({
   business_id: z.string().uuid('Business ID is required'),
@@ -39,6 +40,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Business ID is required' }, { status: 400 });
     }
 
+    const gate = await gateMarketingTenantApi(request, businessId);
+    if (gate) return gate;
+
     let query = supabaseAdmin
       .from('marketing_coupons')
       .select('*')
@@ -74,6 +78,9 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const validated = couponSchema.parse(body);
     const normalizedCode = normalizeCode(validated.code);
+
+    const gate = await gateMarketingTenantApi(request, validated.business_id);
+    if (gate) return gate;
 
     const { data: existingCoupon } = await supabaseAdmin
       .from('marketing_coupons')
@@ -130,6 +137,9 @@ export async function PUT(request: NextRequest) {
     if (!validated.business_id) {
       return NextResponse.json({ error: 'Business ID is required' }, { status: 400 });
     }
+
+    const gate = await gateMarketingTenantApi(request, validated.business_id);
+    if (gate) return gate;
 
     if (validated.code) {
       const normalizedCode = normalizeCode(validated.code);
@@ -193,6 +203,9 @@ export async function DELETE(request: NextRequest) {
     if (!id || !businessId) {
       return NextResponse.json({ error: 'Coupon ID and business ID are required' }, { status: 400 });
     }
+
+    const gate = await gateMarketingTenantApi(request, businessId);
+    if (gate) return gate;
 
     const { error } = await supabaseAdmin
       .from('marketing_coupons')

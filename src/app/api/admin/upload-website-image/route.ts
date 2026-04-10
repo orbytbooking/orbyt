@@ -1,8 +1,10 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import { resolveTenantBusinessId } from '@/lib/tenantBusinessAccess';
+import { assertUserHasAdminModuleAccess } from '@/lib/bookingApiAuth';
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     // Authenticate user
     const user = await getAuthenticatedUser();
@@ -21,16 +23,23 @@ export async function POST(request: Request) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // Get the user's business
-    const { data: business, error: businessError } = await supabase
-      .from('businesses')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-    
-    if (businessError || !business) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+    const resolved = await resolveTenantBusinessId(supabase, user.id, request);
+    if ('error' in resolved) {
+      const status = resolved.error === 'FORBIDDEN' ? 403 : 404;
+      return NextResponse.json({ error: 'Business not found or access denied' }, { status });
     }
+    const settingsOk = await assertUserHasAdminModuleAccess(
+      user.id,
+      resolved.businessId,
+      'settings'
+    );
+    if (settingsOk === 'no_service_role') {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
+    if (settingsOk === 'denied') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    const business = { id: resolved.businessId };
 
     const formData = await request.formData();
     const file = formData.get('file') as File;
@@ -93,7 +102,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+export async function DELETE(request: NextRequest) {
   try {
     // Authenticate user
     const user = await getAuthenticatedUser();
@@ -112,16 +121,23 @@ export async function DELETE(request: Request) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // Get the user's business
-    const { data: business, error: businessError } = await supabase
-      .from('businesses')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-    
-    if (businessError || !business) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+    const resolved = await resolveTenantBusinessId(supabase, user.id, request);
+    if ('error' in resolved) {
+      const status = resolved.error === 'FORBIDDEN' ? 403 : 404;
+      return NextResponse.json({ error: 'Business not found or access denied' }, { status });
     }
+    const settingsOk = await assertUserHasAdminModuleAccess(
+      user.id,
+      resolved.businessId,
+      'settings'
+    );
+    if (settingsOk === 'no_service_role') {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
+    if (settingsOk === 'denied') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    const business = { id: resolved.businessId };
 
     const { fileName } = await request.json();
 

@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
+import { getAuthorizeNetApiUrl } from "@/lib/payments/authorizeNetEnvironment";
 
 export type CreateCheckoutParams = {
   /** Existing booking row (admin charges, Authorize.net book-now, legacy Stripe). */
@@ -214,9 +215,6 @@ export async function createCheckout(
   return { url: session.url!, provider: "stripe", sessionId: session.id };
 }
 
-const AUTHORIZE_NET_SANDBOX_API = "https://apitest.authorize.net/xml/v1/request.api";
-const AUTHORIZE_NET_PROD_API = "https://api.authorize.net/xml/v1/request.api";
-
 async function createAuthorizeNetCheckout(params: {
   apiLoginId: string;
   transactionKey: string;
@@ -236,8 +234,7 @@ async function createAuthorizeNetCheckout(params: {
     businessId,
   } = params;
 
-  const useSandbox = process.env.AUTHORIZE_NET_ENVIRONMENT !== "production";
-  const apiUrl = useSandbox ? AUTHORIZE_NET_SANDBOX_API : AUTHORIZE_NET_PROD_API;
+  const apiUrl = getAuthorizeNetApiUrl();
 
   const successUrl = `${origin}/book-now?authorize_net=success&booking_id=${bookingId}&business=${businessId || ""}`;
   const cancelUrl = `${origin}/book-now?authorize_net=cancel&business=${businessId || ""}`;

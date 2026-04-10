@@ -17,7 +17,10 @@ import {
 } from '@/lib/draftQuoteLogs';
 import { ensureCustomerForAdminBooking } from '@/lib/ensureCustomerForAdminBooking';
 import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProviderWage';
-import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
+import {
+  assertUserHasAdminModuleAccess,
+  userCanManageBookingsForBusiness,
+} from '@/lib/bookingApiAuth';
 import { finalStatusForAdminBooking, providerIdFromBookingPayload } from '@/lib/adminBookingStatus';
 import { sendCustomerBookingConfirmedEmail } from '@/lib/sendCustomerBookingConfirmedEmail';
 
@@ -657,15 +660,11 @@ export async function DELETE(
       return NextResponse.json({ error: 'Invalid booking ID' }, { status: 400 });
     }
 
-    // Verify user has permission to delete bookings
-    const { data: businessAccess, error: accessError } = await supabase
-      .from('businesses')
-      .select('id, owner_id')
-      .eq('owner_id', user.id)
-      .eq('id', businessId)
-      .single();
-
-    if (accessError || !businessAccess) {
+    const access = await assertUserHasAdminModuleAccess(user.id, businessId, 'bookings');
+    if (access === 'no_service_role') {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
+    if (access === 'denied') {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 

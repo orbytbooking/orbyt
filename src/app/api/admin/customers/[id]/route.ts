@@ -1,36 +1,35 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseServiceRoleKey) {
-  throw new Error('Missing Supabase environment variables');
-}
-
-function getAdmin() {
-  return createClient(supabaseUrl, supabaseServiceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-}
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from '@/lib/adminTenantContext';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
+
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      request.nextUrl.searchParams.get('businessId')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
+
     const { id } = await params;
     if (!id) {
       return NextResponse.json({ error: 'Customer ID is required' }, { status: 400 });
     }
 
-    const supabaseAdmin = getAdmin();
-    // Use a flexible select to avoid errors when some columns
-    // (like join_date, total_bookings, etc.) are not present yet.
-    const { data: customer, error } = await supabaseAdmin
+    const { data: customer, error } = await supabase
       .from('customers')
       .select('*')
       .eq('id', id)
+      .eq('business_id', businessId)
       .single();
 
     if (error || !customer) {
@@ -68,13 +67,22 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
+
+    const body = await request.json();
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      (typeof body.businessId === 'string' ? body.businessId.trim() : '') ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
+
     const { id } = await params;
     if (!id) {
       return NextResponse.json({ error: 'Customer ID is required' }, { status: 400 });
     }
-
-    const body = await request.json();
-    const supabaseAdmin = getAdmin();
 
     const updatePayload: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
@@ -100,14 +108,13 @@ export async function PUT(
     if (body.smsReminders !== undefined) updatePayload.sms_reminders = body.smsReminders;
     if (body.contacts !== undefined) updatePayload.contacts = Array.isArray(body.contacts) ? body.contacts : [];
     if (body.addresses !== undefined) updatePayload.addresses = Array.isArray(body.addresses) ? body.addresses : [];
-    if (body.billingCards !== undefined) updatePayload.billing_cards = Array.isArray(body.billingCards) ? body.billingCards : [];
+    if (body.billingCards !== undefined)
+      updatePayload.billing_cards = Array.isArray(body.billingCards) ? body.billingCards : [];
 
     let attemptPayload: Record<string, unknown> = { ...updatePayload };
     let customer: any = null;
     let error: any = null;
 
-    // Be resilient when some optional columns are not migrated yet.
-    // We progressively strip fields that trigger "column does not exist".
     const optionalColumnFields: Array<keyof typeof attemptPayload> = [
       'contacts',
       'addresses',
@@ -125,10 +132,11 @@ export async function PUT(
     ];
 
     for (let i = 0; i < optionalColumnFields.length + 1; i++) {
-      const res = await supabaseAdmin
+      const res = await supabase
         .from('customers')
         .update(attemptPayload)
         .eq('id', id)
+        .eq('business_id', businessId)
         .select()
         .single();
       customer = res.data;
@@ -149,7 +157,6 @@ export async function PUT(
           stripped = true;
         }
       }
-      // Generic fallback: if we couldn't map the column name, remove one optional field at a time.
       if (!stripped) {
         const nextField = optionalColumnFields.find((f) => f in attemptPayload);
         if (nextField) {
@@ -162,6 +169,9 @@ export async function PUT(
 
     if (error) {
       console.error('Customer update error:', error);
+      if (error.code === 'PGRST116' || String(error.message || '').toLowerCase().includes('0 rows')) {
+        return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
+      }
       if (error.code === '23505') {
         const msg = String(error.message || '').toLowerCase();
         if (msg.includes('email') || msg.includes('customers_email_business_id_unique')) {

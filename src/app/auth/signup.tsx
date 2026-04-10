@@ -94,7 +94,7 @@ export default function Signup() {
           
           <div className="space-y-3">
             {[
-              "✓ Plans from $19/mo (Starter)",
+              "✓ Plans from $25/mo (Starter)",
               "✓ No credit card required",
               "✓ Setup in under 5 minutes",
               "✓ 24/7 customer support"

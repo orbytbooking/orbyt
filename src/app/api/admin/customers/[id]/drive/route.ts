@@ -5,6 +5,7 @@ import {
   createUnauthorizedResponse,
   createForbiddenResponse,
 } from '@/lib/auth-helpers';
+import { resolveTenantBusinessId } from '@/lib/tenantBusinessAccess';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -22,32 +23,16 @@ async function resolveAdminBusinessId(
   supabase: ReturnType<typeof createClient>,
   userId: string,
 ): Promise<{ businessId: string } | { error: NextResponse }> {
-  const candidate =
-    request.headers.get('x-business-id') || request.nextUrl.searchParams.get('businessId');
-  if (candidate) {
-    const { data: business, error } = await supabase
-      .from('businesses')
-      .select('id')
-      .eq('id', candidate)
-      .eq('owner_id', userId)
-      .maybeSingle();
-    if (error || !business) {
-      return {
-        error: NextResponse.json({ error: 'Business not found or access denied' }, { status: 404 }),
-      };
-    }
-    return { businessId: business.id };
+  const resolved = await resolveTenantBusinessId(supabase, userId, request);
+  if ('error' in resolved) {
+    const status = resolved.error === 'FORBIDDEN' ? 403 : 404;
+    const msg =
+      resolved.error === 'FORBIDDEN'
+        ? 'Business not found or access denied'
+        : 'Business not found';
+    return { error: NextResponse.json({ error: msg }, { status }) };
   }
-  const { data: business, error } = await supabase
-    .from('businesses')
-    .select('id')
-    .eq('owner_id', userId)
-    .limit(1)
-    .maybeSingle();
-  if (error || !business) {
-    return { error: NextResponse.json({ error: 'Business not found' }, { status: 404 }) };
-  }
-  return { businessId: business.id };
+  return { businessId: resolved.businessId };
 }
 
 export async function GET(

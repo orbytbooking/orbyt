@@ -12,8 +12,11 @@ function CompleteInner() {
 
   useEffect(() => {
     const sid = searchParams.get("stripe_session_id");
-    if (!sid) {
-      setError("Missing checkout session. Open the link from Stripe or return to onboarding.");
+    const pendingId = searchParams.get("pending_id");
+    const provider = searchParams.get("provider")?.toLowerCase() ?? "";
+
+    if (!sid && !(pendingId && provider === "authorize_net")) {
+      setError("Missing checkout confirmation. Return to onboarding or open the link from your payment provider.");
       return;
     }
 
@@ -27,7 +30,11 @@ function CompleteInner() {
         const res = await fetch("/api/auth/finalize-pending-checkout", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ stripeSessionId: sid }),
+          body: JSON.stringify(
+            pendingId && provider === "authorize_net"
+              ? { pendingOwnerId: pendingId, provider: "authorize_net" }
+              : { stripeSessionId: sid }
+          ),
         });
         const j = (await res.json().catch(() => ({}))) as {
           access_token?: string;

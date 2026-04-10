@@ -10,10 +10,11 @@ import { Loader2, Shield, ExternalLink } from "lucide-react";
 import { EmbeddedPlatformCheckoutDialog } from "@/components/billing/EmbeddedPlatformCheckoutDialog";
 import { openStripeHostedPopup } from "@/lib/stripe/openStripeHostedPopup";
 
-const stripeEmbeddedEnabled =
+const stripePublishableConfigured =
   typeof process !== "undefined" && Boolean(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim());
 
 type StatusPayload = {
+  platformBillingProvider?: "stripe" | "authorize_net";
   businessPlan: string;
   subscription: {
     id: string;
@@ -22,6 +23,9 @@ type StatusPayload = {
     currentPeriodEnd: string | null;
     stripeCustomerId: string | null;
     stripeSubscriptionId: string | null;
+    authorizeNetCustomerProfileId: string | null;
+    authorizeNetPaymentProfileId: string | null;
+    authorizeNetSubscriptionId: string | null;
   } | null;
   plan: {
     id: string;
@@ -42,9 +46,9 @@ type StatusPayload = {
 };
 
 const PLANS = [
-  { slug: "starter", name: "Starter", blurb: "$19/mo — core scheduling, unlimited bookings" },
-  { slug: "growth", name: "Growth", blurb: "$49/mo — advanced scheduling, branding, chat support" },
-  { slug: "premium", name: "Premium", blurb: "$110/mo — everything in Growth + API & priority support" },
+  { slug: "starter", name: "Starter", blurb: "$25/mo — 3 providers, 1 campaign, basic website; unlimited bookings" },
+  { slug: "growth", name: "Growth", blurb: "$55/mo — 10 providers, 5 campaigns, advanced site & hiring workspace" },
+  { slug: "premium", name: "Premium", blurb: "$149/mo — unlimited providers & campaigns, advanced + custom site" },
 ];
 
 function formatMoney(cents: number, currency: string) {
@@ -89,6 +93,10 @@ export function BillingPlatformSubscription() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const platformUsesStripe =
+    (payload?.platformBillingProvider ?? "stripe") === "stripe";
+  const stripeEmbeddedEnabled = platformUsesStripe && stripePublishableConfigured;
 
   const startCheckout = async (planSlug: string) => {
     if (!currentBusiness?.id) return;
@@ -192,8 +200,8 @@ export function BillingPlatformSubscription() {
             <CardTitle>Orbyt platform plan</CardTitle>
           </div>
           <CardDescription>
-            Pay Orbyt for your workspace plan. Customer booking payments are separate (configured under Billing →
-            payment provider).
+            Pay Orbyt for your workspace plan ({platformUsesStripe ? "Stripe" : "Authorize.Net"}). Customer booking
+            payments are separate (configured under Billing → payment provider).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -215,24 +223,33 @@ export function BillingPlatformSubscription() {
             </p>
           )}
           <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void openPortal()}
-              disabled={busy !== null || !sub?.stripeCustomerId}
-              title="Opens Stripe billing and invoices in a new window so you stay in Orbyt"
-            >
-              {busy === "portal" ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <ExternalLink className="h-4 w-4 mr-2" />
-              )}
-              Manage subscription & invoices
-            </Button>
-            {!sub?.stripeCustomerId && (
-              <span className="text-xs text-muted-foreground self-center">
-                Available after you complete Stripe checkout for your plan.
-              </span>
+            {platformUsesStripe ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void openPortal()}
+                  disabled={busy !== null || !sub?.stripeCustomerId}
+                  title="Opens Stripe billing and invoices in a new window so you stay in Orbyt"
+                >
+                  {busy === "portal" ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                  )}
+                  Manage subscription & invoices
+                </Button>
+                {!sub?.stripeCustomerId && (
+                  <span className="text-xs text-muted-foreground self-center">
+                    Available after you complete checkout for your plan.
+                  </span>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground max-w-lg">
+                Self-serve card updates and cancellation for Authorize.Net workspace billing are not available in-app
+                yet. Contact Orbyt support for billing changes.
+              </p>
             )}
           </div>
         </CardContent>

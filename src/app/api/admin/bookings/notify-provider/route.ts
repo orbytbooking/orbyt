@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
 import { notifyProviderOfBooking } from '@/lib/notifyProviderBooking';
+import { assertUserHasAdminModuleAccess } from '@/lib/bookingApiAuth';
 
 /**
  * POST: Send "booking assigned" email to the provider assigned to a booking.
@@ -21,19 +22,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'bookingId required' }, { status: 400 });
     }
 
+    const businessId =
+      request.headers.get('x-business-id')?.trim() ||
+      (typeof body?.businessId === 'string' ? body.businessId.trim() : '');
+    if (!businessId) {
+      return NextResponse.json({ error: 'Business context required' }, { status: 400 });
+    }
+
     const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { auth: { persistSession: false } }
     );
 
-    const { data: business } = await supabaseAdmin
-      .from('businesses')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-    if (!business) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+    const access = await assertUserHasAdminModuleAccess(user.id, businessId, 'bookings');
+    if (access === 'no_service_role') {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
+    if (access === 'denied') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const { data: booking } = await supabaseAdmin
@@ -41,7 +48,7 @@ export async function POST(request: NextRequest) {
       .select('id, business_id')
       .eq('id', bookingId)
       .single();
-    if (!booking || booking.business_id !== business.id) {
+    if (!booking || booking.business_id !== businessId) {
       return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
     }
 
