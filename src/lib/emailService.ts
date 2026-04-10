@@ -80,6 +80,14 @@ interface ProviderInvitationData {
   tempPassword?: string;
 }
 
+interface StaffInvitationData {
+  email: string;
+  firstName: string;
+  lastName: string;
+  businessName: string;
+  invitationToken: string;
+}
+
 export class EmailService {
   private supabaseAdmin: any;
   private resendClient: Resend | null;
@@ -221,6 +229,76 @@ export class EmailService {
       
     } catch (error) {
       console.error('Email service error:', error);
+      return false;
+    }
+  }
+
+  async sendStaffInvitation(data: StaffInvitationData): Promise<boolean> {
+    try {
+      const { email, firstName, lastName, businessName, invitationToken } = data;
+      const base = resolveSiteUrl();
+      const invitationUrl = `${base}/auth/staff-invite?token=${encodeURIComponent(invitationToken)}&email=${encodeURIComponent(email)}`;
+      const emailSubject = `You're invited to join ${businessName} on Orbyt (staff account)`;
+
+      const emailHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Staff invitation</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #00BCD4 0%, #00838F 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center; }
+            .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
+            .button { display: inline-block; background: #00ACC1; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+            .footer { text-align: center; color: #666; margin-top: 30px; font-size: 14px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Team invitation</h1>
+              <p>${businessName}</p>
+            </div>
+            <div class="content">
+              <p>Hi ${firstName} ${lastName},</p>
+              <p>You've been invited to access the <strong>admin dashboard</strong> for <strong>${businessName}</strong>.</p>
+              <p>Click the button below to create your password and activate your account.</p>
+              <div style="text-align: center;">
+                <a href="${invitationUrl}" class="button">Set password &amp; join</a>
+              </div>
+              <p style="font-size: 14px; color: #555;">This link expires in 30 days. If you didn't expect this email, you can ignore it.</p>
+            </div>
+            <div class="footer">
+              <p>Automated message from Orbyt.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      if (!this.resendClient) {
+        console.log('=== STAFF INVITE (Resend not configured) ===');
+        console.log('To:', email);
+        console.log('Invitation URL:', invitationUrl);
+        return true;
+      }
+
+      const { error } = await this.resendClient.emails.send({
+        from: process.env.RESEND_FROM_EMAIL || 'noreply@yourdomain.com',
+        to: [email],
+        subject: emailSubject,
+        html: emailHtml,
+      });
+      if (error) {
+        console.error('Resend staff invite error:', error);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.error('sendStaffInvitation error:', e);
       return false;
     }
   }

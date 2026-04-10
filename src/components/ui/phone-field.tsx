@@ -1,11 +1,12 @@
 "use client";
 
-import { useLayoutEffect, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import PhoneInput, { type Value } from "react-phone-number-input";
 import "react-phone-number-input/style.css";
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 import { guessDefaultCountry } from "@/lib/phoneDefaultCountry";
+import { toPhoneInputValue } from "@/lib/phoneE164";
 
 export const PHONE_FIELD_HELPER_TEXT =
   "Default country follows your device time zone (then language if needed). Change it with the flag dropdown anytime.";
@@ -48,10 +49,32 @@ export function PhoneField({
   descriptionClassName,
 }: PhoneFieldProps) {
   const [detectedCountry, setDetectedCountry] = useState<ReturnType<typeof guessDefaultCountry> | null>(null);
+  const migratedFromRef = useRef<string | null>(null);
 
   useLayoutEffect(() => {
     setDetectedCountry(guessDefaultCountry());
   }, []);
+
+  /** Migrate legacy national / messy DB values to E.164 before paint so controlled input stays valid. */
+  useLayoutEffect(() => {
+    if (detectedCountry === null) return;
+    const raw = String(value ?? "").trim();
+    if (!raw) {
+      migratedFromRef.current = null;
+      return;
+    }
+    const safe = toPhoneInputValue(value, detectedCountry);
+    if (!safe || safe === raw) {
+      migratedFromRef.current = null;
+      return;
+    }
+    if (migratedFromRef.current === raw) return;
+    migratedFromRef.current = raw;
+    onChange(safe);
+  }, [detectedCountry, value, onChange]);
+
+  const phoneInputValue =
+    detectedCountry === null ? undefined : (toPhoneInputValue(value, detectedCountry) as Value | undefined);
 
   const shellClass = cn(
     "flex h-10 w-full items-stretch rounded-md border bg-background shadow-sm transition-colors",
@@ -76,7 +99,7 @@ export function PhoneField({
           countryCallingCodeEditable={false}
           limitMaxLength
           placeholder={placeholder}
-          value={(value || undefined) as Value | undefined}
+          value={phoneInputValue}
           onChange={(v) => onChange(typeof v === "string" ? v : "")}
           onBlur={onBlur}
           disabled={disabled}

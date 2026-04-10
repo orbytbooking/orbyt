@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import { resolveTenantBusinessId, userOwnsBusiness } from '@/lib/tenantBusinessAccess';
 
 // Create admin client directly in the API route
 const supabase = createClient(
@@ -42,13 +43,20 @@ export async function GET(request: NextRequest) {
 
     const userId = user.id;
 
-    // Get business for the authenticated user
+    const resolved = await resolveTenantBusinessId(supabase, userId, request);
+    if ('error' in resolved) {
+      if (resolved.error === 'FORBIDDEN') {
+        return createForbiddenResponse('You do not have access to this business');
+      }
+      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+    }
+
     const { data: business, error: businessError } = await supabase
       .from('businesses')
       .select('*')
-      .eq('owner_id', userId)
+      .eq('id', resolved.businessId)
       .single();
-    
+
     if (businessError && businessError.code !== 'PGRST116') {
       console.error('Business fetch error:', businessError);
       return NextResponse.json({ error: 'Failed to fetch business' }, { status: 500 });
@@ -83,36 +91,38 @@ export async function PUT(request: NextRequest) {
     const userId = user.id;
     const body = await request.json();
     const validatedData = businessUpdateSchema.parse(body);
-    
-    // First get the user's business to ensure they own it
-    const { data: userBusiness, error: businessError } = await supabase
-      .from('businesses')
-      .select('id')
-      .eq('owner_id', userId)
-      .single();
-    
-    if (businessError || !userBusiness) {
+
+    const resolved = await resolveTenantBusinessId(supabase, userId, request);
+    if ('error' in resolved) {
+      if (resolved.error === 'FORBIDDEN') {
+        return createForbiddenResponse('You do not have access to this business');
+      }
       return createForbiddenResponse('Business not found or access denied');
     }
 
-    // Update business - handle missing columns gracefully
-    const updateData: any = {
+    const owns = await userOwnsBusiness(supabase, userId, resolved.businessId);
+    if (!owns) {
+      return NextResponse.json(
+        { error: 'Only the business owner can update company settings' },
+        { status: 403 }
+      );
+    }
+
+    const updateData: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
     };
-    
-    // Only include non-empty fields to avoid unique constraint violations
-    Object.keys(validatedData).forEach(key => {
+
+    Object.keys(validatedData).forEach((key) => {
       const value = validatedData[key as keyof typeof validatedData];
       if (value !== undefined && value !== null && value !== '') {
         updateData[key] = value;
       }
     });
-    
-    // Update the user's business
+
     const { data: business, error: updateError } = await supabase
       .from('businesses')
       .update(updateData)
-      .eq('id', userBusiness.id)
+      .eq('id', resolved.businessId)
       .select()
       .single();
 
@@ -120,20 +130,19 @@ export async function PUT(request: NextRequest) {
       console.error('Business update error:', updateError);
       // If column doesn't exist, try with only existing columns
       if (updateError.message.includes('column') && updateError.message.includes('does not exist')) {
-        const basicUpdate: any = {
+        const basicUpdate: Record<string, unknown> = {
           updated_at: new Date().toISOString(),
         };
-        
-        // Only include non-empty basic fields
+
         if (validatedData.name && validatedData.name !== '') basicUpdate.name = validatedData.name;
         if (validatedData.address && validatedData.address !== '') basicUpdate.address = validatedData.address;
         if (validatedData.category && validatedData.category !== '') basicUpdate.category = validatedData.category;
         if (validatedData.domain && validatedData.domain !== '') basicUpdate.domain = validatedData.domain;
-        
+
         const { data: fallbackBusiness, error: fallbackError } = await supabase
           .from('businesses')
           .update(basicUpdate)
-          .eq('id', userBusiness.id)
+          .eq('id', resolved.businessId)
           .select()
           .single();
           

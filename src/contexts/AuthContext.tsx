@@ -30,9 +30,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const applySession = (session: { user: User } | null) => {
       setUser(session?.user ?? null)
       if (session?.user) {
-        const userRole = session.user.user_metadata?.role || 'owner'
-        setIsAdmin(userRole === 'owner' || userRole === 'admin')
-        setIsCustomer(userRole === 'customer')
+        const userRole = String(session.user.user_metadata?.role || 'owner')
+          .trim()
+          .toLowerCase()
+        const isCust = userRole === 'customer'
+        setIsCustomer(isCust)
+        // CRM shell: owners + invited team (admin/manager/staff). Providers & customers use their own apps.
+        const crmShellRoles = new Set(['owner', 'admin', 'manager', 'staff'])
+        setIsAdmin(!isCust && userRole !== 'provider' && crmShellRoles.has(userRole))
       } else {
         setIsAdmin(false)
         setIsCustomer(false)

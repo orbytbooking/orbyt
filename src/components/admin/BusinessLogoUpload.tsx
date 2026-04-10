@@ -1,6 +1,7 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
 import { useBusiness } from '@/contexts/BusinessContext';
+import { withTenantBusiness } from '@/lib/adminTenantFetch';
 
 interface BusinessLogoUploadProps {
   businessId?: string;
@@ -75,10 +76,13 @@ export default function BusinessLogoUpload({
       formData.append('file', file);
       formData.append('businessId', targetBusinessId);
 
-      const response = await fetch('/api/admin/business/upload-logo', {
-        method: 'POST',
-        body: formData,
-      });
+      const response = await fetch(
+        "/api/admin/business/upload-logo",
+        withTenantBusiness(targetBusinessId, {
+          method: "POST",
+          body: formData,
+        })
+      );
 
       const result = await response.json();
 
@@ -122,10 +126,10 @@ export default function BusinessLogoUpload({
 
     try {
       const response = await fetch(
-        `/api/admin/business/upload-logo?businessId=${targetBusinessId}`,
-        {
-          method: 'DELETE',
-        }
+        `/api/admin/business/upload-logo?businessId=${encodeURIComponent(targetBusinessId)}`,
+        withTenantBusiness(targetBusinessId, {
+          method: "DELETE",
+        })
       );
 
       const result = await response.json();

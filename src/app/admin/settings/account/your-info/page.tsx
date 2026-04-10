@@ -11,6 +11,7 @@ import { useLogo } from "@/contexts/LogoContext";
 import { toast } from "sonner";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { supabase } from "@/lib/supabaseClient";
+import { withTenantBusiness } from "@/lib/adminTenantFetch";
 
 export default function YourInfoPage() {
   const { logo: currentLogo, updateLogo } = useLogo();
@@ -53,7 +54,7 @@ export default function YourInfoPage() {
         }
         
         // Get business data from API
-        const response = await fetch('/api/admin/business');
+        const response = await fetch("/api/admin/business", withTenantBusiness(currentBusiness?.id));
         if (response.ok) {
           const data = await response.json();
           const business = data.business;
@@ -175,24 +176,27 @@ export default function YourInfoPage() {
       setIsSaving(true);
       
       // Update business data in database
-      const businessResponse = await fetch('/api/admin/business', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: businessName.trim(),
-          address: businessAddress.trim(),
-          category: businessCategory.trim(),
-          domain: businessWebsite.trim(),
-          business_email: businessEmail.trim(),
-          business_phone: businessPhone.trim(),
-          city: businessCity.trim(),
-          zip_code: businessZip.trim(),
-          website: businessWebsite.trim(),
-          description: businessDescription.trim(),
-        }),
-      });
+      const businessResponse = await fetch(
+        "/api/admin/business",
+        withTenantBusiness(currentBusiness?.id, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: businessName.trim(),
+            address: businessAddress.trim(),
+            category: businessCategory.trim(),
+            domain: businessWebsite.trim(),
+            business_email: businessEmail.trim(),
+            business_phone: businessPhone.trim(),
+            city: businessCity.trim(),
+            zip_code: businessZip.trim(),
+            website: businessWebsite.trim(),
+            description: businessDescription.trim(),
+          }),
+        })
+      );
       
       if (!businessResponse.ok) {
         throw new Error('Failed to update business information');
@@ -221,10 +225,13 @@ export default function YourInfoPage() {
           
           console.log('🎯 Logo Debug: Got session:', session ? 'Yes' : 'No');
           
-          const uploadResponse = await fetch('/api/admin/business/upload-logo', {
-            method: 'POST',
-            body: formData,
-          });
+          const uploadResponse = await fetch(
+            "/api/admin/business/upload-logo",
+            withTenantBusiness(currentBusiness?.id, {
+              method: "POST",
+              body: formData,
+            })
+          );
           
           const uploadResult = await uploadResponse.json();
           console.log('🎯 Logo Debug: Upload response:', uploadResult);

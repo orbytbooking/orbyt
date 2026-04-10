@@ -1,5 +1,8 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from '@/lib/adminTenantContext';
 
 export interface CancellationSettingsPayload {
   chargeFee?: 'yes' | 'no';
@@ -40,21 +43,19 @@ export interface CancellationSettingsPayload {
   }>;
 }
 
-async function getSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Missing Supabase config');
-  return createClient(url, key, { auth: { persistSession: false } });
-}
-
 export async function GET(request: NextRequest) {
   try {
-    const businessId = request.headers.get('x-business-id') || request.nextUrl.searchParams.get('businessId');
-    if (!businessId) {
-      return NextResponse.json({ error: 'Business ID required' }, { status: 400 });
-    }
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
-    const supabase = await getSupabase();
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      request.nextUrl.searchParams.get('businessId')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
+
     const { data, error } = await supabase
       .from('business_cancellation_settings')
       .select('settings')
@@ -76,11 +77,17 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
+
     const body = await request.json();
-    const businessId = request.headers.get('x-business-id') || body.businessId;
-    if (!businessId) {
-      return NextResponse.json({ error: 'Business ID required' }, { status: 400 });
-    }
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      (typeof body.businessId === 'string' ? body.businessId.trim() : '') ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     const rawCategoryIds = body.customerCancelCategoryIds;
     const customerCancelCategoryIds: Record<string, boolean> =
@@ -129,7 +136,6 @@ export async function PUT(request: NextRequest) {
       multipleFees: Array.isArray(body.multipleFees) ? body.multipleFees : undefined,
     };
 
-    const supabase = await getSupabase();
     const { data: existing } = await supabase
       .from('business_cancellation_settings')
       .select('id')

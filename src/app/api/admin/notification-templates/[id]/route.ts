@@ -1,34 +1,8 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import {
-  getAuthenticatedUser,
-  createUnauthorizedResponse,
-  createForbiddenResponse,
-} from "@/lib/auth-helpers";
-
-async function requireBusinessOwner(businessId: string | null) {
-  if (!businessId) {
-    return { error: NextResponse.json({ error: "Business ID required" }, { status: 400 }) as NextResponse };
-  }
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: createUnauthorizedResponse() };
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  );
-  const { data: business, error } = await supabase
-    .from("businesses")
-    .select("id, owner_id")
-    .eq("id", businessId)
-    .single();
-  if (error || !business) {
-    return { error: NextResponse.json({ error: "Business not found" }, { status: 404 }) };
-  }
-  if ((business as { owner_id: string | null }).owner_id !== user.id) {
-    return { error: createForbiddenResponse("You do not own this business") };
-  }
-  return { error: null as null, supabase, businessId };
-}
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from "@/lib/adminTenantContext";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -37,17 +11,23 @@ type Ctx = { params: Promise<{ id: string }> };
  */
 export async function GET(request: NextRequest, { params }: Ctx) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
+
     const { id } = await params;
-    const businessId = request.headers.get("x-business-id");
-    const gate = await requireBusinessOwner(businessId);
-    if (gate.error) return gate.error;
-    const { supabase, businessId: bid } = gate;
+    const hinted =
+      request.headers.get("x-business-id")?.trim() ||
+      request.nextUrl.searchParams.get("businessId")?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     const { data: row, error } = await supabase
       .from("business_notification_templates")
       .select("id, business_id, name, subject, body, enabled, is_default, created_at, updated_at")
       .eq("id", id)
-      .eq("business_id", bid)
+      .eq("business_id", businessId)
       .maybeSingle();
 
     if (error) {
@@ -69,21 +49,11 @@ export async function GET(request: NextRequest, { params }: Ctx) {
  */
 export async function PATCH(request: NextRequest, { params }: Ctx) {
   try {
-    const { id } = await params;
-    const businessId = request.headers.get("x-business-id");
-    const gate = await requireBusinessOwner(businessId);
-    if (gate.error) return gate.error;
-    const { supabase, businessId: bid } = gate;
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
-    const { data: existing } = await supabase
-      .from("business_notification_templates")
-      .select("id")
-      .eq("id", id)
-      .eq("business_id", bid)
-      .maybeSingle();
-    if (!existing) {
-      return NextResponse.json({ error: "Template not found" }, { status: 404 });
-    }
+    const { id } = await params;
 
     let body: {
       name?: string;
@@ -91,11 +61,29 @@ export async function PATCH(request: NextRequest, { params }: Ctx) {
       body?: string;
       enabled?: boolean;
       is_default?: boolean;
+      businessId?: string;
     } = {};
     try {
       body = await request.json();
     } catch {
       return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+
+    const hinted =
+      request.headers.get("x-business-id")?.trim() ||
+      (typeof body.businessId === "string" ? body.businessId.trim() : "") ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
+
+    const { data: existing } = await supabase
+      .from("business_notification_templates")
+      .select("id")
+      .eq("id", id)
+      .eq("business_id", businessId)
+      .maybeSingle();
+    if (!existing) {
+      return NextResponse.json({ error: "Template not found" }, { status: 404 });
     }
 
     const update: Record<string, unknown> = {
@@ -116,7 +104,7 @@ export async function PATCH(request: NextRequest, { params }: Ctx) {
       await supabase
         .from("business_notification_templates")
         .update({ is_default: false, updated_at: new Date().toISOString() })
-        .eq("business_id", bid);
+        .eq("business_id", businessId);
       update.is_default = true;
     } else if (body.is_default === false) {
       update.is_default = false;
@@ -126,7 +114,7 @@ export async function PATCH(request: NextRequest, { params }: Ctx) {
       .from("business_notification_templates")
       .update(update)
       .eq("id", id)
-      .eq("business_id", bid)
+      .eq("business_id", businessId)
       .select("id, business_id, name, subject, body, enabled, is_default, created_at, updated_at")
       .single();
 
@@ -146,17 +134,23 @@ export async function PATCH(request: NextRequest, { params }: Ctx) {
  */
 export async function DELETE(request: NextRequest, { params }: Ctx) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
+
     const { id } = await params;
-    const businessId = request.headers.get("x-business-id");
-    const gate = await requireBusinessOwner(businessId);
-    if (gate.error) return gate.error;
-    const { supabase, businessId: bid } = gate;
+    const hinted =
+      request.headers.get("x-business-id")?.trim() ||
+      request.nextUrl.searchParams.get("businessId")?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     const { error } = await supabase
       .from("business_notification_templates")
       .delete()
       .eq("id", id)
-      .eq("business_id", bid);
+      .eq("business_id", businessId);
 
     if (error) {
       console.error("notification-templates DELETE:", error);

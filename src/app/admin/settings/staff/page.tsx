@@ -12,6 +12,73 @@ import { useToast } from '@/components/ui/use-toast';
 import { Badge } from '@/components/ui/badge';
 import { useBusiness } from '@/contexts/BusinessContext';
 import { useTenantQueries } from '@/lib/multiTenantSupabase';
+import { withTenantBusiness } from '@/lib/adminTenantFetch';
+import { cn } from '@/lib/utils';
+import {
+  ADMIN_MODULE_DEFS,
+  defaultAllModulesAllowed,
+  normalizeModulePermissionsMap,
+  type AdminModuleKey,
+} from '@/lib/adminModulePermissions';
+
+function StaffModuleAccessFields({
+  value,
+  onChange,
+  className,
+  descriptionClassName,
+  labelsLight,
+}: {
+  value: Record<AdminModuleKey, boolean>;
+  onChange: (key: AdminModuleKey, checked: boolean) => void;
+  className?: string;
+  descriptionClassName?: string;
+  labelsLight?: boolean;
+}) {
+  return (
+    <div className={cn('space-y-2', className)}>
+      <Label className={labelsLight ? 'text-white' : undefined}>Platform access</Label>
+      <p className={cn('text-xs text-muted-foreground', descriptionClassName)}>
+        After they accept the invite, they can only open the admin sections you enable here.
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+        {ADMIN_MODULE_DEFS.map(({ key, label }) => (
+          <label
+            key={key}
+            className={cn(
+              'flex items-center gap-2 text-sm cursor-pointer select-none',
+              labelsLight && 'text-white'
+            )}
+          >
+            <input
+              type="checkbox"
+              checked={!!value[key]}
+              onChange={(e) => onChange(key, e.target.checked)}
+              className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
+            />
+            <span>{label}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StaffRoleFieldHelp({ variant = 'default' }: { variant?: 'default' | 'glass' }) {
+  const box =
+    variant === 'glass'
+      ? 'rounded-md border border-white/20 bg-white/10 px-3 py-2.5 text-gray-700 dark:text-gray-200'
+      : 'rounded-md border border-border/60 bg-muted/30 px-3 py-2.5';
+  return (
+    <div className={`${box} text-xs leading-relaxed`}>
+      <p className="font-medium text-foreground mb-1.5">Team role</p>
+      <p className="text-muted-foreground">
+        This is their <strong className="text-foreground">job title in your directory</strong> (Staff, Manager, or Administrator).
+        Which screens they can open is controlled by <strong className="text-foreground">Platform access</strong> above.
+        After you save, their sidebar label may update after a refresh or the next sign-in.
+      </p>
+    </div>
+  );
+}
 
 type StaffMember = {
   id: string;
@@ -29,6 +96,7 @@ type StaffMember = {
   [key: string]: any; // Add index signature to allow any string key
   status: 'active' | 'inactive';
   lastActive?: string;
+  modulePermissions: Record<AdminModuleKey, boolean>;
 };
 
 const StaffManagement = () => {
@@ -56,6 +124,7 @@ const StaffManagement = () => {
     apartment: string;
     sendInvitation: boolean;
     image?: string;
+    modulePermissions: Record<AdminModuleKey, boolean>;
   }>({
     firstName: '',
     lastName: '',
@@ -67,8 +136,16 @@ const StaffManagement = () => {
     address: '',
     apartment: '',
     sendInvitation: true,
-    image: undefined
+    image: undefined,
+    modulePermissions: defaultAllModulesAllowed(),
   });
+
+  const setModulePermission = (key: AdminModuleKey, checked: boolean) => {
+    setFormData((prev) => ({
+      ...prev,
+      modulePermissions: { ...prev.modulePermissions, [key]: checked },
+    }));
+  };
 
 
   // Load staff data from database
@@ -108,6 +185,7 @@ const StaffManagement = () => {
           image: member.image,
           status: member.status,
           lastActive: member.last_active,
+          modulePermissions: normalizeModulePermissionsMap(member.permissions),
         }));
 
         setStaff(formattedStaff);
@@ -173,52 +251,75 @@ const StaffManagement = () => {
       return;
     }
 
-    try {
-      // Convert camelCase to snake_case for database
-      const staffData = {
-        first_name: formData.firstName,
-        last_name: formData.lastName,
-        email: formData.email,
-        role: formData.role,
-        gender: formData.gender || null,
-        phone: formData.phone,
-        alternate_phone: formData.alternatePhone,
-        address: formData.address,
-        apartment: formData.apartment,
-        send_invitation: formData.sendInvitation,
-        image: formData.image,
-        status: 'active',
-        last_active: new Date().toISOString(),
-      };
+    if (!Object.values(formData.modulePermissions).some(Boolean)) {
+      toast({
+        title: 'Platform access',
+        description: 'Turn on at least one admin area this person can use.',
+        variant: 'destructive',
+      });
+      return;
+    }
 
-      const { data, error } = await tenantQueries.staff.insert(staffData).select();
-      
-      if (error) {
-        console.error('Error adding staff:', error);
+    try {
+      const response = await fetch(
+        '/api/admin/staff',
+        withTenantBusiness(currentBusiness.id, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            firstName: formData.firstName.trim(),
+            lastName: formData.lastName.trim(),
+            email: formData.email.trim(),
+            role: formData.role,
+            gender: formData.gender || '',
+            phone: formData.phone,
+            alternatePhone: formData.alternatePhone,
+            address: formData.address,
+            apartment: formData.apartment,
+            sendInvitation: formData.sendInvitation,
+            image: formData.image,
+            permissions: formData.modulePermissions,
+          }),
+        })
+      );
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
         toast({
           title: 'Error',
-          description: error.message || 'Failed to add staff member.',
+          description: (result as { error?: string }).error || 'Failed to add staff member.',
           variant: 'destructive',
         });
         return;
       }
 
-      // Convert back to camelCase for frontend state
+      const staffId = (result as { staff?: { id: string } }).staff?.id;
+      if (!staffId) {
+        toast({
+          title: 'Error',
+          description: 'Invalid response from server.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
       const newStaff: StaffMember = {
-        id: data[0].id,
-        firstName: data[0].first_name,
-        lastName: data[0].last_name,
-        email: data[0].email,
-        role: data[0].role,
-        gender: data[0].gender || '',
-        phone: data[0].phone || '',
-        alternatePhone: data[0].alternate_phone || '',
-        address: data[0].address || '',
-        apartment: data[0].apartment || '',
-        sendInvitation: data[0].send_invitation,
-        image: data[0].image,
-        status: data[0].status,
-        lastActive: data[0].last_active,
+        id: staffId,
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+        email: formData.email.trim(),
+        role: formData.role,
+        gender: formData.gender || '',
+        phone: formData.phone,
+        alternatePhone: formData.alternatePhone,
+        address: formData.address,
+        apartment: formData.apartment,
+        sendInvitation: formData.sendInvitation,
+        image: formData.image,
+        status: 'active',
+        lastActive: new Date().toISOString(),
+        modulePermissions: { ...formData.modulePermissions },
       };
 
       setStaff([...staff, newStaff]);
@@ -233,13 +334,19 @@ const StaffManagement = () => {
         address: '',
         apartment: '',
         sendInvitation: true,
-        image: undefined
+        image: undefined,
+        modulePermissions: defaultAllModulesAllowed(),
       });
       setIsAddDialogOpen(false);
       
+      const invited = (result as { invitationSent?: boolean }).invitationSent;
       toast({
         title: 'Success',
-        description: 'Staff member added successfully!',
+        description: formData.sendInvitation
+          ? invited
+            ? 'Staff member added and invitation email sent.'
+            : 'Staff member added. Invitation was created; email may not have sent (check Resend / server logs).'
+          : 'Staff member added successfully.',
       });
     } catch (error) {
       console.error('Error adding staff:', error);
@@ -266,6 +373,15 @@ const StaffManagement = () => {
       return;
     }
 
+    if (!Object.values(formData.modulePermissions).some(Boolean)) {
+      toast({
+        title: 'Platform access',
+        description: 'Turn on at least one admin area this person can use.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
       // Convert camelCase to snake_case for database
       const updateData = {
@@ -280,6 +396,7 @@ const StaffManagement = () => {
         apartment: formData.apartment,
         send_invitation: formData.sendInvitation,
         image: formData.image || currentStaff.image,
+        permissions: formData.modulePermissions,
       };
 
       const { data, error } = await tenantQueries.staff
@@ -315,11 +432,15 @@ const StaffManagement = () => {
               image: data[0].image,
               status: data[0].status,
               lastActive: data[0].last_active,
+              modulePermissions: normalizeModulePermissionsMap(
+                (data[0] as { permissions?: unknown }).permissions
+              ),
             }
           : member
       );
 
       setStaff(updatedStaffList);
+      const updatedName = `${formData.firstName} ${formData.lastName}`.trim();
       setIsEditDialogOpen(false);
       setCurrentStaff(null);
       
@@ -335,14 +456,29 @@ const StaffManagement = () => {
         address: '',
         apartment: '',
         sendInvitation: true,
-        image: undefined
+        image: undefined,
+        modulePermissions: defaultAllModulesAllowed(),
       });
       
-      const successMessage = `${formData.firstName} ${formData.lastName}'s details have been updated.`;
-      
+      if (currentBusiness?.id) {
+        void fetch(
+          '/api/admin/staff/sync-role',
+          withTenantBusiness(currentBusiness.id, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              staffId: currentStaff.id,
+              businessId: currentBusiness.id,
+            }),
+          })
+        ).catch(() => {
+          /* non-fatal; staff row already saved */
+        });
+      }
+
       toast({
         title: 'Success',
-        description: successMessage,
+        description: `${updatedName}'s details have been updated.`,
       });
     } catch (error) {
       console.error('Error updating staff:', error);
@@ -410,6 +546,7 @@ const StaffManagement = () => {
       apartment: member.apartment || '',
       sendInvitation: member.sendInvitation !== undefined ? member.sendInvitation : true,
       image: member.image,
+      modulePermissions: { ...member.modulePermissions },
     });
     setIsEditDialogOpen(true);
   };
@@ -735,9 +872,17 @@ const StaffManagement = () => {
                     />
                   </div>
                 </div>
+
+                <StaffModuleAccessFields
+                  value={formData.modulePermissions}
+                  onChange={setModulePermission}
+                  labelsLight
+                  className="rounded-lg border border-white/20 bg-white/10 p-3 dark:bg-gray-700/20"
+                  descriptionClassName="!text-white/80"
+                />
                 
                 {/* Role */}
-                  <div className="space-y-1 pt-2">
+                  <div className="space-y-2 pt-2">
                     <Label htmlFor="role" className="text-gray-700 font-medium dark:!text-white" style={{ color: 'white' }}>Role</Label>
                     <select
                       id="role"
@@ -751,6 +896,7 @@ const StaffManagement = () => {
                       <option value="manager">Manager</option>
                       <option value="admin">Administrator</option>
                     </select>
+                    <StaffRoleFieldHelp variant="glass" />
                   </div>
                   
                   <div className="flex justify-end space-x-3 pt-6">
@@ -918,8 +1064,14 @@ const StaffManagement = () => {
                       Send invitation email to this staff member
                     </Label>
                   </div>
+
+                  <StaffModuleAccessFields
+                    value={formData.modulePermissions}
+                    onChange={setModulePermission}
+                    className="rounded-md border border-border/60 bg-muted/20 p-3"
+                  />
                   
-                  <div className="space-y-1">
+                  <div className="space-y-2">
                     <Label htmlFor="edit-role">Role</Label>
                     <select
                       id="edit-role"
@@ -933,6 +1085,7 @@ const StaffManagement = () => {
                       <option value="manager">Manager</option>
                       <option value="admin">Administrator</option>
                     </select>
+                    <StaffRoleFieldHelp />
                   </div>
                   <div className="flex justify-end space-x-3 pt-4">
                     <Button

@@ -1,53 +1,35 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import { NextRequest, NextResponse } from 'next/server';
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from '@/lib/adminTenantContext';
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
-    // Authenticate user
-    const user = await getAuthenticatedUser();
-    if (!user) {
-      return createUnauthorizedResponse();
-    }
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
-    // Check user role - only allow owners and admins
-    const userRole = user.user_metadata?.role || 'owner';
-    if (userRole === 'customer') {
-      return createForbiddenResponse('Customers cannot access admin endpoints');
-    }
-
-    // Parse query parameters
     const { searchParams } = new URL(request.url);
+    const hinted =
+      searchParams.get('businessId')?.trim() ||
+      searchParams.get('business_id')?.trim() ||
+      request.headers.get('x-business-id')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
+
     const query = searchParams.get('query') || '';
     const status = searchParams.get('status') || 'all';
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
 
-    // Debug logging
     console.log('Reports API called with params:', {
       query,
       status,
       startDate,
-      endDate
+      endDate,
     });
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-
-    // Get the user's business
-    const { data: business, error: businessError } = await supabase
-      .from('businesses')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-    
-    if (businessError || !business) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
-    }
-    
-    const businessId = business.id;
 
     // Build base query
     let bookingsQuery = supabase

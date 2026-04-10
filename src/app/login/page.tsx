@@ -142,7 +142,7 @@ export default function AuthPage() {
     const getBusinessContext = async () => {
       // Try to get business ID from URL params first
       const urlBusinessId = searchParams.get('business');
-      const currentBusinessId = urlBusinessId || localStorage.getItem('currentBusinessId');
+      const currentBusinessId = urlBusinessId;
       
       if (currentBusinessId) {
         setBusinessId(currentBusinessId);

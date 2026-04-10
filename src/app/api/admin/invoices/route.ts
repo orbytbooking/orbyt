@@ -1,34 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-async function getBusinessId(supabase: ReturnType<typeof createClient>) {
-  const user = await getAuthenticatedUser();
-  if (!user) return null;
-  const role = user.user_metadata?.role || 'owner';
-  if (role === 'customer') return null;
-  const { data } = await supabase
-    .from('businesses')
-    .select('id')
-    .eq('owner_id', user.id)
-    .single();
-  return data?.id ?? null;
-}
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from '@/lib/adminTenantContext';
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return createUnauthorizedResponse();
-    if (user.user_metadata?.role === 'customer') return createForbiddenResponse('Access denied');
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const businessId = await getBusinessId(supabase);
-    if (!businessId) return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
     const { searchParams } = new URL(request.url);
+    const hinted =
+      searchParams.get('business_id')?.trim() ||
+      request.headers.get('x-business-id')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
+
     const customerId = searchParams.get('customer_id');
     const status = searchParams.get('status');
     const paymentStatus = searchParams.get('payment_status');
@@ -82,15 +71,17 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return createUnauthorizedResponse();
-    if (user.user_metadata?.role === 'customer') return createForbiddenResponse('Access denied');
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const businessId = await getBusinessId(supabase);
-    if (!businessId) return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
     const body = await request.json();
+    const hinted =
+      (typeof body.business_id === 'string' ? body.business_id.trim() : '') ||
+      request.headers.get('x-business-id')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
     const {
       customer_id,
       invoice_type = 'custom',

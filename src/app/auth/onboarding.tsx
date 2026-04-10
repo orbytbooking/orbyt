@@ -336,7 +336,6 @@ export default function Onboarding() {
       const { error: metadataError } = await supabase.auth.updateUser({
         data: {
           signup_stage: 'payment_pending',
-          business_id: businessData.id,
           full_name: form.fullName,
           phone: form.phone,
           role: 'owner'
@@ -347,9 +346,21 @@ export default function Onboarding() {
         console.error('Metadata update error:', metadataError);
         console.warn('Could not update user metadata, but continuing...');
       }
-      
-      // Store current business in localStorage for context
-      localStorage.setItem('currentBusinessId', businessData.id);
+
+      try {
+        await fetch(`${window.location.origin}/api/admin/profile`, { credentials: 'include' });
+        const pr = await fetch(`${window.location.origin}/api/admin/profile`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ business_id: businessData.id }),
+        });
+        if (!pr.ok) {
+          console.warn('Could not sync profile business_id:', await pr.text());
+        }
+      } catch (e) {
+        console.warn('Profile workspace sync failed:', e);
+      }
       
       console.log('Onboarding completed successfully, syncing platform subscription');
 

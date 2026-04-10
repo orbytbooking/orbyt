@@ -109,9 +109,14 @@ export default function LoginPage() {
           console.warn('Business query warning:', businessError);
         }
 
-        // Set business context if available before redirect
+        // Persist current workspace on profiles.business_id (database)
         if (business?.id) {
-          localStorage.setItem('currentBusinessId', business.id);
+          await fetch('/api/admin/profile', {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ business_id: business.id }),
+          });
         }
 
         // Redirect based on user role – use full page navigation so auth state is visible on the next load

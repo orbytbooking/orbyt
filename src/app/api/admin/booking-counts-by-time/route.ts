@@ -1,20 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { getBookingCountByTimeForDate, getBookingCountForDate } from '@/lib/schedulingFilters';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from '@/lib/adminTenantContext';
 
 /** GET - Booking counts per time for a date (for Daily Settings grid) */
 export async function GET(request: NextRequest) {
   try {
-    const businessId = request.headers.get('x-business-id') || request.nextUrl.searchParams.get('businessId');
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
+
     const date = request.nextUrl.searchParams.get('date'); // YYYY-MM-DD
-    if (!businessId || !date) {
-      return NextResponse.json({ error: 'businessId and date required' }, { status: 400 });
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      request.nextUrl.searchParams.get('businessId')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
+
+    if (!date) {
+      return NextResponse.json({ error: 'date required' }, { status: 400 });
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
     const countsByTime = await getBookingCountByTimeForDate(supabase, businessId, date);
     const totalScheduled = await getBookingCountForDate(supabase, businessId, date);
 

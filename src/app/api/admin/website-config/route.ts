@@ -1,42 +1,16 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import { NextRequest, NextResponse } from 'next/server';
+import { requireAdminTenantContext } from '@/lib/adminTenantContext';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    // Authenticate user
-    const user = await getAuthenticatedUser();
-    if (!user) {
-      return createUnauthorizedResponse();
-    }
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
-    // Check user role - only allow owners and admins
-    const userRole = user.user_metadata?.role || 'owner';
-    if (userRole === 'customer') {
-      return createForbiddenResponse('Customers cannot access admin endpoints');
-    }
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-
-    // Get the user's business
-    const { data: business, error: businessError } = await supabase
-      .from('businesses')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-    
-    if (businessError || !business) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
-    }
-
-    // Get website config
     const { data: config, error: configError } = await supabase
       .from('business_website_configs')
       .select('config')
-      .eq('business_id', business.id)
+      .eq('business_id', businessId)
       .single();
 
     if (configError && configError.code !== 'PGRST116') {
@@ -57,35 +31,11 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    // Authenticate user
-    const user = await getAuthenticatedUser();
-    if (!user) {
-      return createUnauthorizedResponse();
-    }
-
-    // Check user role - only allow owners and admins
-    const userRole = user.user_metadata?.role || 'owner';
-    if (userRole === 'customer') {
-      return createForbiddenResponse('Customers cannot access admin endpoints');
-    }
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-
-    // Get the user's business
-    const { data: business, error: businessError } = await supabase
-      .from('businesses')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-    
-    if (businessError || !business) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
-    }
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
     const { config } = await request.json();
 
@@ -97,7 +47,7 @@ export async function POST(request: Request) {
     const { data: result, error: upsertError } = await supabase
       .from('business_website_configs')
       .upsert({
-        business_id: business.id,
+        business_id: businessId,
         config: config,
         updated_at: new Date().toISOString()
       }, {

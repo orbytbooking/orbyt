@@ -1,26 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from '@/lib/adminTenantContext';
 import {
   extendAllRecurringSeries,
   getOccurrenceDatesForSeriesSync,
   statusForRecurringOccurrence,
 } from '@/lib/recurringBookings';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-async function getBusinessId(supabase: ReturnType<typeof createClient>) {
-  const user = await getAuthenticatedUser();
-  if (!user) return null;
-  if (user.user_metadata?.role === 'customer') return null;
-  const { data } = await supabase
-    .from('businesses')
-    .select('id')
-    .eq('owner_id', user.id)
-    .single();
-  return data?.id ?? null;
-}
 
 const BOOKING_SELECT =
   'id, service, scheduled_date, scheduled_time, date, time, total_price, customer_name, customer_email, customer_phone, address, apt_no, zip_code, notes, status, provider_id, provider_name, payment_method, payment_status, frequency, customization, provider_wage, provider_wage_type, duration_minutes, cancellation_fee_amount, cancellation_fee_currency, private_booking_notes, private_customer_notes, service_provider_notes, card_brand, card_last4, recurring_series_id, completed_occurrence_dates, customer_cancelled_occurrence_dates';
@@ -28,15 +15,18 @@ const BOOKING_SELECT =
 /** GET — bookings for one provider, with recurring series expanded (admin provider profile calendar). */
 export async function GET(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return createUnauthorizedResponse();
-    if (user.user_metadata?.role === 'customer') return createForbiddenResponse('Access denied');
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const businessId = await getBusinessId(supabase);
-    if (!businessId) return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
     const { searchParams } = new URL(request.url);
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      searchParams.get('businessId')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
+
     const providerId = searchParams.get('provider_id');
     if (!providerId) {
       return NextResponse.json({ error: 'provider_id is required' }, { status: 400 });

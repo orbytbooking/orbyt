@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser, createUnauthorizedResponse } from '@/lib/auth-helpers';
+import { userOwnsBusiness } from '@/lib/tenantBusinessAccess';
 
 // Create Supabase client for server-side operations
 const supabase = createClient(
@@ -33,6 +34,11 @@ export async function POST(request: NextRequest) {
 
     if (!businessId) {
       return NextResponse.json({ error: 'Business ID is required' }, { status: 400 });
+    }
+
+    const allowed = await userOwnsBusiness(supabase, user.id, businessId);
+    if (!allowed) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
     // Validate file type
@@ -141,6 +147,11 @@ export async function DELETE(request: NextRequest) {
 
     if (!businessId) {
       return NextResponse.json({ error: 'Business ID is required' }, { status: 400 });
+    }
+
+    const allowed = await userOwnsBusiness(supabase, user.id, businessId);
+    if (!allowed) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
     // Get current business to find logo URL

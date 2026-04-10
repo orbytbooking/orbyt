@@ -13,7 +13,6 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
-import { Textarea } from "@/components/ui/textarea";
 import { 
   User, 
   Mail, 
@@ -33,13 +32,13 @@ import {
   Camera,
   MapPin,
   Calendar,
-  Clock,
-  Loader2
+  Clock
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { supabase } from "@/lib/supabaseClient";
+import { withTenantBusiness } from "@/lib/adminTenantFetch";
 
 export default function AdminProfilePage() {
   const router = useRouter();
@@ -53,23 +52,15 @@ export default function AdminProfilePage() {
   const [adminRole, setAdminRole] = useState("admin");
   const [profilePicture, setProfilePicture] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [isProfileLoading, setIsProfileLoading] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [pushNotifications, setPushNotifications] = useState(false);
-  const [darkMode, setDarkMode] = useState(true);
+  const [darkMode, setDarkMode] = useState(false);
   const [activeTab, setActiveTab] = useState("profile");
   const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle");
   const [profileCompletion, setProfileCompletion] = useState(0);
-  const [businessInfo, setBusinessInfo] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    address: "",
-    description: ""
-  });
   const [profileCreatedAt, setProfileCreatedAt] = useState<string | null>(null);
   const [profileUpdatedAt, setProfileUpdatedAt] = useState<string | null>(null);
 
@@ -84,97 +75,107 @@ export default function AdminProfilePage() {
 
   useEffect(() => {
     const fetchData = async () => {
+      let completionEmail = "";
+      let completionName = "";
+      let completionPhone = "";
+      let completionCompany = "";
+      let completionLocation = "";
+      let completionBio = "";
+      let completionRole = "admin";
+
       try {
         const { data: authData } = await supabase.auth.getUser();
-        const authEmail = authData.user?.email?.trim();
+        const authEmail = authData.user?.email?.trim() || "";
+        completionEmail = authEmail;
         if (authEmail) setAdminEmail(authEmail);
 
-        // Fetch profile data
-        const profileResponse = await fetch('/api/admin/profile');
+        const profileResponse = await fetch("/api/admin/profile", { credentials: "include" });
         if (profileResponse.ok) {
           const data = await profileResponse.json();
-          const profile = data.profile;
-          
+          const profile = data.profile as {
+            full_name?: string | null;
+            phone?: string | null;
+            role?: string | null;
+            bio?: string | null;
+            location?: string | null;
+            profile_picture?: string | null;
+            email?: string | null;
+            created_at?: string | null;
+            updated_at?: string | null;
+            email_notifications?: boolean | null;
+            push_notifications?: boolean | null;
+            admin_theme?: string | null;
+          } | null;
+
           if (profile) {
-            setAdminName(profile.full_name || '');
-            setAdminPhone(profile.phone || '');
-            setAdminRole(profile.role || 'admin');
-            setAdminBio(profile.bio || '');
-            setAdminLocation(profile.location || '');
-            setProfilePicture(profile.profile_picture || '');
+            completionName = profile.full_name || "";
+            completionPhone = profile.phone || "";
+            completionRole = profile.role || "admin";
+            completionBio = profile.bio || "";
+            completionLocation = profile.location || "";
+            if (profile.email) {
+              completionEmail = profile.email;
+            }
+            setAdminName(completionName);
+            setAdminPhone(completionPhone);
+            setAdminRole(completionRole);
+            setAdminBio(completionBio);
+            setAdminLocation(completionLocation);
+            setProfilePicture(profile.profile_picture || "");
             if (profile.email) {
               setAdminEmail(profile.email);
             }
             setProfileCreatedAt(profile.created_at ?? null);
             setProfileUpdatedAt(profile.updated_at ?? null);
+            setEmailNotifications(profile.email_notifications !== false);
+            setPushNotifications(profile.push_notifications === true);
+            setDarkMode(profile.admin_theme === "dark");
           }
         }
 
-        // Fetch business data
-        const businessResponse = await fetch('/api/admin/business');
+        const businessResponse = await fetch(
+          "/api/admin/business",
+          withTenantBusiness(currentBusiness?.id)
+        );
         if (businessResponse.ok) {
           const data = await businessResponse.json();
           const business = data.business;
-          
+
           if (business) {
-            setBusinessInfo({
-              name: business.name || '',
-              email: business.business_email || '',
-              phone: business.business_phone || '',
-              address: business.address || '',
-              description: business.description || ''
-            });
-            setAdminCompany(business.name || '');
+            completionCompany = business.name || "";
+            setAdminCompany(completionCompany);
           }
         }
+
+        const completionFields = [
+          completionEmail,
+          completionName,
+          completionPhone,
+          completionCompany,
+          completionLocation,
+          completionBio,
+          completionRole,
+        ];
+        const done = completionFields.filter((f) => f && String(f).trim() !== "").length;
+        setProfileCompletion(Math.round((done / completionFields.length) * 100));
       } catch (error) {
-        console.error('Error fetching data:', error);
-      } finally {
-        setIsProfileLoading(false);
+        console.error("Error fetching data:", error);
       }
     };
-    
-    fetchData();
-    
-    // Minimal localStorage fallback - NO profile picture from localStorage
-    const email = localStorage.getItem("adminEmail") || "";
-    const name = localStorage.getItem("adminName") || "";
-    const phone = localStorage.getItem("adminPhone") || "";
-    const company = localStorage.getItem("adminCompany") || "";
-    const location = localStorage.getItem("adminLocation") || "";
-    const bio = localStorage.getItem("adminBio") || "";
-    const role = localStorage.getItem("adminRole") || "admin";
-    const notifications = localStorage.getItem("emailNotifications") !== "false";
-    const pushNotif = localStorage.getItem("pushNotifications") === "true";
-    const dark = localStorage.getItem("adminTheme") !== "light";
-    
-    // Only set from localStorage if the field is empty (except profile picture)
-    if (!adminEmail) setAdminEmail(email);
-    if (!adminName) setAdminName(name);
-    if (!adminPhone) setAdminPhone(phone);
-    if (!adminCompany) setAdminCompany(company);
-    if (!adminLocation) setAdminLocation(location);
-    if (!adminBio) setAdminBio(bio);
-    if (adminRole === 'admin') setAdminRole(role); // Only override if still default
-    setEmailNotifications(notifications);
-    setPushNotifications(pushNotif);
-    setDarkMode(dark);
-    
-    // Calculate profile completion
-    const fields = [email, name, phone, company, location, bio, role];
-    const completedFields = fields.filter(field => field && field.trim() !== "").length;
-    setProfileCompletion(Math.round((completedFields / fields.length) * 100));
-  }, []);
+
+    void fetchData();
+  }, [currentBusiness?.id]);
 
   const handleSave = async () => {
     setIsLoading(true);
     setSaveStatus("idle");
     try {
       // Update profile in database
-      const profileResponse = await fetch('/api/admin/profile', {
-        method: 'PUT',
+      const profileResponse = await fetch("/api/admin/profile", {
+        method: "PUT",
+        credentials: "include",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           full_name: adminName,
@@ -184,6 +185,9 @@ export default function AdminProfilePage() {
           location: adminLocation,
           profile_picture: profilePicture,
           role: adminRole,
+          email_notifications: emailNotifications,
+          push_notifications: pushNotifications,
+          admin_theme: darkMode ? "dark" : "light",
         }),
       });
       
@@ -198,25 +202,16 @@ export default function AdminProfilePage() {
         setProfileUpdatedAt(saved.profile.updated_at);
       }
       
-      localStorage.setItem("adminEmail", adminEmail);
-      localStorage.setItem("adminName", adminName);
-      localStorage.setItem("adminPhone", adminPhone);
-      localStorage.setItem("adminCompany", adminCompany);
-      localStorage.setItem("adminLocation", adminLocation);
-      localStorage.setItem("adminBio", adminBio);
-      localStorage.setItem("adminRole", adminRole);
-      // NO localStorage for profile picture - only database
-      localStorage.setItem("emailNotifications", emailNotifications.toString());
-      localStorage.setItem("pushNotifications", pushNotifications.toString());
-      localStorage.setItem("adminTheme", darkMode ? "dark" : "light");
-      
       // Update profile completion
       const fields = [adminEmail, adminName, adminPhone, adminCompany, adminLocation, adminBio, adminRole];
       const completedFields = fields.filter(field => field && field.trim() !== "").length;
       setProfileCompletion(Math.round((completedFields / fields.length) * 100));
       
       setSaveStatus("success");
-      toast.success('Profile updated successfully!');
+      toast.success("Profile updated successfully!");
+      window.dispatchEvent(
+        new CustomEvent("orbyt-admin-theme", { detail: { theme: darkMode ? "dark" : "light" } })
+      );
       setTimeout(() => {
         setIsLoading(false);
         setSaveStatus("idle");
@@ -709,98 +704,6 @@ export default function AdminProfilePage() {
                       {adminBio.length}/500 characters
                     </p>
                   </div>
-                </CardContent>
-              </Card>
-
-              {/* Business Information Card */}
-              <Card className="lg:col-span-2">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Building className="h-5 w-5" />
-                    Business Information
-                  </CardTitle>
-                  <CardDescription>
-                    Your business details and contact information
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {isProfileLoading ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="h-6 w-6 animate-spin" />
-                      <span className="ml-2">Loading business information...</span>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="business-name">Business Name</Label>
-                          <Input
-                            id="business-name"
-                            value={businessInfo.name}
-                            disabled
-                            className="bg-muted/50"
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="business-email">Business Email</Label>
-                          <div className="relative">
-                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input
-                              id="business-email"
-                              type="email"
-                              className="pl-10 bg-muted/50"
-                              value={businessInfo.email}
-                              disabled
-                            />
-                          </div>
-                        </div>
-
-                        <PhoneField
-                          id="business-phone"
-                          label="Business Phone"
-                          value={businessInfo.phone}
-                          onChange={() => {}}
-                          disabled
-                          showHelperText={false}
-                        />
-
-                        <div className="space-y-2">
-                          <Label htmlFor="business-address">Business Address</Label>
-                          <div className="relative">
-                            <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input
-                              id="business-address"
-                              className="pl-10 bg-muted/50"
-                              value={businessInfo.address}
-                              disabled
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="business-description">Business Description</Label>
-                        <Textarea
-                          id="business-description"
-                          rows={3}
-                          className="bg-muted/50 resize-none"
-                          value={businessInfo.description}
-                          disabled
-                        />
-                      </div>
-
-                      <div className="flex items-center gap-2 p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                        <Building className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                        <div className="text-sm">
-                          <p className="font-medium text-blue-900 dark:text-blue-100">Business Information</p>
-                          <p className="text-blue-700 dark:text-blue-300">
-                            To update business details, visit the <a href="/admin/settings" className="underline hover:text-blue-800 dark:hover:text-blue-200">Settings page</a>
-                          </p>
-                        </div>
-                      </div>
-                    </>
-                  )}
                 </CardContent>
               </Card>
             </div>

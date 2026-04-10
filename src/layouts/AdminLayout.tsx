@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, Suspense } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -51,6 +51,16 @@ import { addIndustryChangeListener, removeIndustryChangeListener } from "@/lib/i
 import { ReceptionistChat } from "@/components/ReceptionistChat";
 import { PLATFORM_NOTIF_ID_PREFIX } from "@/lib/platform-announcement-notifications";
 import { NotificationDetailDialog } from "@/components/notifications/NotificationDetailDialog";
+import {
+  adminThemeFromProfileValue,
+  readCachedAdminTheme,
+  writeCachedAdminTheme,
+} from "@/lib/adminThemeCache";
+import {
+  pathnameToRequiredAdminModule,
+  firstAllowedAdminPath,
+  type AdminModuleKey,
+} from "@/lib/adminModulePermissions";
 
 interface Industry {
   id: string;
@@ -63,7 +73,7 @@ interface Industry {
 }
 
 const AdminLayout = ({ children }: { children: React.ReactNode }) => {
-  const { currentBusiness } = useBusiness();
+  const { currentBusiness, hasModuleAccess, loading: businessCtxLoading } = useBusiness();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [adminEmail, setAdminEmail] = useState("");
   const [accountName, setAccountName] = useState("");
@@ -75,7 +85,66 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
     if (!s) return "";
     return s.charAt(0).toUpperCase() + s.slice(1);
   };
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+
+  /** Apply this user’s last-known theme before profile fetch (reduces flash). DB wins once loaded. */
+  useLayoutEffect(() => {
+    let cancelled = false;
+    void supabase.auth.getSession().then(({ data }) => {
+      const uid = data.session?.user?.id;
+      if (cancelled || !uid) return;
+      const cached = readCachedAdminTheme(uid);
+      if (cached) setTheme(cached);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const onThemeEvent = (e: Event) => {
+      const t = (e as CustomEvent<{ theme?: string }>).detail?.theme;
+      if (t !== "light" && t !== "dark") return;
+      setTheme(t);
+      void supabase.auth.getUser().then(({ data: { user } }) => {
+        if (user?.id) writeCachedAdminTheme(user.id, t);
+      });
+    };
+    window.addEventListener("orbyt-admin-theme", onThemeEvent);
+    return () => window.removeEventListener("orbyt-admin-theme", onThemeEvent);
+  }, []);
+
+  /** Account switch (e.g. another login in-tab): re-sync theme from profile. */
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT") {
+        setTheme("light");
+        return;
+      }
+      if (event !== "SIGNED_IN" || !session?.user?.id) return;
+      const uid = session.user.id;
+      const cached = readCachedAdminTheme(uid);
+      if (cached) setTheme(cached);
+      void (async () => {
+        try {
+          const res = await fetch("/api/admin/profile", { credentials: "include" });
+          if (!res.ok) return;
+          const body = await res.json();
+          const t = adminThemeFromProfileValue(
+            (body?.profile as { admin_theme?: string } | undefined)?.admin_theme
+          );
+          setTheme(t);
+          writeCachedAdminTheme(uid, t);
+        } catch {
+          /* keep cache / current */
+        }
+      })();
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   const pathname = usePathname();
   const { config } = useWebsiteConfig();
   const searchParams = useSearchParams();
@@ -215,21 +284,14 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
 
   const [openIndustryMenus, setOpenIndustryMenus] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    const savedTheme = (localStorage.getItem("adminTheme") as 'light' | 'dark') || 'dark';
-    setTheme(savedTheme);
-  }, []);
-
-  // Session + profile: name, role, avatar (refetch on navigation so /admin/profile saves show up).
+  // Session + profile: theme, name, role, avatar (refetch on navigation so /admin/profile saves show up).
   useEffect(() => {
     let mounted = true;
     const hydrateProfile = async () => {
-      const localEmail = localStorage.getItem("adminEmail")?.trim() || "";
-      if (mounted) setAdminEmail(localEmail);
-
       try {
         const { data } = await supabase.auth.getSession();
         const user = data.session?.user;
+        const userId = user?.id ?? "";
         const sessionEmail = user?.email?.trim();
         if (mounted && sessionEmail) {
           setAdminEmail(sessionEmail);
@@ -239,16 +301,22 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
           setUserRoleLabel(metaRole);
         }
 
-        const res = await fetch("/api/admin/profile");
+        const res = await fetch("/api/admin/profile", { credentials: "include" });
         let profileFullName = "";
         if (res.ok) {
           const body = await res.json();
-          const role = body?.profile?.role as string | undefined;
+          const prof = body?.profile as { admin_theme?: string; role?: string; full_name?: string; profile_picture?: string } | undefined;
+          if (mounted) {
+            const t = adminThemeFromProfileValue(prof?.admin_theme);
+            setTheme(t);
+            if (userId) writeCachedAdminTheme(userId, t);
+          }
+          const role = prof?.role as string | undefined;
           if (mounted && role) {
             setUserRoleLabel(formatRoleLabel(role));
           }
-          profileFullName = (body?.profile?.full_name as string | undefined)?.trim() ?? "";
-          const rawPic = (body?.profile?.profile_picture as string | undefined)?.trim() ?? "";
+          profileFullName = (prof?.full_name as string | undefined)?.trim() ?? "";
+          const rawPic = (prof?.profile_picture as string | undefined)?.trim() ?? "";
           const validPic =
             rawPic &&
             (rawPic.startsWith("https://") ||
@@ -262,16 +330,14 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
         }
 
         const metaName = (user?.user_metadata?.full_name as string | undefined)?.trim() ?? "";
-        const storedName = localStorage.getItem("adminName")?.trim() ?? "";
-        const emailForFallback = sessionEmail || localEmail;
+        const emailForFallback = sessionEmail || "";
         const fromEmail = emailForFallback ? emailForFallback.split("@")[0] : "";
-        const displayName =
-          profileFullName || metaName || storedName || fromEmail || "";
+        const displayName = profileFullName || metaName || fromEmail || "";
         if (mounted) {
           setAccountName(displayName);
         }
       } catch {
-        // Keep fallback email from localStorage.
+        /* keep defaults */
       }
     };
     void hydrateProfile();
@@ -368,6 +434,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
       icon: LayoutDashboard, 
       label: "Dashboard", 
       path: "/admin/dashboard",
+      module: "dashboard" as AdminModuleKey,
       iconBg: "bg-blue-100",
       iconColor: "text-blue-600"
     },
@@ -375,6 +442,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
       icon: Calendar, 
       label: "Bookings", 
       path: "/admin/bookings",
+      module: "bookings" as AdminModuleKey,
       iconBg: "bg-green-100",
       iconColor: "text-green-600",
       children: [
@@ -392,6 +460,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
       icon: Users, 
       label: "Customers", 
       path: "/admin/customers",
+      module: "customers" as AdminModuleKey,
       iconBg: "bg-purple-100",
       iconColor: "text-purple-600"
     },
@@ -399,6 +468,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
       icon: FileText, 
       label: "Leads", 
       path: "/admin/leads",
+      module: "leads" as AdminModuleKey,
       iconBg: "bg-blue-100",
       iconColor: "text-blue-600"
     },
@@ -406,6 +476,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
       icon: UserPlus, 
       label: "Hiring", 
       path: "/admin/hiring",
+      module: "hiring" as AdminModuleKey,
       iconBg: "bg-cyan-100",
       iconColor: "text-cyan-600"
     },
@@ -413,6 +484,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
       icon: UserCog, 
       label: "Providers", 
       path: "/admin/providers",
+      module: "providers" as AdminModuleKey,
       iconBg: "bg-amber-100",
       iconColor: "text-amber-600",
       children: [
@@ -424,6 +496,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
       icon: Megaphone, 
       label: "Marketing", 
       path: "/admin/marketing",
+      module: "marketing" as AdminModuleKey,
       iconBg: "bg-pink-100",
       iconColor: "text-pink-600"
     },
@@ -431,6 +504,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
       icon: BarChart3, 
       label: "Reports", 
       path: "/admin/reports",
+      module: "reports" as AdminModuleKey,
       iconBg: "bg-emerald-100",
       iconColor: "text-emerald-600"
     },
@@ -438,6 +512,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
       icon: List, 
       label: "Logs", 
       path: "/admin/logs",
+      module: "logs" as AdminModuleKey,
       iconBg: "bg-gray-100",
       iconColor: "text-gray-600"
     },
@@ -445,10 +520,18 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
       icon: Settings,
       label: "Settings",
       path: "/admin/settings",
+      module: "settings" as AdminModuleKey,
       iconBg: "bg-indigo-100",
       iconColor: "text-indigo-600",
       children: [
         { label: "Account", path: "/admin/settings/account" },
+        {
+          icon: Users,
+          label: "Staff",
+          path: "/admin/settings/staff",
+          iconBg: "purple-100",
+          iconColor: "text-purple-600",
+        },
         { 
           icon: Settings,
           label: 'General', 
@@ -502,16 +585,31 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
           iconBg: 'bg-blue-100',
           iconColor: 'text-blue-600'
         },
-        { 
-          icon: Users,
-          label: 'Staff', 
-          path: '/admin/settings/staff',
-          iconBg: 'purple-100',
-          iconColor: 'text-purple-600'
-        },
       ],
     },
   ];
+
+  const visibleMenuItems = useMemo(() => {
+    return menuItems.filter((item: { module?: AdminModuleKey }) => {
+      const m = item.module;
+      if (!m) return true;
+      return hasModuleAccess(m);
+    });
+  }, [menuItems, hasModuleAccess]);
+
+  useEffect(() => {
+    if (businessCtxLoading || !currentBusiness || !pathname) return;
+    const mod = pathnameToRequiredAdminModule(pathname);
+    if (mod === null) return;
+    if (hasModuleAccess(mod)) return;
+    const dest = firstAllowedAdminPath(
+      currentBusiness.role === "owner",
+      currentBusiness.module_permissions ?? null
+    );
+    if (pathname !== dest) {
+      router.replace(dest);
+    }
+  }, [pathname, businessCtxLoading, currentBusiness, hasModuleAccess, router]);
 
   const handleLogout = async () => {
     try {
@@ -524,9 +622,29 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   };
 
   const toggleTheme = () => {
-    const newTheme = theme === 'dark' ? 'light' : 'dark';
+    const prev = theme;
+    const newTheme = prev === "dark" ? "light" : "dark";
     setTheme(newTheme);
-    localStorage.setItem("adminTheme", newTheme);
+    void (async () => {
+      try {
+        const r = await fetch("/api/admin/profile", {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ admin_theme: newTheme }),
+        });
+        if (!r.ok) {
+          console.warn("Could not persist admin theme:", await r.text());
+          setTheme(prev);
+          return;
+        }
+        const { data: u } = await supabase.auth.getUser();
+        const uid = u.user?.id;
+        if (uid) writeCachedAdminTheme(uid, newTheme);
+      } catch {
+        setTheme(prev);
+      }
+    })();
   };
 
   const { logo } = useLogo();
@@ -592,7 +710,7 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
 
           {/* Navigation */}
           <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-            {menuItems.map((item) => {
+            {visibleMenuItems.map((item) => {
               const Icon = item.icon;
               const hasChildren = Array.isArray((item as any).children);
               const childActive = hasChildren

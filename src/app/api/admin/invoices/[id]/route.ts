@@ -1,35 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from '@/lib/adminTenantContext';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-async function getBusinessId(supabase: ReturnType<typeof createClient>) {
-  const user = await getAuthenticatedUser();
-  if (!user) return null;
-  if (user.user_metadata?.role === 'customer') return null;
-  const { data } = await supabase
-    .from('businesses')
-    .select('id')
-    .eq('owner_id', user.id)
-    .single();
-  return data?.id ?? null;
-}
-
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return createUnauthorizedResponse();
-    if (user.user_metadata?.role === 'customer') return createForbiddenResponse('Access denied');
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
+
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      request.nextUrl.searchParams.get('business_id')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     const { id } = await params;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const businessId = await getBusinessId(supabase);
-    if (!businessId) return NextResponse.json({ error: 'Business not found' }, { status: 404 });
 
     const { data: invoice, error } = await supabase
       .from('invoices')
@@ -53,19 +41,21 @@ export async function GET(
   }
 }
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return createUnauthorizedResponse();
-    if (user.user_metadata?.role === 'customer') return createForbiddenResponse('Access denied');
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
     const { id } = await params;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const businessId = await getBusinessId(supabase);
-    if (!businessId) return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+
+    const body = await request.json();
+    const hinted =
+      (typeof body.business_id === 'string' ? body.business_id.trim() : '') ||
+      request.headers.get('x-business-id')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     const { data: existing } = await supabase
       .from('invoices')
@@ -76,11 +66,17 @@ export async function PATCH(
 
     if (!existing) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
 
-    const body = await request.json();
     const update: Record<string, unknown> = {};
     const allowed = [
-      'status', 'payment_status', 'issue_date', 'due_date', 'total_amount', 'amount_paid',
-      'description', 'notes', 'billing_address'
+      'status',
+      'payment_status',
+      'issue_date',
+      'due_date',
+      'total_amount',
+      'amount_paid',
+      'description',
+      'notes',
+      'billing_address',
     ];
     for (const k of allowed) {
       if (body[k] !== undefined) update[k] = body[k];
@@ -111,25 +107,22 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return createUnauthorizedResponse();
-    if (user.user_metadata?.role === 'customer') return createForbiddenResponse('Access denied');
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
+
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      request.nextUrl.searchParams.get('business_id')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     const { id } = await params;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const businessId = await getBusinessId(supabase);
-    if (!businessId) return NextResponse.json({ error: 'Business not found' }, { status: 404 });
 
-    const { error } = await supabase
-      .from('invoices')
-      .delete()
-      .eq('id', id)
-      .eq('business_id', businessId);
+    const { error } = await supabase.from('invoices').delete().eq('id', id).eq('business_id', businessId);
 
     if (error) {
       console.error('Invoice delete error:', error);

@@ -1,58 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from '@/lib/adminTenantContext';
 import {
   mergeAdminNotificationsWithPlatformAnnouncements,
   markAllVisiblePlatformAnnouncementsReadForUser,
   platformViewerKindFromUser,
 } from '@/lib/platform-announcement-notifications';
 
-async function getBusinessId(supabase: ReturnType<typeof createClient>, userId: string) {
-  const { data: business, error } = await supabase
-    .from('businesses')
-    .select('id')
-    .eq('owner_id', userId)
-    .limit(1)
-    .maybeSingle();
-  if (error || !business) return null;
-  return business.id;
-}
-
-async function validateBusinessAccess(supabase: ReturnType<typeof createClient>, userId: string, businessId: string) {
-  const { data: business, error } = await supabase
-    .from('businesses')
-    .select('id')
-    .eq('id', businessId)
-    .eq('owner_id', userId)
-    .maybeSingle();
-  return !error && !!business;
-}
-
 export async function GET(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return createUnauthorizedResponse();
-
-    const role = user.user_metadata?.role || 'owner';
-    if (role === 'customer') return createForbiddenResponse('Customers cannot access admin endpoints');
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId, user } = ctx;
 
     const { searchParams } = new URL(request.url);
-    const businessIdParam = searchParams.get('business_id');
-    let businessId: string | null;
-
-    if (businessIdParam) {
-      const hasAccess = await validateBusinessAccess(supabase, user.id, businessIdParam);
-      if (!hasAccess) return NextResponse.json({ error: 'Business not found or access denied' }, { status: 404 });
-      businessId = businessIdParam;
-    } else {
-      businessId = await getBusinessId(supabase, user.id);
-    }
-    if (!businessId) return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+    const hinted =
+      searchParams.get('business_id')?.trim() ||
+      request.headers.get('x-business-id')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     const { data: notifications, error } = await supabase
       .from('admin_notifications')
@@ -94,28 +63,17 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return createUnauthorizedResponse();
-
-    const role = user.user_metadata?.role || 'owner';
-    if (role === 'customer') return createForbiddenResponse('Customers cannot access admin endpoints');
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId, user } = ctx;
 
     const { searchParams } = new URL(request.url);
-    const businessIdParam = searchParams.get('business_id');
-    let businessId: string | null;
-    if (businessIdParam) {
-      const hasAccess = await validateBusinessAccess(supabase, user.id, businessIdParam);
-      if (!hasAccess) return NextResponse.json({ error: 'Business not found or access denied' }, { status: 404 });
-      businessId = businessIdParam;
-    } else {
-      businessId = await getBusinessId(supabase, user.id);
-    }
-    if (!businessId) return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+    const hinted =
+      searchParams.get('business_id')?.trim() ||
+      request.headers.get('x-business-id')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     const { error } = await supabase
       .from('admin_notifications')
@@ -139,44 +97,32 @@ export async function PATCH(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return createUnauthorizedResponse();
-
-    const role = user.user_metadata?.role || 'owner';
-    if (role === 'customer') return createForbiddenResponse('Customers cannot access admin endpoints');
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
     const body = await request.json().catch(() => ({}));
     const title = typeof body.title === 'string' ? body.title.trim() : '';
     const description = typeof body.description === 'string' ? (body.description || '').trim() : '';
     const link = typeof body.link === 'string' && body.link.trim() ? body.link.trim() : null;
-    const businessIdParam = body.business_id ?? request.nextUrl.searchParams.get('business_id');
+
+    const hinted =
+      (typeof body.business_id === 'string' ? body.business_id.trim() : '') ||
+      request.nextUrl.searchParams.get('business_id')?.trim() ||
+      request.headers.get('x-business-id')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     if (!title) return NextResponse.json({ error: 'Title is required' }, { status: 400 });
 
-    let businessId: string | null;
-    if (businessIdParam) {
-      const hasAccess = await validateBusinessAccess(supabase, user.id, businessIdParam);
-      if (!hasAccess) return NextResponse.json({ error: 'Business not found or access denied' }, { status: 404 });
-      businessId = businessIdParam;
-    } else {
-      businessId = await getBusinessId(supabase, user.id);
-    }
-    if (!businessId) return NextResponse.json({ error: 'Business not found' }, { status: 404 });
-
-    const { error } = await supabase
-      .from('admin_notifications')
-      .insert({
-        business_id: businessId,
-        title,
-        description,
-        link,
-        read: false,
-      });
+    const { error } = await supabase.from('admin_notifications').insert({
+      business_id: businessId,
+      title,
+      description,
+      link,
+      read: false,
+    });
 
     if (error) {
       console.error('Error creating admin notification:', error);
@@ -192,33 +138,19 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return createUnauthorizedResponse();
-
-    const role = user.user_metadata?.role || 'owner';
-    if (role === 'customer') return createForbiddenResponse('Customers cannot access admin endpoints');
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId, user } = ctx;
 
     const { searchParams } = new URL(request.url);
-    const businessIdParam = searchParams.get('business_id');
-    let businessId: string | null;
-    if (businessIdParam) {
-      const hasAccess = await validateBusinessAccess(supabase, user.id, businessIdParam);
-      if (!hasAccess) return NextResponse.json({ error: 'Business not found or access denied' }, { status: 404 });
-      businessId = businessIdParam;
-    } else {
-      businessId = await getBusinessId(supabase, user.id);
-    }
-    if (!businessId) return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+    const hinted =
+      searchParams.get('business_id')?.trim() ||
+      request.headers.get('x-business-id')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
-    const { error } = await supabase
-      .from('admin_notifications')
-      .delete()
-      .eq('business_id', businessId);
+    const { error } = await supabase.from('admin_notifications').delete().eq('business_id', businessId);
 
     if (error) {
       console.error('Error clearing admin notifications:', error);

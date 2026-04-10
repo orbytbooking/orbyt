@@ -1,27 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
-
-async function getBusinessId(supabase: ReturnType<typeof createClient>, userId: string) {
-  const { data: business, error } = await supabase
-    .from('businesses')
-    .select('id')
-    .eq('owner_id', userId)
-    .limit(1)
-    .maybeSingle();
-  if (error || !business) return null;
-  return business.id;
-}
-
-async function validateBusinessAccess(supabase: ReturnType<typeof createClient>, userId: string, businessId: string) {
-  const { data: business, error } = await supabase
-    .from('businesses')
-    .select('id')
-    .eq('id', businessId)
-    .eq('owner_id', userId)
-    .maybeSingle();
-  return !error && !!business;
-}
+import { resolveTenantBusinessId } from '@/lib/tenantBusinessAccess';
+import { tenantMayAccessModule } from '@/lib/tenantModuleAccess';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,17 +23,19 @@ export async function GET(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    const businessIdParam = request.nextUrl?.searchParams?.get('business_id') || request.headers.get('x-business-id');
-    let businessId: string | null;
+    const resolved = await resolveTenantBusinessId(supabase, user.id, request);
+    let businessId: string | null =
+      'businessId' in resolved ? resolved.businessId : null;
 
-    if (businessIdParam) {
-      const hasAccess = await validateBusinessAccess(supabase, user.id, businessIdParam);
-      if (!hasAccess) {
-        return NextResponse.json({ error: 'Business not found or access denied' }, { status: 404 });
+    if ('error' in resolved && resolved.error === 'FORBIDDEN') {
+      return NextResponse.json({ error: 'Business not found or access denied' }, { status: 404 });
+    }
+
+    if (businessId) {
+      const allowed = await tenantMayAccessModule(supabase, user.id, businessId, 'dashboard');
+      if (!allowed) {
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
       }
-      businessId = businessIdParam;
-    } else {
-      businessId = await getBusinessId(supabase, user.id);
     }
 
     if (!businessId) {

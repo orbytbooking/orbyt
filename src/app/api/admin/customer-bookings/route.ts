@@ -1,36 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from '@/lib/adminTenantContext';
 import {
   extendAllRecurringSeries,
   getOccurrenceDatesForSeriesSync,
   statusForRecurringOccurrence,
 } from '@/lib/recurringBookings';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-async function getBusinessId(supabase: ReturnType<typeof createClient>) {
-  const user = await getAuthenticatedUser();
-  if (!user) return null;
-  if (user.user_metadata?.role === 'customer') return null;
-  const { data } = await supabase
-    .from('businesses')
-    .select('id')
-    .eq('owner_id', user.id)
-    .single();
-  return data?.id ?? null;
-}
-
 export async function GET(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return createUnauthorizedResponse();
-    if (user.user_metadata?.role === 'customer') return createForbiddenResponse('Access denied');
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const businessId = await getBusinessId(supabase);
-    if (!businessId) return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+    const { searchParams } = new URL(request.url);
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      searchParams.get('businessId')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     try {
       await extendAllRecurringSeries(supabase, businessId);
@@ -38,7 +29,6 @@ export async function GET(request: NextRequest) {
       console.warn('[customer-bookings] extendAllRecurringSeries', e);
     }
 
-    const { searchParams } = new URL(request.url);
     const customerId = searchParams.get('customer_id');
     if (!customerId) {
       return NextResponse.json({ error: 'customer_id is required' }, { status: 400 });

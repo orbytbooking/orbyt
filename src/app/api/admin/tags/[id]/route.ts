@@ -1,34 +1,36 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-
-function getSupabaseAdmin() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !supabaseServiceRoleKey) return null;
-  return createClient(supabaseUrl, supabaseServiceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-}
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from '@/lib/adminTenantContext';
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId } = ctx;
+
     const { id } = await params;
     if (!id) {
       return NextResponse.json({ error: 'Tag ID is required' }, { status: 400 });
     }
-    const body = await request.json();
-    const { name, display_order } = body;
 
-    const supabaseAdmin = getSupabaseAdmin();
-    if (!supabaseAdmin) {
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
-    }
+    const body = await request.json().catch(() => ({}));
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      (typeof body.businessId === 'string' ? body.businessId.trim() : '') ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
+
+    const { name, display_order } = body as {
+      name?: unknown;
+      display_order?: unknown;
+      businessId?: string;
+    };
 
     const payload: { name?: string; display_order?: number; updated_at: string } = {
       updated_at: new Date().toISOString(),
@@ -40,6 +42,7 @@ export async function PATCH(
       .from('general_tags')
       .update(payload)
       .eq('id', decodeURIComponent(id))
+      .eq('business_id', businessId)
       .select('id, name, display_order')
       .single();
 
@@ -65,23 +68,27 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId } = ctx;
+
     const { id } = await params;
     if (!id) {
       return NextResponse.json({ error: 'Tag ID is required' }, { status: 400 });
     }
 
-    const supabaseAdmin = getSupabaseAdmin();
-    if (!supabaseAdmin) {
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
-    }
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      request.nextUrl.searchParams.get('businessId')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     const { error } = await supabaseAdmin
       .from('general_tags')
       .delete()
-      .eq('id', decodeURIComponent(id));
+      .eq('id', decodeURIComponent(id))
+      .eq('business_id', businessId);
 
     if (error) {
       console.error('Error deleting tag:', error);

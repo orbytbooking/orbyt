@@ -1,19 +1,21 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from '@/lib/adminTenantContext';
 
 export async function GET(request: NextRequest) {
   try {
-    const businessId = request.headers.get('x-business-id') || request.nextUrl.searchParams.get('businessId');
-    if (!businessId) {
-      return NextResponse.json({ error: 'Business ID required' }, { status: 400 });
-    }
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { persistSession: false },
-    });
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      request.nextUrl.searchParams.get('businessId')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     const { data, error } = await supabase
       .from('business_holidays')
@@ -35,15 +37,17 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const businessId = request.headers.get('x-business-id') || body.businessId;
-    if (!businessId) {
-      return NextResponse.json({ error: 'Business ID required' }, { status: 400 });
-    }
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { persistSession: false },
-    });
+    const body = await request.json();
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      (typeof body.businessId === 'string' ? body.businessId.trim() : '') ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     const { data, error } = await supabase
       .from('business_holidays')
@@ -70,16 +74,22 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
+
     const body = await request.json();
     const id = body.id || request.nextUrl.searchParams.get('id');
-    const businessId = request.headers.get('x-business-id') || body.businessId;
-    if (!id || !businessId) {
-      return NextResponse.json({ error: 'id and businessId required' }, { status: 400 });
-    }
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      (typeof body.businessId === 'string' ? body.businessId.trim() : '') ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { persistSession: false },
-    });
+    if (!id) {
+      return NextResponse.json({ error: 'id required' }, { status: 400 });
+    }
 
     const update: Record<string, unknown> = {};
     if (body.name != null) update.name = String(body.name).trim();
@@ -112,15 +122,21 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const id = request.nextUrl.searchParams.get('id');
-    const businessId = request.headers.get('x-business-id') || request.nextUrl.searchParams.get('businessId');
-    if (!id || !businessId) {
-      return NextResponse.json({ error: 'id and businessId required' }, { status: 400 });
-    }
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { persistSession: false },
-    });
+    const id = request.nextUrl.searchParams.get('id');
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      request.nextUrl.searchParams.get('businessId')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
+
+    if (!id) {
+      return NextResponse.json({ error: 'id required' }, { status: 400 });
+    }
 
     const { error } = await supabase
       .from('business_holidays')

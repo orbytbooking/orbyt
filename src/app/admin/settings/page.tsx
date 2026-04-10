@@ -14,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import Image from "next/image";
 import { supabase } from "@/lib/supabaseClient";
+import { withTenantBusiness } from "@/lib/adminTenantFetch";
 import { 
   Save,
   Building2,
@@ -60,7 +61,7 @@ export default function SettingsPage() {
   useEffect(() => {
     const fetchBusinessData = async () => {
       try {
-        const response = await fetch('/api/admin/business');
+        const response = await fetch("/api/admin/business", withTenantBusiness(currentBusiness?.id));
         if (response.ok) {
           const data = await response.json();
           const business = data.business;
@@ -95,7 +96,7 @@ export default function SettingsPage() {
     };
 
     fetchBusinessData();
-  }, [toast]);
+  }, [toast, currentBusiness?.id]);
 
   // Fetch notification preferences
   useEffect(() => {
@@ -125,13 +126,16 @@ export default function SettingsPage() {
         business_email: companyInfo.email,
         business_phone: companyInfo.phone,
       };
-      const response = await fetch('/api/admin/business', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
+      const response = await fetch(
+        "/api/admin/business",
+        withTenantBusiness(currentBusiness?.id, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        })
+      );
       
       if (response.ok) {
         toast({

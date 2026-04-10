@@ -64,7 +64,7 @@ export default function AccountSettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [pushNotifications, setPushNotifications] = useState(false);
-  const [darkMode, setDarkMode] = useState(true);
+  const [darkMode, setDarkMode] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle");
   const [profileCompletion, setProfileCompletion] = useState(0);
   const [isDataLoading, setIsDataLoading] = useState(true);
@@ -90,35 +90,37 @@ export default function AccountSettingsPage() {
           setAdminEmail(user.email || '');
         }
         
-        // Get profile data from database
-        const response = await fetch('/api/admin/profile');
+        const response = await fetch("/api/admin/profile", { credentials: "include" });
         if (response.ok) {
           const data = await response.json();
-          const profile = data.profile;
-          
+          const profile = data.profile as {
+            full_name?: string | null;
+            phone?: string | null;
+            role?: string | null;
+            profile_picture?: string | null;
+            bio?: string | null;
+            location?: string | null;
+            email_notifications?: boolean | null;
+            push_notifications?: boolean | null;
+            admin_theme?: string | null;
+          } | null;
+
           if (profile) {
-            setAdminName(profile.full_name || '');
-            setAdminPhone(profile.phone || '');
-            setAdminRole(profile.role || 'admin');
-            setProfilePicture(profile.profile_picture || '');
-            setAdminBio(profile.bio || '');
-            setAdminLocation(profile.location || '');
+            setAdminName(profile.full_name || "");
+            setAdminPhone(profile.phone || "");
+            setAdminRole(profile.role || "admin");
+            setProfilePicture(profile.profile_picture || "");
+            setAdminBio(profile.bio || "");
+            setAdminLocation(profile.location || "");
+            setEmailNotifications(profile.email_notifications !== false);
+            setPushNotifications(profile.push_notifications === true);
+            setDarkMode(profile.admin_theme === "dark");
           }
         }
-        
-        // Get business data
+
         if (currentBusiness) {
-          setAdminCompany(currentBusiness.name || '');
+          setAdminCompany(currentBusiness.name || "");
         }
-        
-        // Load preferences from localStorage (these are UI preferences, not data)
-        const notifications = localStorage.getItem("emailNotifications") !== "false";
-        const pushNotif = localStorage.getItem("pushNotifications") === "true";
-        const dark = localStorage.getItem("adminTheme") !== "light";
-        
-        setEmailNotifications(notifications);
-        setPushNotifications(pushNotif);
-        setDarkMode(dark);
         
       } catch (error) {
         console.error('Error fetching profile data:', error);
@@ -144,10 +146,11 @@ export default function AccountSettingsPage() {
     setSaveStatus("idle");
     try {
       // Update profile in database
-      const profileResponse = await fetch('/api/admin/profile', {
-        method: 'PUT',
+      const profileResponse = await fetch("/api/admin/profile", {
+        method: "PUT",
+        credentials: "include",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           full_name: adminName,
@@ -157,6 +160,9 @@ export default function AccountSettingsPage() {
           location: adminLocation,
           profile_picture: profilePicture,
           role: adminRole,
+          email_notifications: emailNotifications,
+          push_notifications: pushNotifications,
+          admin_theme: darkMode ? "dark" : "light",
         }),
       });
       
@@ -166,18 +172,16 @@ export default function AccountSettingsPage() {
         throw new Error(errorData.error || 'Failed to update profile');
       }
       
-      // Save UI preferences to localStorage
-      localStorage.setItem("emailNotifications", emailNotifications.toString());
-      localStorage.setItem("pushNotifications", pushNotifications.toString());
-      localStorage.setItem("adminTheme", darkMode ? "dark" : "light");
-      
       // Update profile completion
       const fields = [adminEmail, adminName, adminPhone, adminCompany, adminLocation, adminBio, adminRole];
       const completedFields = fields.filter(field => field && field.trim() !== "").length;
       setProfileCompletion(Math.round((completedFields / fields.length) * 100));
       
       setSaveStatus("success");
-      toast.success('Profile updated successfully!');
+      toast.success("Profile updated successfully!");
+      window.dispatchEvent(
+        new CustomEvent("orbyt-admin-theme", { detail: { theme: darkMode ? "dark" : "light" } })
+      );
       setTimeout(() => {
         setIsLoading(false);
         setSaveStatus("idle");

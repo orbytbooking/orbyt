@@ -1,49 +1,29 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import {
-  getAuthenticatedUser,
-  createUnauthorizedResponse,
-  createForbiddenResponse,
-} from "@/lib/auth-helpers";
-
-async function requireBusinessOwner(businessId: string | null) {
-  if (!businessId) {
-    return { error: NextResponse.json({ error: "Business ID required" }, { status: 400 }) as NextResponse };
-  }
-  const user = await getAuthenticatedUser();
-  if (!user) return { error: createUnauthorizedResponse() };
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  );
-  const { data: business, error } = await supabase
-    .from("businesses")
-    .select("id, owner_id")
-    .eq("id", businessId)
-    .single();
-  if (error || !business) {
-    return { error: NextResponse.json({ error: "Business not found" }, { status: 404 }) };
-  }
-  if ((business as { owner_id: string | null }).owner_id !== user.id) {
-    return { error: createForbiddenResponse("You do not own this business") };
-  }
-  return { error: null as null, supabase, businessId };
-}
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from "@/lib/adminTenantContext";
 
 /**
  * GET: List notification templates for the business.
  */
 export async function GET(request: NextRequest) {
   try {
-    const businessId = request.headers.get("x-business-id") || request.nextUrl.searchParams.get("businessId");
-    const gate = await requireBusinessOwner(businessId);
-    if (gate.error) return gate.error;
-    const { supabase, businessId: bid } = gate;
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
+
+    const hinted =
+      request.headers.get("x-business-id")?.trim() ||
+      request.nextUrl.searchParams.get("businessId")?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     const { data, error } = await supabase
       .from("business_notification_templates")
       .select("id, business_id, name, subject, body, enabled, is_default, created_at, updated_at")
-      .eq("business_id", bid)
+      .eq("business_id", businessId)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -62,17 +42,30 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const businessId = request.headers.get("x-business-id");
-    const gate = await requireBusinessOwner(businessId);
-    if (gate.error) return gate.error;
-    const { supabase, businessId: bid } = gate;
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
-    let body: { name?: string; subject?: string; body?: string; enabled?: boolean; is_default?: boolean } = {};
+    let body: {
+      name?: string;
+      subject?: string;
+      body?: string;
+      enabled?: boolean;
+      is_default?: boolean;
+      businessId?: string;
+    } = {};
     try {
       body = await request.json();
     } catch {
       return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
     }
+
+    const hinted =
+      request.headers.get("x-business-id")?.trim() ||
+      (typeof body.businessId === "string" ? body.businessId.trim() : "") ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     const name = String(body.name ?? "").trim();
     if (!name) {
@@ -88,14 +81,14 @@ export async function POST(request: NextRequest) {
       await supabase
         .from("business_notification_templates")
         .update({ is_default: false, updated_at: new Date().toISOString() })
-        .eq("business_id", bid);
+        .eq("business_id", businessId);
     }
 
     const now = new Date().toISOString();
     const { data: row, error } = await supabase
       .from("business_notification_templates")
       .insert({
-        business_id: bid,
+        business_id: businessId,
         name,
         subject,
         body: htmlBody,

@@ -1,37 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from "@/lib/auth-helpers";
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from "@/lib/adminTenantContext";
 
 /** GET: List integration config for the business (only whether enabled, never return raw keys) */
 export async function GET(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return createUnauthorizedResponse();
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
-    const businessId = request.headers.get("x-business-id") || request.nextUrl.searchParams.get("business");
-    if (!businessId) {
-      return NextResponse.json({ error: "Business ID required" }, { status: 400 });
-    }
-
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const { data: business, error: bizError } = await supabase
-      .from("businesses")
-      .select("id, owner_id")
-      .eq("id", businessId)
-      .single();
-
-    if (bizError || !business) {
-      return NextResponse.json({ error: "Business not found" }, { status: 404 });
-    }
-    if ((business as { owner_id?: string }).owner_id !== user.id) {
-      return createForbiddenResponse("You do not own this business");
-    }
+    const hinted =
+      request.headers.get("x-business-id")?.trim() ||
+      request.nextUrl.searchParams.get("business")?.trim() ||
+      request.nextUrl.searchParams.get("businessId")?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     const { data: rows, error: fetchErr } = await supabase
       .from("business_integrations")
@@ -57,47 +43,41 @@ export async function GET(request: NextRequest) {
 /** PATCH: Save API key/secret for an integration (per business) */
 export async function PATCH(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return createUnauthorizedResponse();
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
-    const businessId = request.headers.get("x-business-id");
-    if (!businessId) {
-      return NextResponse.json({ error: "Business ID required" }, { status: 400 });
-    }
-
-    let body: { providerSlug?: string; apiKey?: string | null; apiSecret?: string | null; enabled?: boolean } = {};
+    let body: {
+      providerSlug?: string;
+      apiKey?: string | null;
+      apiSecret?: string | null;
+      enabled?: boolean;
+      businessId?: string;
+    } = {};
     try {
       body = await request.json();
     } catch {
       return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
+    const hinted =
+      request.headers.get("x-business-id")?.trim() ||
+      (typeof body.businessId === "string" ? body.businessId.trim() : "") ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
+
     const { providerSlug, apiKey, apiSecret, enabled } = body;
     if (!providerSlug) {
       return NextResponse.json({ error: "providerSlug required" }, { status: 400 });
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const { data: business, error: bizError } = await supabase
-      .from("businesses")
-      .select("id, owner_id")
-      .eq("id", businessId)
-      .single();
-
-    if (bizError || !business) {
-      return NextResponse.json({ error: "Business not found" }, { status: 404 });
-    }
-    if ((business as { owner_id?: string }).owner_id !== user.id) {
-      return createForbiddenResponse("You do not own this business");
-    }
-
-    const updatePayload: { api_key?: string | null; api_secret?: string | null; enabled?: boolean; updated_at: string } = {
+    const updatePayload: {
+      api_key?: string | null;
+      api_secret?: string | null;
+      enabled?: boolean;
+      updated_at: string;
+    } = {
       updated_at: new Date().toISOString(),
     };
     if (apiKey !== undefined) updatePayload.api_key = apiKey === null || apiKey === "" ? null : apiKey;

@@ -1,37 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
 import { EmailService } from '@/lib/emailService';
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from '@/lib/adminTenantContext';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
-async function getBusinessId(supabase: ReturnType<typeof createClient>) {
-  const user = await getAuthenticatedUser();
-  if (!user) return null;
-  if (user.user_metadata?.role === 'customer') return null;
-  const { data } = await supabase
-    .from('businesses')
-    .select('id')
-    .eq('owner_id', user.id)
-    .single();
-  return data?.id ?? null;
-}
-
-export async function POST(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return createUnauthorizedResponse();
-    if (user.user_metadata?.role === 'customer') return createForbiddenResponse('Access denied');
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
+
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      request.nextUrl.searchParams.get('business_id')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     const { id } = await params;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const businessId = await getBusinessId(supabase);
-    if (!businessId) return NextResponse.json({ error: 'Business not found' }, { status: 404 });
 
     const { data: invoice, error: invError } = await supabase
       .from('invoices')

@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { requireAdminTenantContext } from '@/lib/adminTenantContext';
 
 const DEFAULT_PREFS = {
   emailBookings: true,
@@ -15,27 +9,16 @@ const DEFAULT_PREFS = {
   pushNotifications: true,
 };
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return createUnauthorizedResponse();
-    const userRole = user.user_metadata?.role || 'owner';
-    if (userRole === 'customer') return createForbiddenResponse('Customers cannot access admin endpoints');
-
-    const { data: business, error: businessError } = await supabase
-      .from('businesses')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (businessError || !business) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
-    }
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
     const { data: row, error: configError } = await supabase
       .from('business_website_configs')
       .select('config')
-      .eq('business_id', business.id)
+      .eq('business_id', businessId)
       .single();
 
     if (configError && configError.code !== 'PGRST116') {
@@ -55,20 +38,9 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return createUnauthorizedResponse();
-    const userRole = user.user_metadata?.role || 'owner';
-    if (userRole === 'customer') return createForbiddenResponse('Customers cannot access admin endpoints');
-
-    const { data: business, error: businessError } = await supabase
-      .from('businesses')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (businessError || !business) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
-    }
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
 
     const body = await request.json();
     const preferences = {
@@ -82,7 +54,7 @@ export async function PUT(request: NextRequest) {
     const { data: existing } = await supabase
       .from('business_website_configs')
       .select('config')
-      .eq('business_id', business.id)
+      .eq('business_id', businessId)
       .single();
 
     const currentConfig = (existing?.config && typeof existing.config === 'object') ? existing.config as Record<string, unknown> : {};
@@ -94,7 +66,7 @@ export async function PUT(request: NextRequest) {
     const { error: upsertError } = await supabase
       .from('business_website_configs')
       .upsert({
-        business_id: business.id,
+        business_id: businessId,
         config: newConfig,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'business_id' });

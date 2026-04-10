@@ -468,7 +468,9 @@ function CreateBusinessModalInline({
 }) {
   const [name, setName] = useState('');
   const [plan, setPlan] = useState('starter');
+  const [ownerFullName, setOwnerFullName] = useState('');
   const [ownerEmail, setOwnerEmail] = useState('');
+  const [ownerPassword, setOwnerPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [planOptions, setPlanOptions] = useState<typeof FALLBACK_PLAN_OPTIONS>([]);
 
@@ -501,7 +503,13 @@ function CreateBusinessModalInline({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ name: name.trim(), plan, owner_email: ownerEmail.trim() || undefined }),
+      body: JSON.stringify({
+        name: name.trim(),
+        plan,
+        owner_full_name: ownerFullName.trim() || undefined,
+        owner_email: ownerEmail.trim() || undefined,
+        owner_password: ownerPassword.trim() || undefined,
+      }),
     })
       .then((r) => r.json())
       .then((data) => {
@@ -541,8 +549,38 @@ function CreateBusinessModalInline({
             </select>
           </div>
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Owner full name (optional)</label>
+            <input
+              type="text"
+              value={ownerFullName}
+              onChange={(e) => setOwnerFullName(e.target.value)}
+              placeholder="Shown on their profile"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+            />
+          </div>
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Owner email (optional)</label>
-            <input type="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} placeholder="Link existing user by email" className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+            <input
+              type="email"
+              value={ownerEmail}
+              onChange={(e) => setOwnerEmail(e.target.value)}
+              placeholder="Login email"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Owner password (optional)</label>
+            <input
+              type="password"
+              value={ownerPassword}
+              onChange={(e) => setOwnerPassword(e.target.value)}
+              placeholder="Required for new logins (min. 8 characters)"
+              autoComplete="new-password"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              New email: creates a confirmed account they can use to sign in. Existing user: updates their password if you enter one.
+            </p>
           </div>
         </div>
         <div className="p-6 border-t border-gray-200 flex justify-end gap-2">

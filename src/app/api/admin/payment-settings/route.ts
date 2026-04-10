@@ -1,28 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from "@/lib/auth-helpers";
+import { createForbiddenResponse } from "@/lib/auth-helpers";
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from "@/lib/adminTenantContext";
 
 export type PaymentProvider = "stripe" | "authorize_net";
 
 /** GET: Return payment provider and Authorize.net settings for the business */
 export async function GET(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return createUnauthorizedResponse();
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { user, supabase, businessId } = ctx;
 
-    const businessId =
-      request.headers.get("x-business-id") || request.nextUrl.searchParams.get("business");
-    if (!businessId) {
-      return NextResponse.json({ error: "Business ID required" }, { status: 400 });
-    }
+    const hinted =
+      request.headers.get("x-business-id")?.trim() ||
+      request.nextUrl.searchParams.get("business")?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
     const { data: business, error } = await supabase
       .from("businesses")
       .select("id, owner_id")
@@ -86,13 +84,9 @@ export async function GET(request: NextRequest) {
 /** PATCH: Update payment provider and Authorize.net credentials */
 export async function PATCH(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return createUnauthorizedResponse();
-
-    const businessId = request.headers.get("x-business-id");
-    if (!businessId) {
-      return NextResponse.json({ error: "Business ID required" }, { status: 400 });
-    }
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { user, supabase, businessId } = ctx;
 
     let body: {
       paymentProvider?: string;
@@ -102,12 +96,20 @@ export async function PATCH(request: NextRequest) {
       stripeSecretKey?: string | null;
       stripe3dsEnabled?: boolean;
       stripeBillingAddressEnabled?: boolean;
+      businessId?: string;
     } = {};
     try {
       body = await request.json();
     } catch {
       return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
     }
+
+    const hinted =
+      request.headers.get("x-business-id")?.trim() ||
+      (typeof body.businessId === "string" ? body.businessId.trim() : "") ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     const paymentProvider = body.paymentProvider;
     const authorizeNetApiLoginId = body.authorizeNetApiLoginId;
@@ -117,13 +119,6 @@ export async function PATCH(request: NextRequest) {
     const stripe3dsEnabled = body.stripe3dsEnabled;
     const stripeBillingAddressEnabled = body.stripeBillingAddressEnabled;
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
     const { data: business, error: fetchErr } = await supabase
       .from("businesses")
       .select("id, owner_id")

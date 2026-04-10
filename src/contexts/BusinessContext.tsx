@@ -1,8 +1,11 @@
 'use client';
-import { createContext, useContext, useEffect, useLayoutEffect, useState, ReactNode } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { createContext, useContext, useEffect, useLayoutEffect, useState, useCallback, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from './AuthContext';
+import {
+  effectiveModuleAllowed,
+  type AdminModuleKey,
+} from '@/lib/adminModulePermissions';
 
 interface Business {
   id: string;
@@ -23,6 +26,8 @@ interface Business {
   description?: string | null;
   logo_url?: string | null;
   role: 'owner' | 'admin' | 'member';
+  /** Tenant-only module map from API; null = all modules (owners always full access). */
+  module_permissions?: Record<string, boolean> | null;
 }
 
 interface BusinessContextType {
@@ -33,6 +38,7 @@ interface BusinessContextType {
   switchBusiness: (businessId: string) => void;
   refreshBusinesses: () => Promise<void>;
   hasPermission: (permission: string) => boolean;
+  hasModuleAccess: (moduleKey: AdminModuleKey) => boolean;
 }
 
 const BusinessContext = createContext<BusinessContextType | undefined>(undefined);
@@ -45,19 +51,45 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
 
+  /** Prefer profiles.business_id from GET /api/admin/profile (database), else first owned business. */
+  const resolveCurrentBusiness = (list: Business[], preferredId: string | null | undefined): Business | null => {
+    if (!list.length) return null;
+    if (typeof preferredId === 'string' && preferredId.trim()) {
+      const match = list.find((b) => b.id === preferredId);
+      if (match) return match;
+    }
+    return list[0];
+  };
+
+  const fetchPreferredBusinessIdFromProfile = async (): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/admin/profile', { credentials: 'include' });
+      if (!res.ok) return null;
+      const j = (await res.json()) as { profile?: { business_id?: string | null } };
+      const bid = j.profile?.business_id;
+      return typeof bid === 'string' && bid.trim() ? bid : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const applyBusinessList = async (allBusinesses: Business[]) => {
+    setBusinesses(allBusinesses);
+    const preferred = await fetchPreferredBusinessIdFromProfile();
+    setCurrentBusiness(resolveCurrentBusiness(allBusinesses, preferred));
+  };
+
   const fetchBusinesses = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Use centralized auth instead of making separate auth call
       if (!user) {
-        // Don't redirect if on public pages or auth pages
         if (typeof window !== 'undefined') {
           const currentPath = window.location.pathname;
           const publicPaths = ['/', '/features', '/auth/', '/pricing', '/contact'];
           const isPublicPath = publicPaths.some(path => currentPath.startsWith(path));
-          
+
           if (!isPublicPath) {
             router.push('/auth/login');
           }
@@ -65,138 +97,37 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Get businesses where user is owner (simplified for current schema)
-      const { data: ownerBusinesses, error: ownerError } = await supabase
-        .from('businesses')
-        .select('*')
-        .eq('owner_id', user.id)
-        .order('created_at', { ascending: false }); // Add ordering to prevent caching
-
-      // For now, only handle owner businesses (team functionality can be added later)
-      if (ownerError) {
-        // Check if error object is empty or malformed (sometimes Supabase returns empty error objects)
-        const errorKeys = Object.keys(ownerError || {});
-        const hasErrorContent = ownerError && (
-          ownerError.message || 
-          ownerError.code || 
-          ownerError.details || 
-          ownerError.hint ||
-          errorKeys.length > 0
-        );
-        
-        // If error is empty but we have data, treat as success (sometimes Supabase returns empty error with data)
-        if (!hasErrorContent && ownerBusinesses) {
-          console.warn('Received empty error object but data was returned, treating as success');
-          // Continue processing the data below
-        } else if (!hasErrorContent && !ownerBusinesses) {
-          // Empty error with no data - might be RLS policy or network issue
-          console.warn('Received empty error object with no data, this might indicate an RLS policy issue');
-          console.warn('User ID:', user.id);
-          setBusinesses([]);
-          setLoading(false);
-          return;
-        } else {
-          // Real error with content - log and handle
-          console.error('Owner businesses error:', {
-            error: ownerError,
-            message: ownerError?.message || 'No error message',
-            code: ownerError?.code || 'No error code',
-            details: ownerError?.details || 'No error details',
-            hint: ownerError?.hint || 'No error hint',
-            userId: user.id,
-            errorType: typeof ownerError,
-            errorKeys: errorKeys
-          });
-          
-          const errorMessage = ownerError?.message || String(ownerError) || 'Unknown error';
-          
-          // If the error is about missing table or column, handle gracefully
-          if (errorMessage.includes('relation') || errorMessage.includes('does not exist')) {
-            console.log('Businesses table not found, user may not have completed onboarding');
-            setBusinesses([]);
-            setLoading(false);
-            return;
+      const res = await fetch('/api/admin/my-businesses', { credentials: 'include' });
+      if (!res.ok) {
+        const text = await res.text();
+        if (res.status === 401 && typeof window !== 'undefined') {
+          const currentPath = window.location.pathname;
+          const publicPaths = ['/', '/features', '/auth/', '/pricing', '/contact'];
+          if (!publicPaths.some((path) => currentPath.startsWith(path))) {
+            router.push('/auth/login');
           }
-          // Handle missing is_active column specifically
-          if (errorMessage.includes('column') && errorMessage.includes('is_active')) {
-            console.log('is_active column missing, try running the migration script');
-            // Try without is_active column
-            const { data: fallbackBusinesses, error: fallbackError } = await supabase
-              .from('businesses')
-              .select('*')
-              .eq('owner_id', user.id);
-            
-            if (fallbackError) {
-              throw fallbackError;
-            }
-            
-            const allBusinesses: Business[] = (fallbackBusinesses || []).map(b => ({ 
-              id: b.id,
-              name: b.name,
-              address: b.address,
-              category: b.category,
-              plan: b.plan || 'starter',
-              subdomain: b.subdomain,
-              domain: b.domain,
-              created_at: b.created_at || new Date().toISOString(),
-              updated_at: b.updated_at || new Date().toISOString(),
-              // Only explicit true = active (null/false = blocked until payment / migration 073)
-              is_active: (b as { is_active?: boolean | null }).is_active === true,
-              business_email: b.business_email,
-              business_phone: b.business_phone,
-              city: b.city,
-              zip_code: b.zip_code,
-              website: b.website,
-              description: b.description,
-              role: 'owner' as const
-            }));
-            
-            setBusinesses(allBusinesses);
-            
-            // Set current business (first one)
-            const businessToSet = allBusinesses[0];
-            
-            if (businessToSet) {
-              setCurrentBusiness(businessToSet);
-            }
-            
-            setLoading(false);
-            return;
-          }
-          
-          // Only throw if we have a real error and no data
-          if (!ownerBusinesses || ownerBusinesses.length === 0) {
-            throw ownerError;
-          }
-          // If we have data despite error, log warning but continue
-          console.warn('Error occurred but data was returned, continuing with data');
         }
+        throw new Error(text || `HTTP ${res.status}`);
       }
-
-      // Format businesses (process data even if there was a minor error)
-      const allBusinesses: Business[] = (ownerBusinesses || []).map(b => {
-        // Direct assignment to preserve all data
-        const mapped: Business = {
+      const payload = (await res.json()) as { businesses?: Business[]; error?: string };
+      if (payload.error) {
+        throw new Error(payload.error);
+      }
+      const list = payload.businesses ?? [];
+      const normalized: Business[] = list.map((b) => {
+        const row = b as Business & { module_permissions?: Record<string, boolean> | null };
+        return {
           ...b,
-          role: 'owner' as const,
           plan: b.plan || 'starter',
           created_at: b.created_at || new Date().toISOString(),
           updated_at: b.updated_at || new Date().toISOString(),
-          // Only explicit DB true = active. NULL must not unlock admin (run migration 073 for legacy NULL → true).
           is_active: (b as { is_active?: boolean | null }).is_active === true,
+          role: b.role ?? 'owner',
+          module_permissions:
+            row.role === 'owner' ? null : (row.module_permissions ?? null),
         };
-        return mapped;
       });
-
-      setBusinesses(allBusinesses);
-
-      // Set current business (first one)
-        const businessToSet = allBusinesses[0];
-        
-        if (businessToSet) {
-          setCurrentBusiness(businessToSet);
-        }
-
+      await applyBusinessList(normalized);
     } catch (error: any) {
       // Improved error logging
       const errorDetails = {
@@ -218,20 +149,46 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
   const switchBusiness = (businessId: string) => {
     const business = businesses.find(b => b.id === businessId);
-    if (business) {
-      setCurrentBusiness(business);
-    }
+    if (!business) return;
+    setCurrentBusiness(business);
+    void fetch('/api/admin/profile', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ business_id: businessId }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        console.warn('Could not persist workspace business to database:', await res.text());
+      }
+    });
   };
 
-  const hasPermission = (permission: string): boolean => {
-    if (!currentBusiness) return false;
-    
-    // Owners have all permissions
-    if (currentBusiness.role === 'owner') return true;
-    
-    // For now, only owners exist. Add admin/member logic later when team features are implemented
-    return false;
-  };
+  const hasModuleAccess = useCallback(
+    (moduleKey: AdminModuleKey): boolean => {
+      if (!currentBusiness) return false;
+      const owner = currentBusiness.role === 'owner';
+      return effectiveModuleAllowed(
+        owner,
+        currentBusiness.module_permissions ?? null,
+        moduleKey
+      );
+    },
+    [currentBusiness]
+  );
+
+  const hasPermission = useCallback(
+    (permission: string): boolean => {
+      if (!currentBusiness) return false;
+      if (permission === 'view_bookings' || permission === 'create_bookings') {
+        return hasModuleAccess('bookings');
+      }
+      if (permission === 'view_team') {
+        return hasModuleAccess('settings');
+      }
+      return hasModuleAccess('dashboard');
+    },
+    [currentBusiness, hasModuleAccess]
+  );
 
   useEffect(() => {
     // Only fetch businesses when auth is loaded and user is available
@@ -265,7 +222,8 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     error,
     switchBusiness,
     refreshBusinesses: fetchBusinesses,
-    hasPermission
+    hasPermission,
+    hasModuleAccess,
   };
 
   return (

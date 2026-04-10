@@ -35,7 +35,9 @@ async function testFrequencyFiltering() {
     console.log('  Expected: [1, 2, 3]', filteredBathroom.length === 3 ? '✅ PASS' : '❌ FAIL');
     
     // Test 4: Test frequency-based API call (if industry is available)
-    const currentBusinessId = localStorage.getItem('currentBusinessId');
+    // Set globalThis.__ORBYT_TEST_BUSINESS_ID__ = '<uuid>' in the console first (currentBusinessId is no longer in localStorage).
+    const currentBusinessId =
+      typeof globalThis !== 'undefined' ? globalThis.__ORBYT_TEST_BUSINESS_ID__ : null;
     if (currentBusinessId) {
       console.log('🏢 Testing API call with business ID:', currentBusinessId);
       
