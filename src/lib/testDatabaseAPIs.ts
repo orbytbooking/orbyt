@@ -30,7 +30,10 @@ async function testDatabaseAPIs(): Promise<void> {
     const tests: TestResult[] = [
       { name: 'Service Categories', url: `/api/service-categories?industryId=${currentIndustry.id}` },
       { name: 'Extras', url: `/api/extras?industryId=${currentIndustry.id}` },
-      { name: 'Frequencies', url: `/api/industry-frequency?industryId=${currentIndustry.id}` },
+      {
+        name: 'Frequencies',
+        url: `/api/industry-frequency?industryId=${currentIndustry.id}&businessId=${businessId}`,
+      },
       { name: 'Locations', url: `/api/locations?industryId=${currentIndustry.id}` },
       { name: 'Pricing Parameters', url: `/api/pricing-parameters?industryId=${currentIndustry.id}` }
     ];

@@ -85,6 +85,8 @@ export async function POST(request: NextRequest) {
       business_id,
       industry_id,
       name,
+      different_on_customer_end,
+      customer_end_name,
       description,
       color,
       icon,
@@ -106,6 +108,7 @@ export async function POST(request: NextRequest) {
       service_category_price,
       service_category_time,
       minimum_price,
+      minimum_time,
       override_provider_pay,
       excluded_providers,
       sort_order
@@ -125,6 +128,11 @@ export async function POST(request: NextRequest) {
           business_id,
           industry_id,
           name: name.trim(),
+          different_on_customer_end: Boolean(different_on_customer_end),
+          customer_end_name:
+            different_on_customer_end && customer_end_name != null && String(customer_end_name).trim()
+              ? String(customer_end_name).trim()
+              : null,
           description: description?.trim() || null,
           color: color || null,
           icon: icon || null,
@@ -198,6 +206,13 @@ export async function POST(request: NextRequest) {
             textToDisplay: false,
             noticeText: ""
           },
+          minimum_time: minimum_time || {
+            enabled: false,
+            hours: "0",
+            minutes: "0",
+            textToDisplay: false,
+            noticeText: ""
+          },
           override_provider_pay: override_provider_pay || {
             enabled: false,
             amount: "",
@@ -254,6 +269,12 @@ export async function PUT(request: NextRequest) {
 
     // Clean and validate each field
     if (updateData.name !== undefined) cleanedData.name = updateData.name.trim();
+    if (updateData.different_on_customer_end !== undefined) {
+      cleanedData.different_on_customer_end = Boolean(updateData.different_on_customer_end);
+    }
+    if (updateData.customer_end_name !== undefined) {
+      cleanedData.customer_end_name = updateData.customer_end_name?.trim() || null;
+    }
     if (updateData.description !== undefined) cleanedData.description = updateData.description?.trim() || null;
     if (updateData.color !== undefined) cleanedData.color = updateData.color;
     if (updateData.icon !== undefined) cleanedData.icon = updateData.icon;
@@ -275,6 +296,7 @@ export async function PUT(request: NextRequest) {
     if (updateData.service_category_price !== undefined) cleanedData.service_category_price = updateData.service_category_price;
     if (updateData.service_category_time !== undefined) cleanedData.service_category_time = updateData.service_category_time;
     if (updateData.minimum_price !== undefined) cleanedData.minimum_price = updateData.minimum_price;
+    if (updateData.minimum_time !== undefined) cleanedData.minimum_time = updateData.minimum_time;
     if (updateData.override_provider_pay !== undefined) cleanedData.override_provider_pay = updateData.override_provider_pay;
     if (updateData.excluded_providers !== undefined) cleanedData.excluded_providers = updateData.excluded_providers;
     if (updateData.sort_order !== undefined) cleanedData.sort_order = updateData.sort_order;

@@ -24,7 +24,7 @@ export function EmbeddedPlatformCheckoutDialog({
   onOpenChange,
   clientSecret,
   title = "Secure checkout",
-  description = "Complete your Orbyt plan payment with Stripe.",
+  description = "Complete your Orbyt plan payment.",
 }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<StripeEmbeddedCheckout | null>(null);

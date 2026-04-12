@@ -1,16 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ChevronDown, Info, Upload, X, Shirt, Sofa, Droplets, Wind, Trash2, Flower2, Flame, Warehouse, Paintbrush } from "lucide-react";
+import { ChevronDown, Info, Upload, X } from "lucide-react";
+import { INDUSTRY_FORM_ICON_PRESETS } from "@/lib/industryExtraIcons";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Form1RichTextEditor } from "@/components/admin/Form1RichTextEditor";
+import {
+  normalizeFrequencyPopupDisplay,
+  type FrequencyPopupDisplay,
+} from "@/lib/frequencyPopupDisplay";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { toast } from "sonner";
 import { useRef } from "react";
@@ -40,26 +52,13 @@ const getVariableDisplayName = (param: any, category: string): string => {
   }
 };
 
-type Extra = {
-  id: number;
-  name: string;
-  icon?: string;
-  time: number; // in minutes
-  serviceCategory: string;
-  price: number;
-  display: "frontend-backend-admin" | "backend-admin" | "admin-only" | "Both" | "Booking" | "Quote"; // Support legacy values
-  qtyBased: boolean;
-  exemptFromDiscount?: boolean;
-  description?: string;
-  showBasedOnFrequency?: boolean;
-  frequencyOptions?: string[];
-  showBasedOnServiceCategory?: boolean;
-  serviceCategoryOptions?: string[];
-  showBasedOnVariables?: boolean;
-  variableOptions?: string[];
-  pricingStructure?: "manual" | "multiply";
-  manualPrices?: { price: string; timeHours: string; timeMinutes: string }[];
-};
+type ExtraDisplay =
+  | "frontend-backend-admin"
+  | "backend-admin"
+  | "admin-only"
+  | "Both"
+  | "Booking"
+  | "Quote";
 
 export default function ExtraNewPage() {
   const params = useSearchParams();
@@ -70,18 +69,22 @@ export default function ExtraNewPage() {
   const { currentBusiness } = useBusiness();
   const [saving, setSaving] = useState(false);
   
-  const storageKey = useMemo(() => `extras_${industry}`, [industry]);
-  const [extras, setExtras] = useState<Extra[]>([]);
-
   const [form, setForm] = useState({
     name: "",
     description: "",
+    differentOnCustomerEnd: false,
+    customerEndName: "",
+    showExplanationIconOnForm: false,
+    explanationTooltipText: "",
+    enablePopupOnSelection: false,
+    popupContent: "",
+    popupDisplay: "customer_frontend_backend_admin" as FrequencyPopupDisplay,
     icon: "",
     timeHours: "0",
     timeMinutes: "0",
     serviceCategory: "",
     price: "0",
-    display: "frontend-backend-admin" as Extra["display"],
+    display: "frontend-backend-admin" as ExtraDisplay,
     qtyBased: false,
     exemptFromDiscount: false,
     maximum: "",
@@ -108,48 +111,16 @@ export default function ExtraNewPage() {
   const [uploadedIcon, setUploadedIcon] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  const predefinedIcons = [
-    { name: "Laundry", icon: Shirt, value: "laundry" },
-    { name: "Furniture", icon: Sofa, value: "furniture" },
-    { name: "Water/Mold", icon: Droplets, value: "water" },
-    { name: "Odor", icon: Wind, value: "odor" },
-    { name: "Trash/Clutter", icon: Trash2, value: "trash" },
-    { name: "Garden/Plants", icon: Flower2, value: "plants" },
-    { name: "Fire Damage", icon: Flame, value: "fire" },
-    { name: "Storage", icon: Warehouse, value: "storage" },
-    { name: "Paint Removal", icon: Paintbrush, value: "paint" },
-  ];
+  const predefinedIcons = INDUSTRY_FORM_ICON_PRESETS.map(({ name, value, Icon }) => ({
+    name,
+    value,
+    icon: Icon,
+  }));
   
   // Load available frequencies, service categories, and variables
   const [availableFrequencies, setAvailableFrequencies] = useState<string[]>([]);
   const [availableServiceCategories, setAvailableServiceCategories] = useState<string[]>([]);
   const [availableVariables, setAvailableVariables] = useState<{ [key: string]: any[] }>({});
-
-  // Load extras from database (for legacy compatibility)
-  useEffect(() => {
-    const fetchExtras = async () => {
-      if (!industryId) return;
-      
-      try {
-        const response = await fetch(`/api/extras?industryId=${industryId}`);
-        if (!response.ok) {
-          throw new Error('Failed to fetch extras');
-        }
-        const data = await response.json();
-        
-        if (data.extras && Array.isArray(data.extras)) {
-          setExtras(data.extras);
-        } else {
-          setExtras([]);
-        }
-      } catch (error) {
-        console.error('Error fetching extras:', error);
-        setExtras([]);
-      }
-    };
-
-    fetchExtras();
-  }, [industryId]);
 
   // Load providers from database
   useEffect(() => {
@@ -382,6 +353,13 @@ export default function ExtraNewPage() {
         setForm({
           name: extra.name,
           description: extra.description || "",
+          differentOnCustomerEnd: Boolean(extra.different_on_customer_end),
+          customerEndName: String(extra.customer_end_name ?? "").trim(),
+          showExplanationIconOnForm: Boolean(extra.show_explanation_icon_on_form),
+          explanationTooltipText: String(extra.explanation_tooltip_text ?? ""),
+          enablePopupOnSelection: Boolean(extra.enable_popup_on_selection),
+          popupContent: String(extra.popup_content ?? ""),
+          popupDisplay: normalizeFrequencyPopupDisplay(extra.popup_display),
           icon: extra.icon || "",
           timeHours: String(hours),
           timeMinutes: String(minutes),
@@ -393,7 +371,8 @@ export default function ExtraNewPage() {
           maximum: String(extra.maximum_quantity || ""),
           pricingStructure: structure,
           manualPrices: manualPricesFromDb,
-          applyToAllBookings: true,
+          applyToAllBookings:
+            extra.apply_to_all_bookings !== undefined ? Boolean(extra.apply_to_all_bookings) : true,
           overrideTimePricing: false,
           exemptExtraTime: false,
           showBasedOnFrequency: extra.show_based_on_frequency || false,
@@ -419,44 +398,6 @@ export default function ExtraNewPage() {
     }
     console.log('=== END FRONTEND DEBUG ===');
   };
-
-  // Legacy localStorage loading (keeping for backwards compatibility; UUID edits use API fetch only)
-  useEffect(() => {
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (editId && uuidRegex.test(editId)) return;
-    if (editId && extras.length > 0) {
-      const existing = extras.find(r => String(r.id) === editId);
-      if (existing) {
-        const hours = Math.floor((existing.time ?? 0) / 60);
-        const minutes = (existing.time ?? 0) % 60;
-        setForm({
-          name: existing.name,
-          description: existing.description || "",
-          icon: existing.icon || "",
-          timeHours: String(hours),
-          timeMinutes: String(minutes),
-          serviceCategory: existing.serviceCategory,
-          price: String(existing.price ?? 0),
-          display: existing.display,
-          qtyBased: existing.qtyBased,
-          exemptFromDiscount: existing.exemptFromDiscount ?? false,
-          maximum: "",
-          pricingStructure: existing.pricingStructure || "manual",
-          manualPrices: existing.manualPrices || [],
-          applyToAllBookings: true,
-          overrideTimePricing: false,
-          exemptExtraTime: false,
-          showBasedOnFrequency: false,
-          frequencyOptions: existing.frequencyOptions || [],
-          showBasedOnServiceCategory: false,
-          serviceCategoryOptions: existing.serviceCategoryOptions || [],
-          showBasedOnVariables: false,
-          variableOptions: existing.variableOptions || [],
-          excludedProviders: [],
-        });
-      }
-    }
-  }, [editId, extras]);
 
   const save = async () => {
     if (!form.name.trim()) {
@@ -516,23 +457,42 @@ export default function ExtraNewPage() {
       business_id: currentBusiness.id,
       industry_id: industryId,
       name: form.name.trim(),
-      description: form.description || undefined,
-      icon: form.icon || uploadedIcon || undefined,
+      description: form.description.trim() ? form.description.trim() : null,
+      different_on_customer_end: form.differentOnCustomerEnd,
+      customer_end_name:
+        form.differentOnCustomerEnd && form.customerEndName.trim()
+          ? form.customerEndName.trim()
+          : null,
+      show_explanation_icon_on_form: form.showExplanationIconOnForm,
+      explanation_tooltip_text:
+        form.showExplanationIconOnForm && form.explanationTooltipText.trim()
+          ? form.explanationTooltipText.trim()
+          : null,
+      enable_popup_on_selection: form.enablePopupOnSelection,
+      popup_content: form.enablePopupOnSelection ? form.popupContent : "",
+      popup_display: form.enablePopupOnSelection
+        ? form.popupDisplay
+        : "customer_frontend_backend_admin",
+      apply_to_all_bookings: form.applyToAllBookings,
+      icon: form.icon || uploadedIcon || null,
       time_minutes,
-      service_category: form.serviceCategory || undefined,
+      service_category: form.serviceCategory?.trim() ? form.serviceCategory.trim() : null,
       price,
       display: form.display,
       qty_based: form.qtyBased,
-      maximum_quantity,
+      maximum_quantity:
+        form.qtyBased && maximum_quantity != null ? maximum_quantity : null,
       pricing_structure,
       manual_prices,
       exempt_from_discount: form.exemptFromDiscount,
       show_based_on_frequency: form.showBasedOnFrequency,
-      frequency_options: form.frequencyOptions.length > 0 ? form.frequencyOptions : undefined,
+      frequency_options: form.showBasedOnFrequency ? form.frequencyOptions : [],
       show_based_on_service_category: form.showBasedOnServiceCategory,
-      service_category_options: form.serviceCategoryOptions.length > 0 ? form.serviceCategoryOptions : undefined,
+      service_category_options: form.showBasedOnServiceCategory
+        ? form.serviceCategoryOptions
+        : [],
       show_based_on_variables: form.showBasedOnVariables,
-      variable_options: form.variableOptions.length > 0 ? form.variableOptions : undefined,
+      variable_options: form.showBasedOnVariables ? form.variableOptions : [],
       excluded_providers: form.excludedProviders,
     };
 
@@ -583,7 +543,10 @@ export default function ExtraNewPage() {
       <Card>
         <CardHeader>
           <CardTitle>{editId ? "Edit Extra" : "Add Extra"}</CardTitle>
-          <CardDescription>Configure an extra/add-on for {industry}.</CardDescription>
+          <CardDescription>
+            Extras can be attached to a service and a variable (things like inside fridge for a cleaning service or wax for a car wash).
+            Configure one for {industry}.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="details" className="w-full">
@@ -595,165 +558,240 @@ export default function ExtraNewPage() {
 
             {/* DETAILS TAB */}
             <TabsContent value="details" className="mt-4 space-y-5">
+              <TooltipProvider delayDuration={200}>
               <div className="space-y-2">
-                <Label htmlFor="extra-name">Name</Label>
-                <Input 
-                  id="extra-name" 
-                  value={form.name} 
-                  onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))} 
-                  placeholder="Ex. Inside Fridge" 
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="extra-name">Name</Label>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About name">
+                        <Info className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs text-sm">
+                      Internal name for this extra. Customers see the customer end name when &quot;Different on customer end&quot; is enabled.
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <Input
+                  id="extra-name"
+                  value={form.name}
+                  onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))}
+                  placeholder="Ex: Deep Cleaning"
                 />
               </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="extra-desc">Description</Label>
-                <Textarea 
-                  id="extra-desc" 
-                  rows={3} 
-                  value={form.description} 
-                  onChange={(e) => setForm(p => ({ ...p, description: e.target.value }))} 
-                  placeholder="Add Description" 
-                />
-              </div>
 
-              <div className="space-y-2">
-                <Label>Icon</Label>
-                <div className="space-y-3">
-                  {/* Current Icon Display */}
-                  {(form.icon || uploadedIcon) && (
-                    <div className="flex items-center gap-3 p-3 border rounded-md bg-muted/50">
-                      <div className="flex items-center justify-center w-12 h-12 border rounded-md bg-background">
-                        {uploadedIcon ? (
-                          <img src={uploadedIcon} alt="Custom icon" className="w-8 h-8 object-contain" />
-                        ) : (
-                          (() => {
-                            const IconComponent = predefinedIcons.find(i => i.value === form.icon)?.icon;
-                            return IconComponent ? <IconComponent className="w-6 h-6" /> : null;
-                          })()
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">
-                          {uploadedIcon ? "Custom Icon" : predefinedIcons.find(i => i.value === form.icon)?.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">Current icon</p>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setForm(p => ({ ...p, icon: "" }));
-                          setUploadedIcon(null);
-                        }}
-                      >
-                        <X className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* Icon Selection Buttons */}
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setShowIconPicker(!showIconPicker)}
-                      className="flex-1"
-                    >
-                      Select Icon
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="flex-1"
-                    >
-                      <Upload className="w-4 h-4 mr-2" />
-                      Upload Icon
-                    </Button>
-                  </div>
-
-                  {/* Hidden file input */}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                          const base64String = reader.result as string;
-                          setUploadedIcon(base64String);
-                          setForm(p => ({ ...p, icon: "" }));
-                          toast.success("Icon uploaded successfully");
-                        };
-                        reader.readAsDataURL(file);
-                      }
-                    }}
+              <div className="space-y-2 rounded-lg border bg-muted/30 p-4">
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="extra-diff-customer"
+                    checked={form.differentOnCustomerEnd}
+                    onCheckedChange={(checked) =>
+                      setForm((p) => ({
+                        ...p,
+                        differentOnCustomerEnd: !!checked,
+                        ...(!checked ? { customerEndName: "" } : {}),
+                      }))
+                    }
                   />
-
-                  {/* Icon Picker Grid */}
-                  {showIconPicker && (
-                    <div className="border rounded-md p-4 bg-background">
-                      <div className="flex items-center justify-between mb-3">
-                        <Label className="text-sm font-medium">Select an icon</Label>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setShowIconPicker(false)}
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </div>
-                      <div className="grid grid-cols-5 gap-2">
-                        {predefinedIcons.map((iconItem) => {
-                          const IconComponent = iconItem.icon;
-                          return (
-                            <button
-                              key={iconItem.value}
-                              type="button"
-                              onClick={() => {
-                                setForm(p => ({ ...p, icon: iconItem.value }));
-                                setUploadedIcon(null);
-                                setShowIconPicker(false);
-                                toast.success(`${iconItem.name} icon selected`);
-                              }}
-                              className={`flex flex-col items-center justify-center p-3 border rounded-md hover:bg-muted transition-colors ${
-                                form.icon === iconItem.value ? "border-primary bg-primary/10" : ""
-                              }`}
-                            >
-                              <IconComponent className="w-6 h-6 mb-1" />
-                              <span className="text-xs text-center">{iconItem.name}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
+                  <div className="flex-1 space-y-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor="extra-diff-customer" className="text-sm font-medium cursor-pointer">
+                        Different on customer end
+                      </Label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About different on customer end">
+                            <Info className="h-4 w-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-xs text-sm">
+                          When enabled, customers see the customer end name on book-now instead of the internal name above.
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
-                  )}
+                    {form.differentOnCustomerEnd && (
+                      <Input
+                        placeholder="Enter Customer End Name"
+                        value={form.customerEndName}
+                        onChange={(e) => setForm((p) => ({ ...p, customerEndName: e.target.value }))}
+                        className="mt-2 bg-background"
+                      />
+                    )}
+                  </div>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label>Display</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="extra-desc">Description</Label>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About description">
+                        <Info className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs text-sm">
+                      Optional notes for staff; use customer end name for the label customers see on the booking form.
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <Textarea
+                  id="extra-desc"
+                  rows={3}
+                  value={form.description}
+                  onChange={(e) => setForm(p => ({ ...p, description: e.target.value }))}
+                  placeholder="Add Description"
+                />
+              </div>
+
+              <div className="space-y-2 rounded-lg border bg-muted/30 p-4">
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="extra-show-explanation"
+                    checked={form.showExplanationIconOnForm}
+                    onCheckedChange={(checked) =>
+                      setForm((p) => ({
+                        ...p,
+                        showExplanationIconOnForm: !!checked,
+                        ...(!checked ? { explanationTooltipText: "" } : {}),
+                      }))
+                    }
+                  />
+                  <div className="flex-1 space-y-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor="extra-show-explanation" className="text-sm font-medium cursor-pointer">
+                        Show explanation icon on form
+                      </Label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About explanation icon">
+                            <Info className="h-4 w-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-xs text-sm">
+                          When enabled, an info icon appears next to this extra on booking forms with the tooltip text below.
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    {form.showExplanationIconOnForm && (
+                      <Textarea
+                        placeholder="Add Tooltip Text"
+                        value={form.explanationTooltipText}
+                        onChange={(e) => setForm((p) => ({ ...p, explanationTooltipText: e.target.value }))}
+                        className="min-h-[80px] resize-y bg-background mt-2"
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-sky-200/90 bg-sky-50/90 p-4 dark:border-sky-900/55 dark:bg-sky-950/30">
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="extra-enable-popup"
+                    className="mt-0.5"
+                    checked={form.enablePopupOnSelection}
+                    onCheckedChange={(checked) =>
+                      setForm((p) => ({
+                        ...p,
+                        enablePopupOnSelection: !!checked,
+                        ...(!checked ? { popupContent: "" } : {}),
+                      }))
+                    }
+                  />
+                  <div className="min-w-0 flex-1 space-y-4">
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor="extra-enable-popup" className="text-sm font-medium cursor-pointer">
+                        Enable popup on selection
+                      </Label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About popup on selection">
+                            <Info className="h-4 w-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-sm text-sm leading-snug">
+                          When enabled, a popup with the content below is shown when this extra is added on a booking (where visibility allows).
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    {form.enablePopupOnSelection && (
+                      <div className="space-y-4">
+                        <Form1RichTextEditor
+                          value={form.popupContent}
+                          onChange={(html) => setForm((p) => ({ ...p, popupContent: html }))}
+                        />
+                        <div className="space-y-3 border-t border-sky-200/80 pt-4 dark:border-sky-800/60">
+                          <div className="flex items-center gap-1.5">
+                            <Label className="text-sm font-medium">Display popup on</Label>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About where popup appears">
+                                  <Info className="h-4 w-4" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="right" className="max-w-xs text-sm leading-snug">
+                                Public book-now, logged-in customer booking, and/or admin booking.
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
+                          <RadioGroup
+                            value={form.popupDisplay}
+                            onValueChange={(val) =>
+                              setForm((p) => ({ ...p, popupDisplay: val as FrequencyPopupDisplay }))
+                            }
+                            className="grid gap-2"
+                          >
+                            <label className="flex cursor-pointer items-center gap-2 text-sm">
+                              <RadioGroupItem value="customer_frontend_backend_admin" />
+                              Customer frontend, backend &amp; admin
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-2 text-sm">
+                              <RadioGroupItem value="customer_backend_admin" />
+                              Customer backend &amp; admin
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-2 text-sm">
+                              <RadioGroupItem value="customer_frontend_backend" />
+                              Customer only (frontend &amp; backend)
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-2 text-sm">
+                              <RadioGroupItem value="admin_only" />
+                              Admin only
+                            </label>
+                          </RadioGroup>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium">Display</h4>
+                <p className="text-xs text-muted-foreground">
+                  Where do you want this extra to show up? Do you want customers to be able to see it? Do you want them to
+                  see it when they are booking when logged out or only when they have an account and are logged in or do
+                  you want only admin/staff to see this extra when booking, meaning customers can&apos;t book for this
+                  extra and only you can.
+                </p>
                 <RadioGroup
                   value={form.display}
-                  onValueChange={(v: Extra["display"]) => setForm(p => ({ ...p, display: v }))}
+                  onValueChange={(v: ExtraDisplay) => setForm(p => ({ ...p, display: v }))}
                   className="grid gap-2"
                 >
-                  <label className="flex items-center gap-2 text-sm">
-                    <RadioGroupItem value="frontend-backend-admin" /> Customer frontend, backend & admin
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <RadioGroupItem value="frontend-backend-admin" /> Customer frontend, backend &amp; admin
                   </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <RadioGroupItem value="backend-admin" /> Customer backend & admin
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <RadioGroupItem value="backend-admin" /> Customer backend &amp; admin
                   </label>
-                  <label className="flex items-center gap-2 text-sm">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
                     <RadioGroupItem value="admin-only" /> Admin only
                   </label>
                 </RadioGroup>
               </div>
+              </TooltipProvider>
 
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
@@ -763,13 +801,22 @@ export default function ExtraNewPage() {
                     onCheckedChange={(v) => setForm(p => ({ ...p, overrideTimePricing: !!v }))} 
                   />
                   <Label htmlFor="override-time-pricing" className="text-sm">Override time-based pricing parameters and add extra as separate charge?</Label>
-                  <div className="relative group">
-                    <Info className="h-4 w-4 text-muted-foreground cursor-help" />
-                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                      Note: This option will work only in case of hourly service (Pricing parameters time based).
-                    </div>
-                  </div>
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About override time-based pricing">
+                          <Info className="h-4 w-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-xs text-sm">
+                        Only applies when the service uses hourly pricing with time-based parameters.
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
+                <p className="text-xs rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-rose-900 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-100">
+                  Note: This option will work only in case of hourly service (Pricing parameters time based).
+                </p>
                 {form.overrideTimePricing && (
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
@@ -797,10 +844,36 @@ export default function ExtraNewPage() {
                   onCheckedChange={(v) => setForm(p => ({ ...p, exemptFromDiscount: !!v }))} 
                 />
                 <Label htmlFor="exempt-discount" className="text-sm">Exempt extra from frequency discount?</Label>
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About frequency discount exemption">
+                        <Info className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs text-sm">
+                      When enabled, frequency-based discounts do not reduce the price of this extra.
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
 
               <div className="space-y-2">
-                <Label>Quantity based</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label>Quantity based</Label>
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About quantity based">
+                          <Info className="h-4 w-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-xs text-sm">
+                        Allow customers to choose more than one of this extra (with an optional maximum).
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
                 <RadioGroup
                   value={form.qtyBased ? "yes" : "no"}
                   onValueChange={(v) => setForm(p => ({ ...p, qtyBased: v === "yes" }))}
@@ -1052,6 +1125,123 @@ export default function ExtraNewPage() {
                     </div>
                   </>
                 )}
+              </div>
+
+              <div className="space-y-2">
+                <Label>Select icon</Label>
+                <p className="text-xs text-muted-foreground">Image size should not be more than 300px by 300px.</p>
+                <div className="space-y-3">
+                  {(form.icon || uploadedIcon) && (
+                    <div className="flex items-center gap-3 p-3 border rounded-md bg-muted/50">
+                      <div className="flex items-center justify-center w-12 h-12 border rounded-md bg-background">
+                        {uploadedIcon ? (
+                          <img src={uploadedIcon} alt="Custom icon" className="w-8 h-8 object-contain" />
+                        ) : (
+                          (() => {
+                            const IconComponent = predefinedIcons.find(i => i.value === form.icon)?.icon;
+                            return IconComponent ? <IconComponent className="w-6 h-6" /> : null;
+                          })()
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium">
+                          {uploadedIcon ? "Custom Icon" : predefinedIcons.find(i => i.value === form.icon)?.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Current icon</p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setForm(p => ({ ...p, icon: "" }));
+                          setUploadedIcon(null);
+                        }}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setShowIconPicker(!showIconPicker)}
+                      className="flex-1"
+                    >
+                      Select Icon
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex-1"
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      Browse
+                    </Button>
+                  </div>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          const base64String = reader.result as string;
+                          setUploadedIcon(base64String);
+                          setForm(p => ({ ...p, icon: "" }));
+                          toast.success("Icon uploaded successfully");
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+
+                  {showIconPicker && (
+                    <div className="border rounded-md p-4 bg-background">
+                      <div className="flex items-center justify-between mb-3">
+                        <Label className="text-sm font-medium">Select an icon</Label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowIconPicker(false)}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-5 gap-2">
+                        {predefinedIcons.map((iconItem) => {
+                          const IconComponent = iconItem.icon;
+                          return (
+                            <button
+                              key={iconItem.value}
+                              type="button"
+                              onClick={() => {
+                                setForm(p => ({ ...p, icon: iconItem.value }));
+                                setUploadedIcon(null);
+                                setShowIconPicker(false);
+                                toast.success(`${iconItem.name} icon selected`);
+                              }}
+                              className={`flex flex-col items-center justify-center p-3 border rounded-md hover:bg-muted transition-colors ${
+                                form.icon === iconItem.value ? "border-primary bg-primary/10" : ""
+                              }`}
+                            >
+                              <IconComponent className="w-6 h-6 mb-1" />
+                              <span className="text-xs text-center">{iconItem.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-2">

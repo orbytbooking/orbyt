@@ -15,10 +15,22 @@ export interface ExcludeParameter {
   show_based_on_frequency: boolean;
   show_based_on_service_category: boolean;
   excluded_providers?: string[];
+  /** industry_extras.id (text/uuid), after migration `115_exclude_parameter_excluded_extras_services`. */
+  excluded_extras?: string[];
+  /** industry_service_category.id (text/uuid). */
+  excluded_services?: string[];
   sort_order: number;
   qty_based?: boolean;
   maximum_quantity?: number | null;
   apply_to_all_bookings?: boolean;
+  /** After migration `114_exclude_parameter_customer_end_popup`. */
+  different_on_customer_end?: boolean;
+  customer_end_name?: string | null;
+  show_explanation_icon_on_form?: boolean;
+  explanation_tooltip_text?: string | null;
+  enable_popup_on_selection?: boolean;
+  popup_content?: string | null;
+  popup_display?: string;
   created_at: string;
   updated_at: string;
 }
@@ -37,10 +49,19 @@ export interface CreateExcludeParameterData {
   show_based_on_frequency?: boolean;
   show_based_on_service_category?: boolean;
   excluded_providers?: string[];
+  excluded_extras?: string[];
+  excluded_services?: string[];
   sort_order?: number;
   qty_based?: boolean;
   maximum_quantity?: number | null;
   apply_to_all_bookings?: boolean;
+  different_on_customer_end?: boolean;
+  customer_end_name?: string | null;
+  show_explanation_icon_on_form?: boolean;
+  explanation_tooltip_text?: string | null;
+  enable_popup_on_selection?: boolean;
+  popup_content?: string | null;
+  popup_display?: string;
 }
 
 export interface UpdateExcludeParameterData extends Partial<CreateExcludeParameterData> {}
@@ -115,8 +136,10 @@ class ExcludeParametersService {
   private static readonly TABLE_COLUMNS = [
     'business_id', 'industry_id', 'name', 'description', 'icon', 'price', 'time_minutes', 'display',
     'service_category', 'frequency', 'show_based_on_frequency', 'show_based_on_service_category',
-    'excluded_providers', 'sort_order', 'show_based_on_variables', 'variables',
-    'qty_based', 'maximum_quantity', 'apply_to_all_bookings'
+    'excluded_providers', 'excluded_extras', 'excluded_services', 'sort_order', 'show_based_on_variables', 'variables',
+    'qty_based', 'maximum_quantity', 'apply_to_all_bookings',
+    'different_on_customer_end', 'customer_end_name', 'show_explanation_icon_on_form', 'explanation_tooltip_text',
+    'enable_popup_on_selection', 'popup_content', 'popup_display',
   ] as const;
 
   private pickTableColumns<T extends Record<string, unknown>>(payload: T): Partial<Record<typeof ExcludeParametersService.TABLE_COLUMNS[number], unknown>> {

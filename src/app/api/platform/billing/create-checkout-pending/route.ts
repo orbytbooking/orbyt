@@ -101,7 +101,9 @@ export async function POST(request: Request) {
 
   const origin = resolveRequestAppBaseUrl(request);
 
-  const defaultCancel = `${origin}/auth/onboarding?payment=cancel&pending=${encodeURIComponent(pendingId)}`;
+  /** Authorize.Net Accept Hosted breaks if cancelUrl query contains `&` (blank payment page). Stripe may use full query. */
+  const defaultCancelAuthorizeNet = `${origin}/auth/onboarding?anet_cancel=${encodeURIComponent(pendingId)}`;
+  const defaultCancelStripe = `${origin}/auth/onboarding?payment=cancel&pending=${encodeURIComponent(pendingId)}&plan=${encodeURIComponent(planSlug)}`;
 
   if (getPlatformBillingProvider() === "authorize_net") {
     if (!platformAuthorizeNetCredentialsConfigured()) {
@@ -123,7 +125,7 @@ export async function POST(request: Request) {
       );
     }
     const planName = (planRow as { name: string }).name ?? planSlug;
-    const cancelUrl = resolveSafeRedirectUrl(body.cancelUrl, defaultCancel, origin);
+    const cancelUrl = resolveSafeRedirectUrl(body.cancelUrl, defaultCancelAuthorizeNet, origin);
     try {
       const { url, token } = await startPlatformAuthorizeNetCheckout({
         supabase: admin,
@@ -190,7 +192,7 @@ export async function POST(request: Request) {
   const defaultSuccess = `${origin}/auth/onboarding/complete?stripe_session_id={CHECKOUT_SESSION_ID}`;
 
   const successUrl = resolveSafeRedirectUrl(body.successUrl, defaultSuccess, origin);
-  const cancelUrl = resolveSafeRedirectUrl(body.cancelUrl, defaultCancel, origin);
+  const cancelUrl = resolveSafeRedirectUrl(body.cancelUrl, defaultCancelStripe, origin);
   const embedded = body.embedded === true;
   const returnUrlEmbedded = ensureStripeEmbeddedReturnUrl(successUrl);
 

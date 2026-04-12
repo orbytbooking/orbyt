@@ -1,5 +1,94 @@
 import { supabase, supabaseAdmin } from '@/lib/supabaseClient';
 
+/** Columns accepted on POST/PUT `/api/extras` — must match `industry_extras` (no `id` / timestamps). */
+export const INDUSTRY_EXTRAS_WRITABLE_KEYS = [
+  'business_id',
+  'industry_id',
+  'name',
+  'description',
+  'icon',
+  'time_minutes',
+  'service_category',
+  'price',
+  'display',
+  'qty_based',
+  'maximum_quantity',
+  'pricing_structure',
+  'manual_prices',
+  'exempt_from_discount',
+  'show_based_on_frequency',
+  'frequency_options',
+  'show_based_on_service_category',
+  'service_category_options',
+  'show_based_on_variables',
+  'variable_options',
+  'excluded_providers',
+  'sort_order',
+  'different_on_customer_end',
+  'customer_end_name',
+  'show_explanation_icon_on_form',
+  'explanation_tooltip_text',
+  'enable_popup_on_selection',
+  'popup_content',
+  'popup_display',
+  'apply_to_all_bookings',
+] as const;
+
+/** Drop unknown keys so writes are DB-backed only (no arbitrary JSON → Supabase). */
+export function pickIndustryExtraWritePayload(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {};
+  }
+  const o = raw as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of INDUSTRY_EXTRAS_WRITABLE_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(o, key)) {
+      out[key] = o[key];
+    }
+  }
+  return out;
+}
+
+/**
+ * Legacy Supabase projects may not have `manual_prices` / `pricing_structure` (migration 095) or
+ * Form 1 popup columns (116). Omitting keys that match DB defaults lets PostgREST insert without
+ * referencing missing columns. Only used for INSERT — updates still send full payloads when needed.
+ */
+export function pruneIndustryExtraRowForInsert(row: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...row };
+
+  const ps = out.pricing_structure;
+  const mp = out.manual_prices;
+  const isMultiplyDefault =
+    (ps === undefined || ps === null || ps === 'multiply') &&
+    (mp === undefined ||
+      mp === null ||
+      (Array.isArray(mp) && mp.length === 0));
+  if (isMultiplyDefault) {
+    delete out.manual_prices;
+    delete out.pricing_structure;
+  }
+
+  if (out.different_on_customer_end === false) {
+    delete out.different_on_customer_end;
+    delete out.customer_end_name;
+  }
+  if (out.show_explanation_icon_on_form === false) {
+    delete out.show_explanation_icon_on_form;
+    delete out.explanation_tooltip_text;
+  }
+  if (out.enable_popup_on_selection === false) {
+    delete out.enable_popup_on_selection;
+    delete out.popup_content;
+    delete out.popup_display;
+  }
+  if (out.apply_to_all_bookings === true) {
+    delete out.apply_to_all_bookings;
+  }
+
+  return out;
+}
+
 export interface Extra {
   id: string;
   business_id: string;
@@ -23,6 +112,14 @@ export interface Extra {
   show_based_on_variables: boolean;
   variable_options?: string[];
   excluded_providers?: string[];
+  different_on_customer_end?: boolean;
+  customer_end_name?: string | null;
+  show_explanation_icon_on_form?: boolean;
+  explanation_tooltip_text?: string | null;
+  enable_popup_on_selection?: boolean;
+  popup_content?: string | null;
+  popup_display?: string;
+  apply_to_all_bookings?: boolean;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -50,6 +147,14 @@ export interface CreateExtraData {
   show_based_on_variables?: boolean;
   variable_options?: string[];
   excluded_providers?: string[];
+  different_on_customer_end?: boolean;
+  customer_end_name?: string | null;
+  show_explanation_icon_on_form?: boolean;
+  explanation_tooltip_text?: string | null;
+  enable_popup_on_selection?: boolean;
+  popup_content?: string | null;
+  popup_display?: string;
+  apply_to_all_bookings?: boolean;
   sort_order?: number;
 }
 
@@ -98,9 +203,10 @@ class ExtrasService {
   }
 
   async createExtra(extraData: CreateExtraData): Promise<Extra> {
+    const row = pruneIndustryExtraRowForInsert({ ...extraData } as Record<string, unknown>);
     const { data, error } = await this.supabase
       .from('industry_extras')
-      .insert(extraData)
+      .insert(row)
       .select()
       .single();
 
@@ -167,83 +273,6 @@ class ExtrasService {
         console.error('Error updating extra order:', result.error);
         throw result.error;
       }
-    }
-  }
-
-  // Migration helper: migrate from localStorage to database
-  async migrateFromLocalStorage(industryId: string, industryName: string): Promise<void> {
-    try {
-      // Get data from localStorage
-      const storageKey = `extras_${industryName}`;
-      const stored = localStorage.getItem(storageKey);
-      
-      if (!stored || stored === "null") {
-        console.log(`No extras found in localStorage for ${industryName}`);
-        return;
-      }
-
-      const localStorageExtras = JSON.parse(stored);
-      if (!Array.isArray(localStorageExtras) || localStorageExtras.length === 0) {
-        console.log(`No valid extras array found in localStorage for ${industryName}`);
-        return;
-      }
-
-      console.log(`Migrating ${localStorageExtras.length} extras from localStorage to database for ${industryName}`);
-
-      // Get business_id from current session
-      const { data: { user } } = await this.supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-      
-      const { data: business } = await this.supabase
-        .from('businesses')
-        .select('id')
-        .eq('owner_id', user.id)
-        .single();
-      
-      if (!business) throw new Error('Business not found');
-
-      // Convert localStorage format to database format
-      const dbExtras: CreateExtraData[] = localStorageExtras.map((extra, index) => ({
-        business_id: business.id,
-        industry_id: industryId,
-        name: extra.name,
-        description: extra.description,
-        icon: extra.icon,
-        time_minutes: extra.time || 0,
-        service_category: extra.serviceCategory,
-        price: extra.price || 0,
-        display: extra.display || 'frontend-backend-admin',
-        qty_based: extra.qtyBased || false,
-        exempt_from_discount: extra.exemptFromDiscount || false,
-        show_based_on_frequency: extra.showBasedOnFrequency || false,
-        frequency_options: extra.frequencyOptions || [],
-        show_based_on_service_category: extra.showBasedOnServiceCategory || false,
-        service_category_options: extra.serviceCategoryOptions || [],
-        show_based_on_variables: extra.showBasedOnVariables || false,
-        variable_options: extra.variableOptions || [],
-        sort_order: index
-      }));
-
-      // Insert all extras
-      const { data, error } = await this.supabase
-        .from('industry_extras')
-        .insert(dbExtras)
-        .select();
-
-      if (error) {
-        console.error('Error migrating extras:', error);
-        throw error;
-      }
-
-      console.log(`Successfully migrated ${data?.length || 0} extras to database`);
-
-      // Optionally clear localStorage after successful migration
-      localStorage.removeItem(storageKey);
-      console.log(`Cleared localStorage for ${industryName} extras`);
-
-    } catch (error) {
-      console.error('Migration failed:', error);
-      throw error;
     }
   }
 }

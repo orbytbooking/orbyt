@@ -1,12 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  cancelUrlSafeForAuthorizeNetAcceptHosted,
   ensureAbsoluteAppBase,
-  getAuthorizeNetApiUrl,
   getAuthorizeNetSessionCluster,
   normalizeUrlForAuthorizeNetHostedReturn,
   sanitizeAuthorizeNetOrderText,
   toAbsoluteHostedPaymentUrl,
 } from "@/lib/payments/authorizeNetEnvironment";
+import { requestAuthorizeNetHostedPaymentToken } from "@/lib/payments/authorizeNetHostedPaymentToken";
 import { getPlatformAuthorizeCredentials } from "@/lib/platform-billing/authorizeNetPlatformApi";
 
 function randomInvoiceToken(): string {
@@ -14,11 +15,6 @@ function randomInvoiceToken(): string {
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
-
-type AuthNetMessages = {
-  resultCode?: string;
-  message?: { code?: string; text?: string }[];
-};
 
 /**
  * Insert checkout session row and return Accept Hosted redirect URL (via /api/authorize-net/redirect).
@@ -74,15 +70,29 @@ export async function startPlatformAuthorizeNetCheckout(params: {
         ""
     )
   );
+  /** Correlate return when the gateway omits transId on GET; single `s` param (no `&`) in the token request. */
+  const successPathBase = params.successReturnPath.split("?")[0];
+  const successPathWithSession = `${successPathBase}?s=${encodeURIComponent(token)}`;
   const successUrl = normalizeUrlForAuthorizeNetHostedReturn(
-    toAbsoluteHostedPaymentUrl(baseApp, params.successReturnPath)
+    toAbsoluteHostedPaymentUrl(baseApp, successPathWithSession)
   );
   const cancelAbsolute = normalizeUrlForAuthorizeNetHostedReturn(
     toAbsoluteHostedPaymentUrl(baseApp, params.cancelUrl)
   );
+  const cancelFallback = params.pendingOwnerId
+    ? normalizeUrlForAuthorizeNetHostedReturn(
+        toAbsoluteHostedPaymentUrl(
+          baseApp,
+          `/auth/onboarding?anet_cancel=${encodeURIComponent(params.pendingOwnerId)}`
+        )
+      )
+    : normalizeUrlForAuthorizeNetHostedReturn(
+        toAbsoluteHostedPaymentUrl(baseApp, "/admin/settings/account?platform_billing_cancel=1")
+      );
+  const cancelForHosted = cancelUrlSafeForAuthorizeNetAcceptHosted(cancelAbsolute, cancelFallback);
   for (const [label, u] of [
     ["return url", successUrl],
-    ["cancel url", cancelAbsolute],
+    ["cancel url", cancelForHosted],
   ] as const) {
     if (!u || !/^https?:\/\//i.test(u.trim())) {
       throw new Error(
@@ -92,85 +102,28 @@ export async function startPlatformAuthorizeNetCheckout(params: {
     }
   }
   const amount = (params.amountCents / 100).toFixed(2);
+  const orderDesc = sanitizeAuthorizeNetOrderText(params.lineDescription, 255);
+  const lineName = orderDesc || "Orbyt subscription";
 
-  /** showReceipt: true matches Authorize samples; redirect integrations still honor url after receipt. */
-  const hostedPaymentReturnOptions = JSON.stringify({
-    showReceipt: true,
-    url: String(successUrl),
-    urlText: "Continue",
-    cancelUrl: String(cancelAbsolute),
-    cancelUrlText: "Cancel",
-  });
-
-  const requestBody = {
-    getHostedPaymentPageRequest: {
-      merchantAuthentication: {
-        name: creds.apiLoginId,
-        transactionKey: creds.transactionKey,
-      },
-      refId: token.slice(0, 20),
-      transactionRequest: {
-        transactionType: "authCaptureTransaction",
-        amount,
-        profile: {
-          createProfile: true,
-        },
-        order: {
-          invoiceNumber: token,
-          description: sanitizeAuthorizeNetOrderText(params.lineDescription, 255),
-        },
-      },
-      hostedPaymentSettings: {
-        setting: [
-          {
-            settingName: "hostedPaymentReturnOptions",
-            settingValue: hostedPaymentReturnOptions,
-          },
-          {
-            settingName: "hostedPaymentButtonOptions",
-            settingValue: JSON.stringify({ text: "Pay" }),
-          },
-        ],
-      },
+  const { token: hostedToken } = await requestAuthorizeNetHostedPaymentToken({
+    apiLoginId: creds.apiLoginId,
+    transactionKey: creds.transactionKey,
+    amount,
+    returnUrl: successUrl,
+    cancelUrl: cancelForHosted,
+    refId: token.slice(0, 20),
+    order: {
+      invoiceNumber: token,
+      description: orderDesc || "Orbyt subscription",
     },
-  };
-
-  const apiUrl = getAuthorizeNetApiUrl();
-  const res = await fetch(apiUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(requestBody),
+    lineItem: {
+      itemId: "1",
+      name: lineName.slice(0, 31),
+      description: lineName,
+      quantity: "1",
+      unitPrice: amount,
+    },
   });
-
-  const text = await res.text();
-  if (!res.ok) {
-    console.error("[Platform Authorize.Net] getHostedPaymentPage HTTP:", res.status, text.slice(0, 400));
-    throw new Error(`Authorize.Net getHostedPaymentPage failed (${res.status})`);
-  }
-
-  type AuthNetResp = {
-    token?: string;
-    messages?: AuthNetMessages;
-    getHostedPaymentPageResponse?: { token?: string; messages?: AuthNetMessages };
-  };
-  let data: AuthNetResp;
-  try {
-    data = JSON.parse(text) as AuthNetResp;
-  } catch {
-    throw new Error("Authorize.Net returned invalid JSON");
-  }
-
-  const resp = data.getHostedPaymentPageResponse ?? data;
-  if (resp.messages?.resultCode === "Error") {
-    const errText =
-      resp.messages.message?.map((m) => m.text).filter(Boolean).join("; ") ?? "Unknown error";
-    throw new Error(errText);
-  }
-
-  const hostedToken = resp.token ?? data.token;
-  if (!hostedToken) {
-    throw new Error("Authorize.Net did not return a payment token");
-  }
 
   const cluster = getAuthorizeNetSessionCluster();
   const redirectUrl = `${baseApp}/api/authorize-net/redirect?token=${encodeURIComponent(hostedToken)}&anet_env=${encodeURIComponent(cluster)}`;

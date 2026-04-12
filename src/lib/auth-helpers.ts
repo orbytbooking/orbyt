@@ -1,5 +1,36 @@
 import type { User } from '@supabase/supabase-js';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+
+/** Shown when someone tries pre-payment owner signup with an email that already has Auth. */
+export const SIGNUP_EMAIL_ALREADY_EXISTS_MESSAGE =
+  'An account with this email already exists. Sign in instead, or use a different email address.';
+
+/** Shown when payment succeeded but Auth user already existed (should be rare if signup was gated). */
+export const PENDING_OWNER_EMAIL_CONFLICT_MESSAGE =
+  'This email already has an Orbyt account. Sign in to open your workspace. If you just completed payment and see this message, contact support with your receipt.';
+
+/**
+ * Find auth user id by email (case-insensitive). Uses admin API; pass service-role client.
+ * Paginates up to 50k users (50 × 1000).
+ */
+export async function findAuthUserIdByEmail(
+  admin: SupabaseClient,
+  email: string
+): Promise<string | null> {
+  const target = email.trim().toLowerCase();
+  if (!target) return null;
+  let page = 1;
+  const perPage = 1000;
+  for (let i = 0; i < 50; i++) {
+    const { data } = await admin.auth.admin.listUsers({ page, per_page: perPage });
+    const u = data?.users?.find((x) => x.email?.toLowerCase() === target);
+    if (u?.id) return u.id;
+    const users = data?.users ?? [];
+    if (users.length < perPage) break;
+    page++;
+  }
+  return null;
+}
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { createServerClient as createSupabaseServerClient } from '@supabase/ssr';

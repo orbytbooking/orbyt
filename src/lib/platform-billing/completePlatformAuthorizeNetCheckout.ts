@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { PENDING_OWNER_EMAIL_CONFLICT_MESSAGE } from "@/lib/auth-helpers";
 import {
   createAuthorizeNetArbSubscription,
+  createCustomerProfileFromTransaction,
   getAuthorizeNetTransactionDetails,
 } from "@/lib/platform-billing/authorizeNetPlatformApi";
 import {
@@ -99,12 +101,54 @@ export async function completePlatformAuthorizeNetCheckout(params: {
     return { ok: false, error: "Paid amount does not match selected plan", httpStatus: 400 };
   }
 
-  if (!details.customerProfileId || !details.customerPaymentProfileId) {
-    return {
-      ok: false,
-      error: "Payment profile was not created — enable CIM / customer profiles on your Authorize.Net merchant.",
-      httpStatus: 500,
-    };
+  let customerProfileId = details.customerProfileId;
+  let customerPaymentProfileId = details.customerPaymentProfileId;
+
+  if (!customerProfileId || !customerPaymentProfileId) {
+    let profileEmail: string | null = null;
+    if (sess.pending_owner_id) {
+      const { data: pend } = await supabase
+        .from("pending_owner_onboarding")
+        .select("email")
+        .eq("id", sess.pending_owner_id)
+        .maybeSingle();
+      profileEmail = (pend as { email?: string } | null)?.email?.trim() ?? null;
+    } else if (sess.business_id) {
+      const { data: biz } = await supabase
+        .from("businesses")
+        .select("business_email, owner_id")
+        .eq("id", sess.business_id)
+        .maybeSingle();
+      const row = biz as { business_email?: string | null; owner_id?: string | null } | null;
+      profileEmail = row?.business_email?.trim() || null;
+      if (!profileEmail && row?.owner_id) {
+        try {
+          const { data: authUser } = await supabase.auth.admin.getUserById(row.owner_id);
+          profileEmail = authUser?.user?.email?.trim() ?? null;
+        } catch {
+          /* non-fatal */
+        }
+      }
+    }
+
+    try {
+      const created = await createCustomerProfileFromTransaction({
+        transId: details.transId,
+        customerEmail: profileEmail,
+      });
+      customerProfileId = created.customerProfileId;
+      customerPaymentProfileId = created.customerPaymentProfileId;
+    } catch (e) {
+      console.error("[Platform Authorize.Net] createCustomerProfileFromTransaction:", e);
+      return {
+        ok: false,
+        error:
+          e instanceof Error
+            ? e.message
+            : "Could not create customer profile for recurring billing. Enable CIM on your Authorize.Net merchant.",
+        httpStatus: 502,
+      };
+    }
   }
 
   const paidDate =
@@ -119,10 +163,8 @@ export async function completePlatformAuthorizeNetCheckout(params: {
       amountFormatted,
       billingInterval: sess.billing_interval,
       startDateYyyyMmDd: arbStart,
-      customerProfileId: details.customerProfileId,
-      customerPaymentProfileId: details.customerPaymentProfileId,
-      invoiceNumber: sess.token,
-      description: `Orbyt workspace — ${sess.plan_slug}`,
+      customerProfileId,
+      customerPaymentProfileId,
     });
   } catch (e) {
     console.error("[Platform Authorize.Net] ARB create failed:", e);
@@ -140,8 +182,8 @@ export async function completePlatformAuthorizeNetCheckout(params: {
     const prov = await processPendingOwnerAuthorizeNet({
       supabase,
       pendingId: sess.pending_owner_id,
-      customerProfileId: details.customerProfileId,
-      paymentProfileId: details.customerPaymentProfileId,
+      customerProfileId,
+      paymentProfileId: customerPaymentProfileId,
       arbSubscriptionId: arbId,
       planSlug: sess.plan_slug,
       currentPeriodStart: paidDate,
@@ -149,7 +191,12 @@ export async function completePlatformAuthorizeNetCheckout(params: {
     });
 
     if (!prov.ok) {
-      return { ok: false, error: prov.error, httpStatus: 500 };
+      const emailConflict = prov.error === PENDING_OWNER_EMAIL_CONFLICT_MESSAGE;
+      return {
+        ok: false,
+        error: prov.error,
+        httpStatus: emailConflict ? 409 : 500,
+      };
     }
 
     const bizId = prov.businessId;
@@ -171,8 +218,8 @@ export async function completePlatformAuthorizeNetCheckout(params: {
       supabase,
       businessId: sess.business_id,
       planSlug: sess.plan_slug,
-      customerProfileId: details.customerProfileId,
-      paymentProfileId: details.customerPaymentProfileId,
+      customerProfileId,
+      paymentProfileId: customerPaymentProfileId,
       arbSubscriptionId: arbId,
       currentPeriodStart: paidDate,
       currentPeriodEnd: arbStart,

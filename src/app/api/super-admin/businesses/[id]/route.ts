@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireSuperAdminGate } from '@/lib/auth-helpers';
+import { getPlatformBillingProvider } from '@/lib/platform-billing/platformBillingProvider';
 
 export const dynamic = 'force-dynamic';
 
@@ -97,6 +98,9 @@ export async function GET(
       currentPeriodEnd?: string;
       stripeCustomerId?: string | null;
       stripeSubscriptionId?: string | null;
+      authorizeNetCustomerProfileId?: string | null;
+      authorizeNetPaymentProfileId?: string | null;
+      authorizeNetSubscriptionId?: string | null;
     } | null = null;
     let recentSubscriptionPayments: { paid_at: string; amount_cents: number; description?: string }[] = [];
     let paymentIssueCounts = { failed: 0, refunded: 0, pending: 0 };
@@ -113,7 +117,9 @@ export async function GET(
     try {
       const { data: subRow } = await admin
         .from('platform_subscriptions')
-        .select('id, plan_id, status, current_period_start, current_period_end, stripe_customer_id, stripe_subscription_id')
+        .select(
+          'id, plan_id, status, current_period_start, current_period_end, stripe_customer_id, stripe_subscription_id, authorize_net_customer_profile_id, authorize_net_payment_profile_id, authorize_net_subscription_id'
+        )
         .eq('business_id', businessId)
         .maybeSingle();
       if (subRow) {
@@ -133,6 +139,13 @@ export async function GET(
           currentPeriodEnd: (subRow as { current_period_end?: string }).current_period_end ?? undefined,
           stripeCustomerId: (subRow as { stripe_customer_id?: string | null }).stripe_customer_id ?? null,
           stripeSubscriptionId: (subRow as { stripe_subscription_id?: string | null }).stripe_subscription_id ?? null,
+          authorizeNetCustomerProfileId:
+            (subRow as { authorize_net_customer_profile_id?: string | null }).authorize_net_customer_profile_id ??
+            null,
+          authorizeNetPaymentProfileId:
+            (subRow as { authorize_net_payment_profile_id?: string | null }).authorize_net_payment_profile_id ?? null,
+          authorizeNetSubscriptionId:
+            (subRow as { authorize_net_subscription_id?: string | null }).authorize_net_subscription_id ?? null,
         };
       }
       const { data: paymentRows } = await admin
@@ -199,6 +212,7 @@ export async function GET(
     const storageLimitBytes = STORAGE_LIMIT_BYTES[planSlugForStorage] ?? STORAGE_LIMIT_BYTES.starter;
 
     return NextResponse.json({
+      platformBillingProvider: getPlatformBillingProvider(),
       business: {
         ...business,
         owner_name: ownerName,

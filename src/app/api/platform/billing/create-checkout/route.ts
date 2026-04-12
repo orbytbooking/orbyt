@@ -109,10 +109,16 @@ export async function POST(request: Request) {
   const origin = resolveRequestAppBaseUrl(request);
 
   const defaultSuccess = `${origin}/admin/settings/account?tab=billing&platform_sub=success`;
-  const defaultCancel = `${origin}/admin/settings/account?tab=billing&platform_sub=cancel`;
+  /** Stripe and in-app redirects can use multiple query params; Authorize.Net Accept Hosted cannot (breaks their page). */
+  const defaultCancelStripe = `${origin}/admin/settings/account?tab=billing&platform_sub=cancel`;
+  const defaultCancelAuthorizeNet = `${origin}/admin/settings/account?platform_billing_cancel=1`;
 
   const successUrlEarly = resolveSafeRedirectUrl(body.successUrl, defaultSuccess, origin);
-  const cancelUrlEarly = resolveSafeRedirectUrl(body.cancelUrl, defaultCancel, origin);
+  const cancelUrlEarly = resolveSafeRedirectUrl(
+    body.cancelUrl,
+    getPlatformBillingProvider() === "authorize_net" ? defaultCancelAuthorizeNet : defaultCancelStripe,
+    origin
+  );
 
   if (getPlatformBillingProvider() === "authorize_net") {
     if (!platformAuthorizeNetCredentialsConfigured()) {

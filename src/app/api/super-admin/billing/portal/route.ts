@@ -1,16 +1,28 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { requireSuperAdminGate } from "@/lib/auth-helpers";
+import { getPlatformBillingProvider } from "@/lib/platform-billing/platformBillingProvider";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Super Admin: open Stripe Customer Portal for any business.
+ * Super Admin: open Stripe Customer Portal for any business (platform billing must be Stripe).
  * Body: { businessId: string }
  */
 export async function POST(request: Request) {
   const gate = await requireSuperAdminGate();
   if (!gate.ok) return gate.response;
+
+  if (getPlatformBillingProvider() === "authorize_net") {
+    return NextResponse.json(
+      {
+        error:
+          "Workspace billing uses Authorize.Net. Manage ARB/CIM in the Authorize.Net merchant dashboard — Stripe Customer Portal does not apply.",
+        code: "authorize_net_platform_billing",
+      },
+      { status: 501 }
+    );
+  }
 
   const secret = process.env.STRIPE_SECRET_KEY;
   if (!secret) {

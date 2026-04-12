@@ -2,9 +2,13 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { FiMail, FiLock, FiUser, FiArrowRight, FiEye, FiEyeOff, FiCheckCircle } from "react-icons/fi";
+import { FiMail, FiLock, FiArrowRight, FiEye, FiEyeOff, FiCheckCircle } from "react-icons/fi";
 import Image from "next/image";
 import Link from "next/link";
+import {
+  isValidOwnerSignupEmail,
+  normalizeOwnerSignupEmail,
+} from "@/lib/signupEmailValidation";
 
 export default function Signup() {
   const [email, setEmail] = useState("");
@@ -21,23 +25,42 @@ export default function Signup() {
     setError("");
     
     try {
-      // Validate email and password
-      if (!email || !password) {
-        throw new Error('Please enter both email and password');
+      if (!password) {
+        throw new Error('Please enter your password');
       }
-      
       if (password.length < 6) {
         throw new Error('Password must be at least 6 characters long');
       }
-      
-      // Store credentials in sessionStorage to pass to onboarding
-      sessionStorage.setItem('signup_email', email);
+
+      const normalizedEmail = normalizeOwnerSignupEmail(email);
+      if (!isValidOwnerSignupEmail(normalizedEmail)) {
+        throw new Error('Please enter a valid email address.');
+      }
+
+      const checkRes = await fetch(`${window.location.origin}/api/auth/check-owner-signup-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalizedEmail }),
+      });
+      const checkJson = (await checkRes.json().catch(() => ({}))) as {
+        available?: boolean;
+        error?: string;
+      };
+      if (!checkRes.ok) {
+        throw new Error(checkJson.error || 'Could not verify email. Try again.');
+      }
+      if (!checkJson.available) {
+        throw new Error(
+          checkJson.error ||
+            'An account with this email already exists. Sign in instead, or use a different email address.'
+        );
+      }
+
+      sessionStorage.setItem('signup_email', normalizedEmail);
       sessionStorage.setItem('signup_password', password);
-      
-      // Redirect to onboarding without creating account yet
       router.push('/auth/onboarding');
-    } catch (err: any) {
-      setError(err.message || 'An error occurred during sign up');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'An error occurred during sign up');
     } finally {
       setLoading(false);
     }
@@ -155,6 +178,7 @@ export default function Signup() {
                     id="email"
                     name="email"
                     type="email"
+                    inputMode="email"
                     autoComplete="email"
                     required
                     value={email}

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireSuperAdminGate } from '@/lib/auth-helpers';
+import { getPlatformBillingProvider } from '@/lib/platform-billing/platformBillingProvider';
 
 export const dynamic = 'force-dynamic';
 
@@ -429,6 +430,7 @@ export async function GET() {
       current_period_end: string | null;
       stripe_customer_id: string | null;
       stripe_subscription_id: string | null;
+      authorize_net_subscription_id: string | null;
       updated_at: string | null;
     }[] = [];
     let paymentIssueCounts = { failed: 0, refunded: 0, pending: 0 };
@@ -437,7 +439,7 @@ export async function GET() {
       const { data: psRows } = await admin
         .from("platform_subscriptions")
         .select(
-          "id, business_id, plan_id, status, current_period_start, current_period_end, stripe_customer_id, stripe_subscription_id, updated_at"
+          "id, business_id, plan_id, status, current_period_start, current_period_end, stripe_customer_id, stripe_subscription_id, authorize_net_subscription_id, updated_at"
         )
         .order("updated_at", { ascending: false });
       const { data: planRowsForSubs } = await admin
@@ -457,6 +459,7 @@ export async function GET() {
           current_period_end: string | null;
           stripe_customer_id: string | null;
           stripe_subscription_id: string | null;
+          authorize_net_subscription_id: string | null;
           updated_at: string | null;
         }) => {
           const pl = planById[s.plan_id];
@@ -472,6 +475,7 @@ export async function GET() {
             current_period_end: s.current_period_end,
             stripe_customer_id: s.stripe_customer_id,
             stripe_subscription_id: s.stripe_subscription_id,
+            authorize_net_subscription_id: s.authorize_net_subscription_id,
             updated_at: s.updated_at,
           };
         }
@@ -512,6 +516,7 @@ export async function GET() {
         upcomingPayments,
         platformSubscriptions: platformSubscriptionsList,
         paymentIssueCounts,
+        platformBillingProvider: getPlatformBillingProvider(),
       },
       subscriptions: {
         active: activeSubscriptions,

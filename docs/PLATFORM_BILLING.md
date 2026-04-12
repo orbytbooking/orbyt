@@ -9,8 +9,7 @@ Businesses pay **Orbyt** for their workspace plan. That revenue can go through *
 | Env | Effect |
 |-----|--------|
 | `PLATFORM_BILLING_PROVIDER=stripe` | Platform checkout uses Stripe only (needs Stripe Price IDs). |
-| `PLATFORM_BILLING_PROVIDER=authorize_net` | Platform checkout uses Authorize.Net Accept Hosted + ARB. |
-| *(unset)* | If `PLATFORM_AUTHORIZE_NET_API_LOGIN_ID` **and** `PLATFORM_AUTHORIZE_NET_TRANSACTION_KEY` are set → **Authorize.Net**. Otherwise → **Stripe**. |
+| `PLATFORM_BILLING_PROVIDER=authorize_net` or *(unset)* | **Default:** Authorize.Net Accept Hosted + ARB (`PLATFORM_AUTHORIZE_NET_*` required). |
 
 **Authorize.Net sandbox vs live:** `AUTHORIZE_NET_ENVIRONMENT=production` for live API; omit or use non-`production` for sandbox (`apitest.authorize.net`).
 

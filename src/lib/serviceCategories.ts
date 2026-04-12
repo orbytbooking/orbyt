@@ -5,6 +5,8 @@ export interface ServiceCategory {
   business_id: string;
   industry_id: string;
   name: string;
+  different_on_customer_end?: boolean;
+  customer_end_name?: string | null;
   description?: string;
   color?: string;
   icon?: string;
@@ -22,7 +24,8 @@ export interface ServiceCategory {
     deepCleaning: boolean;
   };
   selected_exclude_parameters?: string[];
-  extras?: number[];
+  /** `industry_extras.id` values (UUID strings from Supabase). */
+  extras?: string[];
   extras_config?: {
     tip: {
       enabled: boolean;
@@ -91,6 +94,13 @@ export interface ServiceCategory {
     textToDisplay: boolean;
     noticeText: string;
   };
+  minimum_time?: {
+    enabled: boolean;
+    hours: string;
+    minutes: string;
+    textToDisplay: boolean;
+    noticeText: string;
+  };
   override_provider_pay?: {
     enabled: boolean;
     amount: string;
@@ -103,6 +113,7 @@ export interface ServiceCategory {
   explanation_tooltip_text?: string;
   enable_popup_on_selection?: boolean;
   popup_content?: string;
+  popup_display?: string;
   enable_service_length_tooltip_customer?: boolean;
   service_length_tooltip_text_customer?: string;
   enable_service_length_tooltip_provider?: boolean;
@@ -116,6 +127,8 @@ export interface CreateServiceCategoryData {
   business_id: string;
   industry_id: string;
   name: string;
+  different_on_customer_end?: boolean;
+  customer_end_name?: string | null;
   description?: string;
   color?: string;
   icon?: string;
@@ -133,7 +146,7 @@ export interface CreateServiceCategoryData {
     deepCleaning: boolean;
   };
   selected_exclude_parameters?: string[];
-  extras?: number[];
+  extras?: string[];
   extras_config?: ServiceCategory['extras_config'];
   expedited_charge?: ServiceCategory['expedited_charge'];
   cancellation_fee?: ServiceCategory['cancellation_fee'];
@@ -141,12 +154,14 @@ export interface CreateServiceCategoryData {
   service_category_price?: ServiceCategory['service_category_price'];
   service_category_time?: ServiceCategory['service_category_time'];
   minimum_price?: ServiceCategory['minimum_price'];
+  minimum_time?: ServiceCategory['minimum_time'];
   override_provider_pay?: ServiceCategory['override_provider_pay'];
   excluded_providers?: string[];
   show_explanation_icon_on_form?: boolean;
   explanation_tooltip_text?: string;
   enable_popup_on_selection?: boolean;
   popup_content?: string;
+  popup_display?: string;
   enable_service_length_tooltip_customer?: boolean;
   service_length_tooltip_text_customer?: string;
   enable_service_length_tooltip_provider?: boolean;
@@ -384,6 +399,13 @@ class ServiceCategoriesService {
           checkAmountType: 'discounted',
           price: "",
           checkRecurringSchedule: false,
+          textToDisplay: false,
+          noticeText: ""
+        },
+        minimum_time: category.minimumTime || {
+          enabled: false,
+          hours: "0",
+          minutes: "0",
           textToDisplay: false,
           noticeText: ""
         },

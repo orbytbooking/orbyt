@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { normalizeFrequencyPopupDisplay } from '@/lib/frequencyPopupDisplay';
 
 function createSupabaseServiceClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -11,23 +12,67 @@ function createSupabaseServiceClient() {
   return createClient(supabaseUrl, supabaseServiceKey);
 }
 
+async function clearOtherIndustryFrequencyDefaults(
+  supabase: ReturnType<typeof createSupabaseServiceClient>,
+  businessId: string,
+  industryId: string,
+  exceptId: string,
+) {
+  const { error } = await supabase
+    .from('industry_frequency')
+    .update({ is_default: false, updated_at: new Date().toISOString() })
+    .eq('business_id', businessId)
+    .eq('industry_id', industryId)
+    .neq('id', exceptId);
+  if (error) {
+    console.error('Error clearing other frequency defaults:', error);
+  }
+}
+
 /**
  * Check if a zipcode falls within any of the given location IDs via location_zip_codes.
  * When useWildcard is true, matches zip_code that starts with the given zip (prefix match).
+ * When businessId is set, only location IDs that belong to that business are considered
+ * (prevents stale or cross-tenant IDs from matching).
  */
 async function isZipcodeInLocations(
   supabase: ReturnType<typeof createSupabaseServiceClient>,
   zipcode: string,
   locationIds: string[],
-  useWildcard = false
+  useWildcard = false,
+  businessId?: string | null
 ): Promise<boolean> {
   if (!zipcode?.trim() || !locationIds?.length) return false;
   const zip = String(zipcode).trim().replace(/\s/g, '');
+  const uniqueIds = [
+    ...new Set(
+      locationIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0),
+    ),
+  ];
+  if (!uniqueIds.length) return false;
+
+  let scopedIds = uniqueIds;
+  if (businessId?.trim()) {
+    const { data: locRows, error: locErr } = await supabase
+      .from('locations')
+      .select('id')
+      .eq('business_id', businessId.trim())
+      .in('id', uniqueIds);
+    if (locErr) {
+      console.error('Error resolving locations for zip filter:', locErr);
+      return false;
+    }
+    scopedIds = (locRows || [])
+      .map((r: { id?: string }) => r.id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    if (!scopedIds.length) return false;
+  }
+
   let query = supabase
     .from('location_zip_codes')
     .select('id')
     .eq('active', true)
-    .in('location_id', locationIds)
+    .in('location_id', scopedIds)
     .limit(1);
   if (useWildcard) {
     query = query.ilike('zip_code', zip + '%');
@@ -64,6 +109,17 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const forCustomer = !includeAll;
+    if (forCustomer && !businessId?.trim()) {
+      return NextResponse.json(
+        {
+          error:
+            'businessId is required for customer booking frequency requests (scopes rows and location zip matching).',
+        },
+        { status: 400 },
+      );
+    }
+
     let query = supabase
       .from('industry_frequency')
       .select('*')
@@ -97,7 +153,6 @@ export async function GET(request: NextRequest) {
     }
 
     // For customer booking: only show frequencies with display 'Both' or 'Booking' (treat null/undefined as Both)
-    const forCustomer = !includeAll;
     let filtered = frequencies ?? [];
     if (forCustomer) {
       filtered = (filtered as any[]).filter(
@@ -119,7 +174,13 @@ export async function GET(request: NextRequest) {
         if (!showBasedOnLocation) {
           results.push(freq);
         } else {
-          const inRange = await isZipcodeInLocations(supabase, zipcode, locationIds, useWildcard);
+          const inRange = await isZipcodeInLocations(
+            supabase,
+            zipcode,
+            locationIds,
+            useWildcard,
+            (freq as { business_id?: string }).business_id,
+          );
           if (inRange) results.push(freq);
         }
       }
@@ -159,6 +220,9 @@ export async function POST(request: NextRequest) {
       different_on_customer_end,
       show_explanation,
       enable_popup,
+      explanation_tooltip_text,
+      popup_content,
+      popup_display,
       display,
       occurrence_time,
       discount,
@@ -203,6 +267,9 @@ export async function POST(request: NextRequest) {
           different_on_customer_end: different_on_customer_end || false,
           show_explanation: show_explanation || false,
           enable_popup: enable_popup || false,
+          explanation_tooltip_text: explanation_tooltip_text?.trim() || null,
+          popup_content: popup_content?.trim() || null,
+          popup_display: normalizeFrequencyPopupDisplay(popup_display),
           display: display || 'Both',
           occurrence_time,
           discount: discount || 0,
@@ -220,7 +287,7 @@ export async function POST(request: NextRequest) {
           add_to_other_industries: add_to_other_industries || false,
           enabled_industries: enabled_industries || [],
           show_based_on_location: show_based_on_location || false,
-          location_ids: location_ids || [],
+          location_ids: show_based_on_location ? location_ids || [] : [],
           service_categories: service_categories || [],
           bathroom_variables: bathroom_variables || [],
           sqft_variables: sqft_variables || [],
@@ -243,6 +310,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: `Failed to create frequency: ${error.message}` },
         { status: 500 }
+      );
+    }
+
+    if (
+      frequency?.is_default === true &&
+      frequency.business_id &&
+      frequency.industry_id &&
+      frequency.id
+    ) {
+      await clearOtherIndustryFrequencyDefaults(
+        supabase,
+        frequency.business_id,
+        frequency.industry_id,
+        frequency.id,
       );
     }
 
@@ -278,6 +359,15 @@ export async function PUT(request: NextRequest) {
     if (updateData.different_on_customer_end !== undefined) cleanedData.different_on_customer_end = updateData.different_on_customer_end;
     if (updateData.show_explanation !== undefined) cleanedData.show_explanation = updateData.show_explanation;
     if (updateData.enable_popup !== undefined) cleanedData.enable_popup = updateData.enable_popup;
+    if (updateData.explanation_tooltip_text !== undefined) {
+      cleanedData.explanation_tooltip_text = updateData.explanation_tooltip_text?.trim() || null;
+    }
+    if (updateData.popup_content !== undefined) {
+      cleanedData.popup_content = updateData.popup_content?.trim() || null;
+    }
+    if (updateData.popup_display !== undefined) {
+      cleanedData.popup_display = normalizeFrequencyPopupDisplay(updateData.popup_display);
+    }
     if (updateData.display !== undefined) cleanedData.display = updateData.display;
     if (updateData.occurrence_time !== undefined) cleanedData.occurrence_time = updateData.occurrence_time;
     if (updateData.discount !== undefined) cleanedData.discount = updateData.discount;
@@ -294,14 +384,37 @@ export async function PUT(request: NextRequest) {
     // Dependencies
     if (updateData.add_to_other_industries !== undefined) cleanedData.add_to_other_industries = updateData.add_to_other_industries;
     if (updateData.enabled_industries !== undefined) cleanedData.enabled_industries = updateData.enabled_industries;
-    if (updateData.show_based_on_location !== undefined) cleanedData.show_based_on_location = updateData.show_based_on_location;
-    if (updateData.location_ids !== undefined) cleanedData.location_ids = updateData.location_ids;
+    if (updateData.show_based_on_location !== undefined) {
+      cleanedData.show_based_on_location = updateData.show_based_on_location;
+    }
+    if (updateData.location_ids !== undefined) {
+      cleanedData.location_ids = updateData.location_ids;
+    }
+    if (updateData.show_based_on_location === false) {
+      cleanedData.location_ids = [];
+    }
     if (updateData.service_categories !== undefined) cleanedData.service_categories = updateData.service_categories;
     if (updateData.bathroom_variables !== undefined) cleanedData.bathroom_variables = updateData.bathroom_variables;
     if (updateData.sqft_variables !== undefined) cleanedData.sqft_variables = updateData.sqft_variables;
     if (updateData.bedroom_variables !== undefined) cleanedData.bedroom_variables = updateData.bedroom_variables;
     if (updateData.exclude_parameters !== undefined) cleanedData.exclude_parameters = updateData.exclude_parameters;
     if (updateData.extras !== undefined) cleanedData.extras = updateData.extras;
+
+    if (cleanedData.is_default === true) {
+      const { data: scopeRow, error: scopeErr } = await supabase
+        .from('industry_frequency')
+        .select('business_id, industry_id')
+        .eq('id', id)
+        .single();
+      if (!scopeErr && scopeRow?.business_id && scopeRow?.industry_id) {
+        await clearOtherIndustryFrequencyDefaults(
+          supabase,
+          scopeRow.business_id,
+          scopeRow.industry_id,
+          id,
+        );
+      }
+    }
 
     const { data: frequency, error } = await supabase
       .from('industry_frequency')

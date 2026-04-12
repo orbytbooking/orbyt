@@ -30,6 +30,10 @@ export type CustomerFrequencyMeta = {
   shorter_job_length?: string;
   shorter_job_length_by?: string;
   exclude_first_appointment?: boolean;
+  /** Popup-on-selection (industry_frequency) */
+  enable_popup?: boolean;
+  popup_content?: string | null;
+  popup_display?: string | null;
 };
 
 export function computePartialCleaningDiscount(

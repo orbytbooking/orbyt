@@ -4,7 +4,18 @@ import React from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabaseClient';
-import { FiUser, FiMail, FiBriefcase, FiMapPin, FiCheck, FiArrowRight, FiArrowLeft, FiStar, FiCheckCircle } from 'react-icons/fi';
+import {
+  FiUser,
+  FiMail,
+  FiBriefcase,
+  FiMapPin,
+  FiCheck,
+  FiArrowRight,
+  FiArrowLeft,
+  FiStar,
+  FiCheckCircle,
+  FiX,
+} from 'react-icons/fi';
 import { PhoneField } from '@/components/ui/phone-field';
 import { FaBusinessTime, FaClipboardList, FaCrown } from 'react-icons/fa';
 import { GiCommercialAirplane } from 'react-icons/gi';
@@ -42,11 +53,33 @@ export default function Onboarding() {
   });
   const [signupCredentials, setSignupCredentials] = useState<{email: string, password: string} | null>(null);
   const [existingPendingBusiness, setExistingPendingBusiness] = useState<{ id: string; plan: string } | null>(null);
-  /** Payment cancelled after pending registration — retry Stripe without signing in */
+  /** Payment cancelled after pending registration — retry platform checkout without signing in */
   const [pendingRetryId, setPendingRetryId] = useState<string | null>(null);
   const [pendingRetryPlan, setPendingRetryPlan] = useState('starter');
   const [embeddedCheckoutSecret, setEmbeddedCheckoutSecret] = useState<string | null>(null);
   const [embeddedCheckoutOpen, setEmbeddedCheckoutOpen] = useState(false);
+  const [platformBillingProvider, setPlatformBillingProvider] = useState<'stripe' | 'authorize_net' | null>(null);
+  const [authorizeNetHintDismissed, setAuthorizeNetHintDismissed] = useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch(`${window.location.origin}/api/platform/billing/provider`);
+        if (!r.ok) return;
+        const j = (await r.json()) as { provider?: string };
+        if (cancelled) return;
+        if (j.provider === 'authorize_net' || j.provider === 'stripe') {
+          setPlatformBillingProvider(j.provider);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const redirectToStripeCheckout = async (businessId: string, planSlug: string) => {
     const origin = window.location.origin;
@@ -67,7 +100,9 @@ export default function Onboarding() {
       const j = checkoutJson as { error?: string; details?: string };
       const detail = j.details ? ` ${j.details}` : "";
       throw new Error(
-        (j.error || "Could not start secure checkout. Configure Stripe Price IDs (price_...) in .env and restart the dev server.") + detail
+        (j.error ||
+          "Could not start checkout. For Authorize.Net: PLATFORM_AUTHORIZE_NET_* and NEXT_PUBLIC_APP_URL. For Stripe: Price IDs in .env. Restart the dev server after .env changes.") +
+          detail
       );
     }
     const j = checkoutJson as { url?: string; clientSecret?: string };
@@ -85,6 +120,7 @@ export default function Onboarding() {
 
   const redirectToStripeCheckoutPending = async (pendingId: string, planSlug: string) => {
     const origin = window.location.origin;
+    const cancelUrl = `${origin}/auth/onboarding?anet_cancel=${encodeURIComponent(pendingId)}`;
     const checkoutRes = await fetch(`${origin}/api/platform/billing/create-checkout-pending`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -92,6 +128,7 @@ export default function Onboarding() {
         pendingId,
         planSlug,
         embedded: stripeEmbeddedEnabled,
+        cancelUrl,
       }),
     });
     const checkoutJson = await checkoutRes.json().catch(() => ({}));
@@ -100,7 +137,7 @@ export default function Onboarding() {
       const detail = j.details ? ` ${j.details}` : '';
       throw new Error(
         (j.error ||
-          "Could not start checkout. For Stripe: set Price IDs in .env. For Authorize.Net: set PLATFORM_AUTHORIZE_NET_* and NEXT_PUBLIC_APP_URL (http://...).") + detail
+          "Could not start checkout. For Authorize.Net: PLATFORM_AUTHORIZE_NET_* and NEXT_PUBLIC_APP_URL (http://127.0.0.1:3000 locally). For Stripe: Price IDs in .env.") + detail
       );
     }
     const j = checkoutJson as { url?: string; clientSecret?: string };
@@ -124,18 +161,32 @@ export default function Onboarding() {
         const signupEmail = sessionStorage.getItem('signup_email');
         const signupPassword = sessionStorage.getItem('signup_password');
 
-        const urlPending = searchParams.get('pending');
-        const paymentState = searchParams.get('payment');
-        if (urlPending && paymentState === 'cancel') {
-          setPendingRetryId(urlPending);
+        const anetCancelPending = searchParams.get('anet_cancel')?.trim();
+        if (anetCancelPending) {
+          setPendingRetryId(anetCancelPending);
           const storedPlan = sessionStorage.getItem('pending_owner_plan');
           if (storedPlan) setPendingRetryPlan(storedPlan);
           setAuthChecked(true);
           return;
         }
+
+        const urlPending = searchParams.get('pending');
+        const paymentState = searchParams.get('payment');
+        if (urlPending && paymentState === 'cancel') {
+          setPendingRetryId(urlPending);
+          const urlPlan = searchParams.get('plan')?.toLowerCase().trim();
+          if (urlPlan && /^[a-z0-9_-]{1,64}$/.test(urlPlan)) {
+            setPendingRetryPlan(urlPlan);
+          } else {
+            const storedPlan = sessionStorage.getItem('pending_owner_plan');
+            if (storedPlan) setPendingRetryPlan(storedPlan);
+          }
+          setAuthChecked(true);
+          return;
+        }
         
         if (signupEmail && signupPassword) {
-          // New signup flow — auth user is created only after successful Stripe payment
+          // New signup flow — auth user is created only after successful platform payment
           setSignupCredentials({ email: signupEmail, password: signupPassword });
           setForm(prev => ({
             ...prev,
@@ -178,7 +229,7 @@ export default function Onboarding() {
           const pending = existingBusiness as { id: string; plan?: string | null };
           const pendingPlan = (pending.plan ?? 'starter').toString().toLowerCase();
           setExistingPendingBusiness({ id: pending.id, plan: pendingPlan });
-          setError('Payment is still pending. Complete Stripe checkout to activate your account.');
+          setError('Payment is still pending. Complete checkout to activate your account.');
           setAuthChecked(true);
           return;
         }
@@ -207,10 +258,11 @@ export default function Onboarding() {
 
   React.useEffect(() => {
     const payment = searchParams.get('payment');
-    if (payment === 'cancel') {
+    const anetCancel = searchParams.get('anet_cancel');
+    if (payment === 'cancel' || anetCancel) {
       setError('Payment was cancelled. Complete checkout to activate your account.');
     } else if (payment === 'pending') {
-      setError('Your account is pending payment. Please complete Stripe checkout.');
+      setError('Your account is pending payment. Please complete checkout.');
     }
   }, [searchParams]);
 
@@ -261,7 +313,7 @@ export default function Onboarding() {
         throw new Error('Please fill in all required fields');
       }
 
-      // New signup: no Supabase auth user until Stripe payment succeeds (webhook creates user + business)
+      // New signup: no Supabase auth user until platform payment succeeds (Stripe webhook or Authorize return + finalize)
       if (signupCredentials) {
         const origin = window.location.origin;
         const regRes = await fetch(`${origin}/api/auth/pending-owner-register`, {
@@ -333,7 +385,7 @@ export default function Onboarding() {
       
       console.log('Business created successfully:', businessData);
       
-      // Mark onboarding state as payment pending; it becomes complete after successful Stripe payment.
+      // Mark onboarding state as payment pending; complete after successful platform checkout (Stripe or Authorize.Net).
       const { error: metadataError } = await supabase.auth.updateUser({
         data: {
           signup_stage: 'payment_pending',
@@ -365,7 +417,7 @@ export default function Onboarding() {
       
       console.log('Onboarding completed successfully, syncing platform subscription');
 
-      // Keep platform_subscriptions in sync with businesses.plan (required for Stripe + dashboard)
+      // Keep platform_subscriptions in sync with businesses.plan (required for billing + dashboard)
       const ensureRes = await fetch(`${window.location.origin}/api/platform/billing/ensure-subscription`, {
         method: 'POST',
         credentials: 'include',
@@ -382,7 +434,7 @@ export default function Onboarding() {
         );
       }
 
-      // All tiers require payment. Redirect to Stripe Checkout and only allow dashboard after webhook activation.
+      // All tiers require payment. Redirect to platform checkout; dashboard after payment (Stripe webhook or Authorize flow).
       await redirectToStripeCheckout(businessData.id, form.plan);
       return;
       
@@ -675,7 +727,7 @@ export default function Onboarding() {
               <h3 className="text-2xl font-bold text-gray-900">Choose Your Plan</h3>
               <p className="text-gray-500">Select the plan that fits your business needs</p>
               <p className="text-sm text-gray-600 mt-3 max-w-2xl mx-auto">
-                After your business is created, you&apos;ll complete secure <strong>Stripe</strong> checkout for the plan you chose
+                After your business is created, you&apos;ll complete secure checkout for the workspace plan you chose
                 (Starter <strong>$25</strong>/mo, Growth <strong>$55</strong>/mo, Premium <strong>$149</strong>/mo). Same billing as Settings → Account → Plans.
               </p>
             </motion.div>
@@ -768,7 +820,7 @@ export default function Onboarding() {
                         </span>
                         <span className="ml-1 text-gray-500">/month</span>
                       </div>
-                      <p className="text-xs text-gray-500 mt-1">Billed monthly via Stripe</p>
+                      <p className="text-xs text-gray-500 mt-1">Billed monthly (workspace subscription)</p>
                     </div>
                     
                     <ul className="mt-6 space-y-3">
@@ -1193,11 +1245,37 @@ export default function Onboarding() {
           <p className="mt-3 text-lg text-gray-600">Let's set up your business account in just a few steps</p>
         </div>
 
+        {platformBillingProvider !== 'stripe' && !authorizeNetHintDismissed && (
+          <div className="mb-6 p-4 bg-sky-50 border border-sky-200 rounded-xl text-left max-w-2xl mx-auto">
+            <div className="flex gap-3 items-start">
+              <p className="text-sm text-sky-950 flex-1">
+                <strong className="block text-sky-900 mb-1">Authorize.Net payment page</strong>
+                Checkout opens on Authorize.Net (<code className="text-xs bg-sky-100 px-1 rounded">test.authorize.net</code> in
+                sandbox). The console may show <strong>Content-Security-Policy</strong> warnings (and Chrome trying{' '}
+                <code className="text-xs bg-sky-100 px-1 rounded">.well-known/.../com.chrome.devtools</code>) while you are
+                on <code className="text-xs bg-sky-100 px-1 rounded">test.authorize.net</code>—that is their page, not
+                Orbyt. If payment completes and you reach the dashboard, you can ignore those messages. If the page shows
+                only &quot;Order Summary&quot; and checkout is broken, try Chrome or Edge (full window, not an in-app
+                preview), Incognito with <strong>extensions off</strong>, or another network. If it still fails, contact
+                Authorize.Net support.
+              </p>
+              <button
+                type="button"
+                onClick={() => setAuthorizeNetHintDismissed(true)}
+                className="p-1 rounded-lg text-sky-700 hover:bg-sky-100 shrink-0"
+                aria-label="Dismiss Authorize.Net notice"
+              >
+                <FiX className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {pendingRetryId && (
           <div className="mb-8 p-4 bg-amber-50 border border-amber-200 rounded-xl text-left max-w-2xl mx-auto">
             <p className="text-sm text-amber-900 font-medium">Payment was cancelled</p>
             <p className="text-sm text-amber-800 mt-1">
-              Your Orbyt account is created only after a successful payment. Continue to Stripe to finish setup.
+              Your Orbyt account is created only after a successful payment. Continue to secure checkout to finish setup.
             </p>
             <button
               type="button"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,9 +11,162 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ChevronDown } from "lucide-react";
-import { Info } from "lucide-react";
+import {
+  AlignCenter,
+  AlignJustify,
+  AlignLeft,
+  AlignRight,
+  Bold,
+  ChevronDown,
+  Info,
+  Italic,
+  Link as LinkIcon,
+  List,
+  ListOrdered,
+  Strikethrough,
+  Underline,
+} from "lucide-react";
 import { useBusiness } from "@/contexts/BusinessContext";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  normalizeFrequencyPopupDisplay,
+  type FrequencyPopupDisplay,
+} from "@/lib/frequencyPopupDisplay";
+
+function RichTextEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const [fontSizeLabel, setFontSizeLabel] = useState("12pt");
+  useEffect(() => {
+    if (editorRef.current) editorRef.current.innerHTML = value || "";
+  }, [value]);
+
+  const execCommand = (command: string, cmdValue?: string) => {
+    document.execCommand(command, false, cmdValue);
+    editorRef.current?.focus();
+    if (editorRef.current) onChange(editorRef.current.innerHTML);
+  };
+
+  const updateContent = () => {
+    if (editorRef.current) onChange(editorRef.current.innerHTML);
+  };
+
+  const applyFontSize = (pt: string) => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    ed.focus();
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    if (range.collapsed) {
+      const span = document.createElement("span");
+      span.style.fontSize = pt;
+      span.appendChild(document.createTextNode("\u200b"));
+      range.insertNode(span);
+      range.setStart(span.firstChild!, 1);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } else {
+      try {
+        const span = document.createElement("span");
+        span.style.fontSize = pt;
+        span.appendChild(range.extractContents());
+        range.insertNode(span);
+      } catch {
+        document.execCommand("styleWithCSS", false, "true");
+        document.execCommand("fontSize", false, "3");
+      }
+    }
+    onChange(ed.innerHTML);
+  };
+
+  return (
+    <div className="border rounded-lg overflow-hidden bg-white dark:bg-background">
+      <div className="border-b bg-muted/50 p-2 flex items-center gap-1 flex-wrap">
+        <Button type="button" variant="ghost" size="sm" onClick={() => execCommand("bold")} className="h-8 w-8 p-0 shrink-0" title="Bold">
+          <Bold className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => execCommand("italic")} className="h-8 w-8 p-0 shrink-0" title="Italic">
+          <Italic className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => execCommand("underline")} className="h-8 w-8 p-0 shrink-0" title="Underline">
+          <Underline className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => execCommand("strikeThrough")} className="h-8 w-8 p-0 shrink-0" title="Strikethrough">
+          <Strikethrough className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            const url = typeof window !== "undefined" ? window.prompt("Enter URL:") : null;
+            if (url) execCommand("createLink", url);
+          }}
+          className="h-8 w-8 p-0 shrink-0"
+          title="Insert link"
+        >
+          <LinkIcon className="h-4 w-4" />
+        </Button>
+        <div className="w-px h-6 bg-border mx-0.5 shrink-0" />
+        <Select value={fontSizeLabel} onValueChange={(v) => { setFontSizeLabel(v); applyFontSize(v); }}>
+          <SelectTrigger className="h-8 w-[72px] text-xs shrink-0" aria-label="Font size">
+            <SelectValue placeholder="12pt" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="10pt">10pt</SelectItem>
+            <SelectItem value="12pt">12pt</SelectItem>
+            <SelectItem value="14pt">14pt</SelectItem>
+            <SelectItem value="18pt">18pt</SelectItem>
+            <SelectItem value="24pt">24pt</SelectItem>
+          </SelectContent>
+        </Select>
+        <div className="w-px h-6 bg-border mx-0.5 shrink-0" />
+        <Button type="button" variant="ghost" size="sm" onClick={() => execCommand("justifyLeft")} className="h-8 w-8 p-0 shrink-0" title="Align left">
+          <AlignLeft className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => execCommand("justifyCenter")} className="h-8 w-8 p-0 shrink-0" title="Align center">
+          <AlignCenter className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => execCommand("justifyRight")} className="h-8 w-8 p-0 shrink-0" title="Align right">
+          <AlignRight className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => execCommand("justifyFull")} className="h-8 w-8 p-0 shrink-0" title="Justify">
+          <AlignJustify className="h-4 w-4" />
+        </Button>
+        <div className="w-px h-6 bg-border mx-0.5 shrink-0" />
+        <Button type="button" variant="ghost" size="sm" onClick={() => execCommand("insertUnorderedList")} className="h-8 w-8 p-0 shrink-0" title="Bullet list">
+          <List className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => execCommand("insertOrderedList")} className="h-8 w-8 p-0 shrink-0" title="Numbered list">
+          <ListOrdered className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => execCommand("removeFormat")}
+          className="h-8 px-2 text-xs shrink-0"
+          title="Clear formatting"
+        >
+          Tx
+        </Button>
+      </div>
+      <div
+        ref={editorRef}
+        contentEditable
+        onInput={updateContent}
+        className="min-h-[220px] p-4 focus:outline-none focus:ring-2 focus:ring-primary/20 text-[12pt]"
+        style={{ whiteSpace: "pre-wrap" }}
+      />
+    </div>
+  );
+}
 
 interface Industry {
   id: string;
@@ -85,6 +238,9 @@ export default function FrequencyNewPage() {
     differentOnCustomerEnd: false,
     showExplanation: false,
     enablePopup: false,
+    explanationTooltipText: "",
+    popupContent: "",
+    popupDisplay: "customer_frontend_backend_admin" as FrequencyPopupDisplay,
     display: "Both" as Row["display"],
     occurrenceTime: "",
     discount: "0",
@@ -185,6 +341,9 @@ export default function FrequencyNewPage() {
               differentOnCustomerEnd: !!existing.different_on_customer_end,
               showExplanation: !!existing.show_explanation,
               enablePopup: !!existing.enable_popup,
+              explanationTooltipText: existing.explanation_tooltip_text || "",
+              popupContent: existing.popup_content || "",
+              popupDisplay: normalizeFrequencyPopupDisplay(existing.popup_display),
               display: existing.display,
               occurrenceTime: existing.occurrence_time || "",
               discount: String(existing.discount ?? 0),
@@ -454,6 +613,9 @@ export default function FrequencyNewPage() {
       different_on_customer_end: form.differentOnCustomerEnd,
       show_explanation: form.showExplanation,
       enable_popup: form.enablePopup,
+      explanation_tooltip_text: form.explanationTooltipText || undefined,
+      popup_content: form.popupContent || undefined,
+      popup_display: form.popupDisplay,
       display: form.display,
       occurrence_time: form.occurrenceTime,
       discount,
@@ -530,8 +692,21 @@ export default function FrequencyNewPage() {
 
             {/* DETAILS TAB */}
             <TabsContent value="details" className="mt-4 space-y-5">
+              <TooltipProvider delayDuration={200}>
               <div className="space-y-2">
-                <Label htmlFor="freq-name">Name <span className="text-red-500">*</span></Label>
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="freq-name">Name <span className="text-red-500">*</span></Label>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none" aria-label="About name">
+                        <Info className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs">
+                      This label appears on booking and admin when customers choose a frequency.
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
                 <Input 
                   id="freq-name" 
                   value={form.name} 
@@ -552,14 +727,156 @@ export default function FrequencyNewPage() {
                   <p className="text-sm text-red-500">{errors.name}</p>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                <Checkbox id="diff-customer" checked={form.differentOnCustomerEnd} onCheckedChange={(v) => setForm(p => ({ ...p, differentOnCustomerEnd: !!v }))} />
-                <Label htmlFor="diff-customer" className="text-sm">Different on customer end</Label>
+              <div className="flex items-start gap-2">
+                <Checkbox id="diff-customer" className="mt-0.5" checked={form.differentOnCustomerEnd} onCheckedChange={(v) => setForm(p => ({ ...p, differentOnCustomerEnd: !!v }))} />
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <Label htmlFor="diff-customer" className="text-sm cursor-pointer">Different on customer end</Label>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none" aria-label="About customer end">
+                        <Info className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs">
+                      When enabled, you can use a different name or copy on the public booking form than in admin.
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="freq-desc">Description</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="freq-desc">Description</Label>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none" aria-label="About description">
+                        <Info className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs">
+                      Internal notes or customer-facing explanation of how this frequency behaves when scheduling.
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
                 <Textarea id="freq-desc" rows={3} value={form.description} onChange={(e) => setForm(p => ({ ...p, description: e.target.value }))} placeholder="Add Description" />
               </div>
+
+              <div className="space-y-2 rounded-lg border bg-muted/30 p-4">
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="show-explanation-icon"
+                    checked={form.showExplanation}
+                    onCheckedChange={(checked) => setForm((p) => ({ ...p, showExplanation: !!checked }))}
+                  />
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor="show-explanation-icon" className="text-sm font-medium cursor-pointer">
+                        Show explanation icon on form
+                      </Label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none" aria-label="About explanation icon">
+                            <Info className="h-4 w-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-xs">
+                          When enabled, an info icon appears next to this frequency on the booking form. Use the text below for the tooltip.
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    {form.showExplanation && (
+                      <Textarea
+                        placeholder="e.g. 15% off total price if you book a weekly clean!"
+                        value={form.explanationTooltipText}
+                        onChange={(e) => setForm((p) => ({ ...p, explanationTooltipText: e.target.value }))}
+                        className="min-h-[80px] resize-y bg-background mt-2"
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-sky-200/90 bg-sky-50/90 p-4 dark:border-sky-900/55 dark:bg-sky-950/30">
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="enable-popup-on-selection"
+                    className="mt-0.5"
+                    checked={form.enablePopup}
+                    onCheckedChange={(checked) => setForm((p) => ({ ...p, enablePopup: !!checked }))}
+                  />
+                  <div className="min-w-0 flex-1 space-y-4">
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor="enable-popup-on-selection" className="text-sm font-medium cursor-pointer">
+                        Enable popup on selection
+                      </Label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none" aria-label="About popup on selection">
+                            <Info className="h-4 w-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-sm text-sm leading-snug">
+                          If someone selects this frequency, do you want a message to show? For example, you can explain an offer: if they switch to another frequency they could save an extra 20%. Use the editor below for that message; it opens as a popup when this frequency is chosen on the booking form.
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+
+                    {form.enablePopup && (
+                      <div className="space-y-4">
+                        <RichTextEditor
+                          value={form.popupContent}
+                          onChange={(v) => setForm((p) => ({ ...p, popupContent: v }))}
+                        />
+
+                        <div className="space-y-3 border-t border-sky-200/80 pt-4 dark:border-sky-800/60">
+                          <div className="flex items-center gap-1.5">
+                            <Label className="text-sm font-medium">Display popup on</Label>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none"
+                                  aria-label="About where the popup appears"
+                                >
+                                  <Info className="h-4 w-4" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="right" className="max-w-xs text-sm leading-snug">
+                                If you don&apos;t need the popup on selection to show on admin/staff but want it on the customer end, you can control that here. If you&apos;d like it for both, you can set that up here too.
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
+                          <RadioGroup
+                            value={form.popupDisplay}
+                            onValueChange={(v) =>
+                              setForm((p) => ({ ...p, popupDisplay: v as FrequencyPopupDisplay }))
+                            }
+                            className="grid gap-2"
+                          >
+                            <label className="flex cursor-pointer items-center gap-2 text-sm">
+                              <RadioGroupItem value="customer_frontend_backend_admin" />
+                              Customer frontend, backend &amp; admin
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-2 text-sm">
+                              <RadioGroupItem value="customer_backend_admin" />
+                              Customer backend &amp; admin
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-2 text-sm">
+                              <RadioGroupItem value="customer_frontend_backend" />
+                              Customer only (frontend &amp; backend)
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-2 text-sm">
+                              <RadioGroupItem value="admin_only" />
+                              Admin only
+                            </label>
+                          </RadioGroup>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              </TooltipProvider>
+
               <div className="space-y-2">
                 <Label>Display</Label>
                 <RadioGroup

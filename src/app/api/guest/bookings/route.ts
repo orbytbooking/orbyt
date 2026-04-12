@@ -10,6 +10,7 @@ import { ensureCustomerForAdminBooking } from '@/lib/ensureCustomerForAdminBooki
 import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProviderWage';
 import { parseDurationMinutesFromBookingPayload } from '@/lib/bookingDuration';
 import { evaluateMarketingCouponCustomerScope } from '@/lib/marketingCouponCustomerScope';
+import { assertBookingServiceAreaAllowed } from '@/lib/resolveIndustryLocationsForBooking';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -215,6 +216,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'COUPON_NOT_ALLOWED', title: scope.title, message: scope.description },
         { status: 400 }
+      );
+    }
+  }
+
+  const industryIdForServiceArea = (body.industry_id ?? body.industryId ?? '').toString().trim();
+  const serviceAreaInput = (body.service_area_input ?? body.zip_code ?? body.zipCode ?? '').toString();
+  if (industryIdForServiceArea) {
+    const areaGate = await assertBookingServiceAreaAllowed({
+      supabase,
+      businessId,
+      industryId: industryIdForServiceArea,
+      serviceAreaInput,
+    });
+    if (!areaGate.ok) {
+      return NextResponse.json(
+        { error: 'SERVICE_AREA_INVALID', message: areaGate.message },
+        { status: 400 },
       );
     }
   }

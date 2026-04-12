@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   <form id="authnet" method="POST" action="${actionUrl}">
     <input type="hidden" name="token" value="${token.replace(/"/g, "&quot;")}" />
   </form>
-  <script>document.getElementById('authnet').submit();</script>
+  <script src="/authorize-net-autopost.js" defer></script>
 </body>
 </html>`;
 

@@ -307,6 +307,7 @@ export default function ServiceCard({
                       <QuantitySelector
                         key={extra}
                         extra={extra}
+                        hideIcon
                         quantity={quantity}
                         onQuantityChange={(extraName, newQuantity) => {
                           const currentExtras = customization.extras || [];

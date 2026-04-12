@@ -25,6 +25,14 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { CalendarIcon, Clock, Loader2, CheckCircle, CheckCircle2, ArrowRight, CreditCard, Wallet, Lock, ArrowLeft, Home, Building2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { format } from "date-fns";
@@ -52,11 +60,22 @@ import {
   type PricingParamRow,
 } from "@/lib/pricingParameterVisibility";
 import {
+  frequencyDepOptionNamesForCategory,
   getFrequencyDependencies,
   type FrequencyDependencies,
 } from "@/lib/frequencyFilter";
-import { isServiceCategoryVisibleOnPublicBooking } from "@/lib/form1CustomerBooking";
-import { approximateMinutesFromDurationLabel } from "@/lib/bookingDuration";
+import {
+  getServiceCategoryCustomerDisplayName,
+  isIndustryExtraDisplayVisibleOnBookingSurface,
+  isServiceCategoryVisibleOnPublicBooking,
+} from "@/lib/form1CustomerBooking";
+import { estimateBookingDurationMinutes } from "@/lib/bookingEstimatedDurationMinutes";
+import {
+  minimumTimeCustomerMessage,
+  minimumTimeRequiredMinutes,
+  type ServiceCategoryMinimumTime,
+} from "@/lib/serviceCategoryMinimumTime";
+import { hourlyCustomTimeTotalMinutes, hourlyExtrasBillableSubtotal } from "@/lib/hourlyServiceBookingDuration";
 import { resolveQtyBasedExtraLine } from "@/lib/extraQtyPricing";
 import {
   getAllowedWeekdaysForFrequencyRepeatsEvery,
@@ -69,10 +88,40 @@ import {
 } from "@/lib/marketingCouponGate";
 import { couponRequiresCustomerEmailForScope } from "@/lib/marketingCouponCustomerScope";
 import { getTodayLocalDate } from "@/lib/date-utils";
+import {
+  popupDisplayAppliesToSurface,
+  type BookingPopupSurface,
+} from "@/lib/frequencyPopupDisplay";
 import styles from "./BookingPage.module.css";
 import { useCustomerAccount } from "@/hooks/useCustomerAccount";
 import { getSupabaseCustomerClient } from "@/lib/supabaseCustomerClient";
 import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
+
+function bookNowFrequencyRowsToState(rows: any[]) {
+  const names = rows.map((f: any) => f.name || f.occurrence_time).filter(Boolean);
+  const metaMap: Record<string, CustomerFrequencyMeta> = {};
+  for (const f of rows) {
+    const n = (f?.name || f?.occurrence_time) as string | undefined;
+    if (!n) continue;
+    metaMap[String(n).trim()] = {
+      frequency_repeats: f.frequency_repeats != null ? String(f.frequency_repeats).trim() : undefined,
+      occurrence_time: f.occurrence_time,
+      discount:
+        f.discount != null && !Number.isNaN(Number(f.discount)) ? Number(f.discount) : undefined,
+      discount_type: f.discount_type,
+      frequency_discount: f.frequency_discount,
+      shorter_job_length: f.shorter_job_length,
+      shorter_job_length_by: f.shorter_job_length_by,
+      exclude_first_appointment: Boolean(f.exclude_first_appointment),
+      enable_popup: Boolean(f.enable_popup),
+      popup_content: f.popup_content != null ? String(f.popup_content) : null,
+      popup_display: f.popup_display != null ? String(f.popup_display) : null,
+    };
+  }
+  const defaultRow = rows.find((f: any) => f.is_default === true);
+  const defaultName = defaultRow ? String(defaultRow.name || defaultRow.occurrence_time || "").trim() : "";
+  return { names, metaMap, defaultName };
+}
 
 const optionalEmailSchema = z.union([z.string().email("Please enter a valid email"), z.literal("")]);
 const phoneE164Required = z
@@ -306,6 +355,8 @@ const findServiceMatch = (serviceName: string) => {
 type RebookServiceCategoryCard = {
   id: string;
   name: string;
+  /** Set from Form 1; omit on legacy static catalog rows (falls back to `name`). */
+  customerDisplayName?: string;
   description: string;
   price: number;
   duration: string;
@@ -335,10 +386,16 @@ async function fetchServiceCategoriesMappedForRebook(
         sct?.enabled ? `${hours}h ${minutes}m`.replace(/^0h /, "").replace(/ 0m$/, "m") : "—";
       const price =
         scp?.enabled && scp?.price ? parseFloat(String(scp.price)) || 0 : 0;
+      const name = String(cat.name ?? "");
       return {
         id: String(cat.id ?? ""),
-        name: String(cat.name ?? ""),
-        description: (cat.description as string) || `Professional ${String(cat.name ?? "")} service.`,
+        name,
+        customerDisplayName: getServiceCategoryCustomerDisplayName({
+          name,
+          different_on_customer_end: cat.different_on_customer_end as boolean | null | undefined,
+          customer_end_name: cat.customer_end_name as string | null | undefined,
+        }),
+        description: (cat.description as string) || `Professional ${name} service.`,
         price,
         duration,
         image:
@@ -470,6 +527,7 @@ function BookingPageContent() {
   const [serviceCategories, setServiceCategories] = useState<{
     id: string;
     name: string;
+    customerDisplayName?: string;
     description: string;
     price: number;
     duration: string;
@@ -525,12 +583,32 @@ function BookingPageContent() {
   const [availableExtras, setAvailableExtras] = useState<any[]>([]);
   /** Full industry_pricing_parameter rows; dropdowns are derived with admin-matching filters */
   const [pricingParametersFull, setPricingParametersFull] = useState<PricingParamRow[]>([]);
+  /** Manage Variables rows — used for customer-facing labels (different on customer end). */
+  const [industryPricingVariables, setIndustryPricingVariables] = useState<
+    Array<{
+      category: string;
+      name: string;
+      different_on_customer_end: boolean;
+      customer_end_name: string | null;
+      show_explanation_icon_on_form: boolean;
+      explanation_tooltip_text: string | null;
+      enable_popup_on_selection: boolean;
+      popup_content: string;
+      popup_display: string;
+      display: string;
+    }>
+  >([]);
   const [frequencyOptions, setFrequencyOptions] = useState<string[]>([]);
   /** Per-label industry_frequency fields (repeats pattern + admin discount / recurring rules). */
   const [frequencyMetaByName, setFrequencyMetaByName] = useState<Record<string, CustomerFrequencyMeta>>({});
+  const [bookingHtmlPopup, setBookingHtmlPopup] = useState<{ title: string; html: string } | null>(null);
+  const [bookingPopupSurface, setBookingPopupSurface] = useState<BookingPopupSurface>("customer_public_frontend");
   /** Same role as admin AddBookingForm `newBooking.frequency` — drives Form 1 dependency rules (service list, extras, etc.). */
   const [bookingFrequencyForFilters, setBookingFrequencyForFilters] = useState("");
   const [serviceListFrequencyDeps, setServiceListFrequencyDeps] =
+    useState<FrequencyDependencies | null>(null);
+  /** Matches confirmed service + frequency for pricing tiers, subtotals, and duration. */
+  const [pricingFrequencyDeps, setPricingFrequencyDeps] =
     useState<FrequencyDependencies | null>(null);
   const [excludeParametersList, setExcludeParametersList] = useState<
     Array<{ name: string; price?: number; qty_based?: boolean; time_minutes?: number }>
@@ -577,6 +655,22 @@ function BookingPageContent() {
     };
   }, [businessIdFromUrl]);
 
+  useEffect(() => {
+    const supabase = getSupabaseCustomerClient();
+    const sync = () => {
+      supabase.auth.getSession().then(({ data }) => {
+        setBookingPopupSurface(data.session?.access_token ? "customer_backend" : "customer_public_frontend");
+      });
+    };
+    sync();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      sync();
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   // Ref to store the total shown in the booking summary so we send that exact amount when saving (avoids stale closure giving 0)
   const summaryTotalRef = useRef<number>(0);
   const paymentConfirmSentRef = useRef(false);
@@ -611,11 +705,25 @@ function BookingPageContent() {
 
   const selectedFrequencyTrim = serviceCustomization?.frequency?.trim() ?? "";
 
-  /** For payment summary after a service is confirmed (selected service + customization frequency). */
-  const availableVariables = useMemo(
-    () => buildCustomerAvailableVariables(pricingParametersFull, selectedService, selectedFrequencyTrim),
-    [pricingParametersFull, selectedService, selectedFrequencyTrim],
-  );
+  useEffect(() => {
+    if (!selectedIndustryId || !businessIdFromUrl.trim() || !selectedFrequencyTrim.trim()) {
+      setPricingFrequencyDeps(null);
+      return;
+    }
+    let cancelled = false;
+    getFrequencyDependencies(selectedIndustryId, selectedFrequencyTrim, {
+      businessId: businessIdFromUrl,
+    })
+      .then((deps) => {
+        if (!cancelled) setPricingFrequencyDeps(deps);
+      })
+      .catch(() => {
+        if (!cancelled) setPricingFrequencyDeps(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedIndustryId, businessIdFromUrl, selectedFrequencyTrim]);
 
   const allPricingParams = useMemo(
     () =>
@@ -650,7 +758,12 @@ function BookingPageContent() {
       ),
     );
     const categoryKeys = Object.keys(
-      buildCustomerAvailableVariables(pricingParametersFull, selectedService, selectedFrequencyTrim),
+      buildCustomerAvailableVariables(
+        pricingParametersFull,
+        selectedService,
+        selectedFrequencyTrim,
+        pricingFrequencyDeps,
+      ),
     );
     const areaLikeKey = categoryKeys.find((k) => /sqft|area|square|meter|size/i.test(String(k)));
     const tierCategoryKey = areaLikeKey ?? categoryKeys[0];
@@ -672,7 +785,13 @@ function BookingPageContent() {
           ? String(p.service_category).trim()
           : null,
     }));
-  }, [pricingParametersFull, selectedService, selectedFrequencyTrim, selectedIndustryLabel]);
+  }, [
+    pricingParametersFull,
+    selectedService,
+    selectedFrequencyTrim,
+    selectedIndustryLabel,
+    pricingFrequencyDeps,
+  ]);
 
   useEffect(() => {
     const fetchIndustries = async () => {
@@ -872,6 +991,7 @@ function BookingPageContent() {
     if (!industryId || !businessIdParam) {
       setAvailableExtras([]);
       setPricingParametersFull([]);
+      setIndustryPricingVariables([]);
       return;
     }
 
@@ -885,10 +1005,7 @@ function BookingPageContent() {
             // Filter extras that should be displayed on customer frontend
             const visibleExtras = extrasData.extras.filter(
               (e: any) =>
-                e &&
-                (e.display === "frontend-backend-admin" ||
-                  e.display === "Both" ||
-                  e.display === "Booking"),
+                e && isIndustryExtraDisplayVisibleOnBookingSurface(e.display, bookingPopupSurface),
             );
             setAvailableExtras(visibleExtras);
           } else {
@@ -911,15 +1028,46 @@ function BookingPageContent() {
           setPricingParametersFull([]);
         }
 
+        const pvRes = await fetch(`/api/pricing-variables?industryId=${encodeURIComponent(industryId)}`);
+        if (pvRes.ok) {
+          const pvData = await pvRes.json();
+          const list = Array.isArray(pvData.variables) ? pvData.variables : [];
+          setIndustryPricingVariables(
+            list
+              .map((v: Record<string, unknown>) => ({
+                category: String(v.category ?? "").trim(),
+                name: String(v.name ?? "").trim(),
+                different_on_customer_end: Boolean(v.different_on_customer_end),
+                customer_end_name:
+                  v.customer_end_name != null && String(v.customer_end_name).trim()
+                    ? String(v.customer_end_name).trim()
+                    : null,
+                show_explanation_icon_on_form: Boolean(v.show_explanation_icon_on_form),
+                explanation_tooltip_text:
+                  v.explanation_tooltip_text != null && String(v.explanation_tooltip_text).trim()
+                    ? String(v.explanation_tooltip_text).trim()
+                    : null,
+                enable_popup_on_selection: Boolean(v.enable_popup_on_selection),
+                popup_content: v.popup_content != null ? String(v.popup_content) : "",
+                popup_display: String(v.popup_display ?? "customer_frontend_backend_admin").trim(),
+                display: String(v.display ?? "customer_frontend_backend_admin").trim(),
+              }))
+              .filter((v: { category: string }) => v.category.length > 0),
+          );
+        } else {
+          setIndustryPricingVariables([]);
+        }
+
       } catch (error) {
         console.error("Error fetching extras and variables:", error);
         setAvailableExtras([]);
         setPricingParametersFull([]);
+        setIndustryPricingVariables([]);
       }
     };
 
     fetchExtrasAndVariables();
-  }, [selectedIndustryId, searchParams]);
+  }, [selectedIndustryId, searchParams, bookingPopupSurface]);
 
   // Initialize booking form
   const form = useForm<z.infer<typeof formSchema>>({
@@ -991,6 +1139,16 @@ function BookingPageContent() {
   }, [bookingDateWeekdayRule.key, bookingDateWeekdayRule.allowed, form]);
 
   const [hasLocationBasedFrequencies, setHasLocationBasedFrequencies] = useState(false);
+  const [industryServiceAreaMeta, setIndustryServiceAreaMeta] = useState<{
+    hasLinkedLocations: boolean;
+  } | null>(null);
+  const [locationResolve, setLocationResolve] = useState<{
+    inputKey: string;
+    loading: boolean;
+    labels: string[];
+    hasLinkedLocations: boolean;
+  }>({ inputKey: "", loading: false, labels: [], hasLinkedLocations: false });
+  const locationResolveRequestIdRef = useRef(0);
 
   useEffect(() => {
     if (!selectedIndustryId) {
@@ -1022,17 +1180,176 @@ function BookingPageContent() {
     };
   }, [selectedIndustryId, searchParams]);
 
+  useEffect(() => {
+    if (!selectedIndustryId || !businessIdFromUrl) {
+      setIndustryServiceAreaMeta(null);
+      return;
+    }
+    let cancelled = false;
+    setIndustryServiceAreaMeta(null);
+    const params = new URLSearchParams({
+      business_id: businessIdFromUrl,
+      industry_id: selectedIndustryId,
+      meta_only: "1",
+      mode: "zip",
+    });
+    fetch(`/api/guest/resolve-industry-locations-for-zip?${params.toString()}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (cancelled || !j) return;
+        setIndustryServiceAreaMeta({ hasLinkedLocations: Boolean(j.hasLinkedLocations) });
+      })
+      .catch(() => {
+        if (!cancelled) setIndustryServiceAreaMeta({ hasLinkedLocations: false });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedIndustryId, businessIdFromUrl]);
+
+  useEffect(() => {
+    locationResolveRequestIdRef.current += 1;
+    setLocationResolve({
+      inputKey: "",
+      loading: false,
+      labels: [],
+      hasLinkedLocations: false,
+    });
+  }, [selectedIndustryId, businessIdFromUrl, locationManagement]);
+
   const locationZipNormalized = String(zipCode ?? "").trim().replace(/\s/g, "");
+  const nameInputTrimmed = String(zipCode ?? "").trim();
+  const locationInputKey =
+    locationManagement === "none"
+      ? ""
+      : `${locationManagement}:${
+          locationManagement === "zip"
+            ? locationZipNormalized
+            : nameInputTrimmed.toLowerCase().replace(/\s+/g, " ").trim()
+        }`;
+
+  const locationInputMeetsMinLength =
+    locationManagement === "none" ||
+    (locationManagement === "zip"
+      ? locationZipNormalized.length >= 5
+      : nameInputTrimmed.replace(/\s+/g, " ").trim().length >= 2);
+
+  useEffect(() => {
+    if (locationManagement === "none" || !selectedIndustryId || !businessIdFromUrl) {
+      return;
+    }
+    if (!locationInputMeetsMinLength) {
+      setLocationResolve({
+        inputKey: locationInputKey,
+        loading: false,
+        labels: [],
+        hasLinkedLocations: industryServiceAreaMeta?.hasLinkedLocations ?? false,
+      });
+      return;
+    }
+
+    const handle = window.setTimeout(() => {
+      const myId = ++locationResolveRequestIdRef.current;
+      setLocationResolve((prev) => ({
+        ...prev,
+        inputKey: locationInputKey,
+        loading: true,
+      }));
+      const inputForApi = locationManagement === "zip" ? locationZipNormalized : nameInputTrimmed;
+      const params = new URLSearchParams({
+        business_id: businessIdFromUrl,
+        industry_id: selectedIndustryId,
+        input: inputForApi,
+        mode: locationManagement,
+      });
+      fetch(`/api/guest/resolve-industry-locations-for-zip?${params.toString()}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (myId !== locationResolveRequestIdRef.current) return;
+          setLocationResolve({
+            inputKey: locationInputKey,
+            loading: false,
+            labels: Array.isArray(j?.labels) ? j.labels : [],
+            hasLinkedLocations: Boolean(j?.hasLinkedLocations),
+          });
+        })
+        .catch(() => {
+          if (myId !== locationResolveRequestIdRef.current) return;
+          setLocationResolve({
+            inputKey: locationInputKey,
+            loading: false,
+            labels: [],
+            hasLinkedLocations: industryServiceAreaMeta?.hasLinkedLocations ?? false,
+          });
+        });
+    }, 400);
+
+    return () => window.clearTimeout(handle);
+  }, [
+    locationInputKey,
+    locationInputMeetsMinLength,
+    locationManagement,
+    selectedIndustryId,
+    businessIdFromUrl,
+    locationZipNormalized,
+    nameInputTrimmed,
+    industryServiceAreaMeta?.hasLinkedLocations,
+  ]);
+
+  const industryServiceAreaMetaLoading =
+    Boolean(selectedIndustryId && businessIdFromUrl) && industryServiceAreaMeta === null;
+  const industryHasLinkedServiceAreas = industryServiceAreaMeta?.hasLinkedLocations === true;
+
   const locationInputValidForBooking =
     locationManagement === "none"
       ? true
-      : locationManagement === "name"
-        ? locationZipNormalized.length >= 2
-        : locationZipNormalized.length >= 5;
+      : industryServiceAreaMetaLoading || !industryHasLinkedServiceAreas
+        ? !hasLocationBasedFrequencies || locationInputMeetsMinLength
+        : locationInputMeetsMinLength &&
+          !locationResolve.loading &&
+          locationResolve.inputKey === locationInputKey &&
+          locationResolve.labels.length > 0;
 
-  /** Matches admin AddBookingForm: no service list until zip/location is valid when industry uses location-based frequencies. */
-  const needsLocationBeforeServices =
-    hasLocationBasedFrequencies && locationManagement !== "none" && !locationInputValidForBooking;
+  /** Zip/city must match configured service-area locations when the industry has linked locations; otherwise matches admin zip gating for location-based frequencies only. */
+  const needsLocationBeforeServices = locationManagement !== "none" && !locationInputValidForBooking;
+
+  useEffect(() => {
+    if (limitedEditMode || locationManagement === "none") {
+      form.clearErrors("zipCode");
+      return;
+    }
+    if (!industryHasLinkedServiceAreas || !locationInputMeetsMinLength) {
+      form.clearErrors("zipCode");
+      return;
+    }
+    if (locationResolve.loading) {
+      form.clearErrors("zipCode");
+      return;
+    }
+    if (
+      locationResolve.inputKey === locationInputKey &&
+      locationResolve.labels.length === 0
+    ) {
+      form.setError("zipCode", {
+        message:
+          locationManagement === "zip"
+            ? "That zip code is not in our service area. Check your entry or try a zip we serve."
+            : "That location is not in our service area. Try the city or town name we list.",
+      });
+    } else {
+      form.clearErrors("zipCode");
+    }
+  }, [
+    form,
+    limitedEditMode,
+    locationManagement,
+    industryHasLinkedServiceAreas,
+    locationInputMeetsMinLength,
+    locationResolve.loading,
+    locationResolve.inputKey,
+    locationResolve.labels.length,
+    locationInputKey,
+  ]);
 
   useEffect(() => {
     if (!needsLocationBeforeServices) return;
@@ -1092,6 +1409,11 @@ function BookingPageContent() {
             return {
               id: cat.id,
               name: cat.name,
+              customerDisplayName: getServiceCategoryCustomerDisplayName({
+                name: cat.name,
+                different_on_customer_end: cat.different_on_customer_end,
+                customer_end_name: cat.customer_end_name,
+              }),
               description: cat.description || `Professional ${cat.name} service.`,
               price,
               duration,
@@ -1132,11 +1454,13 @@ function BookingPageContent() {
     if (!industryId || !businessIdParam) {
       setFrequencyOptions([]);
       setFrequencyMetaByName({});
+      setBookingFrequencyForFilters("");
       return;
     }
     if (needsLocationBeforeServices) {
       setFrequencyOptions([]);
       setFrequencyMetaByName({});
+      setBookingFrequencyForFilters("");
       return;
     }
     const url = new URL("/api/industry-frequency", window.location.origin);
@@ -1160,43 +1484,37 @@ function BookingPageContent() {
                 f?.is_active !== false &&
                 (!f.display || f.display === "Both" || f.display === "Booking"),
             );
-            const names = rows.map((f: any) => f.name || f.occurrence_time).filter(Boolean);
-            const metaMap: Record<string, CustomerFrequencyMeta> = {};
-            for (const f of rows) {
-              const n = (f?.name || f?.occurrence_time) as string | undefined;
-              if (!n) continue;
-              metaMap[String(n).trim()] = {
-                frequency_repeats: f.frequency_repeats != null ? String(f.frequency_repeats).trim() : undefined,
-                occurrence_time: f.occurrence_time,
-                discount:
-                  f.discount != null && !Number.isNaN(Number(f.discount)) ? Number(f.discount) : undefined,
-                discount_type: f.discount_type,
-                frequency_discount: f.frequency_discount,
-                shorter_job_length: f.shorter_job_length,
-                shorter_job_length_by: f.shorter_job_length_by,
-                exclude_first_appointment: Boolean(f.exclude_first_appointment),
-              };
-            }
+            const { names, metaMap, defaultName } = bookNowFrequencyRowsToState(rows);
             setFrequencyOptions(names);
             setFrequencyMetaByName(metaMap);
+            setBookingFrequencyForFilters((prev) => {
+              const p = String(prev || "").trim();
+              if (p && names.includes(p)) return p;
+              if (defaultName && names.includes(defaultName)) return defaultName;
+              return "";
+            });
           } else {
             setFrequencyOptions([]);
             setFrequencyMetaByName({});
+            setBookingFrequencyForFilters("");
           }
         } else {
           setFrequencyOptions([]);
           setFrequencyMetaByName({});
+          setBookingFrequencyForFilters("");
         }
       } catch (err) {
         console.error("Error fetching frequencies:", err);
         setFrequencyOptions([]);
         setFrequencyMetaByName({});
+        setBookingFrequencyForFilters("");
       }
     };
     fetchFrequenciesRef.current = () => {
       if (needsLocationBeforeServices) {
         setFrequencyOptions([]);
         setFrequencyMetaByName({});
+        setBookingFrequencyForFilters("");
         return;
       }
       const zip = String(form.getValues("zipCode") ?? "").trim().replace(/\s/g, "");
@@ -1217,33 +1535,25 @@ function BookingPageContent() {
                 f?.is_active !== false &&
                 (!f.display || f.display === "Both" || f.display === "Booking"),
             );
-            const names = rows.map((f: any) => f.name || f.occurrence_time).filter(Boolean);
-            const metaMap: Record<string, CustomerFrequencyMeta> = {};
-            for (const f of rows) {
-              const n = (f?.name || f?.occurrence_time) as string | undefined;
-              if (!n) continue;
-              metaMap[String(n).trim()] = {
-                frequency_repeats: f.frequency_repeats != null ? String(f.frequency_repeats).trim() : undefined,
-                occurrence_time: f.occurrence_time,
-                discount:
-                  f.discount != null && !Number.isNaN(Number(f.discount)) ? Number(f.discount) : undefined,
-                discount_type: f.discount_type,
-                frequency_discount: f.frequency_discount,
-                shorter_job_length: f.shorter_job_length,
-                shorter_job_length_by: f.shorter_job_length_by,
-                exclude_first_appointment: Boolean(f.exclude_first_appointment),
-              };
-            }
+            const { names, metaMap, defaultName } = bookNowFrequencyRowsToState(rows);
             setFrequencyOptions(names);
             setFrequencyMetaByName(metaMap);
+            setBookingFrequencyForFilters((prev) => {
+              const p = String(prev || "").trim();
+              if (p && names.includes(p)) return p;
+              if (defaultName && names.includes(defaultName)) return defaultName;
+              return "";
+            });
           } else {
             setFrequencyOptions([]);
             setFrequencyMetaByName({});
+            setBookingFrequencyForFilters("");
           }
         })
         .catch(() => {
           setFrequencyOptions([]);
           setFrequencyMetaByName({});
+          setBookingFrequencyForFilters("");
         });
     };
     doFetch();
@@ -1297,14 +1607,7 @@ function BookingPageContent() {
     setServiceListFrequencyDeps(null);
   }, [selectedIndustryId]);
 
-  // Default frequency to first available option (matches admin default frequency behavior)
-  useEffect(() => {
-    if (frequencyOptions.length === 0) return;
-    setBookingFrequencyForFilters((prev) => {
-      if (prev && frequencyOptions.includes(prev)) return prev;
-      return frequencyOptions[0];
-    });
-  }, [frequencyOptions]);
+  // Form 1 default (`is_default`): when frequencies load, preselect that name for filters/cards if present; otherwise no filter until the customer picks.
 
   // Load Form 1 frequency dependencies for filtering service categories (admin serviceCategories effect)
   useEffect(() => {
@@ -1327,18 +1630,18 @@ function BookingPageContent() {
     };
   }, [selectedIndustryId, businessIdFromUrl, bookingFrequencyForFilters]);
 
-  /** Service cards visible for current Form 1 frequency (admin filters by frequencyDependencies.serviceCategories). */
+  /** Service cards: no frequency chosen yet → show full list; after a frequency is chosen, apply Form 1 deps. */
   const categoryServicesForForm = useMemo(() => {
     if (limitedEditMode) return serviceCategories;
+    if (!bookingFrequencyForFilters.trim()) return serviceCategories;
     return serviceCategories.filter((svc) => {
       const raw = svc.raw;
       if (!raw?.service_category_frequency) return true;
-      if (serviceListFrequencyDeps?.serviceCategories?.length) {
-        return serviceListFrequencyDeps.serviceCategories.includes(String(raw.id));
-      }
-      return false;
+      if (!serviceListFrequencyDeps) return true;
+      if (!serviceListFrequencyDeps.serviceCategories?.length) return true;
+      return serviceListFrequencyDeps.serviceCategories.includes(String(raw.id));
     });
-  }, [limitedEditMode, serviceCategories, serviceListFrequencyDeps]);
+  }, [limitedEditMode, serviceCategories, serviceListFrequencyDeps, bookingFrequencyForFilters]);
 
   // If frequency filter hides the selected service, clear selection (admin would not list it)
   useEffect(() => {
@@ -1579,11 +1882,15 @@ function BookingPageContent() {
         excludedAreas: [],
         excludeQuantities: {},
         variableCategories: {},
+        bookingHours: "0",
+        bookingMinutes: "0",
       };
     }
     return {
       ...stored,
       frequency: stored.frequency?.trim() ? stored.frequency : defaultFreq,
+      bookingHours: stored.bookingHours ?? "0",
+      bookingMinutes: stored.bookingMinutes ?? "0",
     };
   };
 
@@ -1611,6 +1918,8 @@ function BookingPageContent() {
       excludedAreas?: string[];
       excludeQuantities?: Record<string, number>;
       variableCategories?: { [categoryName: string]: string };
+      bookingHours?: string;
+      bookingMinutes?: string;
     };
 
     const normalizeExtrasFromString = (value: unknown): string[] => {
@@ -1655,9 +1964,13 @@ function BookingPageContent() {
         if (!resolved) {
           const staticMatch = findServiceMatch(sourceBooking.service);
           if (staticMatch) {
+            const s = staticMatch.service;
             resolved = {
               industryKey: staticMatch.categoryKey,
-              service: staticMatch.service as unknown as RebookServiceCategoryCard,
+              service: {
+                ...s,
+                customerDisplayName: s.name,
+              } as RebookServiceCategoryCard,
             };
           }
         }
@@ -1722,6 +2035,19 @@ function BookingPageContent() {
       const existingCustomization = getCardCustomization(selectedService.id);
       const presetCustomization = (sourceBooking.customization as BookingCustomization) ?? {};
 
+      const dm = sourceBooking.durationMinutes;
+      let rebookBookingHours = presetCustomization.bookingHours ?? "0";
+      let rebookBookingMinutes = presetCustomization.bookingMinutes ?? "0";
+      if (
+        (rebookBookingHours === "0" && rebookBookingMinutes === "0") &&
+        typeof dm === "number" &&
+        dm > 0
+      ) {
+        const n = Math.round(dm);
+        rebookBookingHours = String(Math.floor(n / 60));
+        rebookBookingMinutes = String(n % 60);
+      }
+
       const presetExtras: { name: string; quantity: number }[] = normalizeExtrasArray(
         normalizeExtrasFromString(presetCustomization.extras),
       );
@@ -1757,6 +2083,14 @@ function BookingPageContent() {
           presetCustomization.excludeQuantities ?? existingCustomization.excludeQuantities ?? {},
         variableCategories:
           presetCustomization.variableCategories ?? existingCustomization.variableCategories ?? {},
+        bookingHours:
+          presetCustomization.bookingHours ??
+          existingCustomization.bookingHours ??
+          rebookBookingHours,
+        bookingMinutes:
+          presetCustomization.bookingMinutes ??
+          existingCustomization.bookingMinutes ??
+          rebookBookingMinutes,
       };
 
       setServiceCustomization(rebookCustomization);
@@ -1835,10 +2169,26 @@ function BookingPageContent() {
 
   // When returning from Authorize.net success: mark booking paid and send receipt (like Stripe webhook)
   useEffect(() => {
-    const authorizeNetSuccess = searchParams.get("authorize_net") === "success";
-    const bookingId = searchParams.get("booking_id");
-    const businessId = searchParams.get("business");
-    const endpoint = authorizeNetSuccess ? "/api/authorize-net/confirm-return" : null;
+    const anetSb = searchParams.get("anet_sb")?.trim();
+    let bookingIdFromAnet: string | null = null;
+    let businessFromAnet: string | null = null;
+    if (anetSb) {
+      const dot = anetSb.indexOf(".");
+      if (dot > 0 && dot < anetSb.length - 1) {
+        bookingIdFromAnet = anetSb.slice(0, dot).trim() || null;
+        businessFromAnet = anetSb.slice(dot + 1).trim() || null;
+      } else {
+        bookingIdFromAnet = anetSb;
+      }
+    }
+    const bookingId =
+      searchParams.get("booking_id")?.trim() || bookingIdFromAnet || searchParams.get("anet_success")?.trim() || null;
+    const authorizeNetSuccess =
+      searchParams.get("authorize_net") === "success" ||
+      Boolean(anetSb) ||
+      Boolean(searchParams.get("anet_success")?.trim());
+    const businessId = searchParams.get("business")?.trim() || businessFromAnet || null;
+    const endpoint = authorizeNetSuccess && bookingId ? "/api/authorize-net/confirm-return" : null;
     if (!endpoint || !bookingId || paymentConfirmSentRef.current) return;
     paymentConfirmSentRef.current = true;
     fetch(endpoint, {
@@ -1852,7 +2202,14 @@ function BookingPageContent() {
   useEffect(() => {
     const stripeSuccess = searchParams.get("stripe") === "success";
     const sessionId = searchParams.get("session_id");
-    const authorizeNetSuccess = searchParams.get("authorize_net") === "success" && searchParams.get("booking_id");
+    const anetSb = searchParams.get("anet_sb")?.trim();
+    const bookingIdAnet =
+      searchParams.get("anet_success")?.trim() ||
+      (anetSb && anetSb.includes(".") ? anetSb.slice(0, anetSb.indexOf(".")).trim() : anetSb) ||
+      null;
+    const authorizeNetSuccess =
+      (searchParams.get("authorize_net") === "success" && searchParams.get("booking_id")) ||
+      Boolean(bookingIdAnet);
     const businessId = searchParams.get("business");
 
     if (authorizeNetSuccess) {
@@ -1877,109 +2234,62 @@ function BookingPageContent() {
 
   useEffect(() => {
     if (currentStep === "success") {
-      const bid = searchParams.get("business");
+      const anetSb = searchParams.get("anet_sb")?.trim();
+      let bid = searchParams.get("business")?.trim() || null;
+      if (!bid && anetSb?.includes(".")) {
+        bid = anetSb.slice(anetSb.indexOf(".") + 1).trim() || null;
+      }
       router.push(bid ? `/customer/appointments?business=${bid}` : "/customer/appointments");
     }
   }, [currentStep, router, searchParams]);
 
-  /** Align with admin AddBookingForm: sum pricing-parameter time_minutes + extras time; fallback to service duration label (e.g. "4-6 hours"). */
+  /** Estimated job length: hourly custom time → card hours/min; else pricing-parameter sum (+extras, −partial) or duration label. */
+  const computeEstimatedMinutesForBooking = useCallback(
+    (serviceName: string) => {
+      if (!serviceCustomization || !selectedService) return null;
+      const sn = serviceName.trim();
+      if (!sn) return null;
+      const rawHs = selectedService.raw as
+        | { hourly_service?: { enabled?: boolean; priceCalculationType?: string } }
+        | undefined;
+      const customMins = hourlyCustomTimeTotalMinutes({
+        hourly: rawHs?.hourly_service,
+        bookingHours: serviceCustomization.bookingHours,
+        bookingMinutes: serviceCustomization.bookingMinutes,
+      });
+      if (customMins != null) return customMins;
+      const label =
+        (selectedService as { duration?: string }).duration ??
+        (selectedService.raw as { duration?: string } | undefined)?.duration;
+      return estimateBookingDurationMinutes({
+        serviceName: sn,
+        customization: serviceCustomization,
+        pricingParametersFull,
+        availableExtras,
+        excludeParametersList,
+        durationLabelFallback: label,
+        frequencyDependencies: pricingFrequencyDeps,
+        serviceUsesFrequencyVariableDeps: Boolean(
+          (selectedService?.raw as { service_category_frequency?: boolean } | undefined)
+            ?.service_category_frequency,
+        ),
+      });
+    },
+    [
+      serviceCustomization,
+      selectedService,
+      pricingParametersFull,
+      availableExtras,
+      excludeParametersList,
+      pricingFrequencyDeps,
+    ],
+  );
+
   const getEstimatedDurationMinutes = useCallback((): number | null => {
-    if (!bookingData || !serviceCustomization || !selectedService) return null;
-    const serviceName = bookingData.service || selectedService.name;
-    const selectedFrequency = serviceCustomization.frequency?.trim() || "One-time";
-
-    let totalMinutes = 0;
-    const vc = serviceCustomization.variableCategories ?? {};
-    let addedAreaLike = false;
-
-    if (pricingParametersFull.length > 0) {
-      for (const [categoryKey, optionName] of Object.entries(vc)) {
-        if (!optionName?.trim() || optionName.trim().toLowerCase() === "none") continue;
-        const param = pricingParametersFull.find(
-          (p) =>
-            String(p.variable_category ?? "").trim() === categoryKey &&
-            String(p.name ?? "").trim() === optionName.trim() &&
-            pricingParamAppliesToSelection(
-              {
-                show_based_on_frequency: p.show_based_on_frequency,
-                frequency: p.frequency,
-                show_based_on_service_category: p.show_based_on_service_category,
-                service_category: p.service_category,
-              },
-              selectedFrequency,
-              serviceName,
-            ),
-        );
-        if (param && typeof param.time_minutes === "number" && param.time_minutes > 0) {
-          totalMinutes += param.time_minutes;
-          if (/sqft|area|square|meter|size/i.test(String(param.variable_category))) addedAreaLike = true;
-        }
-      }
-
-      if (!addedAreaLike && serviceCustomization.squareMeters?.trim()) {
-        const areaLikeParam = pricingParametersFull.find(
-          (p) =>
-            /sqft|area|square|meter|size/i.test(String(p.variable_category ?? "")) &&
-            String(p.name ?? "").trim() === serviceCustomization.squareMeters.trim() &&
-            pricingParamAppliesToSelection(
-              {
-                show_based_on_frequency: p.show_based_on_frequency,
-                frequency: p.frequency,
-                show_based_on_service_category: p.show_based_on_service_category,
-                service_category: p.service_category,
-              },
-              selectedFrequency,
-              serviceName,
-            ),
-        );
-        if (areaLikeParam && typeof areaLikeParam.time_minutes === "number" && areaLikeParam.time_minutes > 0) {
-          totalMinutes += areaLikeParam.time_minutes;
-        }
-      }
-    }
-
-    if (serviceCustomization.extras?.length && availableExtras.length > 0) {
-      for (const item of serviceCustomization.extras) {
-        if (item.name === "None") continue;
-        const extra = availableExtras.find((e: { name?: string }) => (e.name || "").trim() === (item.name || "").trim());
-        if (!extra) continue;
-        const qty = Math.max(1, Number(item.quantity) || 1);
-        const { lineMinutes } = resolveQtyBasedExtraLine(
-          {
-            qty_based: (extra as { qty_based?: boolean }).qty_based,
-            pricing_structure: (extra as { pricing_structure?: string }).pricing_structure,
-            price: Number((extra as { price?: unknown }).price) || 0,
-            time_minutes: Number((extra as { time_minutes?: unknown }).time_minutes) || 0,
-            maximum_quantity: (extra as { maximum_quantity?: number | null }).maximum_quantity ?? null,
-            manual_prices: (extra as { manual_prices?: { price?: number; time_minutes?: number }[] }).manual_prices ?? null,
-          },
-          qty,
-        );
-        if (lineMinutes > 0) totalMinutes += lineMinutes;
-      }
-    }
-
-    // Subtract time for excluded areas (partial cleaning), same as admin AddBookingForm
-    if (serviceCustomization.isPartialCleaning && serviceCustomization.excludedAreas?.length) {
-      for (const areaName of serviceCustomization.excludedAreas) {
-        const param = excludeParametersList.find((p) => p.name === areaName);
-        const tm = param?.time_minutes;
-        if (typeof tm === "number" && tm > 0) {
-          const qty = param.qty_based ? Math.max(1, serviceCustomization.excludeQuantities?.[areaName] ?? 1) : 1;
-          totalMinutes -= tm * qty;
-        }
-      }
-      totalMinutes = Math.max(0, totalMinutes);
-    }
-
-    if (totalMinutes > 0) return totalMinutes;
-
-    const label =
-      (selectedService as { duration?: string }).duration ??
-      (selectedService.raw as { duration?: string } | undefined)?.duration;
-    const fromLabel = approximateMinutesFromDurationLabel(label);
-    return fromLabel;
-  }, [bookingData, serviceCustomization, selectedService, pricingParametersFull, availableExtras, excludeParametersList]);
+    if (!selectedService || !serviceCustomization) return null;
+    const serviceName = (bookingData?.service || selectedService.name || "").trim();
+    return computeEstimatedMinutesForBooking(serviceName);
+  }, [bookingData, selectedService, serviceCustomization, computeEstimatedMinutesForBooking]);
 
   const addBookingToStorage = useCallback(async (paymentMethod: "cash" | "online" = "cash") => {
     if (!bookingData || !serviceCustomization || !selectedService) {
@@ -1988,6 +2298,29 @@ function BookingPageContent() {
         description: "Please complete the service selection and booking form before finishing.",
         variant: "destructive",
       });
+      return null;
+    }
+
+    if (!limitedEditMode && locationManagement !== "none" && !locationInputValidForBooking) {
+      if (!locationInputMeetsMinLength) {
+        toast({
+          title: "Service area required",
+          description:
+            locationManagement === "zip"
+              ? "Enter a valid zip code we serve before completing your booking."
+              : "Enter your city or town before completing your booking.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Outside service area",
+          description:
+            locationManagement === "zip"
+              ? "That zip code is not in our service area. Go back and update it before paying."
+              : "That location is not in our service area. Go back and update it before paying.",
+          variant: "destructive",
+        });
+      }
       return null;
     }
 
@@ -2027,6 +2360,8 @@ function BookingPageContent() {
         excludedAreas: serviceCustomization.excludedAreas,
         excludeQuantities: serviceCustomization.excludeQuantities ?? {},
         variableCategories: serviceCustomization.variableCategories ?? {},
+        bookingHours: serviceCustomization.bookingHours ?? "0",
+        bookingMinutes: serviceCustomization.bookingMinutes ?? "0",
       },
     };
 
@@ -2066,6 +2401,8 @@ function BookingPageContent() {
         const estimatedDurationMins = getEstimatedDurationMinutes();
         const payload = {
           business_id: currentBusinessId,
+          industry_id: selectedIndustryId || undefined,
+          service_area_input: String(form.getValues("zipCode") ?? bookingData.zipCode ?? "").trim(),
           customer_name: `${bookingData.firstName ?? ""} ${bookingData.lastName ?? ""}`.trim(),
           customer_email: bookingData.email ?? "",
           customer_phone: String(bookingData.phone ?? ""),
@@ -2194,6 +2531,12 @@ function BookingPageContent() {
     frequencyMetaByName,
     excludeParametersList,
     getEstimatedDurationMinutes,
+    selectedIndustryId,
+    limitedEditMode,
+    locationManagement,
+    locationInputValidForBooking,
+    locationInputMeetsMinLength,
+    form,
   ]);
 
   // Handle service selection (persist to card customizations so selection survives re-renders)
@@ -2208,6 +2551,19 @@ function BookingPageContent() {
     form.setValue("service", serviceName, { shouldValidate: true });
     form.setValue("customization", toFormCustomization(custom), { shouldValidate: true });
 
+    const raw = service.raw as Record<string, unknown> | undefined;
+    const popupHtml = String(raw?.popup_content ?? "").trim();
+    if (
+      Boolean(raw?.enable_popup_on_selection) &&
+      popupHtml &&
+      popupDisplayAppliesToSurface(raw?.popup_display as string | undefined, bookingPopupSurface)
+    ) {
+      setBookingHtmlPopup({
+        title: service.customerDisplayName?.trim() || service.name,
+        html: popupHtml,
+      });
+    }
+
     // Scroll to customer form after a short delay
     setTimeout(() => {
       const formElement = document.getElementById("customer-form");
@@ -2219,13 +2575,52 @@ function BookingPageContent() {
 
   // Handle booking form submission - move to payment step (no localStorage)
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    if (!limitedEditMode && locationManagement === "zip") {
-      const zip = String(values.zipCode ?? "").trim().replace(/\s/g, "");
-      if (zip.length < 5) {
-        form.setError("zipCode", { message: "Please enter a valid zip code" });
+    if (!limitedEditMode && locationManagement !== "none") {
+      if (!locationInputValidForBooking) {
+        if (!locationInputMeetsMinLength) {
+          form.setError("zipCode", {
+            message:
+              locationManagement === "zip"
+                ? "Please enter a valid zip code"
+                : "Please enter your city or town (at least 2 characters)",
+          });
+        } else {
+          form.setError("zipCode", {
+            message:
+              locationManagement === "zip"
+                ? "That zip code is not in our service area. Check your entry or try a zip we serve."
+                : "That location is not in our service area. Try the city or town name we list.",
+          });
+        }
         return;
       }
     }
+
+    if (!limitedEditMode && selectedService && serviceCustomization) {
+      const raw = selectedService.raw as { minimum_time?: ServiceCategoryMinimumTime } | undefined;
+      const mt = raw?.minimum_time;
+      const requiredMin = minimumTimeRequiredMinutes(mt);
+      if (requiredMin != null) {
+        const serviceName = (values.service || selectedService.name || "").trim();
+        const estimated = computeEstimatedMinutesForBooking(serviceName);
+        if (estimated != null && estimated < requiredMin) {
+          const h = Math.floor(requiredMin / 60);
+          const m = requiredMin % 60;
+          const parts: string[] = [];
+          if (h > 0) parts.push(`${h} hour${h !== 1 ? "s" : ""}`);
+          if (m > 0) parts.push(`${m} minutes`);
+          const needLabel = parts.length ? parts.join(" and ") : `${requiredMin} minutes`;
+          const fallback = `Book at least ${needLabel} for this service, or adjust your selections.`;
+          toast({
+            title: "Minimum time not met",
+            description: mt ? minimumTimeCustomerMessage(mt, fallback) : fallback,
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+    }
+
     setStoredAddress({
       address: values.address,
       ...(values.aptNo ? { aptNo: values.aptNo } : {}),
@@ -2286,11 +2681,17 @@ function BookingPageContent() {
   const getVariableCategoriesSubtotal = (serviceName: string) => {
     const selectedFrequency = serviceCustomization?.frequency?.trim() || "";
     if (allPricingParams.length === 0) return 0;
+    const rawSvc = selectedService?.raw as { service_category_frequency?: boolean } | undefined;
+    const useFreqVarDeps = Boolean(rawSvc?.service_category_frequency);
     const vc = serviceCustomization?.variableCategories ?? {};
     let sum = 0;
     let addedAreaLike = false;
     for (const [categoryKey, optionName] of Object.entries(vc)) {
       if (!optionName?.trim() || optionName.trim().toLowerCase() === "none") continue;
+      if (useFreqVarDeps && pricingFrequencyDeps) {
+        const allowed = frequencyDepOptionNamesForCategory(categoryKey, pricingFrequencyDeps);
+        if (allowed !== null && !allowed.includes(optionName.trim())) continue;
+      }
       const param = allPricingParams.find(
         (p) =>
           p.variable_category === categoryKey &&
@@ -2313,10 +2714,21 @@ function BookingPageContent() {
     }
     // Include squareMeters only if no area-like category was already added (avoids double-count)
     if (!addedAreaLike && serviceCustomization?.squareMeters?.trim()) {
+      const sqName = serviceCustomization.squareMeters.trim();
+      if (useFreqVarDeps && pricingFrequencyDeps) {
+        const catKey =
+          allPricingParams.find((p) =>
+            /sqft|area|square|meter|size/i.test(p.variable_category),
+          )?.variable_category ?? "Sq Ft";
+        const allowed = frequencyDepOptionNamesForCategory(String(catKey), pricingFrequencyDeps);
+        if (allowed !== null && !allowed.includes(sqName)) {
+          return sum;
+        }
+      }
       const areaLikeParam = allPricingParams.find(
         (p) =>
           /sqft|area|square|meter|size/i.test(p.variable_category) &&
-          p.name === serviceCustomization.squareMeters &&
+          p.name === sqName &&
           pricingParamAppliesToSelection(
             {
               show_based_on_frequency: p.show_based_on_frequency,
@@ -2390,8 +2802,37 @@ function BookingPageContent() {
       }
     }
 
-    // Fallback: price from service category (industry form 1 – service category price)
+    // Hourly rate × duration (custom time from card; parameter time from estimated minutes)
     const service = serviceCategories.find((s) => s.name === serviceName);
+    const raw = service?.raw as
+      | {
+          hourly_service?: {
+            enabled?: boolean;
+            price?: string;
+            priceCalculationType?: string;
+            countExtrasSeparately?: boolean;
+          };
+        }
+      | undefined;
+    const hs = raw?.hourly_service;
+    if (hs?.enabled && hs.price && serviceCustomization) {
+      const hourlyP = parseFloat(String(hs.price));
+      if (!Number.isNaN(hourlyP) && hourlyP > 0) {
+        const pct = hs.priceCalculationType ?? "customTime";
+        if (pct === "customTime") {
+          const cm = hourlyCustomTimeTotalMinutes({
+            hourly: hs,
+            bookingHours: serviceCustomization.bookingHours,
+            bookingMinutes: serviceCustomization.bookingMinutes,
+          });
+          if (cm != null) return hourlyP * (cm / 60);
+        } else {
+          const mins = computeEstimatedMinutesForBooking(serviceName.trim());
+          if (mins != null && mins > 0) return hourlyP * (mins / 60);
+        }
+      }
+    }
+
     return service?.price ?? 0;
   };
 
@@ -2417,7 +2858,14 @@ function BookingPageContent() {
     }
     const serviceName = String(bookingData?.service || selectedService.name || "").trim() || selectedService.name;
     const variableSubtotal = getVariableCategoriesSubtotal(serviceName);
-    const extrasSubtotal = getExtrasSubtotal();
+    const hourlyCat = serviceCategories.find((s) => s.name === serviceName);
+    const hourlyRaw = hourlyCat?.raw as
+      | { hourly_service?: { enabled?: boolean; countExtrasSeparately?: boolean } }
+      | undefined;
+    const extrasSubtotal = hourlyExtrasBillableSubtotal({
+      hourly: hourlyRaw?.hourly_service,
+      extrasSubtotal: getExtrasSubtotal(),
+    });
     const { effectiveServiceTotal } = computeEffectiveServiceAndExtras({
       variableSubtotal,
       extrasSubtotal,
@@ -2690,6 +3138,28 @@ function BookingPageContent() {
     usePendingIntent: boolean;
   } | null> => {
     if (!bookingData || !serviceCustomization || !selectedService) return null;
+    if (!limitedEditMode && locationManagement !== "none" && !locationInputValidForBooking) {
+      if (!locationInputMeetsMinLength) {
+        toast({
+          title: "Service area required",
+          description:
+            locationManagement === "zip"
+              ? "Enter a valid zip code we serve before completing your booking."
+              : "Enter your city or town before completing your booking.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Outside service area",
+          description:
+            locationManagement === "zip"
+              ? "That zip code is not in our service area. Go back and update it before paying."
+              : "That location is not in our service area. Go back and update it before paying.",
+          variant: "destructive",
+        });
+      }
+      return null;
+    }
     const bookingDate = bookingData.date instanceof Date ? bookingData.date : new Date(bookingData.date);
     let formattedDate: string;
     if (Number.isNaN(bookingDate.getTime())) {
@@ -2722,6 +3192,8 @@ function BookingPageContent() {
         excludedAreas: serviceCustomization.excludedAreas,
         excludeQuantities: serviceCustomization.excludeQuantities ?? {},
         variableCategories: serviceCustomization.variableCategories ?? {},
+        bookingHours: serviceCustomization.bookingHours ?? "0",
+        bookingMinutes: serviceCustomization.bookingMinutes ?? "0",
       },
     };
     const currentBusinessId = searchParams.get("business") ?? null;
@@ -2746,6 +3218,8 @@ function BookingPageContent() {
       const estimatedDurationMinsStripe = getEstimatedDurationMinutes();
       const payload = {
         business_id: currentBusinessId,
+        industry_id: selectedIndustryId || undefined,
+        service_area_input: String(form.getValues("zipCode") ?? bookingData.zipCode ?? "").trim(),
         customer_name: `${bookingData.firstName ?? ""} ${bookingData.lastName ?? ""}`.trim(),
         customer_email: bookingData.email ?? "",
         customer_phone: String(bookingData.phone ?? ""),
@@ -2871,6 +3345,13 @@ function BookingPageContent() {
     frequencyMetaByName,
     excludeParametersList,
     getEstimatedDurationMinutes,
+    selectedIndustryId,
+    limitedEditMode,
+    locationManagement,
+    locationInputValidForBooking,
+    locationInputMeetsMinLength,
+    toast,
+    form,
   ]);
 
   // Handle online payment via Stripe Checkout (redirect)
@@ -2893,14 +3374,14 @@ function BookingPageContent() {
               amountInCents,
               customerEmail: undefined,
               businessId: businessId || undefined,
-              lineItemDescription: `${selectedService?.name ?? "Booking"} – ${bookingData?.date ? format(bookingData.date instanceof Date ? bookingData.date : new Date(bookingData.date), "PPP") : ""}`,
+              lineItemDescription: `${selectedService?.customerDisplayName?.trim() || selectedService?.name || "Booking"} – ${bookingData?.date ? format(bookingData.date instanceof Date ? bookingData.date : new Date(bookingData.date), "PPP") : ""}`,
             }
           : {
               bookingId: draft.id,
               amountInCents,
               customerEmail: undefined,
               businessId: businessId || undefined,
-              lineItemDescription: `${selectedService?.name ?? "Booking"} – ${bookingData?.date ? format(bookingData.date instanceof Date ? bookingData.date : new Date(bookingData.date), "PPP") : ""}`,
+              lineItemDescription: `${selectedService?.customerDisplayName?.trim() || selectedService?.name || "Booking"} – ${bookingData?.date ? format(bookingData.date instanceof Date ? bookingData.date : new Date(bookingData.date), "PPP") : ""}`,
             };
       const res = await fetch("/api/payments/create-checkout", {
         method: "POST",
@@ -3088,7 +3569,9 @@ function BookingPageContent() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Service</span>
-                      <span className="font-medium text-right max-w-[180px]">{selectedService.name}</span>
+                      <span className="font-medium text-right max-w-[180px]">
+                        {selectedService.customerDisplayName?.trim() || selectedService.name}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Frequency</span>
@@ -3228,7 +3711,12 @@ function BookingPageContent() {
                   </p>
                   <Button
                     type="button"
-                    disabled={isProcessing}
+                    disabled={
+                      isProcessing ||
+                      (!limitedEditMode &&
+                        locationManagement !== "none" &&
+                        !locationInputValidForBooking)
+                    }
                     onClick={() => handleOnlinePayment()}
                     className="w-full h-12 text-base mt-6"
                   >
@@ -3271,7 +3759,7 @@ function BookingPageContent() {
                 {limitedEditMode
                   ? "You can only change your customer details and payment method. To reschedule date or time, please contact us."
                   : showSummary
-                    ? `Complete your booking details for ${selectedService.name}`
+                    ? `Complete your booking details for ${selectedService.customerDisplayName?.trim() || selectedService.name}`
                     : "Select a service type and fill out your booking details"
                 }
               </p>
@@ -3343,6 +3831,7 @@ function BookingPageContent() {
                       onFlip={handleCardFlip}
                       customization={getCardCustomization(service.id)}
                       onCustomizationChange={handleCustomizationChange}
+                      customizeLayout="expandedFlip"
                       industryId={selectedIndustryId}
                       businessId={businessIdFromUrl}
                       serviceCategory={service.raw}
@@ -3355,6 +3844,9 @@ function BookingPageContent() {
                           "",
                       )}
                       frequencyOptions={frequencyOptions}
+                      frequencyMetaByName={frequencyMetaByName}
+                      bookingPopupSurface={bookingPopupSurface}
+                      pricingVariableDefinitions={industryPricingVariables}
                     />
                   ))}
                 </div>
@@ -4098,7 +4590,16 @@ function BookingPageContent() {
 
                     {/* Submit Button */}
                     <div className="col-span-full pt-4">
-                      <button type="submit" className={`${styles.submitButton} group`} disabled={form.formState.isSubmitting}>
+                      <button
+                        type="submit"
+                        className={`${styles.submitButton} group`}
+                        disabled={
+                          form.formState.isSubmitting ||
+                          (!limitedEditMode &&
+                            locationManagement !== "none" &&
+                            !locationInputValidForBooking)
+                        }
+                      >
                         {form.formState.isSubmitting ? (
                           <>
                             <Loader2 className="mr-2 h-5 w-5 animate-spin" />
@@ -4129,6 +4630,26 @@ function BookingPageContent() {
             )}
           </div>
         </div>
+
+        <Dialog open={!!bookingHtmlPopup} onOpenChange={(open) => { if (!open) setBookingHtmlPopup(null); }}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>{bookingHtmlPopup?.title}</DialogTitle>
+              <DialogDescription className="sr-only">Service information</DialogDescription>
+            </DialogHeader>
+            {bookingHtmlPopup?.html ? (
+              <div
+                className="prose prose-sm dark:prose-invert max-w-none text-sm [&_a]:text-primary [&_a]:underline"
+                dangerouslySetInnerHTML={{ __html: bookingHtmlPopup.html }}
+              />
+            ) : null}
+            <DialogFooter>
+              <Button type="button" onClick={() => setBookingHtmlPopup(null)}>
+                OK
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }

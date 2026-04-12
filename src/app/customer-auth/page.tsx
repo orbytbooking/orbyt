@@ -103,9 +103,9 @@ export default function CustomerAuthPage() {
             .from('business_website_configs')
             .select('config')
             .eq('business_id', urlBusinessId)
-            .single();
-          
-          if (!error && businessConfig) {
+            .maybeSingle();
+
+          if (!error && businessConfig?.config) {
             console.log('✅ Direct database query found saved config:', businessConfig.config);
             console.log('📋 Company name from direct query:', businessConfig.config?.branding?.companyName);
             setSavedConfig(businessConfig.config);
@@ -154,9 +154,9 @@ export default function CustomerAuthPage() {
             .from('business_website_configs')
             .select('config')
             .eq('business_id', urlBusinessId)
-            .single();
-          
-          if (!error && businessConfig) {
+            .maybeSingle();
+
+          if (!error && businessConfig?.config) {
             console.log('✅ Found saved config in database:', businessConfig.config);
             console.log('📋 Company name in saved config:', businessConfig.config?.branding?.companyName);
             console.log('🎨 Logo in saved config:', businessConfig.config?.branding?.logo);

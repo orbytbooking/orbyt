@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,30 +11,28 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { serviceCategoriesService, ServiceCategory } from "@/lib/serviceCategories";
-import { pricingParametersService, PricingParameter } from "@/lib/pricing-parameters";
+import { serviceCategoriesService } from "@/lib/serviceCategories";
+import { pricingParametersService } from "@/lib/pricing-parameters";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { useToast } from "@/hooks/use-toast";
-import { Shirt, Sofa, Droplets, Wind, Trash2, Upload, X, Flower2, Flame, Warehouse, Paintbrush, Info } from "lucide-react";
-import { supabase } from "@/lib/supabaseClient";
+import { Upload, X, Info } from "lucide-react";
+import { INDUSTRY_FORM_ICON_PRESETS } from "@/lib/industryExtraIcons";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Form1RichTextEditor } from "@/components/admin/Form1RichTextEditor";
+import {
+  normalizeFrequencyPopupDisplay,
+  type FrequencyPopupDisplay,
+} from "@/lib/frequencyPopupDisplay";
 
-type ExcludeParameterRow = {
-  id: number;
-  name: string;
-  description: string;
-  display: "Customer Frontend, Backend & Admin" | "Customer Backend & Admin" | "Admin Only";
-  price: number;
-  time: string;
-  frequency: string;
-  serviceCategory: string;
-  variableCategories: string;
-  showBasedOnFrequency: boolean;
-  showBasedOnServiceCategory: boolean;
-  showBasedOnVariables: boolean;
-  excludedExtras: number[];
-  excludedServices: number[];
-  excludedProviders?: string[];
-};
+function normalizeIdList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((x) => String(x)).filter(Boolean);
+}
 
 export default function ExcludeParameterNewPage() {
   const params = useSearchParams();
@@ -46,9 +44,8 @@ export default function ExcludeParameterNewPage() {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
 
-  const [allRows, setAllRows] = useState<ExcludeParameterRow[]>([]);
-  const [extras, setExtras] = useState<Array<{id: number; name: string}>>([]);
-  const [services, setServices] = useState<Array<{id: string; name: string}>>([]);
+  const [services, setServices] = useState<Array<{ id: string; name: string }>>([]);
+  const [extras, setExtras] = useState<Array<{ id: string; name: string }>>([]);
   const [providers, setProviders] = useState<Array<{ id: string; name: string }>>([]);
   const [frequencies, setFrequencies] = useState<Array<{ id: string; name: string }>>([]);
   const [variables, setVariables] = useState<Array<{ id: string; name: string; category: string }>>([]);
@@ -57,6 +54,13 @@ export default function ExcludeParameterNewPage() {
   const [form, setForm] = useState({
     name: "",
     description: "",
+    differentOnCustomerEnd: false,
+    customerEndName: "",
+    showExplanationIconOnForm: false,
+    explanationTooltipText: "",
+    enablePopupOnSelection: false,
+    popupContent: "",
+    popupDisplay: "customer_frontend_backend_admin" as FrequencyPopupDisplay,
     icon: "",
     display: "Customer Frontend, Backend & Admin" as "Customer Frontend, Backend & Admin" | "Customer Backend & Admin" | "Admin Only",
     price: "0",
@@ -68,8 +72,8 @@ export default function ExcludeParameterNewPage() {
     showBasedOnFrequency: false,
     showBasedOnServiceCategory: true,
     showBasedOnVariables: false,
-    excludedExtras: [] as number[],
-    excludedServices: [] as number[],
+    excludedExtras: [] as string[],
+    excludedServices: [] as string[],
     excludedProviders: [] as string[],
     frequency: [] as string[],
     serviceCategory: [] as string[],
@@ -80,19 +84,11 @@ export default function ExcludeParameterNewPage() {
   const [uploadedIcon, setUploadedIcon] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const predefinedIcons = [
-    { name: "Laundry", icon: Shirt, value: "laundry" },
-    { name: "Furniture", icon: Sofa, value: "furniture" },
-    { name: "Water/Mold", icon: Droplets, value: "water" },
-    { name: "Odor", icon: Wind, value: "odor" },
-    { name: "Trash/Clutter", icon: Trash2, value: "trash" },
-    { name: "Garden/Plants", icon: Flower2, value: "plants" },
-    { name: "Fire Damage", icon: Flame, value: "fire" },
-    { name: "Storage", icon: Warehouse, value: "storage" },
-    { name: "Paint Removal", icon: Paintbrush, value: "paint" },
-  ];
-
-  const allDataKey = useMemo(() => `excludeParameters_${industry}`, [industry]);
+  const predefinedIcons = INDUSTRY_FORM_ICON_PRESETS.map(({ name, value, Icon }) => ({
+    name,
+    value,
+    icon: Icon,
+  }));
 
   // Fetch industry ID if not provided
   useEffect(() => {
@@ -132,6 +128,28 @@ export default function ExcludeParameterNewPage() {
           setServices(serviceCategoriesData.map(s => ({ id: s.id, name: s.name })));
         } catch (error) {
           console.error('Error loading service categories:', error);
+        }
+
+        try {
+          const extrasRes = await fetch(`/api/extras?industryId=${encodeURIComponent(industryId)}`);
+          if (extrasRes.ok) {
+            const extrasData = await extrasRes.json();
+            if (extrasData.extras && Array.isArray(extrasData.extras)) {
+              setExtras(
+                extrasData.extras.map((e: { id: string; name: string }) => ({
+                  id: String(e.id),
+                  name: String(e.name ?? ""),
+                })),
+              );
+            } else {
+              setExtras([]);
+            }
+          } else {
+            setExtras([]);
+          }
+        } catch (error) {
+          console.error("Error loading extras:", error);
+          setExtras([]);
         }
 
         // Load pricing parameters (variables)
@@ -192,51 +210,94 @@ export default function ExcludeParameterNewPage() {
     loadData();
   }, [industryId, currentBusiness?.id, toast]);
 
-  // Fetch existing exclude parameter data when editing
+  // Load the row being edited from the API (single record, not a client-side list)
   useEffect(() => {
     if (!editId || !industryId) return;
 
     const fetchExistingData = async () => {
       try {
-        const response = await fetch(`/api/exclude-parameters?industryId=${industryId}`);
+        const response = await fetch(
+          `/api/exclude-parameters?id=${encodeURIComponent(editId)}&industryId=${encodeURIComponent(industryId)}`,
+        );
         const data = await response.json();
-        
-        if (data.excludeParameters) {
-          const existing = data.excludeParameters.find((p: any) => p.id === editId);
-          
-          if (existing) {
-            const hours = Math.floor(existing.time_minutes / 60);
-            const minutes = existing.time_minutes % 60;
 
-            setForm({
-              name: existing.name,
-              description: existing.description || "",
-              icon: existing.icon || "",
-              display: existing.display,
-              price: String(existing.price ?? 0),
-              hours: String(hours),
-              minutes: String(minutes),
-              qtyBased: (existing as any).qty_based || false,
-              maximum: String((existing as any).maximum_quantity || ""),
-              applyToAllBookings: (existing as any).apply_to_all_bookings !== undefined ? (existing as any).apply_to_all_bookings : true,
-              showBasedOnFrequency: existing.show_based_on_frequency || false,
-              showBasedOnServiceCategory: existing.show_based_on_service_category || false,
-              showBasedOnVariables: existing.show_based_on_variables || false,
-              excludedExtras: [],
-              excludedServices: [],
-              excludedProviders: existing.excluded_providers || [],
-              frequency: existing.frequency ? existing.frequency.split(", ") : [],
-              serviceCategory: existing.service_category ? existing.service_category.split(", ") : [],
-              variables: existing.variables || {},
-            });
+        if (!response.ok || !data.excludeParameter) {
+          toast({
+            title: "Error",
+            description: data.error || "Failed to load exclude parameter",
+            variant: "destructive",
+          });
+          return;
+        }
 
-            if (existing.icon && existing.icon.startsWith('data:')) {
-              setUploadedIcon(existing.icon);
-            }
-          }
+        const existing = data.excludeParameter as {
+          name: string;
+          description?: string | null;
+          icon?: string | null;
+          display: "Customer Frontend, Backend & Admin" | "Customer Backend & Admin" | "Admin Only";
+          price?: number;
+          time_minutes?: number;
+          show_based_on_frequency?: boolean;
+          show_based_on_service_category?: boolean;
+          show_based_on_variables?: boolean;
+          excluded_providers?: string[];
+          frequency?: string | null;
+          service_category?: string | null;
+          variables?: Record<string, string[]>;
+          qty_based?: boolean;
+          maximum_quantity?: number | null;
+          apply_to_all_bookings?: boolean;
+          different_on_customer_end?: boolean;
+          customer_end_name?: string | null;
+          show_explanation_icon_on_form?: boolean;
+          explanation_tooltip_text?: string | null;
+          enable_popup_on_selection?: boolean;
+          popup_content?: string | null;
+          popup_display?: string | null;
+          excluded_extras?: string[] | null;
+          excluded_services?: string[] | null;
+        };
+
+        const hours = Math.floor((existing.time_minutes ?? 0) / 60);
+        const minutes = (existing.time_minutes ?? 0) % 60;
+
+        setForm({
+          name: existing.name,
+          description: existing.description || "",
+          differentOnCustomerEnd: Boolean(existing.different_on_customer_end),
+          customerEndName: String(existing.customer_end_name ?? "").trim(),
+          showExplanationIconOnForm: Boolean(existing.show_explanation_icon_on_form),
+          explanationTooltipText: String(existing.explanation_tooltip_text ?? ""),
+          enablePopupOnSelection: Boolean(existing.enable_popup_on_selection),
+          popupContent: String(existing.popup_content ?? ""),
+          popupDisplay: normalizeFrequencyPopupDisplay(existing.popup_display),
+          icon: existing.icon || "",
+          display: existing.display,
+          price: String(existing.price ?? 0),
+          hours: String(hours),
+          minutes: String(minutes),
+          qtyBased: Boolean(existing.qty_based),
+          maximum: existing.maximum_quantity != null ? String(existing.maximum_quantity) : "",
+          applyToAllBookings:
+            existing.apply_to_all_bookings !== undefined ? Boolean(existing.apply_to_all_bookings) : true,
+          showBasedOnFrequency: Boolean(existing.show_based_on_frequency),
+          showBasedOnServiceCategory: Boolean(existing.show_based_on_service_category),
+          showBasedOnVariables: Boolean(existing.show_based_on_variables),
+          excludedExtras: normalizeIdList(existing.excluded_extras),
+          excludedServices: normalizeIdList(existing.excluded_services),
+          excludedProviders: existing.excluded_providers || [],
+          frequency: existing.frequency ? existing.frequency.split(", ") : [],
+          serviceCategory: existing.service_category ? existing.service_category.split(", ") : [],
+          variables: existing.variables || {},
+        });
+
+        if (existing.icon && existing.icon.startsWith("data:")) {
+          setUploadedIcon(existing.icon);
+        } else {
+          setUploadedIcon(null);
         }
       } catch (error) {
-        console.error('Error fetching exclude parameter for edit:', error);
+        console.error("Error fetching exclude parameter for edit:", error);
         toast({
           title: "Error",
           description: "Failed to load exclude parameter data",
@@ -339,6 +400,21 @@ export default function ExcludeParameterNewPage() {
         show_based_on_variables: form.showBasedOnVariables,
         variables: form.variables,
         excluded_providers: form.excludedProviders,
+        excluded_extras: form.excludedExtras,
+        excluded_services: form.excludedServices,
+        different_on_customer_end: form.differentOnCustomerEnd,
+        customer_end_name:
+          form.differentOnCustomerEnd && form.customerEndName.trim()
+            ? form.customerEndName.trim()
+            : null,
+        show_explanation_icon_on_form: form.showExplanationIconOnForm,
+        explanation_tooltip_text:
+          form.showExplanationIconOnForm && form.explanationTooltipText.trim()
+            ? form.explanationTooltipText.trim()
+            : null,
+        enable_popup_on_selection: form.enablePopupOnSelection,
+        popup_content: form.enablePopupOnSelection ? form.popupContent : "",
+        popup_display: normalizeFrequencyPopupDisplay(form.popupDisplay),
       };
 
       if (editId) {
@@ -395,7 +471,11 @@ export default function ExcludeParameterNewPage() {
       <Card>
         <CardHeader>
           <CardTitle>{editId ? "Edit Exclude Parameter" : "Add Exclude Parameter"}</CardTitle>
-          <CardDescription>Configure exclude parameter for {industry}.</CardDescription>
+          <CardDescription>
+            If you want to exclude items and make a service partial then you can do so here. For example if someone is
+            booking a house and selects they have 4 bedrooms they can make it a partial and exclude one of the bedrooms
+            being cleaned.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -413,8 +493,22 @@ export default function ExcludeParameterNewPage() {
 
             {/* DETAILS TAB */}
             <TabsContent value="details" className="mt-4 space-y-5">
+              <TooltipProvider delayDuration={200}>
               <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="name">Name</Label>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About name">
+                        <Info className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs text-sm">
+                      Internal name for this exclude parameter. Used in admin and as the key unless you use a different
+                      customer-facing label below.
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
                 <Input
                   id="name"
                   value={form.name}
@@ -423,8 +517,62 @@ export default function ExcludeParameterNewPage() {
                 />
               </div>
 
+              <div className="space-y-2 rounded-lg border bg-muted/30 p-4">
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="exclude-diff-customer"
+                    checked={form.differentOnCustomerEnd}
+                    onCheckedChange={(checked) =>
+                      setForm((p) => ({
+                        ...p,
+                        differentOnCustomerEnd: !!checked,
+                        ...(!checked ? { customerEndName: "" } : {}),
+                      }))
+                    }
+                  />
+                  <div className="flex-1 space-y-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor="exclude-diff-customer" className="text-sm font-medium cursor-pointer">
+                        Different on customer end
+                      </Label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About different on customer end">
+                            <Info className="h-4 w-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-xs text-sm">
+                          When enabled, customers see the customer end name on book-now instead of the internal name
+                          above.
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    {form.differentOnCustomerEnd && (
+                      <Input
+                        placeholder="Enter Customer End Name"
+                        value={form.customerEndName}
+                        onChange={(e) => setForm((p) => ({ ...p, customerEndName: e.target.value }))}
+                        className="mt-2 bg-background"
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="description">Description</Label>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About description">
+                        <Info className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs text-sm">
+                      Optional notes for staff; not shown as the main customer label (use customer end name for that).
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
                 <Textarea
                   id="description"
                   rows={3}
@@ -433,6 +581,156 @@ export default function ExcludeParameterNewPage() {
                   placeholder="Add Description"
                 />
               </div>
+
+              <div className="space-y-2 rounded-lg border bg-muted/30 p-4">
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="exclude-show-explanation"
+                    checked={form.showExplanationIconOnForm}
+                    onCheckedChange={(checked) =>
+                      setForm((p) => ({
+                        ...p,
+                        showExplanationIconOnForm: !!checked,
+                        ...(!checked ? { explanationTooltipText: "" } : {}),
+                      }))
+                    }
+                  />
+                  <div className="flex-1 space-y-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor="exclude-show-explanation" className="text-sm font-medium cursor-pointer">
+                        Show explanation icon on form
+                      </Label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About explanation icon">
+                            <Info className="h-4 w-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-xs text-sm">
+                          When enabled, an info icon appears next to this parameter on booking forms with the tooltip text
+                          below.
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    {form.showExplanationIconOnForm && (
+                      <Textarea
+                        placeholder="Add Tooltip Text"
+                        value={form.explanationTooltipText}
+                        onChange={(e) => setForm((p) => ({ ...p, explanationTooltipText: e.target.value }))}
+                        className="min-h-[80px] resize-y bg-background mt-2"
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-sky-200/90 bg-sky-50/90 p-4 dark:border-sky-900/55 dark:bg-sky-950/30">
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="exclude-enable-popup"
+                    className="mt-0.5"
+                    checked={form.enablePopupOnSelection}
+                    onCheckedChange={(checked) =>
+                      setForm((p) => ({
+                        ...p,
+                        enablePopupOnSelection: !!checked,
+                        ...(!checked ? { popupContent: "" } : {}),
+                      }))
+                    }
+                  />
+                  <div className="min-w-0 flex-1 space-y-4">
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor="exclude-enable-popup" className="text-sm font-medium cursor-pointer">
+                        Enable popup on selection
+                      </Label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About popup on selection">
+                            <Info className="h-4 w-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-sm text-sm leading-snug">
+                          When enabled, a popup with the content below is shown when this parameter is selected on a
+                          booking (where visibility allows).
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    {form.enablePopupOnSelection && (
+                      <div className="space-y-4">
+                        <Form1RichTextEditor
+                          value={form.popupContent}
+                          onChange={(html) => setForm((p) => ({ ...p, popupContent: html }))}
+                        />
+                        <div className="space-y-3 border-t border-sky-200/80 pt-4 dark:border-sky-800/60">
+                          <div className="flex items-center gap-1.5">
+                            <Label className="text-sm font-medium">Display popup on</Label>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About where popup appears">
+                                  <Info className="h-4 w-4" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="right" className="max-w-xs text-sm leading-snug">
+                                Public book-now, logged-in customer booking, and/or admin booking.
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
+                          <RadioGroup
+                            value={form.popupDisplay}
+                            onValueChange={(val) =>
+                              setForm((p) => ({ ...p, popupDisplay: val as FrequencyPopupDisplay }))
+                            }
+                            className="grid gap-2"
+                          >
+                            <label className="flex cursor-pointer items-center gap-2 text-sm">
+                              <RadioGroupItem value="customer_frontend_backend_admin" />
+                              Customer frontend, backend &amp; admin
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-2 text-sm">
+                              <RadioGroupItem value="customer_backend_admin" />
+                              Customer backend &amp; admin
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-2 text-sm">
+                              <RadioGroupItem value="customer_frontend_backend" />
+                              Customer only (frontend &amp; backend)
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-2 text-sm">
+                              <RadioGroupItem value="admin_only" />
+                              Admin only
+                            </label>
+                          </RadioGroup>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium">Display</h4>
+                <p className="text-xs text-muted-foreground">
+                  Where do you want this parameter to show up? Do you want customers to be able to see it? Do you want them
+                  to see it when they are booking when logged out or only when they have an account and are logged in or do
+                  you want only admin/staff to see this parameter when booking, meaning customers can&apos;t book for this
+                  parameter and only you can.
+                </p>
+                <RadioGroup
+                  value={form.display}
+                  onValueChange={(v: typeof form.display) => setForm(p => ({ ...p, display: v }))}
+                  className="grid gap-2"
+                >
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <RadioGroupItem value="Customer Frontend, Backend & Admin" /> Customer Frontend, Backend & Admin
+                  </label>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <RadioGroupItem value="Customer Backend & Admin" /> Customer Backend & Admin
+                  </label>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <RadioGroupItem value="Admin Only" /> Admin Only
+                  </label>
+                </RadioGroup>
+              </div>
+              </TooltipProvider>
 
               <div className="space-y-2">
                 <Label htmlFor="price">Price ($)</Label>
@@ -511,25 +809,6 @@ export default function ExcludeParameterNewPage() {
                   </Select>
                 </div>
               )}
-
-              <div className="space-y-2">
-                <Label>Display</Label>
-                <RadioGroup
-                  value={form.display}
-                  onValueChange={(v: typeof form.display) => setForm(p => ({ ...p, display: v }))}
-                  className="grid gap-2"
-                >
-                  <label className="flex items-center gap-2 text-sm">
-                    <RadioGroupItem value="Customer Frontend, Backend & Admin" /> Customer Frontend, Backend & Admin
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <RadioGroupItem value="Customer Backend & Admin" /> Customer Backend & Admin
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <RadioGroupItem value="Admin Only" /> Admin Only
-                  </label>
-                </RadioGroup>
-              </div>
 
               <div className="space-y-2">
                 <Label>Icon</Label>
@@ -698,6 +977,128 @@ export default function ExcludeParameterNewPage() {
             {/* DEPENDENCIES TAB */}
             <TabsContent value="dependencies" className="mt-4 space-y-6">
               <div className="space-y-4">
+                <div className="space-y-3">
+                  <Label className="text-base font-semibold">Excluded extras</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Optional: mark industry extras that should be tied as excluded for this parameter (stored on the server).
+                  </p>
+                  {extras.length === 0 ? (
+                    <p className="text-sm text-muted-foreground italic">No extras configured for this industry.</p>
+                  ) : (
+                    <div className="space-y-2 rounded-lg border p-4 bg-muted/20">
+                      <div className="flex items-center gap-2 pb-2 border-b">
+                        <Checkbox
+                          id="select-all-exclude-extras"
+                          checked={
+                            extras.length > 0 &&
+                            form.excludedExtras.length === extras.length &&
+                            extras.every((e) => form.excludedExtras.includes(e.id))
+                          }
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setForm((p) => ({ ...p, excludedExtras: extras.map((e) => e.id) }));
+                            } else {
+                              setForm((p) => ({ ...p, excludedExtras: [] }));
+                            }
+                          }}
+                        />
+                        <Label htmlFor="select-all-exclude-extras" className="text-sm font-medium cursor-pointer">
+                          Select all
+                        </Label>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 max-h-48 overflow-y-auto">
+                        {extras.map((extra) => (
+                          <div key={extra.id} className="flex items-center gap-2">
+                            <Checkbox
+                              id={`exclude-extra-${extra.id}`}
+                              checked={form.excludedExtras.includes(extra.id)}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setForm((p) => ({
+                                    ...p,
+                                    excludedExtras: p.excludedExtras.includes(extra.id)
+                                      ? p.excludedExtras
+                                      : [...p.excludedExtras, extra.id],
+                                  }));
+                                } else {
+                                  setForm((p) => ({
+                                    ...p,
+                                    excludedExtras: p.excludedExtras.filter((id) => id !== extra.id),
+                                  }));
+                                }
+                              }}
+                            />
+                            <Label htmlFor={`exclude-extra-${extra.id}`} className="text-sm cursor-pointer truncate">
+                              {extra.name}
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <Label className="text-base font-semibold">Excluded service categories</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Optional: service categories linked as excluded for this parameter (stored on the server).
+                  </p>
+                  {services.length === 0 ? (
+                    <p className="text-sm text-muted-foreground italic">No service categories for this industry.</p>
+                  ) : (
+                    <div className="space-y-2 rounded-lg border p-4 bg-muted/20">
+                      <div className="flex items-center gap-2 pb-2 border-b">
+                        <Checkbox
+                          id="select-all-exclude-services"
+                          checked={
+                            services.length > 0 &&
+                            form.excludedServices.length === services.length &&
+                            services.every((s) => form.excludedServices.includes(s.id))
+                          }
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setForm((p) => ({ ...p, excludedServices: services.map((s) => s.id) }));
+                            } else {
+                              setForm((p) => ({ ...p, excludedServices: [] }));
+                            }
+                          }}
+                        />
+                        <Label htmlFor="select-all-exclude-services" className="text-sm font-medium cursor-pointer">
+                          Select all
+                        </Label>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 max-h-48 overflow-y-auto">
+                        {services.map((svc) => (
+                          <div key={svc.id} className="flex items-center gap-2">
+                            <Checkbox
+                              id={`exclude-svc-${svc.id}`}
+                              checked={form.excludedServices.includes(svc.id)}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setForm((p) => ({
+                                    ...p,
+                                    excludedServices: p.excludedServices.includes(svc.id)
+                                      ? p.excludedServices
+                                      : [...p.excludedServices, svc.id],
+                                  }));
+                                } else {
+                                  setForm((p) => ({
+                                    ...p,
+                                    excludedServices: p.excludedServices.filter((id) => id !== svc.id),
+                                  }));
+                                }
+                              }}
+                            />
+                            <Label htmlFor={`exclude-svc-${svc.id}`} className="text-sm cursor-pointer truncate">
+                              {svc.name}
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="space-y-3">
                   <Label className="text-base font-semibold">Should the exclusion parameter show based on the frequency?</Label>
                   <RadioGroup

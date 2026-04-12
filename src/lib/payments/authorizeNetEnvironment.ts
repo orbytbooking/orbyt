@@ -46,7 +46,9 @@ export function sanitizeAuthorizeNetOrderText(raw: string, maxLen: number): stri
   const s = raw.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
   const ascii = s.replace(/[^\x20-\x7E]/g, " ");
   const noBreak = ascii.replace(/["'\\\r\n\u2028\u2029]/g, " ");
-  return noBreak.replace(/\s+/g, " ").trim().slice(0, maxLen);
+  /** Avoid chars that could break if echoed into HTML/JS on the gateway-hosted page. */
+  const safe = noBreak.replace(/[<>&`]/g, " ");
+  return safe.replace(/\s+/g, " ").trim().slice(0, maxLen);
 }
 
 function stripEnvNoise(s: string): string {
@@ -117,5 +119,22 @@ export function toAbsoluteHostedPaymentUrl(baseApp: string, urlOrPath: string): 
   } catch {
     return `${b}${path}`;
   }
+}
+
+/**
+ * Accept Hosted embeds return/cancel URLs in the payment page; URLs whose query string contains `&`
+ * often break their page (blank form, CSP/script errors). Use a single query param or no query.
+ * @see https://stackoverflow.com/questions/56113493/accepted-host-form-does-not-display
+ */
+export function cancelUrlSafeForAuthorizeNetAcceptHosted(
+  cancelAbsolute: string,
+  fallbackAmpersandFree: string
+): string {
+  const u = cancelAbsolute.trim();
+  if (!u.includes("&")) return u;
+  console.warn(
+    "[Authorize.Net Accept Hosted] cancelUrl contained '&' — using ampersand-free fallback so the hosted page can render."
+  );
+  return fallbackAmpersandFree.trim();
 }
 

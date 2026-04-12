@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
-import { createServiceRoleClient } from "@/lib/auth-helpers";
+import {
+  createServiceRoleClient,
+  PENDING_OWNER_EMAIL_CONFLICT_MESSAGE,
+} from "@/lib/auth-helpers";
 import { processPendingOwnerCheckout } from "@/lib/webhooks/processPendingOwnerCheckout";
 
 export const dynamic = "force-dynamic";
@@ -138,14 +141,16 @@ export async function POST(request: Request) {
 
   if (!result.ok) {
     console.error("[finalize-pending-checkout]", result.error);
+    const emailConflict = result.error === PENDING_OWNER_EMAIL_CONFLICT_MESSAGE;
     return NextResponse.json(
       {
-        error: "setup_failed",
+        error: emailConflict ? "email_already_exists" : "setup_failed",
         details: result.error,
+        code: emailConflict ? ("email_already_exists" as const) : undefined,
         /** Repeating the request will not fix DB/auth issues; avoid hammering the API. */
         retryable: false,
       },
-      { status: 500 }
+      { status: emailConflict ? 409 : 500 }
     );
   }
 

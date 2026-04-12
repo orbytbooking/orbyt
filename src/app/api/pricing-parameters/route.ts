@@ -5,6 +5,21 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const industryId = searchParams.get('industryId');
+    const id = searchParams.get('id');
+
+    if (id) {
+      if (!industryId) {
+        return NextResponse.json(
+          { error: 'industryId is required when fetching by id' },
+          { status: 400 }
+        );
+      }
+      const param = await pricingParametersService.getPricingParameterById(id);
+      if (!param || param.industry_id !== industryId) {
+        return NextResponse.json({ error: 'Pricing parameter not found' }, { status: 404 });
+      }
+      return NextResponse.json({ pricingParameter: param });
+    }
 
     if (!industryId) {
       return NextResponse.json(

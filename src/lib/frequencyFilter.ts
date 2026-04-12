@@ -10,6 +10,31 @@ export interface FrequencyDependencies {
   extras: string[];
 }
 
+/**
+ * Maps a pricing-parameter `variable_category` (e.g. "Bathroom", "Sq Ft") to the
+ * Form 1 frequency dependency name list. Returns null for categories that are not
+ * restricted by those three lists (e.g. "Hours", custom groups).
+ * Empty array means the admin selected no options for that category — show none.
+ */
+export function frequencyDepOptionNamesForCategory(
+  variableCategory: string,
+  deps: FrequencyDependencies,
+): string[] | null {
+  const k = variableCategory.trim().toLowerCase();
+  if (!k) return null;
+  if (k.includes('bedroom') || k === 'bed') {
+    return [...(deps.bedroomVariables || [])];
+  }
+  if (k.includes('bathroom') || k.includes('bath')) {
+    return [...(deps.bathroomVariables || [])];
+  }
+  const compact = k.replace(/\s/g, '');
+  if (k.includes('sq ft') || compact.includes('sqft') || (k.includes('square') && k.includes('ft'))) {
+    return [...(deps.sqftVariables || [])];
+  }
+  return null;
+}
+
 export interface FilterOptions {
   serviceCategories?: Array<{ id: string; name: string }>;
   bathroomVariables?: Array<{ id: string; name: string; variable_category: string }>;
@@ -128,7 +153,7 @@ export function filterVariables(
   }
 
   if (allowedVariables.length === 0) {
-    return variables;
+    return [];
   }
 
   return variables.filter(variable => 

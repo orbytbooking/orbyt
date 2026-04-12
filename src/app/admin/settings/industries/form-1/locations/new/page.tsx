@@ -168,7 +168,19 @@ export default function AddLocationPage() {
       if (paramRes?.ok) {
         const d = await paramRes.json();
         const list = d.pricingParameters || d.parameters || d || [];
-        setPricingParams(Array.isArray(list) ? list.map((p: { id: string; name?: string; description?: string; variable_category?: string }) => ({ id: p.id, name: p.description || p.name || "", category: p.variable_category })) : []);
+        setPricingParams(
+          Array.isArray(list)
+            ? list.map((p: { id: string; name?: string; description?: string; variable_category?: string }) => {
+                const tierName = String(p.name ?? "").trim();
+                const desc = String(p.description ?? "").trim();
+                return {
+                  id: p.id,
+                  name: tierName || desc || "",
+                  category: p.variable_category,
+                };
+              })
+            : [],
+        );
       }
       if (exclRes?.ok) {
         const d = await exclRes.json();

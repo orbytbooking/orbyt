@@ -37,6 +37,10 @@ import { serviceCategoriesService, ServiceCategory } from "@/lib/serviceCategori
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/lib/supabaseClient";
 import { useBusiness } from "@/contexts/BusinessContext";
+import {
+  normalizeFrequencyPopupDisplay,
+  type FrequencyPopupDisplay,
+} from "@/lib/frequencyPopupDisplay";
 
 // Simple Rich Text Editor for popup content
 function RichTextEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
@@ -101,11 +105,14 @@ export default function ServiceCategoryNewPage() {
 
   const [form, setForm] = useState({
     name: "",
+    differentOnCustomerEnd: false,
+    customerEndName: "",
     description: "",
     showExplanationIconOnForm: false,
     explanationTooltipText: "",
     enablePopupOnSelection: false,
     popupContent: "",
+    popupDisplay: "customer_frontend_backend_admin" as FrequencyPopupDisplay,
     excludedProviders: [] as string[],
     serviceCategoryFrequency: false,
     selectedFrequencies: [] as string[],
@@ -115,7 +122,7 @@ export default function ServiceCategoryNewPage() {
       smoking: false,
       deepCleaning: false
     },
-    extras: [] as number[],
+    extras: [] as string[],
     selectedExcludeParameters: [] as string[],
     display: "customer_frontend_backend_admin",
     displayServiceLengthCustomer: "admin_only",
@@ -183,6 +190,13 @@ export default function ServiceCategoryNewPage() {
       textToDisplay: false,
       noticeText: ""
     },
+    minimumTime: {
+      enabled: false,
+      hours: "0",
+      minutes: "0",
+      textToDisplay: false,
+      noticeText: ""
+    },
     overrideProviderPay: {
       enabled: false,
       amount: "",
@@ -202,13 +216,12 @@ export default function ServiceCategoryNewPage() {
     }
   });
 
-  // Fetch pricing parameters and extras from localStorage
+  // Reference data from API (pricing parameters, extras, exclude params, frequencies, providers)
   const [pricingParameters, setPricingParameters] = useState<{ [key: string]: any[] }>({});
   const [availableExtras, setAvailableExtras] = useState<Array<{ id: number; name: string }>>([]);
   const [excludeParameters, setExcludeParameters] = useState<any[]>([]);
   const [frequencies, setFrequencies] = useState<string[]>([]);
 
-  // Fetch providers from localStorage
   const [providers, setProviders] = useState<Array<{ id: string; name: string }>>([]);
 
   // Error state for real-time validation
@@ -223,6 +236,7 @@ export default function ServiceCategoryNewPage() {
     serviceCategoryPrice?: string;
     serviceCategoryTime?: string;
     minimumPrice?: string;
+    minimumTime?: string;
     overrideProviderPay?: string;
   }>({});
 
@@ -370,29 +384,24 @@ export default function ServiceCategoryNewPage() {
       setLoading(true);
       const category = await serviceCategoriesService.getServiceCategoryById(editId!);
       if (category) {
-        console.log('=== LOAD CATEGORY DEBUG ===');
-        console.log('Category extras from DB:', category.extras);
-        console.log('Type of category.extras:', typeof category.extras);
-        console.log('Is array?', Array.isArray(category.extras));
-        if (Array.isArray(category.extras)) {
-          console.log('Extras types:', category.extras.map(e => typeof e));
-          console.log('Extras values:', category.extras);
-        }
-        
-        // Ensure extras are always numbers for consistency
-        const normalizedExtras = Array.isArray(category.extras) 
-          ? category.extras.map(e => typeof e === 'string' ? parseInt(e, 10) : e).filter(e => !isNaN(e))
+        // industry_service_category.extras stores industry_extras.id (UUID strings). Never use parseInt on UUIDs —
+        // parseInt("694da852-...", 10) === 694 and collides across many rows.
+        const normalizedExtras: string[] = Array.isArray(category.extras)
+          ? category.extras
+              .map((e) => String(e).trim())
+              .filter((id) => id.length > 0)
           : [];
-        
-        console.log('Normalized extras:', normalizedExtras);
         
         setForm({
           name: category.name,
+          differentOnCustomerEnd: category.different_on_customer_end ?? false,
+          customerEndName: category.customer_end_name || "",
           description: category.description || "",
           showExplanationIconOnForm: category.show_explanation_icon_on_form ?? false,
           explanationTooltipText: category.explanation_tooltip_text || "",
           enablePopupOnSelection: category.enable_popup_on_selection ?? false,
           popupContent: category.popup_content || "",
+          popupDisplay: normalizeFrequencyPopupDisplay(category.popup_display),
           enableServiceLengthTooltipCustomer: category.enable_service_length_tooltip_customer ?? false,
           serviceLengthTooltipTextCustomer: category.service_length_tooltip_text_customer || "",
           enableServiceLengthTooltipProvider: category.enable_service_length_tooltip_provider ?? false,
@@ -473,6 +482,13 @@ export default function ServiceCategoryNewPage() {
             checkAmountType: 'discounted',
             price: "",
             checkRecurringSchedule: false,
+            textToDisplay: false,
+            noticeText: ""
+          },
+          minimumTime: category.minimum_time || {
+            enabled: false,
+            hours: "0",
+            minutes: "0",
             textToDisplay: false,
             noticeText: ""
           },
@@ -817,6 +833,20 @@ export default function ServiceCategoryNewPage() {
     }
   };
 
+  const validateMinimumTime = (hours: string, minutes: string) => {
+    if (!form.minimumTime.enabled) {
+      setErrors(prev => ({ ...prev, minimumTime: undefined }));
+      return;
+    }
+    const h = parseInt(hours, 10) || 0;
+    const m = parseInt(minutes, 10) || 0;
+    if (h * 60 + m <= 0) {
+      setErrors(prev => ({ ...prev, minimumTime: "Set a minimum time greater than zero (hours and/or minutes)." }));
+    } else {
+      setErrors(prev => ({ ...prev, minimumTime: undefined }));
+    }
+  };
+
   const validateOverrideProviderPay = (value: string) => {
     if (form.overrideProviderPay.enabled && !value.trim()) {
       setErrors(prev => ({ ...prev, overrideProviderPay: "Override provider pay amount is required" }));
@@ -901,6 +931,15 @@ export default function ServiceCategoryNewPage() {
       return;
     }
 
+    if (form.minimumTime.enabled) {
+      const h = parseInt(form.minimumTime.hours, 10) || 0;
+      const m = parseInt(form.minimumTime.minutes, 10) || 0;
+      if (h * 60 + m <= 0) {
+        alert("Minimum time must be greater than zero when enabled.");
+        return;
+      }
+    }
+
     if (form.overrideProviderPay.enabled && !form.overrideProviderPay.amount.trim()) {
       alert("Override provider pay amount is required when override is enabled");
       return;
@@ -936,11 +975,14 @@ export default function ServiceCategoryNewPage() {
         business_id: business.id,
         industry_id: industryId,
         name: form.name.trim(),
+        different_on_customer_end: form.differentOnCustomerEnd,
+        customer_end_name: form.differentOnCustomerEnd ? (form.customerEndName.trim() || null) : null,
         description: form.description,
         show_explanation_icon_on_form: form.showExplanationIconOnForm,
         explanation_tooltip_text: form.explanationTooltipText || undefined,
         enable_popup_on_selection: form.enablePopupOnSelection,
         popup_content: form.popupContent || undefined,
+        popup_display: normalizeFrequencyPopupDisplay(form.popupDisplay),
         enable_service_length_tooltip_customer: form.enableServiceLengthTooltipCustomer,
         service_length_tooltip_text_customer: form.serviceLengthTooltipTextCustomer || undefined,
         enable_service_length_tooltip_provider: form.enableServiceLengthTooltipProvider,
@@ -984,6 +1026,7 @@ export default function ServiceCategoryNewPage() {
         service_category_price: form.serviceCategoryPrice,
         service_category_time: form.serviceCategoryTime,
         minimum_price: form.minimumPrice,
+        minimum_time: form.minimumTime,
         override_provider_pay: form.overrideProviderPay,
         excluded_providers: form.excludedProviders
       };
@@ -994,7 +1037,9 @@ export default function ServiceCategoryNewPage() {
         // Ensure arrays are properly formatted
         selected_frequencies: Array.isArray(form.selectedFrequencies) ? form.selectedFrequencies.filter(f => typeof f === 'string' && f.trim()) : [],
         selected_exclude_parameters: Array.isArray(form.selectedExcludeParameters) ? form.selectedExcludeParameters.filter(p => typeof p === 'string' && p.trim()) : [],
-        extras: Array.isArray(form.extras) ? form.extras.filter(e => typeof e === 'number' && !isNaN(e)) : [],
+        extras: Array.isArray(form.extras)
+          ? form.extras.map((e) => String(e).trim()).filter((id) => id.length > 0)
+          : [],
         // Ensure objects are properly structured
         variables: typeof form.variables === 'object' && form.variables !== null ? form.variables : {},
         exclude_parameters: typeof form.excludeParameters === 'object' && form.excludeParameters !== null ? {
@@ -1068,6 +1113,13 @@ export default function ServiceCategoryNewPage() {
           checkAmountType: 'discounted',
           price: "",
           checkRecurringSchedule: false,
+          textToDisplay: false,
+          noticeText: ""
+        },
+        minimum_time: form.minimumTime || {
+          enabled: false,
+          hours: "0",
+          minutes: "0",
           textToDisplay: false,
           noticeText: ""
         },
@@ -1151,6 +1203,7 @@ export default function ServiceCategoryNewPage() {
 
             {/* DETAILS TAB */}
             <TabsContent value="details" className="mt-4 space-y-5">
+              <TooltipProvider delayDuration={200}>
               <div className="space-y-2">
                 <Label htmlFor="category-name">Name *</Label>
                 <Input 
@@ -1160,6 +1213,54 @@ export default function ServiceCategoryNewPage() {
                   placeholder="Ex. Kitchen, Bathroom, etc." 
                 />
               </div>
+
+              <div className="rounded-lg border border-sky-200/90 bg-sky-50/90 p-4 dark:border-sky-900/55 dark:bg-sky-950/30">
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="diff-customer-end-category"
+                    className="mt-0.5"
+                    checked={form.differentOnCustomerEnd}
+                    onCheckedChange={(checked) =>
+                      setForm((p) => ({
+                        ...p,
+                        differentOnCustomerEnd: !!checked,
+                        ...(!checked ? { customerEndName: "" } : {}),
+                      }))
+                    }
+                  />
+                  <div className="min-w-0 flex-1 space-y-3">
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor="diff-customer-end-category" className="text-sm font-medium cursor-pointer">
+                        Different on customer end
+                      </Label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 rounded-sm"
+                            aria-label="About different on customer end"
+                          >
+                            <Info className="h-4 w-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-xs text-sm">
+                          If you want the customer to see a different name you can add that name here.
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    {form.differentOnCustomerEnd && (
+                      <Input
+                        id="customer-end-name"
+                        value={form.customerEndName}
+                        onChange={(e) => setForm((p) => ({ ...p, customerEndName: e.target.value }))}
+                        placeholder="Enter Customer End Name"
+                        className="bg-background"
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+              </TooltipProvider>
 
               <div className="space-y-2">
                 <Label htmlFor="category-desc">Description</Label>
@@ -1211,15 +1312,16 @@ export default function ServiceCategoryNewPage() {
               </div>
 
               {/* Enable popup on selection */}
-              <div className="space-y-2 rounded-lg border bg-muted/30 p-4">
+              <div className="rounded-lg border border-sky-200/90 bg-sky-50/90 p-4 dark:border-sky-900/55 dark:bg-sky-950/30">
                 <TooltipProvider>
                   <div className="flex items-start gap-2">
                     <Checkbox
                       id="enable-popup-on-selection"
+                      className="mt-0.5"
                       checked={form.enablePopupOnSelection}
                       onCheckedChange={(checked) => setForm(p => ({ ...p, enablePopupOnSelection: !!checked }))}
                     />
-                    <div className="flex-1 space-y-1">
+                    <div className="min-w-0 flex-1 space-y-4">
                       <div className="flex items-center gap-1.5">
                         <Label htmlFor="enable-popup-on-selection" className="text-sm font-medium cursor-pointer">
                           Enable popup on selection
@@ -1230,17 +1332,60 @@ export default function ServiceCategoryNewPage() {
                               <Info className="h-4 w-4" />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent side="right" className="max-w-xs">
+                          <TooltipContent side="right" className="max-w-sm text-sm leading-snug">
                             When enabled, a popup with the content below is shown when this service category is selected on the booking form.
                           </TooltipContent>
                         </Tooltip>
                       </div>
                       {form.enablePopupOnSelection && (
-                        <div className="mt-2">
+                        <div className="space-y-4">
                           <RichTextEditor
                             value={form.popupContent}
                             onChange={(v) => setForm(p => ({ ...p, popupContent: v }))}
                           />
+                          <div className="space-y-3 border-t border-sky-200/80 pt-4 dark:border-sky-800/60">
+                            <div className="flex items-center gap-1.5">
+                              <Label className="text-sm font-medium">Display popup on</Label>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none"
+                                    aria-label="About where the popup appears"
+                                  >
+                                    <Info className="h-4 w-4" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-xs text-sm leading-snug">
+                                  If you don&apos;t need the popup on selection to show on admin/staff but want it on the customer end, you can control that here. If you&apos;d like it for both, you can set that up here too.
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                            <RadioGroup
+                              value={form.popupDisplay}
+                              onValueChange={(v) =>
+                                setForm((p) => ({ ...p, popupDisplay: v as FrequencyPopupDisplay }))
+                              }
+                              className="grid gap-2"
+                            >
+                              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                                <RadioGroupItem value="customer_frontend_backend_admin" />
+                                Customer frontend, backend &amp; admin
+                              </label>
+                              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                                <RadioGroupItem value="customer_backend_admin" />
+                                Customer backend &amp; admin
+                              </label>
+                              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                                <RadioGroupItem value="customer_frontend_backend" />
+                                Customer only (frontend &amp; backend)
+                              </label>
+                              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                                <RadioGroupItem value="admin_only" />
+                                Admin only
+                              </label>
+                            </RadioGroup>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -2085,7 +2230,7 @@ export default function ServiceCategoryNewPage() {
               </div>
 
               {/* Set Minimum Price */}
-              <div className="space-y-3">
+              <div className="rounded-lg border border-sky-200/90 bg-sky-50/90 p-4 dark:border-sky-900/55 dark:bg-sky-950/30 space-y-3">
                 <div className="flex items-center gap-2">
                   <Checkbox
                     id="minimum-price"
@@ -2098,6 +2243,22 @@ export default function ServiceCategoryNewPage() {
                   <Label htmlFor="minimum-price" className="text-sm font-medium">
                     Set minimum price
                   </Label>
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 rounded-sm"
+                          aria-label="About minimum price"
+                        >
+                          <Info className="h-4 w-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-sm text-sm">
+                        Customers must meet this minimum on the total you choose (before or after discounts). You can show a custom message below when they are under the minimum.
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
 
                 {form.minimumPrice.enabled && (
@@ -2201,6 +2362,143 @@ export default function ServiceCategoryNewPage() {
                 )}
               </div>
 
+              {/* Set minimum time */}
+              <div className="rounded-lg border border-sky-200/90 bg-sky-50/90 p-4 dark:border-sky-900/55 dark:bg-sky-950/30 space-y-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Checkbox
+                    id="minimum-time-enabled"
+                    checked={form.minimumTime.enabled}
+                    onCheckedChange={(checked) => {
+                      const on = checked as boolean;
+                      if (!on) setErrors((prev) => ({ ...prev, minimumTime: undefined }));
+                      setForm((p) => ({
+                        ...p,
+                        minimumTime: {
+                          ...p.minimumTime,
+                          enabled: on,
+                          ...(!on ? { noticeText: "" } : {}),
+                        },
+                      }));
+                    }}
+                  />
+                  <Label htmlFor="minimum-time-enabled" className="text-sm font-medium cursor-pointer">
+                    Set minimum time
+                  </Label>
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 rounded-sm"
+                          aria-label="About minimum time"
+                        >
+                          <Info className="h-4 w-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-md text-sm leading-relaxed">
+                        If you have minimums you can set them here. Usually, minimums are set for hourly jobs. For example, if someone books for 2 hours and your minimum is 3 hours, they will be asked to select more time or they won&apos;t be able to book, and the message you want showing up can be entered under the &quot;text to display&quot; area. You can also void minimums during bookings on your end only.
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+
+                {form.minimumTime.enabled && (
+                  <div className="ml-6 space-y-4">
+                    <div className="space-y-2">
+                      <h5 className="text-sm font-medium">Time</h5>
+                      <div className="flex gap-3 items-end flex-wrap">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Hours</Label>
+                          <Select
+                            value={form.minimumTime.hours}
+                            onValueChange={(value) => {
+                              setForm((p) => ({
+                                ...p,
+                                minimumTime: { ...p.minimumTime, hours: value },
+                              }));
+                              validateMinimumTime(value, form.minimumTime.minutes);
+                            }}
+                          >
+                            <SelectTrigger className={`w-[4.5rem] ${errors.minimumTime ? "border-red-500" : ""}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Array.from({ length: 24 }, (_, i) => (
+                                <SelectItem key={i} value={i.toString()}>
+                                  {i.toString().padStart(2, "0")}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Minutes</Label>
+                          <Select
+                            value={form.minimumTime.minutes}
+                            onValueChange={(value) => {
+                              setForm((p) => ({
+                                ...p,
+                                minimumTime: { ...p.minimumTime, minutes: value },
+                              }));
+                              validateMinimumTime(form.minimumTime.hours, value);
+                            }}
+                          >
+                            <SelectTrigger className={`w-[4.5rem] ${errors.minimumTime ? "border-red-500" : ""}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Array.from({ length: 60 }, (_, i) => (
+                                <SelectItem key={i} value={i.toString()}>
+                                  {i.toString().padStart(2, "0")}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      {errors.minimumTime && (
+                        <p className="text-red-500 dark:text-red-400 text-xs font-medium">{errors.minimumTime}</p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="minimum-time-text-to-display"
+                          checked={form.minimumTime.textToDisplay}
+                          onCheckedChange={(checked) =>
+                            setForm((p) => ({
+                              ...p,
+                              minimumTime: { ...p.minimumTime, textToDisplay: checked as boolean },
+                            }))
+                          }
+                        />
+                        <Label htmlFor="minimum-time-text-to-display" className="text-sm font-medium cursor-pointer">
+                          Text to display
+                        </Label>
+                      </div>
+                      {form.minimumTime.textToDisplay && (
+                        <div className="ml-6">
+                          <Textarea
+                            id="minimum-time-notice-text"
+                            placeholder="Message when booking is under the minimum time"
+                            value={form.minimumTime.noticeText}
+                            onChange={(e) =>
+                              setForm((p) => ({
+                                ...p,
+                                minimumTime: { ...p.minimumTime, noticeText: e.target.value },
+                              }))
+                            }
+                            rows={3}
+                            className="w-full bg-background"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Override Provider Pay */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
@@ -2272,109 +2570,192 @@ export default function ServiceCategoryNewPage() {
                 )}
               </div>
 
-              {/* Hourly Service */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <h4 className="text-sm font-medium">Is it an hourly service?</h4>
-                  <Info className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <RadioGroup
-                  value={form.hourlyService.enabled ? "yes" : "no"}
-                  onValueChange={(value) => setForm(p => ({ 
-                    ...p, 
-                    hourlyService: { ...p.hourlyService, enabled: value === "yes" ? true : false }
-                  }))}
-                  className="grid gap-2"
-                >
-                  <label className="flex items-center gap-2 text-sm">
-                    <RadioGroupItem value="yes" /> Yes
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <RadioGroupItem value="no" /> No
-                  </label>
-                </RadioGroup>
+              {/* Hourly service — Yes/No → price + calculation type → (custom time only) extras charge */}
+              <div className="rounded-lg border border-sky-200/90 bg-sky-50/90 p-4 dark:border-sky-900/55 dark:bg-sky-950/30 space-y-4">
+                <TooltipProvider delayDuration={200}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="text-sm font-medium">Is it a hourly service?</h4>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 rounded-sm"
+                          aria-label="About hourly service"
+                        >
+                          <Info className="h-4 w-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-md text-sm leading-relaxed">
+                        If you want to charge per hour instead for this service category you can select this option and enter how much you charge per hour for the service. When someone lands on this for either admin or customer, they will be asked how many hours they would like to book for and they will get the price based on the hours and/or providers selected.
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
 
-                {form.hourlyService.enabled && (
-                  <div className="ml-6 space-y-4">
-                    {/* Hourly Price */}
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Label htmlFor="hourly-price-amount" className="text-sm">Hourly price</Label>
-                        <Info className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                      <div className="flex gap-2 items-center">
-                        <span className="text-sm font-medium">$</span>
-                        <Input
-                          id="hourly-price-amount"
-                          type="number"
-                          placeholder="50.00"
-                          value={form.hourlyService.price}
-                          onChange={(e) => {
-                            setForm(p => ({
-                              ...p,
-                              hourlyService: { ...p.hourlyService, price: e.target.value }
-                            }));
-                            validateHourlyService(e.target.value);
-                          }}
-                          onBlur={(e) => validateHourlyService(e.target.value)}
-                          className={`w-24 ${errors.hourlyService ? 'border-red-500' : ''}`}
-                        />
-                        <span className="text-sm text-muted-foreground">/Hr</span>
-                      </div>
-                      {errors.hourlyService && (
-                        <p className="text-red-500 dark:text-red-400 text-xs font-medium">{errors.hourlyService}</p>
-                      )}
-                    </div>
+                  <RadioGroup
+                    value={form.hourlyService.enabled ? "yes" : "no"}
+                    onValueChange={(value) =>
+                      setForm((p) => ({
+                        ...p,
+                        hourlyService: { ...p.hourlyService, enabled: value === "yes" },
+                      }))
+                    }
+                    className="grid gap-2"
+                  >
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <RadioGroupItem value="yes" id="hourly-service-yes" />
+                      <Label htmlFor="hourly-service-yes" className="font-normal cursor-pointer">
+                        Yes
+                      </Label>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <RadioGroupItem value="no" id="hourly-service-no" />
+                      <Label htmlFor="hourly-service-no" className="font-normal cursor-pointer">
+                        No
+                      </Label>
+                    </label>
+                  </RadioGroup>
 
-                    {/* Calculate price based on custom time or pricing parameters time? */}
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Label className="text-sm">Would you like to calculate the price of an hourly service based on a custom time or based on the pricing parameters time?</Label>
-                        <Info className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                      <RadioGroup
-                        value={form.hourlyService.priceCalculationType}
-                        onValueChange={(value: 'customTime' | 'pricingParametersTime') => setForm(p => ({
-                          ...p,
-                          hourlyService: { ...p.hourlyService, priceCalculationType: value }
-                        }))}
-                        className="grid gap-2"
-                      >
-                        <label className="flex items-center gap-2 text-sm">
-                          <RadioGroupItem value="customTime" /> Based on custom time
-                        </label>
-                        <label className="flex items-center gap-2 text-sm">
-                          <RadioGroupItem value="pricingParametersTime" /> Based on the pricing parameters time
-                        </label>
-                      </RadioGroup>
-                    </div>
-
-                    {/* Count extras as a separate charge? */}
-                    {form.hourlyService.priceCalculationType === 'customTime' && (
+                  {form.hourlyService.enabled && (
+                    <div className="pt-1 space-y-4 border-t border-sky-200/80 dark:border-sky-800/50 sm:pl-6">
                       <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <Label className="text-sm">Would you like to count extras as a separate charge?</Label>
-                          <Info className="h-4 w-4 text-muted-foreground" />
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Label htmlFor="hourly-price-amount" className="text-sm font-medium">
+                            Hourly price
+                          </Label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 rounded-sm"
+                                aria-label="About hourly price"
+                              >
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-sm text-sm">
+                              Rate per hour before extras and discounts. Shown with $ and /Hr on admin and customer booking flows.
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <div className="flex gap-2 items-center flex-wrap">
+                          <span className="text-sm font-medium tabular-nums">$</span>
+                          <Input
+                            id="hourly-price-amount"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="50.00"
+                            value={form.hourlyService.price}
+                            onChange={(e) => {
+                              setForm((p) => ({
+                                ...p,
+                                hourlyService: { ...p.hourlyService, price: e.target.value },
+                              }));
+                              validateHourlyService(e.target.value);
+                            }}
+                            onBlur={(e) => validateHourlyService(e.target.value)}
+                            className={`w-28 max-w-full bg-background ${errors.hourlyService ? "border-red-500" : ""}`}
+                          />
+                          <span className="text-sm font-medium text-muted-foreground">/Hr</span>
+                        </div>
+                        {errors.hourlyService && (
+                          <p className="text-red-500 dark:text-red-400 text-xs font-medium">{errors.hourlyService}</p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-start gap-2">
+                          <Label className="text-sm font-medium leading-snug flex-1">
+                            Would you like to calculate the price of an hourly service based on a custom time or based on the pricing parameters time?
+                          </Label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                className="inline-flex shrink-0 text-orange-500 hover:text-orange-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 rounded-sm mt-0.5"
+                                aria-label="About hourly price calculation"
+                              >
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-md text-sm leading-relaxed">
+                              With this option, if you choose &apos;Based on custom time&apos;, upon booking the user will select the time from the hours and minutes dropdown and the price will calculate based on the selections made by the user. If you choose &apos;Based on the pricing parameters time&apos;, then when the user goes to make their selections the hours and minutes dropdown will not appear but the pricing parameters will and the total time will be determined based on those selections.
+                            </TooltipContent>
+                          </Tooltip>
                         </div>
                         <RadioGroup
-                          value={form.hourlyService.countExtrasSeparately ? "yes" : "no"}
-                          onValueChange={(value) => setForm(p => ({
-                            ...p,
-                            hourlyService: { ...p.hourlyService, countExtrasSeparately: value === "yes" ? true : false }
-                          }))}
+                          value={form.hourlyService.priceCalculationType}
+                          onValueChange={(value: "customTime" | "pricingParametersTime") =>
+                            setForm((p) => ({
+                              ...p,
+                              hourlyService: { ...p.hourlyService, priceCalculationType: value },
+                            }))
+                          }
                           className="grid gap-2"
                         >
-                          <label className="flex items-center gap-2 text-sm">
-                            <RadioGroupItem value="yes" /> Yes
+                          <label className="flex items-center gap-2 text-sm cursor-pointer">
+                            <RadioGroupItem value="customTime" id="hourly-calc-custom" />
+                            <Label htmlFor="hourly-calc-custom" className="font-normal cursor-pointer">
+                              Based on custom time
+                            </Label>
                           </label>
-                          <label className="flex items-center gap-2 text-sm">
-                            <RadioGroupItem value="no" /> No
+                          <label className="flex items-center gap-2 text-sm cursor-pointer">
+                            <RadioGroupItem value="pricingParametersTime" id="hourly-calc-params" />
+                            <Label htmlFor="hourly-calc-params" className="font-normal cursor-pointer">
+                              Based on the pricing parameters time
+                            </Label>
                           </label>
                         </RadioGroup>
                       </div>
-                    )}
-                  </div>
-                )}
+
+                      <div className="space-y-2 pt-1 border-t border-sky-200/60 dark:border-sky-800/40">
+                        <div className="flex items-start gap-2">
+                          <Label className="text-sm font-medium leading-snug flex-1">
+                            Would you like to count extras as a separate charge?
+                          </Label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                className="inline-flex shrink-0 text-orange-500 hover:text-orange-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 rounded-sm mt-0.5"
+                                aria-label="About extras and hourly"
+                              >
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-md text-sm leading-relaxed">
+                              If yes then the extra will be added on top of the hourly charge. If no, it will be
+                              included in the hourly rate.
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <RadioGroup
+                          value={form.hourlyService.countExtrasSeparately ? "yes" : "no"}
+                          onValueChange={(value) =>
+                            setForm((p) => ({
+                              ...p,
+                              hourlyService: { ...p.hourlyService, countExtrasSeparately: value === "yes" },
+                            }))
+                          }
+                          className="grid gap-2"
+                        >
+                          <label className="flex items-center gap-2 text-sm cursor-pointer">
+                            <RadioGroupItem value="yes" id="hourly-extras-yes" />
+                            <Label htmlFor="hourly-extras-yes" className="font-normal cursor-pointer">
+                              Yes
+                            </Label>
+                          </label>
+                          <label className="flex items-center gap-2 text-sm cursor-pointer">
+                            <RadioGroupItem value="no" id="hourly-extras-no" />
+                            <Label htmlFor="hourly-extras-no" className="font-normal cursor-pointer">
+                              No
+                            </Label>
+                          </label>
+                        </RadioGroup>
+                      </div>
+                    </div>
+                  )}
+                </TooltipProvider>
               </div>
 
               {/* Extras Configuration */}
@@ -2743,26 +3124,23 @@ export default function ServiceCategoryNewPage() {
                     <div className="flex items-center gap-2">
                       <Checkbox
                         id="select-all-extras"
-                        checked={form.extras.length === availableExtras.length && availableExtras.length > 0}
+                        checked={
+                          availableExtras.length > 0 &&
+                          availableExtras.every((e) => form.extras.includes(String(e.id)))
+                        }
                         onCheckedChange={(checked) => {
                           if (checked) {
-                            const extraIds = availableExtras.map(e => typeof e.id === 'string' ? parseInt(e.id, 10) : e.id);
-                            setForm(p => ({ ...p, extras: extraIds }));
+                            const extraIds = availableExtras.map((e) => String(e.id));
+                            setForm((p) => ({ ...p, extras: extraIds }));
                           } else {
-                            setForm(p => ({ ...p, extras: [] }));
+                            setForm((p) => ({ ...p, extras: [] }));
                           }
                         }}
                       />
                       <Label htmlFor="select-all-extras" className="text-sm font-medium cursor-pointer">Select All</Label>
                     </div>
                     {availableExtras.map((extra) => {
-                      const extraId = typeof extra.id === 'string' ? parseInt(extra.id, 10) : extra.id;
-                      console.log(`=== CHECKBOX DEBUG for extra ${extra.name} ===`);
-                      console.log('Extra ID:', extraId, 'Type:', typeof extraId);
-                      console.log('Form extras:', form.extras);
-                      console.log('Form extras types:', form.extras.map(e => typeof e));
-                      console.log('Includes result:', form.extras.includes(extraId));
-                      
+                      const extraId = String(extra.id);
                       return (
                       <div key={extra.id} className="flex items-center gap-2 ml-6">
                         <Checkbox
@@ -2770,9 +3148,16 @@ export default function ServiceCategoryNewPage() {
                           checked={form.extras.includes(extraId)}
                           onCheckedChange={(checked) => {
                             if (checked) {
-                              setForm(p => ({ ...p, extras: [...p.extras, extraId] }));
+                              setForm((p) =>
+                                p.extras.includes(extraId)
+                                  ? p
+                                  : { ...p, extras: [...p.extras, extraId] },
+                              );
                             } else {
-                              setForm(p => ({ ...p, extras: p.extras.filter(e => e !== extraId) }));
+                              setForm((p) => ({
+                                ...p,
+                                extras: p.extras.filter((e) => e !== extraId),
+                              }));
                             }
                           }}
                         />

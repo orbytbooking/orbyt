@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,26 +29,6 @@ import {
 } from "@/components/ui/tooltip";
 import { Info, Loader2 } from "lucide-react";
 
-type PricingRow = {
-  id: number;
-  name: string;
-  price: number;
-  time: string;
-  display: "Customer Frontend, Backend & Admin" | "Customer Backend & Admin" | "Admin Only";
-  serviceCategory: string;
-  serviceCategory2: string;
-  frequency: string;
-  variableCategory: string;
-  description: string;
-  isDefault: boolean;
-  showBasedOnFrequency: boolean;
-  showBasedOnServiceCategory: boolean;
-  showBasedOnServiceCategory2: boolean;
-  excludedExtras: number[];
-  excludedServices: number[];
-  excludedProviders?: string[];
-};
-
 type PricingVariable = {
   id: string;
   name: string;
@@ -68,7 +48,6 @@ export default function PricingParameterNewPage() {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
 
-  const [allRows, setAllRows] = useState<Record<string, PricingRow[]>>({});
   const [variables, setVariables] = useState<PricingVariable[]>([]);
   const [extras, setExtras] = useState<Array<{id: number; name: string}>>([]);
   const [services, setServices] = useState<Array<{id: number; name: string}>>([]);
@@ -114,9 +93,6 @@ export default function PricingParameterNewPage() {
     hours: "",
     minutes: "",
   });
-
-  const extrasKey = useMemo(() => `extras_${industry}`, [industry]);
-  const servicesKey = useMemo(() => `service_categories_${industry}`, [industry]);
 
   // Load extras from backend
   useEffect(() => {
@@ -309,54 +285,73 @@ export default function PricingParameterNewPage() {
     fetchExcludeParameters();
   }, [industryId]);
 
-  // Fetch existing pricing parameters for validation and editing
+  // Industry-wide list: duplicate-name checks (always from API)
   useEffect(() => {
     if (!industryId) return;
 
-    const fetchExistingData = async () => {
+    const loadList = async () => {
       try {
-        const response = await fetch(`/api/pricing-parameters?industryId=${industryId}`);
+        const response = await fetch(`/api/pricing-parameters?industryId=${encodeURIComponent(industryId)}`);
         const data = await response.json();
-        
-        if (data.pricingParameters) {
-          setExistingParameters(data.pricingParameters);
-          
-          // If editing, populate the form
-          if (editId) {
-            const existing = data.pricingParameters.find((p: any) => p.id === editId);
-            
-            if (existing) {
-              const hours = Math.floor(existing.time_minutes / 60);
-              const minutes = existing.time_minutes % 60;
-
-              setForm({
-                variableCategory: existing.variable_category,
-                name: existing.name,
-                description: existing.description || "",
-                display: existing.display,
-                price: String(existing.price ?? 0),
-                hours: String(hours),
-                minutes: String(minutes),
-                isDefault: existing.is_default || false,
-                showBasedOnFrequency: existing.show_based_on_frequency || false,
-                showBasedOnServiceCategory: existing.show_based_on_service_category || false,
-                showBasedOnServiceCategory2: existing.show_based_on_service_category2 || false,
-                excludedExtras: existing.excluded_extras || [],
-                excludedServices: existing.excluded_services || [],
-                excludedProviders: existing.excluded_providers || [],
-                excludeParameters: existing.exclude_parameters || [],
-                serviceCategory: existing.service_category ? existing.service_category.split(", ") : [],
-                serviceCategory2: existing.service_category2 ? existing.service_category2.split(", ") : [],
-                frequency: existing.frequency ? existing.frequency.split(", ") : [],
-                differentOnCustomerEnd: false,
-                showExplanationIcon: false,
-                enablePopupOnSelection: false,
-              });
-            }
-          }
-        }
+        setExistingParameters(Array.isArray(data.pricingParameters) ? data.pricingParameters : []);
       } catch (error) {
-        console.error('Error fetching pricing parameters:', error);
+        console.error("Error fetching pricing parameters:", error);
+        setExistingParameters([]);
+      }
+    };
+
+    loadList();
+  }, [industryId]);
+
+  // Single row for edit (authoritative; no client-side find on a cached list)
+  useEffect(() => {
+    if (!editId || !industryId) return;
+
+    const loadOne = async () => {
+      try {
+        const response = await fetch(
+          `/api/pricing-parameters?id=${encodeURIComponent(editId)}&industryId=${encodeURIComponent(industryId)}`,
+        );
+        const data = await response.json();
+
+        if (!response.ok || !data.pricingParameter) {
+          toast({
+            title: "Error",
+            description: data.error || "Failed to load pricing parameter",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        const existing = data.pricingParameter;
+        const hours = Math.floor(existing.time_minutes / 60);
+        const minutes = existing.time_minutes % 60;
+
+        setForm({
+          variableCategory: existing.variable_category,
+          name: existing.name,
+          description: existing.description || "",
+          display: existing.display,
+          price: String(existing.price ?? 0),
+          hours: String(hours),
+          minutes: String(minutes),
+          isDefault: existing.is_default || false,
+          showBasedOnFrequency: existing.show_based_on_frequency || false,
+          showBasedOnServiceCategory: existing.show_based_on_service_category || false,
+          showBasedOnServiceCategory2: existing.show_based_on_service_category2 || false,
+          excludedExtras: existing.excluded_extras || [],
+          excludedServices: existing.excluded_services || [],
+          excludedProviders: existing.excluded_providers || [],
+          excludeParameters: existing.exclude_parameters || [],
+          serviceCategory: existing.service_category ? existing.service_category.split(", ") : [],
+          serviceCategory2: existing.service_category2 ? existing.service_category2.split(", ") : [],
+          frequency: existing.frequency ? existing.frequency.split(", ") : [],
+          differentOnCustomerEnd: false,
+          showExplanationIcon: false,
+          enablePopupOnSelection: false,
+        });
+      } catch (error) {
+        console.error("Error fetching pricing parameter for edit:", error);
         toast({
           title: "Error",
           description: "Failed to load pricing parameter data",
@@ -365,8 +360,8 @@ export default function PricingParameterNewPage() {
       }
     };
 
-    fetchExistingData();
-  }, [editId, industryId]);
+    loadOne();
+  }, [editId, industryId, toast]);
 
   // Real-time validation for variable category
   const validateVariableCategory = (value: string) => {

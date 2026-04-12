@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { serviceCategoriesService, ServiceCategory } from '@/lib/serviceCategories';
-import { getFrequencyDependencies } from '@/lib/frequencyFilter';
+import { frequencyDepOptionNamesForCategory, getFrequencyDependencies } from '@/lib/frequencyFilter';
 import { filterFrequencyOptionsForServiceCategory } from '@/lib/form1CustomerBooking';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,10 +20,15 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/use-toast";
-import { Plus, Minus, Search, X, User, Mail, Phone, Shirt, Sofa, Droplets, Wind, Trash2, Flower2, Flame, Warehouse, Paintbrush, CreditCard } from "lucide-react";
-import Image from "next/image";
+import { Plus, Minus, Search, X, User, Mail, Phone, CreditCard, Info } from "lucide-react";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { adminCustomerApiHeaders } from "@/lib/adminCustomersStorage";
 import { getTodayLocalDate, formatDateLocal } from "@/lib/date-utils";
@@ -33,11 +38,21 @@ import { BookingPhoneInput } from "@/components/admin/BookingPhoneInput";
 import { PHONE_FIELD_HELPER_TEXT } from "@/components/ui/phone-field";
 import { isValidPhoneNumber } from "react-phone-number-input";
 import { resolveQtyBasedExtraLine } from "@/lib/extraQtyPricing";
+import { hourlyExtrasBillableSubtotal } from "@/lib/hourlyServiceBookingDuration";
 import {
   getMarketingCouponGateFailure,
   shouldEnforceMarketingCouponLocationSubset,
 } from "@/lib/marketingCouponGate";
 import { couponRequiresCustomerEmailForScope } from "@/lib/marketingCouponCustomerScope";
+import { popupDisplayAppliesToSurface } from "@/lib/frequencyPopupDisplay";
+import { getExtraCustomerDisplayName } from "@/lib/form1CustomerBooking";
+import {
+  DEFAULT_INDUSTRY_EXTRA_ICON_SRC,
+  industryFormIconIsImageSrc,
+  resolveIndustryExtraPresetLucideIcon,
+  resolveIndustryFormLucideIcon,
+} from "@/lib/industryExtraIcons";
+import { industryExtraPassesBookingDependencyRules } from "@/lib/industryExtraDependencies";
 
 /** `YYYY-MM-DD` for `<input type="date" />` (handles ISO strings from API). */
 function normalizeBookingDateInput(raw: unknown): string {
@@ -86,6 +101,19 @@ type Extra = {
   exemptFromDiscount?: boolean;
   description?: string;
   serviceChecklists?: string[];
+  differentOnCustomerEnd?: boolean;
+  customerEndName?: string | null;
+  showExplanationIconOnForm?: boolean;
+  explanationTooltipText?: string | null;
+  enablePopupOnSelection?: boolean;
+  popupContent?: string | null;
+  popupDisplay?: string | null;
+  show_based_on_frequency?: boolean;
+  frequency_options?: string[];
+  show_based_on_service_category?: boolean;
+  service_category_options?: string[];
+  show_based_on_variables?: boolean;
+  variable_options?: string[];
 };
 
 type FrequencyRow = {
@@ -103,6 +131,11 @@ type FrequencyRow = {
   exclude_first_appointment?: boolean;
   frequency_discount?: "all" | "exclude-first";
   charge_one_time_price?: boolean;
+  show_explanation?: boolean;
+  enable_popup?: boolean;
+  explanation_tooltip_text?: string | null;
+  popup_content?: string | null;
+  popup_display?: string | null;
 };
 
 type AppliedCoupon = {
@@ -283,6 +316,7 @@ export function AddBookingForm({
   const [excludeParameters, setExcludeParameters] = useState<any[]>([]);
   const [selectedExcludeParams, setSelectedExcludeParams] = useState<string[]>([]);
   const [frequencyDependencies, setFrequencyDependencies] = useState<any>(null);
+  const [frequencySelectionPopup, setFrequencySelectionPopup] = useState<{ title: string; html: string } | null>(null);
   const [allProviders, setAllProviders] = useState<Provider[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerSearch, setCustomerSearch] = useState("");
@@ -387,11 +421,15 @@ export function AddBookingForm({
 
   // Detect if industry uses location-based frequency filtering (required for zip-gating services)
   useEffect(() => {
-    if (!selectedIndustryId) {
+    if (!selectedIndustryId || !currentBusiness?.id) {
       setHasLocationBasedFrequencies(false);
       return;
     }
-    fetch(`/api/industry-frequency?industryId=${selectedIndustryId}&includeAll=true`)
+    fetch(
+      `/api/industry-frequency?industryId=${selectedIndustryId}&businessId=${encodeURIComponent(
+        currentBusiness.id,
+      )}&includeAll=true`,
+    )
       .then((r) => r.json())
       .then((data) => {
         const freqs = data.frequencies || [];
@@ -399,7 +437,7 @@ export function AddBookingForm({
         setHasLocationBasedFrequencies(hasLocation);
       })
       .catch(() => setHasLocationBasedFrequencies(false));
-  }, [selectedIndustryId]);
+  }, [selectedIndustryId, currentBusiness?.id]);
 
   // Load frequencies from API (uses selected industry; requires zip when location-based)
   useEffect(() => {
@@ -416,15 +454,20 @@ export function AddBookingForm({
     const fetchFrequencies = async () => {
       try {
         const url = hasLocationBasedFrequencies
-          ? `/api/industry-frequency?industryId=${selectedIndustryId}&zipcode=${encodeURIComponent(zipParam)}`
-          : `/api/industry-frequency?industryId=${selectedIndustryId}&includeAll=true`;
+          ? `/api/industry-frequency?industryId=${selectedIndustryId}&businessId=${encodeURIComponent(
+              currentBusiness.id,
+            )}&zipcode=${encodeURIComponent(zipParam)}`
+          : `/api/industry-frequency?industryId=${selectedIndustryId}&businessId=${encodeURIComponent(
+              currentBusiness.id,
+            )}&includeAll=true`;
         const res = await fetch(url);
         const data = await res.json();
         if (!res.ok || !data.frequencies) return;
         const visible = data.frequencies.filter((f: any) => f && (f.display === "Both" || f.display === "Booking"));
         if (visible.length > 0) {
           setFrequencies(visible);
-          const defaultFreq = visible.find((f: any) => f.isDefault) || visible[0];
+          const defaultFreq =
+            visible.find((f: any) => f.is_default === true || f.isDefault === true) || visible[0];
           if (defaultFreq) {
             setNewBooking(prev => prev.frequency ? prev : { ...prev, frequency: defaultFreq.name });
           }
@@ -478,10 +521,8 @@ export function AddBookingForm({
       .then((r) => r.json())
       .then((extrasData) => {
         if (!extrasData.extras) return;
-        const visible = extrasData.extras.filter(
-          (e: any) => e && (e.display === "frontend-backend-admin" || e.display === "Both" || e.display === "Booking")
-        );
-        setAllExtras(visible.map((e: any) => ({
+        const rows = extrasData.extras.filter((e: any) => !!e);
+        setAllExtras(rows.map((e: any) => ({
           id: e.id,
           name: e.name,
           icon: e.icon,
@@ -495,7 +536,22 @@ export function AddBookingForm({
           manualPrices: Array.isArray(e.manual_prices) ? e.manual_prices : [],
           exemptFromDiscount: e.exempt_from_discount,
           description: e.description,
-          serviceChecklists: []
+          serviceChecklists: [],
+          differentOnCustomerEnd: Boolean(e.different_on_customer_end),
+          customerEndName: e.customer_end_name ?? null,
+          showExplanationIconOnForm: Boolean(e.show_explanation_icon_on_form),
+          explanationTooltipText: e.explanation_tooltip_text ?? null,
+          enablePopupOnSelection: Boolean(e.enable_popup_on_selection),
+          popupContent: e.popup_content ?? null,
+          popupDisplay: e.popup_display ?? null,
+          show_based_on_frequency: Boolean(e.show_based_on_frequency),
+          frequency_options: Array.isArray(e.frequency_options) ? [...e.frequency_options] : [],
+          show_based_on_service_category: Boolean(e.show_based_on_service_category),
+          service_category_options: Array.isArray(e.service_category_options)
+            ? [...e.service_category_options]
+            : [],
+          show_based_on_variables: Boolean(e.show_based_on_variables),
+          variable_options: Array.isArray(e.variable_options) ? [...e.variable_options] : [],
         })));
       })
       .catch((e) => console.error("Error loading extras:", e));
@@ -507,10 +563,9 @@ export function AddBookingForm({
     serviceCategoriesService.getServiceCategoriesByIndustry(selectedIndustryId).then((categories) => {
       const filtered = categories.filter((category: ServiceCategory) => {
         if (!category.service_category_frequency) return true;
-        if (frequencyDependencies?.serviceCategories?.length > 0) {
-          return frequencyDependencies.serviceCategories.includes(String(category.id));
-        }
-        return false;
+        if (!frequencyDependencies) return true;
+        if (!frequencyDependencies.serviceCategories?.length) return true;
+        return frequencyDependencies.serviceCategories.includes(String(category.id));
       });
       setServiceCategories(filtered);
     }).catch(() => setServiceCategories([]));
@@ -528,99 +583,72 @@ export function AddBookingForm({
     }
   }, [newBooking.service, serviceCategories]);
 
-  // Debug extras rendering
+  // Filter extras: service category list + Form 1 frequency allow-list (only for frequency-scoped extras) + per-extra dependency toggles
   useEffect(() => {
-    if (extras.length > 0) {
-      console.log('=== RENDERING EXTRAS ===');
-      console.log('Extras to render:', extras);
-      console.log('Extras qtyBased values:', extras.map(extra => ({ name: extra.name, qtyBased: extra.qtyBased })));
+    if (!currentBusiness || allExtras.length === 0) {
+      setExtras([]);
+      return;
     }
-  }, [extras]);
 
-  // Filter extras based on service category and frequency dependencies
-  useEffect(() => {
-    const filterExtras = () => {
-      console.log('=== EXTRAS FILTERING DEBUG ===');
-      console.log('allExtras length:', allExtras?.length);
-      console.log('allExtras:', allExtras);
-      console.log('newBooking.service:', newBooking.service);
-      console.log('serviceCategories length:', serviceCategories?.length);
-      console.log('frequencyDependencies:', frequencyDependencies);
-      
-      if (!currentBusiness || allExtras.length === 0) {
-        console.log('❌ No business or no extras available');
-        setExtras([]);
-        return;
-      }
-      
-      // Start with all extras
-      let filteredExtras = [...allExtras];
-      console.log('Starting with all extras:', filteredExtras.length);
-      
-      // Apply filtering based on service category configuration
-      if (newBooking.service) {
-        console.log('🔍 Service selected, checking service category configuration...');
-        
-        const selectedServiceCategory = serviceCategories.find(cat => cat.name === newBooking.service);
-        console.log('Selected service category:', selectedServiceCategory);
-        
-        if (selectedServiceCategory) {
-          console.log('✅ Service category found!');
-          console.log('service_category_frequency:', selectedServiceCategory.service_category_frequency);
-          
-          // Check if service category uses frequency-based filtering
-          if (selectedServiceCategory.service_category_frequency) {
-            // Use frequency dependencies configuration
-            console.log('📋 Using FREQUENCY dependencies for extras');
-            if (frequencyDependencies && frequencyDependencies.extras && frequencyDependencies.extras.length > 0) {
-              console.log('Frequency extras:', frequencyDependencies.extras);
-              filteredExtras = filteredExtras.filter((e: any) => 
-                frequencyDependencies.extras.includes(String(e.id))
-              );
-              console.log('After frequency filtering:', filteredExtras.length);
-            } else {
-              console.log('⚠️ No frequency dependencies available, hiding all extras');
-              filteredExtras = [];
-            }
+    let filteredExtras = [...allExtras];
+
+    if (newBooking.service) {
+      const selectedServiceCategory = serviceCategories.find((cat) => cat.name === newBooking.service);
+      if (selectedServiceCategory) {
+        const useFreq = Boolean(selectedServiceCategory.service_category_frequency);
+        const depsLoaded = frequencyDependencies != null;
+        const formAllowIds = depsLoaded
+          ? (Array.isArray(frequencyDependencies.extras)
+              ? frequencyDependencies.extras.map((x: unknown) => String(x))
+              : [])
+          : [];
+
+        if (!useFreq) {
+          const ce = selectedServiceCategory.extras;
+          if (ce && ce.length > 0) {
+            filteredExtras = filteredExtras.filter((e) =>
+              ce.some((serviceExtraId: unknown) => String(serviceExtraId) === String(e.id)),
+            );
           } else {
-            // Use service category's own extras configuration
-            console.log('📋 Using SERVICE CATEGORY configuration for extras');
-            console.log('Service category extras:', selectedServiceCategory.extras);
-            
-            if (selectedServiceCategory.extras && selectedServiceCategory.extras.length > 0) {
-              console.log('✅ Service category has extras configured:', selectedServiceCategory.extras);
-              
-              filteredExtras = filteredExtras.filter((e: any) => {
-                const extraId = String(e.id);
-                const matches = selectedServiceCategory.extras.some((serviceExtraId: any) => {
-                  return String(serviceExtraId) === extraId;
-                });
-                
-                console.log(`Extra ${e.name} (ID: ${e.id}): ${matches ? 'INCLUDED' : 'EXCLUDED'}`);
-                return matches;
-              });
-              console.log('After service category filtering:', filteredExtras.length);
-            } else {
-              console.log('❌ Service category has no extras configured, hiding all extras');
-              filteredExtras = [];
-            }
+            filteredExtras = [];
           }
-        } else {
-          console.log('⚠️ Service category not found for name:', newBooking.service);
-          console.log('Available service names:', serviceCategories.map(cat => cat.name));
         }
-      } else {
-        console.log('ℹ️ No service selected, showing all extras');
-      }
-      
-      console.log('✅ Final filtered extras:', filteredExtras.length);
-      console.log('Final extras:', filteredExtras);
-      setExtras(filteredExtras);
-      console.log('=== END EXTRAS FILTERING DEBUG ===');
-    };
 
-    filterExtras();
-  }, [newBooking.service, serviceCategories, frequencyDependencies, allExtras]);
+        filteredExtras = filteredExtras.filter((e) =>
+          industryExtraPassesBookingDependencyRules(
+            {
+              id: String(e.id),
+              show_based_on_frequency: e.show_based_on_frequency,
+              frequency_options: e.frequency_options,
+              show_based_on_service_category: e.show_based_on_service_category,
+              service_category_options: e.service_category_options,
+              show_based_on_variables: e.show_based_on_variables,
+              variable_options: e.variable_options,
+            },
+            {
+              selectedFrequency: newBooking.frequency,
+              selectedServiceCategoryName: selectedServiceCategory.name,
+              selectedServiceCategoryId: String(selectedServiceCategory.id ?? ""),
+              categoryValues,
+              serviceCategoryUsesFrequencyDeps: useFreq,
+              frequencyDepsLoaded: depsLoaded,
+              frequencyFormAllowExtraIds: formAllowIds,
+            },
+          ),
+        );
+      }
+    }
+
+    setExtras(filteredExtras);
+  }, [
+    currentBusiness,
+    newBooking.service,
+    newBooking.frequency,
+    serviceCategories,
+    frequencyDependencies,
+    allExtras,
+    categoryValues,
+  ]);
 
   // Load providers from API
   useEffect(() => {
@@ -1641,6 +1669,69 @@ const handleAddBooking = async (status: string = 'pending') => {
     });
   };
 
+  // Duration from pricing parameters (sum all matching variable categories) + extras time.
+  // Hourly + "Based on the pricing parameters time": derive minutes from selections even if a stale duration field exists.
+  const calculatedDurationMinutes = useMemo(() => {
+    if (!newBooking.service || !newBooking.frequency) return null;
+    const selectedServiceCategory = serviceCategories.find((cat) => cat.name === newBooking.service);
+    const hourlyPricingUsesParameterTime =
+      Boolean(selectedServiceCategory?.hourly_service?.enabled) &&
+      selectedServiceCategory?.hourly_service?.priceCalculationType === "pricingParametersTime";
+    if (newBooking.duration && !hourlyPricingUsesParameterTime) return null;
+
+    let totalMinutes = 0;
+
+    for (const [categoryKey, optionName] of Object.entries(categoryValues)) {
+      if (!optionName?.trim() || optionName.trim().toLowerCase() === "none") continue;
+      const param = pricingParameters.find(p => {
+        if (p.variable_category !== categoryKey || p.name !== optionName) return false;
+        if (p.show_based_on_frequency && p.frequency) {
+          const allowed = p.frequency.split(', ').map(f => f.trim());
+          if (!allowed.includes(newBooking.frequency)) return false;
+        }
+        if (p.show_based_on_service_category && p.service_category) {
+          const allowed = p.service_category.split(', ').map(s => s.trim());
+          if (!allowed.includes(newBooking.service)) return false;
+        }
+        return true;
+      });
+      if (param?.time_minutes && param.time_minutes > 0) {
+        totalMinutes += param.time_minutes;
+      }
+    }
+
+    newBooking.selectedExtras?.forEach(extraId => {
+      const extra = extras.find(e => e.id === extraId);
+      if (!extra) return;
+      const qty = extra.qtyBased ? (newBooking.extraQuantities[extraId] || 1) : 1;
+      const { lineMinutes } = resolveQtyBasedExtraLine(
+        {
+          qty_based: extra.qtyBased,
+          pricing_structure: (extra as { pricingStructure?: string }).pricingStructure,
+          price: Number(extra.price) || 0,
+          time_minutes: typeof extra.time === "number" ? extra.time : 0,
+          maximum_quantity: (extra as { maximumQuantity?: number | null }).maximumQuantity ?? null,
+          manual_prices: (extra as { manualPrices?: { price: number; time_minutes: number }[] }).manualPrices ?? null,
+        },
+        qty,
+      );
+      if (lineMinutes > 0) totalMinutes += lineMinutes;
+    });
+
+    if (isPartialCleaning && selectedExcludeParams.length > 0) {
+      selectedExcludeParams.forEach(paramId => {
+        const param = excludeParameters.find((p: any) => p.id === paramId);
+        if (param && typeof param.time_minutes === "number" && param.time_minutes > 0) {
+          const qty = param.qty_based ? (newBooking.excludeQuantities[paramId] || 1) : 1;
+          totalMinutes -= param.time_minutes * qty;
+        }
+      });
+      totalMinutes = Math.max(0, totalMinutes);
+    }
+
+    return totalMinutes > 0 ? totalMinutes : null;
+  }, [newBooking.service, newBooking.frequency, newBooking.duration, categoryValues, pricingParameters, newBooking.selectedExtras, newBooking.extraQuantities, extras, isPartialCleaning, selectedExcludeParams, excludeParameters, newBooking.excludeQuantities, serviceCategories]);
+
   // Calculate service total: service base price (if set) + sum of selected options (Bathroom, Bedroom, etc.)
   const calculateServiceTotal = useMemo(() => {
     if (!newBooking.service || !newBooking.frequency) {
@@ -1691,17 +1782,27 @@ const handleAddBooking = async (status: string = 'pending') => {
       if (!isNaN(price) && price > 0) return price;
     }
 
-    // 4) Fallback: hourly pricing when duration is set
+    // 4) Hourly: custom time uses hours/minutes fields; pricing-parameters time uses summed parameter minutes
     if (selectedServiceCategory?.hourly_service?.enabled && selectedServiceCategory.hourly_service?.price) {
       const hourlyPrice = parseFloat(selectedServiceCategory.hourly_service.price);
-      if (!isNaN(hourlyPrice) && hourlyPrice > 0 && newBooking.duration) {
-        const hours = parseFloat(newBooking.duration) || 0;
-        return hourlyPrice * hours;
+      if (!isNaN(hourlyPrice) && hourlyPrice > 0) {
+        const pct = selectedServiceCategory.hourly_service.priceCalculationType ?? "customTime";
+        if (pct === "customTime") {
+          if (newBooking.duration) {
+            const hours =
+              newBooking.durationUnit === "Minutes"
+                ? (parseFloat(newBooking.duration) || 0) / 60
+                : parseFloat(newBooking.duration) || 0;
+            return hourlyPrice * hours;
+          }
+        } else if (calculatedDurationMinutes != null && calculatedDurationMinutes > 0) {
+          return hourlyPrice * (calculatedDurationMinutes / 60);
+        }
       }
     }
 
     return 0;
-  }, [newBooking.service, newBooking.frequency, newBooking.duration, categoryValues, pricingParameters, serviceCategories]);
+  }, [newBooking.service, newBooking.frequency, newBooking.duration, newBooking.durationUnit, categoryValues, pricingParameters, serviceCategories, calculatedDurationMinutes]);
 
   // Effective service total: when "Adjust Service Total" is on, use the entered amount (Booking Koala: overrides price before discounts)
   const effectiveServiceTotal = useMemo(() => {
@@ -1712,70 +1813,10 @@ const handleAddBooking = async (status: string = 'pending') => {
     return calculateServiceTotal;
   }, [calculateServiceTotal, newBooking.adjustServiceTotal, newBooking.adjustmentServiceTotalAmount]);
 
-  // Duration from pricing parameters (sum all matching variable categories) + extras time
-  const calculatedDurationMinutes = useMemo(() => {
-    if (!newBooking.service || !newBooking.frequency) return null;
-    // When user has manually set duration (e.g. for Hourly services), prefer that
-    if (newBooking.duration) return null;
-
-    let totalMinutes = 0;
-
-    // Sum time from all matching pricing parameters (one per selected variable category - Bathroom, Bedroom, Living Room, etc.)
-    for (const [categoryKey, optionName] of Object.entries(categoryValues)) {
-      if (!optionName?.trim() || optionName.trim().toLowerCase() === "none") continue;
-      const param = pricingParameters.find(p => {
-        if (p.variable_category !== categoryKey || p.name !== optionName) return false;
-        if (p.show_based_on_frequency && p.frequency) {
-          const allowed = p.frequency.split(', ').map(f => f.trim());
-          if (!allowed.includes(newBooking.frequency)) return false;
-        }
-        if (p.show_based_on_service_category && p.service_category) {
-          const allowed = p.service_category.split(', ').map(s => s.trim());
-          if (!allowed.includes(newBooking.service)) return false;
-        }
-        return true;
-      });
-      if (param?.time_minutes && param.time_minutes > 0) {
-        totalMinutes += param.time_minutes;
-      }
-    }
-
-    // Add time from selected extras (manual tiers vs per-unit multiply)
-    newBooking.selectedExtras?.forEach(extraId => {
-      const extra = extras.find(e => e.id === extraId);
-      if (!extra) return;
-      const qty = extra.qtyBased ? (newBooking.extraQuantities[extraId] || 1) : 1;
-      const { lineMinutes } = resolveQtyBasedExtraLine(
-        {
-          qty_based: extra.qtyBased,
-          pricing_structure: (extra as { pricingStructure?: string }).pricingStructure,
-          price: Number(extra.price) || 0,
-          time_minutes: typeof extra.time === "number" ? extra.time : 0,
-          maximum_quantity: (extra as { maximumQuantity?: number | null }).maximumQuantity ?? null,
-          manual_prices: (extra as { manualPrices?: { price: number; time_minutes: number }[] }).manualPrices ?? null,
-        },
-        qty,
-      );
-      if (lineMinutes > 0) totalMinutes += lineMinutes;
-    });
-
-    // Subtract time from excluded areas when partial cleaning is enabled
-    if (isPartialCleaning && selectedExcludeParams.length > 0) {
-      selectedExcludeParams.forEach(paramId => {
-        const param = excludeParameters.find((p: any) => p.id === paramId);
-        if (param && typeof param.time_minutes === "number" && param.time_minutes > 0) {
-          const qty = param.qty_based ? (newBooking.excludeQuantities[paramId] || 1) : 1;
-          totalMinutes -= param.time_minutes * qty;
-        }
-      });
-      totalMinutes = Math.max(0, totalMinutes);
-    }
-
-    return totalMinutes > 0 ? totalMinutes : null;
-  }, [newBooking.service, newBooking.frequency, newBooking.duration, categoryValues, pricingParameters, newBooking.selectedExtras, newBooking.extraQuantities, extras, isPartialCleaning, selectedExcludeParams, excludeParameters, newBooking.excludeQuantities]);
-
   // Calculate extras total (respect qtyBased: use quantity only when extra is quantity-based)
   const calculateExtrasTotal = useMemo(() => {
+    const selectedServiceCategory = serviceCategories.find((cat) => cat.name === newBooking.service);
+    const hs = selectedServiceCategory?.hourly_service;
     let total = 0;
     newBooking.selectedExtras?.forEach(extraId => {
       const extra = extras.find(e => e.id === extraId);
@@ -1794,8 +1835,8 @@ const handleAddBooking = async (status: string = 'pending') => {
       );
       total += linePrice;
     });
-    return total;
-  }, [newBooking.selectedExtras, newBooking.extraQuantities, extras]);
+    return hourlyExtrasBillableSubtotal({ hourly: hs, extrasSubtotal: total });
+  }, [newBooking.selectedExtras, newBooking.extraQuantities, extras, newBooking.service, serviceCategories]);
 
   // Calculate partial cleaning discount (respect qty_based: use quantity only when param is quantity-based)
   const calculatePartialCleaningDiscount = useMemo(() => {
@@ -2803,7 +2844,26 @@ const handleAddBooking = async (status: string = 'pending') => {
                   <p className="text-xs text-muted-foreground">Services are based on your location. Enter a valid zip code first.</p>
                 </div>
               ) : (
-                <Select value={newBooking.service} onValueChange={(value) => { setNewBooking({ ...newBooking, service: value }); setErrors(prev => ({ ...prev, service: false })); }}>
+                <Select value={newBooking.service} onValueChange={(value) => {
+                  const cat = serviceCategories.find((c) => c.name === value);
+                  const clearManualDuration =
+                    Boolean(cat?.hourly_service?.enabled) &&
+                    cat?.hourly_service?.priceCalculationType === "pricingParametersTime";
+                  setNewBooking((prev) => ({
+                    ...prev,
+                    service: value,
+                    ...(clearManualDuration ? { duration: "", durationUnit: "Hours" as const } : {}),
+                  }));
+                  setErrors(prev => ({ ...prev, service: false }));
+                  const html = String(cat?.popup_content ?? "").trim();
+                  if (
+                    cat?.enable_popup_on_selection &&
+                    html &&
+                    popupDisplayAppliesToSurface(cat.popup_display, "admin_staff")
+                  ) {
+                    setFrequencySelectionPopup({ title: value, html });
+                  }
+                }}>
                   <SelectTrigger className={errors.service ? "border-red-500" : ""}>
                     <SelectValue placeholder="Select service" />
                   </SelectTrigger>
@@ -2826,8 +2886,14 @@ const handleAddBooking = async (status: string = 'pending') => {
 
             {newBooking.service ? (
             <>
-            {/* Time Duration - Only show for services containing "Hourly" or "Hours" */}
-            {(newBooking.service.includes('Hourly') || newBooking.service.includes('Hours')) && (
+            {/* Time duration: hourly + "Based on custom time" only (pricing-parameter time uses option time_minutes) */}
+            {(() => {
+              const cat = serviceCategories.find((c) => c.name === newBooking.service);
+              const hs = cat?.hourly_service;
+              const show =
+                Boolean(hs?.enabled) && (hs?.priceCalculationType ?? "customTime") === "customTime";
+              return show;
+            })() && (
               <div>
                 <Label className="text-sm font-medium mb-2 block">Select Time Duration</Label>
                 <div className="flex gap-3">
@@ -2897,25 +2963,60 @@ const handleAddBooking = async (status: string = 'pending') => {
                 }
                 
                 return availableFrequencies.length > 0 ? (
+                  <TooltipProvider delayDuration={200}>
                   <div className="flex flex-wrap gap-3">
-                    {availableFrequencies.map((freq) => (
-                      <Button
-                        key={freq.id}
-                        type="button"
-                        variant={newBooking.frequency === freq.name ? "default" : "outline"}
-                        onClick={() =>
-                          setNewBooking((prev) => ({ ...prev, frequency: freq.name }))
-                        }
-                        className={
-                          newBooking.frequency === freq.name
-                            ? "bg-cyan-100 border-cyan-400 text-cyan-700 hover:bg-cyan-200 transition-all duration-200"
-                            : "hover:bg-cyan-100 hover:border-cyan-400 hover:text-cyan-700 transition-all duration-200"
-                        }
-                      >
-                        {freq.name}
-                      </Button>
-                    ))}
+                    {availableFrequencies.map((freq) => {
+                      const selected = newBooking.frequency === freq.name;
+                      const tooltipText = (freq.explanation_tooltip_text || "").trim();
+                      const showInfo = freq.show_explanation && tooltipText.length > 0;
+                      const popupHtml = (freq.popup_content || "").trim();
+                      return (
+                        <button
+                          key={freq.id}
+                          type="button"
+                          onClick={() => {
+                            setNewBooking((prev) => ({ ...prev, frequency: freq.name }));
+                            if (
+                              freq.enable_popup &&
+                              popupHtml &&
+                              popupDisplayAppliesToSurface(freq.popup_display, "admin_staff")
+                            ) {
+                              setFrequencySelectionPopup({ title: freq.name, html: popupHtml });
+                            }
+                          }}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium transition-all duration-200",
+                            selected
+                              ? "bg-cyan-100 border-cyan-400 text-cyan-700 hover:bg-cyan-200"
+                              : "border-border bg-background hover:bg-cyan-50 hover:border-cyan-400 hover:text-cyan-700"
+                          )}
+                        >
+                          <span>{freq.name}</span>
+                          {showInfo && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span
+                                  tabIndex={0}
+                                  role="button"
+                                  className="inline-flex shrink-0 rounded p-0.5 text-orange-500 hover:bg-orange-500/15 focus:outline-none focus:ring-2 focus:ring-orange-400/40"
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onKeyDown={(e) => e.stopPropagation()}
+                                  aria-label={`About ${freq.name}`}
+                                >
+                                  <Info className="h-4 w-4" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs border bg-popover text-popover-foreground shadow-md">
+                                <p className="text-sm leading-snug">{tooltipText}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
+                  </TooltipProvider>
                 ) : (
                   <div className="text-sm text-muted-foreground p-4 border border-dashed border-gray-300 rounded-lg">
                     {newBooking.service ? 
@@ -2925,6 +3026,25 @@ const handleAddBooking = async (status: string = 'pending') => {
                   </div>
                 );
               })()}
+              <Dialog open={!!frequencySelectionPopup} onOpenChange={(open) => { if (!open) setFrequencySelectionPopup(null); }}>
+                <DialogContent className="sm:max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>{frequencySelectionPopup?.title}</DialogTitle>
+                    <DialogDescription className="sr-only">Frequency details</DialogDescription>
+                  </DialogHeader>
+                  {frequencySelectionPopup?.html ? (
+                    <div
+                      className="prose prose-sm dark:prose-invert max-w-none text-sm [&_a]:text-primary [&_a]:underline"
+                      dangerouslySetInnerHTML={{ __html: frequencySelectionPopup.html }}
+                    />
+                  ) : null}
+                  <DialogFooter>
+                    <Button type="button" variant="default" onClick={() => setFrequencySelectionPopup(null)}>
+                      OK
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
 
             {/* First Appointment Toggle for Recurring Frequencies */}
@@ -3110,6 +3230,14 @@ const handleAddBooking = async (status: string = 'pending') => {
                       });
                       
                       console.log('After service category filtering:', filteredOptions.length, 'options remaining');
+
+                      if (frequencyDependencies) {
+                        filteredOptions = filteredOptions.filter((option) => {
+                          const allowed = frequencyDepOptionNamesForCategory(category, frequencyDependencies);
+                          if (allowed === null) return true;
+                          return allowed.includes(option.name);
+                        });
+                      }
                     } else {
                       // Use service category's own variables configuration
                       console.log('📋 Using SERVICE CATEGORY configuration for variables');
@@ -3213,8 +3341,15 @@ const handleAddBooking = async (status: string = 'pending') => {
               return (
                 <div className="border rounded-lg p-4 space-y-3">
                   <h3 className="text-base font-semibold">Select What Does Not Need To Be Done</h3>
+                  <TooltipProvider delayDuration={200}>
                   <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-5">
-                    {filteredExcludeParams.map((param) => (
+                    {filteredExcludeParams.map((param) => {
+                      const excludeTooltip =
+                        param.show_explanation_icon_on_form && String(param.explanation_tooltip_text || "").trim()
+                          ? String(param.explanation_tooltip_text).trim()
+                          : "";
+                      const excludePopupHtml = String(param.popup_content || "").trim();
+                      return (
                       <div 
                         key={param.id} 
                         className={`flex flex-col items-center justify-center p-4 border-2 rounded-lg cursor-pointer transition-all ${
@@ -3234,6 +3369,13 @@ const handleAddBooking = async (status: string = 'pending') => {
                               ...prev,
                               excludeQuantities: { ...prev.excludeQuantities, [param.id]: 1 }
                             }));
+                            if (
+                              param.enable_popup_on_selection &&
+                              excludePopupHtml &&
+                              popupDisplayAppliesToSurface(param.popup_display, "admin_staff")
+                            ) {
+                              setFrequencySelectionPopup({ title: param.name, html: excludePopupHtml });
+                            }
                           }
                           if (isSelected) {
                             setNewBooking(prev => {
@@ -3244,34 +3386,46 @@ const handleAddBooking = async (status: string = 'pending') => {
                           }
                         }}
                       >
-                        {param.icon ? (
-                          param.icon.startsWith('data:image/') ? (
-                            <img src={param.icon} alt={param.name} className="w-16 h-16 mb-2 object-contain" />
-                          ) : (
-                            (() => {
-                              const iconMap: Record<string, any> = {
-                                'laundry': Shirt,
-                                'furniture': Sofa,
-                                'water': Droplets,
-                                'odor': Wind,
-                                'trash': Trash2,
-                                'plants': Flower2,
-                                'fire': Flame,
-                                'storage': Warehouse,
-                                'paint': Paintbrush,
-                              };
-                              const IconComponent = iconMap[param.icon];
-                              return IconComponent ? (
-                                <IconComponent className="w-16 h-16 mb-2 text-gray-700" />
-                              ) : (
-                                <div className="text-4xl mb-2">🏠</div>
-                              );
-                            })()
-                          )
+                        {param.icon && industryFormIconIsImageSrc(param.icon) ? (
+                          <img
+                            src={param.icon}
+                            alt={param.name}
+                            className="w-16 h-16 mb-2 object-contain"
+                          />
                         ) : (
-                          <div className="text-4xl mb-2">🏠</div>
+                          (() => {
+                            const IconComponent = resolveIndustryFormLucideIcon(
+                              param.icon,
+                              param.name,
+                            );
+                            return (
+                              <IconComponent className="w-16 h-16 mb-2 text-gray-700" />
+                            );
+                          })()
                         )}
-                        <span className="text-sm font-medium text-center">{param.name}</span>
+                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                          <span className="text-sm font-medium text-center">{param.name}</span>
+                          {excludeTooltip ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span
+                                  tabIndex={0}
+                                  role="button"
+                                  className="inline-flex shrink-0 rounded p-0.5 text-orange-500 hover:bg-orange-500/15 focus:outline-none focus:ring-2 focus:ring-orange-400/40"
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onKeyDown={(e) => e.stopPropagation()}
+                                  aria-label={`About ${param.name}`}
+                                >
+                                  <Info className="h-4 w-4" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs border bg-popover text-popover-foreground shadow-md">
+                                <p className="text-sm leading-snug">{excludeTooltip}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : null}
+                        </div>
                         {selectedExcludeParams.includes(param.id) && param.qty_based && (
                           <div className="flex items-center justify-center gap-1 mt-2" onClick={e => e.stopPropagation()}>
                             <button
@@ -3312,18 +3466,32 @@ const handleAddBooking = async (status: string = 'pending') => {
                           </div>
                         )}
                       </div>
-                    ))}
+                    );
+                    })}
                   </div>
+                  </TooltipProvider>
                 </div>
               );
             })()}
 
             {/* Extras - Display filtered extras */}
             {extras.length > 0 && (
+              <TooltipProvider delayDuration={200}>
               <div>
                 <Label className="text-sm font-medium mb-3 block">Select Extras</Label>
                 <div className="grid gap-1 md:grid-cols-3 lg:grid-cols-4">
-                  {extras.map((extra) => (
+                  {extras.map((extra) => {
+                    const extraDisplayLabel = getExtraCustomerDisplayName({
+                      name: extra.name,
+                      different_on_customer_end: extra.differentOnCustomerEnd,
+                      customer_end_name: extra.customerEndName,
+                    });
+                    const extraTooltip =
+                      extra.showExplanationIconOnForm && String(extra.explanationTooltipText || "").trim()
+                        ? String(extra.explanationTooltipText).trim()
+                        : "";
+                    const extraPopupHtml = String(extra.popupContent || "").trim();
+                    return (
                     <div 
                       key={extra.id} 
                       className={`relative p-3 border rounded-lg transition-all cursor-pointer ${
@@ -3334,45 +3502,55 @@ const handleAddBooking = async (status: string = 'pending') => {
                     >
                       <div className="flex flex-col items-center space-y-2">
                         <div className="w-12 h-12 flex items-center justify-center">
-                          {extra.icon ? (
-                            (() => {
-                              // Check if it's a data URL (uploaded image) or regular URL
-                              if (extra.icon.startsWith('data:') || extra.icon.startsWith('http')) {
-                                return (
-                                  <Image 
-                                    src={extra.icon} 
-                                    alt={extra.name} 
-                                    width={48} 
-                                    height={48}
-                                    className="object-contain"
-                                  />
-                                );
-                              } else {
-                                // It's a lucide icon identifier
-                                const iconMap: Record<string, any> = {
-                                  'laundry': Shirt,
-                                  'furniture': Sofa,
-                                  'water': Droplets,
-                                  'odor': Wind,
-                                  'trash': Trash2,
-                                  'plants': Flower2,
-                                  'fire': Flame,
-                                  'storage': Warehouse,
-                                  'paint': Paintbrush,
-                                };
-                                const IconComponent = iconMap[extra.icon];
-                                return IconComponent ? (
-                                  <IconComponent className="w-12 h-12 text-gray-700" />
-                                ) : (
-                                  <div className="text-3xl">🔧</div>
-                                );
-                              }
-                            })()
+                          {extra.icon && industryFormIconIsImageSrc(extra.icon) ? (
+                            <img
+                              src={extra.icon}
+                              alt=""
+                              width={48}
+                              height={48}
+                              className="h-12 w-12 object-contain"
+                            />
                           ) : (
-                            <div className="text-3xl">🔧</div>
+                            (() => {
+                              const PresetIcon = resolveIndustryExtraPresetLucideIcon(extra.icon);
+                              if (PresetIcon) {
+                                return <PresetIcon className="h-12 w-12 text-gray-700" />;
+                              }
+                              return (
+                                <img
+                                  src={DEFAULT_INDUSTRY_EXTRA_ICON_SRC}
+                                  alt=""
+                                  width={48}
+                                  height={48}
+                                  className="h-12 w-12 object-contain"
+                                />
+                              );
+                            })()
                           )}
                         </div>
-                        <div className="font-medium text-gray-900 text-center mb-2">{extra.name}</div>
+                        <div className="flex items-center justify-center gap-1.5 flex-wrap mb-2">
+                          <span className="font-medium text-gray-900 text-center">{extraDisplayLabel}</span>
+                          {extraTooltip ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span
+                                  tabIndex={0}
+                                  role="button"
+                                  className="inline-flex shrink-0 rounded p-0.5 text-orange-500 hover:bg-orange-500/15 focus:outline-none focus:ring-2 focus:ring-orange-400/40"
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onKeyDown={(e) => e.stopPropagation()}
+                                  aria-label={`About ${extraDisplayLabel}`}
+                                >
+                                  <Info className="h-4 w-4" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs border bg-popover text-popover-foreground shadow-md">
+                                <p className="text-sm leading-snug">{extraTooltip}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : null}
+                        </div>
                         <div className="flex items-center justify-center w-full">
                           {extra.qtyBased ? (
                             <div className="flex items-center space-x-2">
@@ -3420,6 +3598,15 @@ const handleAddBooking = async (status: string = 'pending') => {
                                       selectedExtras: [...(prev.selectedExtras || []), extra.id]
                                     }));
                                   }
+                                  if (
+                                    currentQty === 0 &&
+                                    newQty > 0 &&
+                                    extra.enablePopupOnSelection &&
+                                    extraPopupHtml &&
+                                    popupDisplayAppliesToSurface(extra.popupDisplay, "admin_staff")
+                                  ) {
+                                    setFrequencySelectionPopup({ title: extraDisplayLabel, html: extraPopupHtml });
+                                  }
                                 }}
                                 className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 transition-colors"
                                 disabled={(newBooking.extraQuantities[extra.id] || 0) >= (extra.maximumQuantity && extra.maximumQuantity > 0 ? extra.maximumQuantity : 999)}
@@ -3450,6 +3637,13 @@ const handleAddBooking = async (status: string = 'pending') => {
                                       selectedExtras: [...(prev.selectedExtras || []), extra.id],
                                       extraQuantities: { ...prev.extraQuantities, [extra.id]: 1 }
                                     }));
+                                    if (
+                                      extra.enablePopupOnSelection &&
+                                      extraPopupHtml &&
+                                      popupDisplayAppliesToSurface(extra.popupDisplay, "admin_staff")
+                                    ) {
+                                      setFrequencySelectionPopup({ title: extraDisplayLabel, html: extraPopupHtml });
+                                    }
                                   }
                                 }}
                                 className="text-sm font-medium text-primary"
@@ -3461,9 +3655,11 @@ const handleAddBooking = async (status: string = 'pending') => {
                         </div>
                       </div>
                     </div>
-                  ))}
+                  );
+                  })}
                 </div>
               </div>
+              </TooltipProvider>
             )}
 
             {/* Booking Adjustments */}

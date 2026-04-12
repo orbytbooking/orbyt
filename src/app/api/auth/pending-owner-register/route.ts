@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server";
-import { createServiceRoleClient } from "@/lib/auth-helpers";
+import {
+  createServiceRoleClient,
+  findAuthUserIdByEmail,
+  SIGNUP_EMAIL_ALREADY_EXISTS_MESSAGE,
+} from "@/lib/auth-helpers";
 import { encryptPendingOwnerPassword } from "@/lib/pendingOwnerCrypto";
 import type { PendingOwnerPayload } from "@/lib/webhooks/processPendingOwnerCheckout";
+import {
+  isValidOwnerSignupEmail,
+  normalizeOwnerSignupEmail,
+} from "@/lib/signupEmailValidation";
 
 export const dynamic = "force-dynamic";
 
@@ -26,12 +34,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const email = body.email?.trim().toLowerCase();
+  const email = normalizeOwnerSignupEmail(body.email ?? "");
   const password = body.password ?? "";
   const payload = body.payload;
 
-  if (!email || !email.includes("@")) {
-    return NextResponse.json({ error: "Valid email is required" }, { status: 400 });
+  if (!isValidOwnerSignupEmail(email)) {
+    return NextResponse.json({ error: "Please enter a valid email address." }, { status: 400 });
   }
   if (password.length < 6) {
     return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 });
@@ -45,6 +53,14 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "payload must include fullName, businessName, businessCategory, plan" },
       { status: 400 }
+    );
+  }
+
+  const existingAuthId = await findAuthUserIdByEmail(admin, email);
+  if (existingAuthId) {
+    return NextResponse.json(
+      { error: SIGNUP_EMAIL_ALREADY_EXISTS_MESSAGE, code: "email_already_exists" as const },
+      { status: 409 }
     );
   }
 

@@ -2,6 +2,11 @@
  * Mirrors AddBookingForm variable / pricing-parameter filtering (lines ~2940–3026) for customer book-now.
  */
 
+import {
+  frequencyDepOptionNamesForCategory,
+  type FrequencyDependencies,
+} from '@/lib/frequencyFilter';
+
 export function splitCommaList(raw: string | null | undefined): string[] {
   if (!raw?.trim()) return [];
   return raw.split(/,\s*/).map((s) => s.trim()).filter(Boolean);
@@ -72,6 +77,7 @@ export function buildCustomerAvailableVariables(
   params: PricingParamRow[],
   selectedService: { name: string; raw?: Record<string, unknown> } | null,
   selectedFrequency: string,
+  frequencyDependencies?: FrequencyDependencies | null,
 ): Record<string, { id: string; name: string; variable_category: string }[]> {
   if (!params.length || !selectedService?.name) return {};
 
@@ -129,6 +135,20 @@ export function buildCustomerAvailableVariables(
       name: param.name,
       variable_category: rawCategory,
     });
+  }
+
+  if (useFrequencyDeps && frequencyDependencies) {
+    for (const rawCategory of Object.keys(grouped)) {
+      const allowed = frequencyDepOptionNamesForCategory(rawCategory, frequencyDependencies);
+      if (allowed === null) continue;
+      if (allowed.length === 0) {
+        delete grouped[rawCategory];
+        continue;
+      }
+      const next = grouped[rawCategory].filter((v) => allowed.includes(v.name));
+      if (next.length === 0) delete grouped[rawCategory];
+      else grouped[rawCategory] = next;
+    }
   }
 
   return grouped;

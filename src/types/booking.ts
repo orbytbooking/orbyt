@@ -7,6 +7,9 @@ export interface IndustryFrequency {
   different_on_customer_end?: boolean;
   show_explanation?: boolean;
   enable_popup?: boolean;
+  explanation_tooltip_text?: string | null;
+  popup_content?: string | null;
+  popup_display?: string | null;
   display: "Both" | "Booking" | "Quote";
   occurrence_time: string;
   discount?: number;

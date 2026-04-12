@@ -45,7 +45,11 @@ export default function AccountSettingsPage() {
   const [activeAccountTab, setActiveAccountTab] = useState("your-info");
 
   useEffect(() => {
-    if (tabFromUrl === "billing" || searchParams?.get("stripe") === "return") {
+    if (
+      tabFromUrl === "billing" ||
+      searchParams?.get("stripe") === "return" ||
+      searchParams?.get("platform_billing_cancel") === "1"
+    ) {
       setActiveAccountTab("billing");
     }
   }, [tabFromUrl, searchParams]);

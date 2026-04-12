@@ -585,44 +585,40 @@ export const useWebsiteConfig = () => {
             .from('business_website_configs')
             .select('config')
             .eq('business_id', businessId)
-            .single();
+            .maybeSingle();
 
           console.log('📊 Database query result:', { businessConfig, error });
           console.log('📋 Raw businessConfig data:', JSON.stringify(businessConfig, null, 2));
 
-          if (!error && businessConfig) {
+          if (error) {
+            console.warn('❌ ERROR: Database config fetch failed:', error);
+            console.warn('❌ Error details:', JSON.stringify(error, null, 2));
+          } else if (businessConfig?.config) {
             console.log('✅ SUCCESS: Found business config in database:', businessConfig.config);
             console.log('📋 Company name from saved config:', businessConfig.config?.branding?.companyName);
             console.log('🎨 Logo from saved config:', businessConfig.config?.branding?.logo);
             console.log('📄 Header data from saved config:', businessConfig.config?.sections?.find(s => s.type === 'header')?.data);
             console.log('🏗️ Full config structure:', JSON.stringify(businessConfig.config, null, 2));
-            
-            // Ensure header section exists for existing configurations
+
             const configWithHeader = ensureHeaderSection(businessConfig.config);
             console.log('✅ Final config to use:', configWithHeader);
 
             setConfig(configWithHeader);
             setIsLoading(false);
             return;
-          } else if (error && error.code === 'PGRST116') {
-            // Table doesn't exist (404), stay in loading state
-            console.warn('❌ ERROR: business_website_configs table not found, no config to load');
-          } else if (error) {
-            console.warn('❌ ERROR: Database config fetch failed:', error);
-            console.warn('❌ Error details:', JSON.stringify(error, null, 2));
           } else {
-            // No error but no config found, stay in loading state
-            console.log('⚠️ WARNING: No business config found for this business - will create default');
-            console.log('⚠️ This means you haven\'t saved a website configuration yet in the website builder');
+            console.log(
+              '⚠️ No website config row yet for this business — using defaults until you save in Website Builder.'
+            );
           }
         }
 
         // If no config found and we have a business, create default config with business name
         if (businessId) {
           console.log('⚠️ WARNING: No saved config found for business ID:', businessId);
-          console.log('🔄 This should not happen if you saved your website configuration');
-          console.log('🔧 Forcing a reload to try to get the saved configuration...');
-          
+          // Do not dispatch website-config-updated here: new businesses have no row yet; polling would
+          // spam 406/PGRST116 with .single(). Saved configs trigger reload via updateConfig.
+
           // Try to get business name if we don't have it
           if (!businessName && typeof window !== 'undefined') {
             try {
@@ -665,12 +661,6 @@ export const useWebsiteConfig = () => {
           console.log('✅ Default config with header:', configWithHeader);
 
           setConfig(configWithHeader);
-          
-          // Trigger a reload after a delay to try to get the saved config
-          setTimeout(() => {
-            console.log('🔄 Triggering reload to attempt to get saved configuration...');
-            window.dispatchEvent(new CustomEvent('website-config-updated'));
-          }, 2000);
         }
 
         // Only set loading to false - config will be null if no business config found
@@ -806,31 +796,20 @@ export const useWebsiteConfig = () => {
       console.log('Reloading config from database...');
 
       const { data: businessConfig, error } = await supabase
-
         .from('business_website_configs')
-
         .select('config')
-
         .eq('business_id', currentBusiness.id)
+        .maybeSingle();
 
-        .single();
+      if (error) {
+        console.warn('Error reloading config:', error);
+        return;
+      }
 
-
-
-      if (!error && businessConfig) {
-
+      if (businessConfig?.config) {
         console.log('Config reloaded from database:', businessConfig.config);
-
-        // Ensure header section exists for existing configurations
-
         const configWithHeader = ensureHeaderSection(businessConfig.config);
-
         setConfig(configWithHeader);
-
-      } else if (error) {
-
-        console.log('Error reloading config:', error);
-
       }
 
     }

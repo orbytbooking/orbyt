@@ -95,7 +95,7 @@ export function BillingPlatformSubscription() {
   }, [load]);
 
   const platformUsesStripe =
-    (payload?.platformBillingProvider ?? "stripe") === "stripe";
+    (payload?.platformBillingProvider ?? "authorize_net") === "stripe";
   const stripeEmbeddedEnabled = platformUsesStripe && stripePublishableConfigured;
 
   const startCheckout = async (planSlug: string) => {
@@ -191,7 +191,7 @@ export function BillingPlatformSubscription() {
         }}
         clientSecret={embeddedCheckoutSecret}
         title="Orbyt plan checkout"
-        description="Subscribe securely with Stripe. After payment you may be redirected back to this page."
+        description="Complete your Orbyt plan payment. After payment you may be redirected back to this page."
       />
       <Card>
         <CardHeader>

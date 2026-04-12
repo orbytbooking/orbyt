@@ -136,8 +136,12 @@ export default function IndustryFormFrequenciesPage() {
       });
 
       if (response.ok) {
+        const nextVal = !frequency.is_default;
         setRows(prev =>
-          prev.map(r => (r.id === id ? { ...r, is_default: !r.is_default } : r)),
+          prev.map(r => ({
+            ...r,
+            is_default: r.id === id ? nextVal : nextVal ? false : r.is_default,
+          })),
         );
       } else {
         const error = await response.json();

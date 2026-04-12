@@ -2,12 +2,12 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import {
   ensureAbsoluteAppBase,
-  getAuthorizeNetApiUrl,
   getAuthorizeNetSessionCluster,
   normalizeUrlForAuthorizeNetHostedReturn,
   sanitizeAuthorizeNetOrderText,
   toAbsoluteHostedPaymentUrl,
 } from "@/lib/payments/authorizeNetEnvironment";
+import { requestAuthorizeNetHostedPaymentToken } from "@/lib/payments/authorizeNetHostedPaymentToken";
 
 export type CreateCheckoutParams = {
   /** Existing booking row (admin charges, Authorize.net book-now, legacy Stripe). */
@@ -241,98 +241,47 @@ async function createAuthorizeNetCheckout(params: {
     businessId,
   } = params;
 
-  const apiUrl = getAuthorizeNetApiUrl();
-
   const baseApp = ensureAbsoluteAppBase(origin);
+  /** Single query param — Accept Hosted breaks if `url`/`cancelUrl` query strings contain `&`. */
+  const successPair =
+    businessId && String(businessId).trim()
+      ? `${bookingId}.${String(businessId).trim()}`
+      : bookingId;
   const successUrl = normalizeUrlForAuthorizeNetHostedReturn(
-    toAbsoluteHostedPaymentUrl(
-      baseApp,
-      `/book-now?authorize_net=success&booking_id=${encodeURIComponent(bookingId)}&business=${encodeURIComponent(businessId || "")}`
-    )
+    toAbsoluteHostedPaymentUrl(baseApp, `/book-now?anet_sb=${encodeURIComponent(successPair)}`)
   );
   const cancelUrl = normalizeUrlForAuthorizeNetHostedReturn(
     toAbsoluteHostedPaymentUrl(
       baseApp,
-      `/book-now?authorize_net=cancel&business=${encodeURIComponent(businessId || "")}`
+      businessId
+        ? `/book-now?anet_cancel_b=${encodeURIComponent(businessId)}`
+        : `/book-now?anet_cancel=1`
     )
   );
 
   const amount = (Math.round(amountInCents) / 100).toFixed(2);
   const transactionRef = `ORBYT-${bookingId}-${Date.now()}`;
+  const desc = sanitizeAuthorizeNetOrderText(lineItemDescription || "Booking payment", 255);
 
-  const hostedPaymentReturnOptions = JSON.stringify({
-    showReceipt: true,
-    url: String(successUrl),
-    urlText: "Continue",
-    cancelUrl: String(cancelUrl),
-    cancelUrlText: "Cancel",
-  });
-
-  const requestBody = {
-    getHostedPaymentPageRequest: {
-      merchantAuthentication: {
-        name: apiLoginId,
-        transactionKey,
-      },
-      refId: transactionRef.slice(0, 20),
-      transactionRequest: {
-        transactionType: "authCaptureTransaction",
-        amount,
-        order: {
-          invoiceNumber: transactionRef.slice(0, 20),
-          description: sanitizeAuthorizeNetOrderText(lineItemDescription || "Booking payment", 255),
-        },
-      },
-      hostedPaymentSettings: {
-        setting: [
-          {
-            settingName: "hostedPaymentReturnOptions",
-            settingValue: hostedPaymentReturnOptions,
-          },
-          {
-            settingName: "hostedPaymentButtonOptions",
-            settingValue: JSON.stringify({ text: "Pay" }),
-          },
-        ],
-      },
+  const { token } = await requestAuthorizeNetHostedPaymentToken({
+    apiLoginId,
+    transactionKey,
+    amount,
+    returnUrl: successUrl,
+    cancelUrl,
+    refId: transactionRef.slice(0, 20),
+    order: {
+      invoiceNumber: transactionRef.slice(0, 20),
+      description: desc || "Booking payment",
     },
-  };
-
-  const res = await fetch(apiUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(requestBody),
+    lineItem: {
+      itemId: "1",
+      name: (desc || "Booking payment").slice(0, 31),
+      description: desc || "Booking payment",
+      quantity: "1",
+      unitPrice: amount,
+    },
   });
-
-  const text = await res.text();
-  if (!res.ok) {
-    console.error("[Authorize.net] Request failed:", res.status, text.slice(0, 500));
-    throw new Error(`Authorize.net failed (${res.status}): ${text.slice(0, 300)}`);
-  }
-
-  type AuthNetMessages = { resultCode?: string; message?: { code?: string; text?: string }[] };
-  type AuthNetResp = { token?: string; messages?: AuthNetMessages; getHostedPaymentPageResponse?: { token?: string; messages?: AuthNetMessages } };
-  let data: AuthNetResp;
-  try {
-    data = JSON.parse(text) as AuthNetResp;
-  } catch {
-    console.error("[Authorize.net] Invalid JSON response:", text.slice(0, 200));
-    throw new Error("Authorize.net returned invalid response");
-  }
-
-  const resp = data.getHostedPaymentPageResponse ?? data;
-  const messages = resp.messages;
-  if (messages?.resultCode === "Error") {
-    const errText = messages.message?.map((m) => m.text).filter(Boolean).join("; ") ?? "Unknown error";
-    console.error("[Authorize.net] API error:", errText);
-    throw new Error(`Authorize.net: ${errText}`);
-  }
-
-  const token = resp.token ?? data.token;
-  if (!token) {
-    console.error("[Authorize.net] Response missing token:", data);
-    throw new Error("Authorize.net did not return a payment token");
-  }
 
   const baseUrl = normalizeUrlForAuthorizeNetHostedReturn(
     ensureAbsoluteAppBase(process.env.NEXT_PUBLIC_APP_URL || origin)

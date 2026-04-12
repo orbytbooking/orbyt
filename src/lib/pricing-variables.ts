@@ -1,4 +1,23 @@
 import { supabase, supabaseAdmin } from '@/lib/supabaseClient';
+import { normalizeFrequencyPopupDisplay } from '@/lib/frequencyPopupDisplay';
+
+export type PricingVariableDisplay =
+  | 'customer_frontend_backend_admin'
+  | 'customer_backend_admin'
+  | 'admin_only';
+
+const PRICING_VARIABLE_DISPLAYS: readonly PricingVariableDisplay[] = [
+  'customer_frontend_backend_admin',
+  'customer_backend_admin',
+  'admin_only',
+];
+
+export function normalizePricingVariableDisplay(raw: string | undefined | null): PricingVariableDisplay {
+  const t = String(raw ?? '').trim();
+  return (PRICING_VARIABLE_DISPLAYS as readonly string[]).includes(t)
+    ? (t as PricingVariableDisplay)
+    : 'customer_frontend_backend_admin';
+}
 
 export interface PricingVariableRow {
   id: string;
@@ -8,6 +27,16 @@ export interface PricingVariableRow {
   category: string;
   description: string;
   is_active: boolean;
+  /** Present after migration `112_pricing_variable_customer_end`. */
+  different_on_customer_end?: boolean;
+  customer_end_name?: string | null;
+  /** After migration `113_pricing_variable_display_popup`. */
+  show_explanation_icon_on_form?: boolean;
+  explanation_tooltip_text?: string | null;
+  enable_popup_on_selection?: boolean;
+  popup_content?: string | null;
+  popup_display?: string;
+  display?: string;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -20,6 +49,14 @@ export interface CreatePricingVariableData {
   category: string;
   description?: string;
   is_active?: boolean;
+  different_on_customer_end?: boolean;
+  customer_end_name?: string | null;
+  show_explanation_icon_on_form?: boolean;
+  explanation_tooltip_text?: string | null;
+  enable_popup_on_selection?: boolean;
+  popup_content?: string | null;
+  popup_display?: string;
+  display?: string;
   sort_order?: number;
 }
 
@@ -28,6 +65,14 @@ export interface UpdatePricingVariableData {
   category?: string;
   description?: string;
   is_active?: boolean;
+  different_on_customer_end?: boolean;
+  customer_end_name?: string | null;
+  show_explanation_icon_on_form?: boolean;
+  explanation_tooltip_text?: string | null;
+  enable_popup_on_selection?: boolean;
+  popup_content?: string | null;
+  popup_display?: string;
+  display?: string;
   sort_order?: number;
 }
 
@@ -38,6 +83,14 @@ export interface PricingVariablePayload {
   category: string;
   description?: string;
   is_active: boolean;
+  different_on_customer_end?: boolean;
+  customer_end_name?: string | null;
+  show_explanation_icon_on_form?: boolean;
+  explanation_tooltip_text?: string | null;
+  enable_popup_on_selection?: boolean;
+  popup_content?: string | null;
+  popup_display?: string;
+  display?: string;
 }
 
 class PricingVariablesService {
@@ -120,23 +173,34 @@ class PricingVariablesService {
 
     for (let i = 0; i < variables.length; i++) {
       const v = variables[i];
+      const sharedFields = {
+        name: v.name,
+        category: v.category,
+        description: v.description ?? '',
+        is_active: v.is_active ?? true,
+        different_on_customer_end: Boolean(v.different_on_customer_end),
+        customer_end_name:
+          v.different_on_customer_end && v.customer_end_name != null && String(v.customer_end_name).trim()
+            ? String(v.customer_end_name).trim()
+            : null,
+        show_explanation_icon_on_form: Boolean(v.show_explanation_icon_on_form),
+        explanation_tooltip_text:
+          v.show_explanation_icon_on_form && v.explanation_tooltip_text != null && String(v.explanation_tooltip_text).trim()
+            ? String(v.explanation_tooltip_text).trim()
+            : null,
+        enable_popup_on_selection: Boolean(v.enable_popup_on_selection),
+        popup_content: v.enable_popup_on_selection ? (v.popup_content ?? '') : '',
+        popup_display: normalizeFrequencyPopupDisplay(v.popup_display),
+        display: normalizePricingVariableDisplay(v.display),
+        sort_order: i,
+      };
       if (v.id && existingIds.has(v.id)) {
-        await this.update(v.id, {
-          name: v.name,
-          category: v.category,
-          description: v.description ?? '',
-          is_active: v.is_active ?? true,
-          sort_order: i,
-        });
+        await this.update(v.id, sharedFields);
       } else {
         await this.create({
           industry_id: industryId,
           business_id: businessId,
-          name: v.name,
-          category: v.category,
-          description: v.description ?? '',
-          is_active: v.is_active ?? true,
-          sort_order: i,
+          ...sharedFields,
         });
       }
     }

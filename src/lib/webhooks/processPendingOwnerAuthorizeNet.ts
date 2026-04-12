@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { PENDING_OWNER_EMAIL_CONFLICT_MESSAGE } from "@/lib/auth-helpers";
 import { syncPlatformSubscriptionAuthorizeNetRow } from "@/lib/platform-billing/applyPlatformSubscriptionFromAuthorizeNet";
 import { decryptPendingOwnerPassword } from "@/lib/pendingOwnerCrypto";
 import type { PendingOwnerPayload } from "@/lib/webhooks/processPendingOwnerCheckout";
@@ -8,21 +9,6 @@ function sanitizeOwnerEmail(raw: string): string {
     .trim()
     .toLowerCase()
     .replace(/[\u200b-\u200d\ufeff]/g, "");
-}
-
-async function findUserIdByEmail(admin: SupabaseClient, email: string): Promise<string | null> {
-  const target = email.trim().toLowerCase();
-  let page = 1;
-  const perPage = 1000;
-  for (let i = 0; i < 50; i++) {
-    const { data } = await admin.auth.admin.listUsers({ page, per_page: perPage });
-    const u = data?.users?.find((x) => x.email?.toLowerCase() === target);
-    if (u?.id) return u.id;
-    const users = data?.users ?? [];
-    if (users.length < perPage) break;
-    page++;
-  }
-  return null;
 }
 
 /**
@@ -103,25 +89,12 @@ export async function processPendingOwnerAuthorizeNet(params: {
 
   if (createErr) {
     const msg = createErr.message?.toLowerCase() ?? "";
-    if (msg.includes("already") || msg.includes("registered")) {
-      userId = await findUserIdByEmail(supabase, email);
-      if (!userId) {
-        console.error("[pendingOwner AuthNet] duplicate email but user not found:", createErr);
-        return { ok: false, error: "create_user_failed" };
-      }
-      await supabase.auth.admin
-        .updateUserById(userId, {
-          user_metadata: {
-            full_name: payload.fullName,
-            role: "owner",
-            phone: payload.phone || "",
-          },
-        })
-        .catch((e) => console.warn("[pendingOwner AuthNet] updateUser metadata:", e));
-    } else {
-      console.error("[pendingOwner AuthNet] createUser:", createErr);
-      return { ok: false, error: createErr.message };
+    if (msg.includes("already") || msg.includes("registered") || msg.includes("duplicate")) {
+      console.warn("[pendingOwner AuthNet] createUser rejected duplicate email:", email);
+      return { ok: false, error: PENDING_OWNER_EMAIL_CONFLICT_MESSAGE };
     }
+    console.error("[pendingOwner AuthNet] createUser:", createErr);
+    return { ok: false, error: createErr.message };
   } else if (created?.user?.id) {
     userId = created.user.id;
     await supabase.auth.admin

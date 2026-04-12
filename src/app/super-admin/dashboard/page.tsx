@@ -156,6 +156,7 @@ interface PlatformSubscriptionRow {
   current_period_end: string | null;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
+  authorize_net_subscription_id: string | null;
   updated_at: string | null;
 }
 
@@ -172,6 +173,8 @@ interface BillingData {
   };
   platformSubscriptions?: PlatformSubscriptionRow[];
   paymentIssueCounts?: { failed: number; refunded: number; pending: number };
+  /** Workspace (Orbyt) plan billing — default authorize_net */
+  platformBillingProvider?: 'stripe' | 'authorize_net';
 }
 
 interface ChartData {
@@ -235,6 +238,7 @@ interface SupportTicket {
 }
 
 interface BusinessDetailData {
+  platformBillingProvider?: 'stripe' | 'authorize_net';
   business: {
     id: string;
     name: string;
@@ -278,6 +282,9 @@ interface BusinessDetailData {
     currentPeriodEnd?: string;
     stripeCustomerId?: string | null;
     stripeSubscriptionId?: string | null;
+    authorizeNetCustomerProfileId?: string | null;
+    authorizeNetPaymentProfileId?: string | null;
+    authorizeNetSubscriptionId?: string | null;
   };
   recentSubscriptionPayments?: Array<{ paid_at: string; amount_cents: number; description?: string }>;
   paymentIssueCounts?: { failed: number; refunded: number; pending: number };
@@ -625,6 +632,7 @@ function SuperAdminDashboardInner() {
     upcomingPayments: { totalAmount: 0, count: 0, items: [] },
     platformSubscriptions: [],
     paymentIssueCounts: { failed: 0, refunded: 0, pending: 0 },
+    platformBillingProvider: 'authorize_net',
   });
   const [billingTableFilter, setBillingTableFilter] = useState<'all' | 'attention' | 'active' | 'past_due' | 'canceled'>('all');
 
@@ -792,6 +800,7 @@ function SuperAdminDashboardInner() {
         upcomingPayments: { totalAmount: 0, count: 0, items: [] },
         platformSubscriptions: [],
         paymentIssueCounts: { failed: 0, refunded: 0, pending: 0 },
+        platformBillingProvider: 'authorize_net',
       });
       void fetchHeaderNotifications();
     } catch (error) {
@@ -1196,7 +1205,16 @@ function SuperAdminDashboardInner() {
     setBusinessDetailError(null);
   };
 
+  const workspacePlatformUsesStripe =
+    (billingData.platformBillingProvider ?? "authorize_net") === "stripe";
+
   const openBillingPortal = async (businessId: string) => {
+    if (!workspacePlatformUsesStripe) {
+      alert(
+        "Workspace plans use Authorize.Net. Open your Authorize.Net merchant account to manage ARB subscriptions and payment profiles."
+      );
+      return;
+    }
     setBillingPortalLoadingId(businessId);
     try {
       const res = await fetch("/api/super-admin/billing/portal", {
@@ -3275,7 +3293,8 @@ function SuperAdminDashboardInner() {
                     Billing &amp; subscriptions
                   </h2>
                   <p className="text-gray-600 mt-1">
-                    Platform plans, payment health, and revenue — pair with Stripe for refunds and failed charges
+                    Platform plans, payment health, and revenue — workspace billing uses Authorize.Net by default (Stripe if{" "}
+                    <code className="text-xs bg-gray-100 px-1 rounded">PLATFORM_BILLING_PROVIDER=stripe</code>)
                   </p>
                 </div>
                 <button
@@ -3288,7 +3307,9 @@ function SuperAdminDashboardInner() {
                 </button>
               </div>
 
-              <SuperAdminBillingPlaybook />
+              <SuperAdminBillingPlaybook
+                platformBillingProvider={billingData.platformBillingProvider ?? "authorize_net"}
+              />
 
               {(() => {
                 const subs = billingData.platformSubscriptions ?? [];
@@ -3367,7 +3388,9 @@ function SuperAdminDashboardInner() {
                               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Plan</th>
                               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period end</th>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stripe</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                {workspacePlatformUsesStripe ? "Stripe sub" : "ARB sub"}
+                              </th>
                               <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                             </tr>
                           </thead>
@@ -3396,8 +3419,21 @@ function SuperAdminDashboardInner() {
                                       ? new Date(row.current_period_end).toLocaleDateString(undefined, { dateStyle: 'medium' })
                                       : '—'}
                                   </td>
-                                  <td className="px-4 py-3 text-xs text-gray-500 font-mono max-w-[140px] truncate" title={row.stripe_subscription_id ?? ''}>
-                                    {row.stripe_subscription_id ? `${row.stripe_subscription_id.slice(0, 14)}…` : '—'}
+                                  <td
+                                    className="px-4 py-3 text-xs text-gray-500 font-mono max-w-[140px] truncate"
+                                    title={
+                                      workspacePlatformUsesStripe
+                                        ? (row.stripe_subscription_id ?? "")
+                                        : (row.authorize_net_subscription_id ?? "")
+                                    }
+                                  >
+                                    {workspacePlatformUsesStripe
+                                      ? row.stripe_subscription_id
+                                        ? `${row.stripe_subscription_id.slice(0, 14)}…`
+                                        : "—"
+                                      : row.authorize_net_subscription_id
+                                        ? `${row.authorize_net_subscription_id.slice(0, 14)}…`
+                                        : "—"}
                                   </td>
                                   <td className="px-4 py-3 text-right">
                                     <button
@@ -3407,14 +3443,18 @@ function SuperAdminDashboardInner() {
                                     >
                                       Details
                                     </button>
-                                    <button
-                                      type="button"
-                                      disabled={!!billingPortalLoadingId}
-                                      onClick={() => void openBillingPortal(row.business_id)}
-                                      className="inline-flex items-center text-emerald-700 hover:text-emerald-900 text-xs font-medium disabled:opacity-50"
-                                    >
-                                      Stripe portal
-                                    </button>
+                                    {workspacePlatformUsesStripe ? (
+                                      <button
+                                        type="button"
+                                        disabled={!!billingPortalLoadingId}
+                                        onClick={() => void openBillingPortal(row.business_id)}
+                                        className="inline-flex items-center text-emerald-700 hover:text-emerald-900 text-xs font-medium disabled:opacity-50"
+                                      >
+                                        Stripe portal
+                                      </button>
+                                    ) : (
+                                      <span className="text-xs text-gray-400">Authorize.Net</span>
+                                    )}
                                   </td>
                                 </tr>
                               ))
@@ -3799,7 +3839,18 @@ function SuperAdminDashboardInner() {
                 </div>
               )}
               {businessDetailData && !businessDetailLoading && (() => {
-                const { business, counts, totalRevenue, storageUsedBytes = 0, storageLimitBytes = 1 * 1024 * 1024 * 1024, recentBookings, subscription, recentSubscriptionPayments } = businessDetailData;
+                const {
+                  business,
+                  counts,
+                  totalRevenue,
+                  storageUsedBytes = 0,
+                  storageLimitBytes = 1 * 1024 * 1024 * 1024,
+                  recentBookings,
+                  platformBillingProvider: detailPlatformProvider,
+                  subscription,
+                  recentSubscriptionPayments,
+                } = businessDetailData;
+                const detailWorkspaceUsesStripe = (detailPlatformProvider ?? "authorize_net") === "stripe";
                 const teamProfiles = counts.team_profiles ?? 0;
                 const formatStorage = (bytes: number) => {
                   if (bytes === 0) return '0 B';
@@ -3951,17 +4002,24 @@ function SuperAdminDashboardInner() {
                             )}
                           </div>
                           <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-2">
-                            <button
-                              type="button"
-                              className="inline-flex items-center justify-center px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-                              disabled={billingPortalLoadingId === business.id}
-                              onClick={() => void openBillingPortal(business.id)}
-                            >
-                              {billingPortalLoadingId === business.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                              ) : null}
-                              Open Stripe portal
-                            </button>
+                            {detailWorkspaceUsesStripe ? (
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                                disabled={billingPortalLoadingId === business.id}
+                                onClick={() => void openBillingPortal(business.id)}
+                              >
+                                {billingPortalLoadingId === business.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                ) : null}
+                                Open Stripe portal
+                              </button>
+                            ) : (
+                              <p className="text-xs text-gray-600 max-w-md">
+                                Workspace billing: <strong>Authorize.Net</strong> — manage ARB/CIM in your merchant
+                                dashboard (sandbox or production).
+                              </p>
+                            )}
                             <button
                               type="button"
                               className="inline-flex items-center justify-center px-3 py-2 bg-gray-100 text-gray-800 rounded-lg text-sm font-medium hover:bg-gray-200"
@@ -3972,8 +4030,11 @@ function SuperAdminDashboardInner() {
                             >
                               Change plan
                             </button>
-                            {(subscription.stripeCustomerId || subscription.stripeSubscriptionId) && (
-                              <div className="text-xs text-gray-500 sm:text-right flex flex-col sm:items-end">
+                            {(subscription.stripeCustomerId ||
+                              subscription.stripeSubscriptionId ||
+                              subscription.authorizeNetSubscriptionId ||
+                              subscription.authorizeNetCustomerProfileId) && (
+                              <div className="text-xs text-gray-500 sm:text-right flex flex-col sm:items-end gap-1">
                                 {subscription.stripeCustomerId ? (
                                   <div className="break-all">
                                     Stripe customer: <span className="font-mono">{subscription.stripeCustomerId}</span>
@@ -3982,6 +4043,17 @@ function SuperAdminDashboardInner() {
                                 {subscription.stripeSubscriptionId ? (
                                   <div className="break-all">
                                     Stripe subscription: <span className="font-mono">{subscription.stripeSubscriptionId}</span>
+                                  </div>
+                                ) : null}
+                                {subscription.authorizeNetCustomerProfileId ? (
+                                  <div className="break-all">
+                                    ANet profile:{" "}
+                                    <span className="font-mono">{subscription.authorizeNetCustomerProfileId}</span>
+                                  </div>
+                                ) : null}
+                                {subscription.authorizeNetSubscriptionId ? (
+                                  <div className="break-all">
+                                    ANet ARB: <span className="font-mono">{subscription.authorizeNetSubscriptionId}</span>
                                   </div>
                                 ) : null}
                               </div>
