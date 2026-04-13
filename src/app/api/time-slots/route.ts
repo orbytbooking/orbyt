@@ -12,7 +12,6 @@ import {
   normalizeTimeToHHmm,
   filterDisplaySlotsByReservedBlocks,
   buildReserveCustomerSlotDisplaysForDate,
-  filterDisplaySlotsByProviderWindows,
 } from '@/lib/schedulingFilters';
 import type { ReserveSlotSettings } from '@/lib/schedulingFilters';
 
@@ -98,26 +97,32 @@ export async function GET(request: Request) {
 
     const useProviderAvailability = storeOpts?.spots_based_on_provider_availability ?? true;
 
-    // Reserve Slot "Maximum" defines the customer booking grid when that weekday is enabled (30-min spots, etc.)
+    // Calendar weekday for YYYY-MM-DD (avoid Date.parse UTC/local mismatch)
+    const dayOfWeek = date ? getCalendarDayOfWeek(date) : new Date().getDay();
+
+    const { data: availabilityData, error: availabilityError } = await supabaseAdmin
+      .from('provider_availability')
+      .select('start_time, end_time')
+      .eq('business_id', businessId)
+      .eq('day_of_week', dayOfWeek)
+      .eq('is_available', true)
+      .order('start_time');
+
+    if (availabilityError) {
+      console.error('Error fetching time slots:', availabilityError);
+      return NextResponse.json({ error: 'Failed to fetch time slots' }, { status: 500 });
+    }
+
+    const availability = availabilityData ?? [];
+    const hasProviderAvailabilityForSlots =
+      useProviderAvailability && availability.length > 0;
+
     const { settings: reserveSettings } = await getReserveSlotSettingsAndBlocks(businessId);
     const reserveDisplays = date ? buildReserveCustomerSlotDisplaysForDate(reserveSettings, date) : null;
 
-    if (date && reserveDisplays?.length) {
-      let slots = reserveDisplays;
-      if (useProviderAvailability) {
-        const dayOfWeek = getCalendarDayOfWeek(date);
-        const { data: availabilityRows } = await supabaseAdmin
-          .from('provider_availability')
-          .select('start_time, end_time')
-          .eq('business_id', businessId)
-          .eq('day_of_week', dayOfWeek)
-          .eq('is_available', true)
-          .order('start_time');
-        if (availabilityRows?.length) {
-          slots = filterDisplaySlotsByProviderWindows(slots, availabilityRows);
-        }
-      }
-      const filtered = await applyReserveSlotPipeline(slots, businessId, date, supabaseAdmin);
+    // Reserve "Maximum" grid only when not using provider windows for this day (fallback template)
+    if (date && reserveDisplays?.length && !hasProviderAvailabilityForSlots) {
+      const filtered = await applyReserveSlotPipeline(reserveDisplays, businessId, date, supabaseAdmin);
       return NextResponse.json({ timeSlots: filtered });
     }
 
@@ -132,26 +137,6 @@ export async function GET(request: Request) {
       }
       const filtered = await applyReserveSlotPipeline(defaultSlots, businessId, date, supabaseAdmin);
       return NextResponse.json({ timeSlots: filtered });
-    }
-
-    // Calendar weekday for YYYY-MM-DD (avoid Date.parse UTC/local mismatch)
-    let dayOfWeek = new Date().getDay(); // Default to today
-    if (date) {
-      dayOfWeek = getCalendarDayOfWeek(date);
-    }
-
-    // Fetch provider availability for the given day of week and business
-    const { data: availability, error } = await supabaseAdmin
-      .from('provider_availability')
-      .select('start_time, end_time')
-      .eq('business_id', businessId)
-      .eq('day_of_week', dayOfWeek)
-      .eq('is_available', true)
-      .order('start_time');
-
-    if (error) {
-      console.error('Error fetching time slots:', error);
-      return NextResponse.json({ error: 'Failed to fetch time slots' }, { status: 500 });
     }
 
     // Convert time slots to readable format and generate full range
