@@ -18,6 +18,7 @@ import {
   History,
   CircleOff,
   HardDrive,
+  Image as ImageIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PlatformNotificationBell } from "@/components/notifications/PlatformNotificationBell";
@@ -78,11 +79,19 @@ type CustomerSidebarProps = {
   onLogout: () => void;
 };
 
-export const CustomerSidebar = ({ customerName, customerEmail, initials, businessName, onLogout }: CustomerSidebarProps) => {
+export const CustomerSidebar = ({
+  customerName,
+  customerEmail,
+  initials,
+  businessName,
+  onLogout,
+}: CustomerSidebarProps) => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const businessId = searchParams?.get("business") ?? "";
   const [myDriveEnabled, setMyDriveEnabled] = useState(false);
+  const [portalLogoUrl, setPortalLogoUrl] = useState<string | null>(null);
+  const [builderCompanyName, setBuilderCompanyName] = useState<string | null>(null);
 
   useEffect(() => {
     if (!businessId) {
@@ -103,6 +112,44 @@ export const CustomerSidebar = ({ customerName, customerEmail, initials, busines
     };
   }, [businessId]);
 
+  /** Logo and name from website builder JSON only (`business_website_configs`), not businesses.logo_url. */
+  useEffect(() => {
+    if (!businessId) {
+      setPortalLogoUrl(null);
+      setBuilderCompanyName(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/public/website-config?business_id=${encodeURIComponent(businessId)}`)
+      .then((r) => r.json())
+      .then((wc) => {
+        if (cancelled) return;
+        const config = wc?.config;
+        const headerData = config?.sections?.find((s: { type?: string }) => s.type === "header")?.data as
+          | { logo?: string; companyName?: string }
+          | undefined;
+        const headerLogo = headerData?.logo?.trim?.() ?? "";
+        const brandingLogo = config?.branding?.logo?.trim?.() ?? "";
+        // Header section is what the Website Builder edits for "Header Logo"; prefer it over stale branding.
+        const raw = headerLogo || brandingLogo;
+        const safe = raw && !raw.startsWith("blob:") ? raw : "";
+        setPortalLogoUrl(safe || null);
+
+        const headerName = headerData?.companyName?.trim?.() ?? "";
+        const brandName = config?.branding?.companyName?.trim?.() ?? "";
+        setBuilderCompanyName(headerName || brandName || null);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPortalLogoUrl(null);
+          setBuilderCompanyName(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId]);
+
   const hrefWithBusiness = (path: string) =>
     businessId ? `${path}${path.includes("?") ? "&" : "?"}business=${businessId}` : path;
 
@@ -110,12 +157,29 @@ export const CustomerSidebar = ({ customerName, customerEmail, initials, busines
     ? [...baseCustomerNavItems.slice(0, 2), myDriveNavItem, ...baseCustomerNavItems.slice(2)]
     : baseCustomerNavItems;
 
+  const sidebarBusinessTitle = builderCompanyName || businessName;
+
   return (
     <aside className="order-2 bg-background/90 border-t border-border px-6 py-6 lg:order-1 lg:border-t-0 lg:border-r lg:min-h-screen flex flex-col">
       <div className="mb-6 flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-sm font-bold uppercase tracking-[0.4em] text-foreground">{businessName}</p>
-          <p className="text-sm text-muted-foreground">Customer Portal</p>
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          {portalLogoUrl ? (
+            <img
+              src={portalLogoUrl}
+              alt={sidebarBusinessTitle || "Business"}
+              className="h-10 w-10 shrink-0 rounded-lg object-cover"
+            />
+          ) : (
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
+              <ImageIcon className="h-5 w-5 text-muted-foreground" />
+            </div>
+          )}
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-bold" style={{ color: "#0C2B4E" }}>
+              {sidebarBusinessTitle || "Business"}
+            </h1>
+            <p className="text-xs text-muted-foreground">Customer Portal</p>
+          </div>
         </div>
         <PlatformNotificationBell
           apiBase="/api/customer/notifications"
@@ -152,14 +216,14 @@ export const CustomerSidebar = ({ customerName, customerEmail, initials, busines
         })}
       </nav>
       <DropdownMenu>
-        <DropdownMenuTrigger className="border-t border-border pt-4 text-left focus:outline-none">
+        <DropdownMenuTrigger className="border-t border-border pt-4 text-left focus:outline-none w-full">
           <div className="flex items-center gap-3">
             <Avatar className="h-10 w-10">
               <AvatarFallback>{initials}</AvatarFallback>
             </Avatar>
-            <div>
+            <div className="min-w-0 text-left">
               <p className="text-sm font-semibold">{customerName}</p>
-              <p className="text-xs text-muted-foreground">{customerEmail}</p>
+              <p className="text-xs text-muted-foreground truncate">{customerEmail}</p>
             </div>
           </div>
         </DropdownMenuTrigger>

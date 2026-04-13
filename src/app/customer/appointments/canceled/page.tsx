@@ -1,17 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Clock, CircleOff, Search } from "lucide-react";
+import { CircleOff, Search } from "lucide-react";
 
 import { CustomerSidebar } from "@/components/customer/CustomerSidebar";
 import { BookingsTable } from "@/components/customer/BookingsTable";
 import { useCustomerBookings } from "@/hooks/useCustomerBookings";
 import { useCustomerAccount } from "@/hooks/useCustomerAccount";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const CustomerCanceledAppointmentsPage = () => {
   const { bookings, loading: bookingsLoading } = useCustomerBookings();
-  const { customerName, customerEmail, customerAccount, accountLoading, handleLogout } = useCustomerAccount();
+  const { customerName, customerEmail, customerAccount, handleLogout } = useCustomerAccount();
   const [search, setSearch] = useState("");
 
   const canceledBookings = useMemo(
@@ -31,7 +32,6 @@ const CustomerCanceledAppointmentsPage = () => {
     );
   }, [canceledBookings, search]);
 
-  const firstName = customerName.split(" ")[0] || "Customer";
   const initials = useMemo(() => (
     customerName
       .split(" ")
@@ -40,17 +40,6 @@ const CustomerCanceledAppointmentsPage = () => {
       .map((part) => part[0]?.toUpperCase() ?? "")
       .join("") || "PP"
   ), [customerName]);
-
-  if (bookingsLoading || accountLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-muted/40">
-        <div className="flex flex-col items-center gap-3 text-muted-foreground">
-          <Clock className="h-8 w-8 animate-spin" />
-          <p>Loading your appointments...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-muted/20 text-foreground">
@@ -90,10 +79,25 @@ const CustomerCanceledAppointmentsPage = () => {
               </div>
             </div>
 
-            <BookingsTable
-              bookings={filteredBookings}
-              emptyMessage="You haven’t canceled any appointments yet."
-            />
+            {bookingsLoading ? (
+              <div className="space-y-3 rounded-xl border border-border bg-card p-6 shadow-sm">
+                <div className="flex gap-3 border-b border-border pb-4">
+                  <Skeleton className="h-4 flex-1 max-w-[140px]" />
+                  <Skeleton className="h-4 flex-1 max-w-[120px]" />
+                  <Skeleton className="h-4 flex-1 max-w-[100px]" />
+                  <Skeleton className="h-4 flex-1 max-w-[80px]" />
+                  <Skeleton className="h-4 w-20 ml-auto shrink-0" />
+                </div>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} className="h-14 w-full rounded-lg" />
+                ))}
+              </div>
+            ) : (
+              <BookingsTable
+                bookings={filteredBookings}
+                emptyMessage="You haven’t canceled any appointments yet."
+              />
+            )}
           </main>
         </div>
       </div>

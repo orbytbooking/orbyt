@@ -2,13 +2,14 @@
 
 import { useMemo, useState, useCallback, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Clock, History, Search, Star } from "lucide-react";
+import { History, Search, Star } from "lucide-react";
 
 import { CustomerSidebar } from "@/components/customer/CustomerSidebar";
 import { BookingsTable } from "@/components/customer/BookingsTable";
 import { useCustomerBookings } from "@/hooks/useCustomerBookings";
 import { useCustomerAccount } from "@/hooks/useCustomerAccount";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Booking } from "@/lib/customer-bookings";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
@@ -50,7 +51,7 @@ const CustomerAppointmentsHistoryPage = () => {
   const searchParams = useSearchParams();
   const businessId = searchParams?.get("business") ?? "";
   const { bookings, loading: bookingsLoading, updateBookings } = useCustomerBookings();
-  const { customerName, customerEmail, customerAccount, accountLoading, handleLogout } = useCustomerAccount();
+  const { customerName, customerEmail, customerAccount, handleLogout } = useCustomerAccount();
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
@@ -109,7 +110,6 @@ const CustomerAppointmentsHistoryPage = () => {
     );
   }, [completedBookings, search]);
 
-  const firstName = customerName.split(" ")[0] || "Customer";
   const initials = useMemo(() => (
     customerName
       .split(" ")
@@ -221,17 +221,6 @@ const CustomerAppointmentsHistoryPage = () => {
     closeTipDialog();
   }, [activeTipBooking, updateBookings, toast, closeTipDialog]);
 
-  if (bookingsLoading || accountLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-muted/40">
-        <div className="flex flex-col items-center gap-3 text-muted-foreground">
-          <Clock className="h-8 w-8 animate-spin" />
-          <p>Loading your appointments...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-muted/20 text-foreground">
       <div className="min-h-screen flex flex-col lg:grid lg:grid-cols-[280px_1fr]">
@@ -270,6 +259,20 @@ const CustomerAppointmentsHistoryPage = () => {
               </div>
             </div>
 
+            {bookingsLoading ? (
+              <div className="space-y-3 rounded-xl border border-border bg-card p-6 shadow-sm">
+                <div className="flex gap-3 border-b border-border pb-4">
+                  <Skeleton className="h-4 flex-1 max-w-[140px]" />
+                  <Skeleton className="h-4 flex-1 max-w-[120px]" />
+                  <Skeleton className="h-4 flex-1 max-w-[100px]" />
+                  <Skeleton className="h-4 flex-1 max-w-[80px]" />
+                  <Skeleton className="h-4 w-20 ml-auto shrink-0" />
+                </div>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} className="h-14 w-full rounded-lg" />
+                ))}
+              </div>
+            ) : (
             <BookingsTable
               bookings={filteredBookings}
               emptyMessage="You have no completed appointments yet. They'll show up here once a service is done."
@@ -280,6 +283,7 @@ const CustomerAppointmentsHistoryPage = () => {
                 { label: "Book again", onSelect: () => handleBookAgain(booking) },
               ]}
             />
+            )}
           </main>
         </div>
       </div>

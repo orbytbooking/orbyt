@@ -3,9 +3,21 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Calendar, Clock, DollarSign, LayoutDashboard, MapPin, Search, User } from "lucide-react";
+import {
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  DollarSign,
+  LayoutDashboard,
+  List,
+  MapPin,
+  Search,
+  User,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { BookingsTable } from "@/components/customer/BookingsTable";
 import { CustomerBookingPaymentSummary } from "@/components/customer/CustomerBookingPaymentSummary";
 import { CustomerSidebar } from "@/components/customer/CustomerSidebar";
@@ -19,9 +31,11 @@ import { useCustomerBookings } from "@/hooks/useCustomerBookings";
 import { useCustomerAccount } from "@/hooks/useCustomerAccount";
 import { Booking } from "@/lib/customer-bookings";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
 import { getSupabaseCustomerClient } from "@/lib/supabaseCustomerClient";
 import { resolveBookingDurationMinutes } from "@/lib/bookingDuration";
+import { cn } from "@/lib/utils";
 
 const formatDate = (dateStr: string) => {
   const d = new Date(dateStr);
@@ -74,9 +88,14 @@ const CustomerAppointmentsPage = () => {
   const searchParams = useSearchParams();
   const businessId = searchParams?.get("business") ?? "";
   const { bookings, loading: bookingsLoading, updateBookings, refreshBookings } = useCustomerBookings();
-  const { customerName, customerEmail, customerAccount, accountLoading, handleLogout } = useCustomerAccount();
+  const { customerName, customerEmail, customerAccount, handleLogout } = useCustomerAccount();
   const { toast } = useToast();
   const [search, setSearch] = useState("");
+  const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), 1);
+  });
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [detailsBooking, setDetailsBooking] = useState<Booking | null>(null);
   const [cancelDialogBooking, setCancelDialogBooking] = useState<Booking | null>(null);
@@ -140,6 +159,66 @@ const CustomerAppointmentsPage = () => {
         booking.id.toLowerCase().includes(term),
     );
   }, [sortedBookings, search]);
+
+  const formatDateKey = (date: Date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
+
+  const bookingsByDate = useMemo(() => {
+    return filteredBookings.reduce<Record<string, Booking[]>>((acc, booking) => {
+      const key = booking?.date;
+      if (!key) return acc;
+      acc[key] = acc[key] ? [...acc[key], booking] : [booking];
+      return acc;
+    }, {});
+  }, [filteredBookings]);
+
+  const calendarDays = useMemo(() => {
+    const startDate = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
+    const endDate = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0);
+
+    const calendarStart = new Date(startDate);
+    calendarStart.setDate(startDate.getDate() - startDate.getDay());
+
+    const calendarEnd = new Date(endDate);
+    calendarEnd.setDate(endDate.getDate() + (6 - endDate.getDay()));
+
+    const today = new Date().toDateString();
+    const days: { date: Date; iso: string; isCurrentMonth: boolean; isToday: boolean }[] = [];
+    const current = new Date(calendarStart);
+
+    while (current <= calendarEnd) {
+      const iso = formatDateKey(current);
+      days.push({
+        date: new Date(current),
+        iso,
+        isCurrentMonth: current.getMonth() === calendarMonth.getMonth(),
+        isToday: current.toDateString() === today,
+      });
+      current.setDate(current.getDate() + 1);
+    }
+
+    return days;
+  }, [calendarMonth]);
+
+  const calendarMonthLabel = useMemo(
+    () => calendarMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+    [calendarMonth],
+  );
+
+  useEffect(() => {
+    if (sortedBookings.length === 0) return;
+    const earliest = new Date(sortedBookings[0].date);
+    setCalendarMonth((prev) => {
+      if (prev.getFullYear() === earliest.getFullYear() && prev.getMonth() === earliest.getMonth()) {
+        return prev;
+      }
+      return new Date(earliest.getFullYear(), earliest.getMonth(), 1);
+    });
+  }, [sortedBookings]);
 
   const firstName = customerName.split(" ")[0] || "Customer";
   const initials = useMemo(() => (
@@ -293,17 +372,6 @@ const CustomerAppointmentsPage = () => {
     }
   };
 
-  if (bookingsLoading || accountLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-muted/40">
-        <div className="flex flex-col items-center gap-3 text-muted-foreground">
-          <Clock className="h-8 w-8 animate-spin" />
-          <p>Loading your appointments...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-muted/20 text-foreground">
       <div className="min-h-screen flex flex-col lg:grid lg:grid-cols-[280px_1fr]">
@@ -329,8 +397,8 @@ const CustomerAppointmentsPage = () => {
           </header>
           <main className="flex-1 space-y-8 px-4 py-8 sm:px-6 lg:px-10">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex-1 min-w-[200px] max-w-md">
-                <div className="relative">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                <div className="relative min-w-[200px] max-w-md flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     value={search}
@@ -339,21 +407,167 @@ const CustomerAppointmentsPage = () => {
                     className="pl-9"
                   />
                 </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    type="button"
+                    variant={viewMode === "calendar" ? "default" : "outline"}
+                    size="icon"
+                    className={cn(
+                      "h-10 w-10 shrink-0 rounded-lg",
+                      viewMode === "calendar"
+                        ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                        : "bg-background text-foreground",
+                    )}
+                    title="Calendar view"
+                    aria-pressed={viewMode === "calendar"}
+                    onClick={() => setViewMode("calendar")}
+                  >
+                    <Calendar className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={viewMode === "list" ? "default" : "outline"}
+                    size="icon"
+                    className={cn(
+                      "h-10 w-10 shrink-0 rounded-lg",
+                      viewMode === "list"
+                        ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                        : "bg-background text-foreground",
+                    )}
+                    title="List view"
+                    aria-pressed={viewMode === "list"}
+                    onClick={() => setViewMode("list")}
+                  >
+                    <List className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
-              <Button asChild>
+              <Button asChild className="shrink-0">
                 <Link href={businessId ? `/book-now?business=${businessId}` : "/book-now"}>
                   Book a new appointment
                 </Link>
               </Button>
             </div>
 
-            <BookingsTable
-              bookings={filteredBookings}
-              emptyMessage="No appointments yet. Schedule your first service to get started."
-              onCancelBooking={handleCancelBookingClick}
-              onViewDetails={handleViewDetails}
-              onEditReschedule={handleEditReschedule}
-            />
+            {bookingsLoading ? (
+              <div className="space-y-3 rounded-xl border border-border bg-card p-6 shadow-sm">
+                <div className="flex gap-3 border-b border-border pb-4">
+                  <Skeleton className="h-4 flex-1 max-w-[140px]" />
+                  <Skeleton className="h-4 flex-1 max-w-[120px]" />
+                  <Skeleton className="h-4 flex-1 max-w-[100px]" />
+                  <Skeleton className="h-4 flex-1 max-w-[80px]" />
+                  <Skeleton className="h-4 w-20 ml-auto shrink-0" />
+                </div>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} className="h-14 w-full rounded-lg" />
+                ))}
+              </div>
+            ) : viewMode === "list" ? (
+              <BookingsTable
+                bookings={filteredBookings}
+                emptyMessage="No appointments yet. Schedule your first service to get started."
+                onCancelBooking={handleCancelBookingClick}
+                onViewDetails={handleViewDetails}
+                onEditReschedule={handleEditReschedule}
+              />
+            ) : (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-lg font-semibold">{calendarMonthLabel}</p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                        aria-label="Previous month"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                        aria-label="Next month"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-7 text-xs font-semibold text-muted-foreground">
+                    {"Sun Mon Tue Wed Thu Fri Sat".split(" ").map((label) => (
+                      <div key={label} className="text-center py-2">
+                        {label}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-7 gap-2 text-sm">
+                    {calendarDays.map((day) => {
+                      const events = bookingsByDate[day.iso] ?? [];
+                      return (
+                        <div
+                          key={day.iso}
+                          className={cn(
+                            "rounded-2xl border p-2 min-h-[120px] flex flex-col gap-1 transition",
+                            day.isCurrentMonth ? "bg-background" : "bg-muted/60",
+                            day.isToday && "ring-2 ring-primary",
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              "flex items-center justify-between text-xs font-semibold",
+                              day.isCurrentMonth ? "text-foreground" : "text-muted-foreground",
+                            )}
+                          >
+                            <span>{day.date.getDate()}</span>
+                            {events.length > 0 && (
+                              <span className="text-[10px] text-primary font-medium">{events.length}×</span>
+                            )}
+                          </div>
+                          <div className="space-y-1 overflow-y-auto max-h-[200px]">
+                            {events.map((event, idx) => {
+                              const st = event.status?.toLowerCase() ?? "";
+                              const chipClass =
+                                st === "completed"
+                                  ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                  : st === "canceled" || st === "cancelled"
+                                    ? "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300"
+                                    : st === "in_progress"
+                                      ? "bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
+                                      : "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-300";
+                              return (
+                                <button
+                                  key={`${event.id}-${event.occurrenceDate ?? event.date}-${event.time}-${idx}`}
+                                  type="button"
+                                  onClick={() => handleViewDetails(event)}
+                                  className={cn(
+                                    "w-full rounded-xl px-2 py-1 text-left text-[11px] font-medium transition hover:opacity-90",
+                                    chipClass,
+                                  )}
+                                >
+                                  <p className="truncate">{formatTime(event.time)}</p>
+                                  <p className="truncate text-[10px] font-semibold">{event.service}</p>
+                                  <p className="text-[10px] font-medium text-muted-foreground/90 truncate">{event.provider}</p>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {filteredBookings.length === 0 && (
+                    <p className="text-center text-sm text-muted-foreground">
+                      No appointments yet. Schedule your first service to get started.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             <Dialog open={!!cancelDialogBooking} onOpenChange={(open) => !open && setCancelDialogBooking(null)}>
               <DialogContent className="sm:max-w-md">

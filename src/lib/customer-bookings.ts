@@ -1,6 +1,6 @@
 import { createBooking, getCustomerBookings, updateBooking, deleteBooking, getBookingById, type BookingData } from './supabase/bookings';
 import type { CustomerPortalPricingSummary } from './customerBookingPricingDisplay';
-import { useCustomerAccount } from '@/hooks/useCustomerAccount';
+import { getSupabaseCustomerClient } from '@/lib/supabaseCustomerClient';
 
 export const BOOKINGS_STORAGE_KEY = "customerBookings";
 export const BOOK_AGAIN_STORAGE_KEY = "bookAgainBooking";
@@ -224,7 +224,6 @@ export const readStoredBookings = async (businessId?: string | null): Promise<Bo
   if (!businessId) return [];
 
   try {
-    const { getSupabaseCustomerClient } = await import('@/lib/supabaseCustomerClient');
     const supabase = getSupabaseCustomerClient();
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.access_token) return [];
@@ -257,7 +256,6 @@ export const fetchBookingById = async (
 ): Promise<Booking | null> => {
   if (typeof window === 'undefined' || !businessId || !bookingId) return null;
   try {
-    const { getSupabaseCustomerClient } = await import('@/lib/supabaseCustomerClient');
     const supabase = getSupabaseCustomerClient();
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.access_token) return null;

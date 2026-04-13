@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   CalendarDays,
   CheckCircle2,
@@ -22,6 +23,7 @@ import { Booking } from "@/lib/customer-bookings";
 import { useCustomerBookings } from "@/hooks/useCustomerBookings";
 import { useCustomerAccount } from "@/hooks/useCustomerAccount";
 import { CustomerSidebar } from "@/components/customer/CustomerSidebar";
+import { cn } from "@/lib/utils";
 
 const CustomerDashboard = () => {
   const router = useRouter();
@@ -32,7 +34,7 @@ const CustomerDashboard = () => {
     () => (Array.isArray(bookings) ? bookings : []),
     [bookings]
   );
-  const { customerName, customerEmail, customerAccount, accountLoading, handleLogout } = useCustomerAccount();
+  const { customerName, customerEmail, customerAccount, handleLogout } = useCustomerAccount();
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const today = new Date();
     return new Date(today.getFullYear(), today.getMonth(), 1);
@@ -138,17 +140,6 @@ const CustomerDashboard = () => {
     setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
   };
 
-  if (bookingsLoading || accountLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-muted/40">
-        <div className="flex flex-col items-center gap-3 text-muted-foreground">
-          <Clock className="h-8 w-8 animate-spin" />
-          <p>Loading your dashboard...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-muted/20 text-foreground">
       <div className="min-h-screen flex flex-col lg:grid lg:grid-cols-[280px_1fr]">
@@ -186,26 +177,40 @@ const CustomerDashboard = () => {
                     </Button>
                   </div>
                 </div>
-                {nextBooking && (
+                {bookingsLoading ? (
                   <Card className="w-full max-w-sm border-primary/30">
-                    <CardHeader>
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <CalendarDays className="h-4 w-4 text-primary" /> Next appointment
-                      </CardTitle>
+                    <CardHeader className="space-y-2">
+                      <Skeleton className="h-4 w-40" />
                     </CardHeader>
-                    <CardContent className="space-y-2 text-sm">
-                      <p className="text-lg font-semibold">{nextBooking.service}</p>
-                      <p className="text-muted-foreground flex items-center gap-2">
-                        <Clock className="h-4 w-4" /> {nextBooking.date} • {nextBooking.time}
-                      </p>
-                      <p className="text-muted-foreground flex items-center gap-2">
-                        <MapPin className="h-4 w-4" /> {nextBooking.address}
-                      </p>
-                      <div className="text-xs text-muted-foreground border border-dashed border-primary/40 rounded-lg p-3">
-                        {nextBooking.notes}
-                      </div>
+                    <CardContent className="space-y-3">
+                      <Skeleton className="h-6 w-3/4 max-w-[200px]" />
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-full max-w-[240px]" />
+                      <Skeleton className="h-16 w-full rounded-lg" />
                     </CardContent>
                   </Card>
+                ) : (
+                  nextBooking && (
+                    <Card className="w-full max-w-sm border-primary/30">
+                      <CardHeader>
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <CalendarDays className="h-4 w-4 text-primary" /> Next appointment
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2 text-sm">
+                        <p className="text-lg font-semibold">{nextBooking.service}</p>
+                        <p className="text-muted-foreground flex items-center gap-2">
+                          <Clock className="h-4 w-4" /> {nextBooking.date} • {nextBooking.time}
+                        </p>
+                        <p className="text-muted-foreground flex items-center gap-2">
+                          <MapPin className="h-4 w-4" /> {nextBooking.address}
+                        </p>
+                        <div className="text-xs text-muted-foreground border border-dashed border-primary/40 rounded-lg p-3">
+                          {nextBooking.notes}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
                 )}
               </div>
             </section>
@@ -216,8 +221,17 @@ const CustomerDashboard = () => {
                   <CardTitle className="text-sm text-muted-foreground">Upcoming bookings</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-3xl font-bold">{scheduledBookings.length}</p>
-                  <p className="text-sm text-muted-foreground">Scheduled in the next 30 days</p>
+                  {bookingsLoading ? (
+                    <>
+                      <Skeleton className="mb-2 h-9 w-16" />
+                      <Skeleton className="h-4 w-full max-w-[220px]" />
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-3xl font-bold">{scheduledBookings.length}</p>
+                      <p className="text-sm text-muted-foreground">Scheduled in the next 30 days</p>
+                    </>
+                  )}
                 </CardContent>
               </Card>
               <Card>
@@ -225,8 +239,17 @@ const CustomerDashboard = () => {
                   <CardTitle className="text-sm text-muted-foreground">Completed services</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-3xl font-bold">{completedCount}</p>
-                  <p className="text-sm text-muted-foreground">Thanks for letting us serve you</p>
+                  {bookingsLoading ? (
+                    <>
+                      <Skeleton className="mb-2 h-9 w-16" />
+                      <Skeleton className="h-4 w-full max-w-[200px]" />
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-3xl font-bold">{completedCount}</p>
+                      <p className="text-sm text-muted-foreground">Thanks for letting us serve you</p>
+                    </>
+                  )}
                 </CardContent>
               </Card>
               <Card>
@@ -234,8 +257,17 @@ const CustomerDashboard = () => {
                   <CardTitle className="text-sm text-muted-foreground">Canceled bookings</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-3xl font-bold">{canceledCount}</p>
-                  <p className="text-sm text-muted-foreground">Recently canceled appointments</p>
+                  {bookingsLoading ? (
+                    <>
+                      <Skeleton className="mb-2 h-9 w-16" />
+                      <Skeleton className="h-4 w-full max-w-[220px]" />
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-3xl font-bold">{canceledCount}</p>
+                      <p className="text-sm text-muted-foreground">Recently canceled appointments</p>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             </section>
@@ -260,55 +292,78 @@ const CustomerDashboard = () => {
                   <p className="text-lg font-semibold">{calendarMonthLabel}</p>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-7 text-xs font-semibold text-muted-foreground">
-                    {"Sun Mon Tue Wed Thu Fri Sat".split(" ").map((label) => (
-                      <div key={label} className="text-center py-2">
-                        {label}
+                  {bookingsLoading ? (
+                    <>
+                      <div className="grid grid-cols-7 gap-2">
+                        {"Sun Mon Tue Wed Thu Fri Sat".split(" ").map((label) => (
+                          <Skeleton key={label} className="mx-auto h-4 w-8" />
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                  <div className="grid grid-cols-7 gap-2 text-sm">
-                    {calendarDays.map((day) => {
-                      const events = bookingsByDate[day.iso] ?? [];
-                      return (
-                        <div
-                          key={day.iso}
-                          className={`rounded-2xl border p-2 min-h-[120px] flex flex-col gap-1 transition ${
-                            day.isCurrentMonth ? "bg-background" : "bg-muted/60"
-                          } ${day.isToday ? "ring-2 ring-primary" : ""}`}
-                        >
-                          <div className={`flex items-center justify-between text-xs font-semibold ${day.isCurrentMonth ? "text-foreground" : "text-muted-foreground"}`}>
-                            <span>{day.date.getDate()}</span>
-                            {events.length > 0 && (
-                              <span className="text-[10px] text-primary font-medium">{events.length}×</span>
+                      <div className="grid grid-cols-7 gap-2">
+                        {calendarDays.map((day) => (
+                          <Skeleton
+                            key={day.iso}
+                            className={cn(
+                              "min-h-[120px] rounded-2xl",
+                              day.isCurrentMonth ? "opacity-100" : "opacity-50",
                             )}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-7 text-xs font-semibold text-muted-foreground">
+                        {"Sun Mon Tue Wed Thu Fri Sat".split(" ").map((label) => (
+                          <div key={label} className="text-center py-2">
+                            {label}
                           </div>
-                          <div className="space-y-1 overflow-y-auto">
-                            {events.map((event, idx) => (
-                              <div
-                                key={`${event.id}-${event.date ?? ''}-${event.time ?? ''}-${idx}`}
-                                className={`rounded-xl px-2 py-1 text-[11px] font-medium ${
-                                  event.status === "completed"
-                                    ? "bg-emerald-100 text-emerald-700"
-                                    : event.status === "canceled"
-                                      ? "bg-rose-100 text-rose-700"
-                                      : "bg-sky-100 text-sky-700"
-                                }`}
-                              >
-                                <p className="truncate">{event.time}</p>
-                                <p className="truncate text-[10px] font-semibold">{event.service}</p>
-                                <p className="text-[10px] font-medium text-muted-foreground/80 truncate">{event.provider}</p>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-7 gap-2 text-sm">
+                        {calendarDays.map((day) => {
+                          const events = bookingsByDate[day.iso] ?? [];
+                          return (
+                            <div
+                              key={day.iso}
+                              className={`rounded-2xl border p-2 min-h-[120px] flex flex-col gap-1 transition ${
+                                day.isCurrentMonth ? "bg-background" : "bg-muted/60"
+                              } ${day.isToday ? "ring-2 ring-primary" : ""}`}
+                            >
+                              <div className={`flex items-center justify-between text-xs font-semibold ${day.isCurrentMonth ? "text-foreground" : "text-muted-foreground"}`}>
+                                <span>{day.date.getDate()}</span>
+                                {events.length > 0 && (
+                                  <span className="text-[10px] text-primary font-medium">{events.length}×</span>
+                                )}
                               </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {scheduledBookings.length === 0 && (
-                    <p className="text-center text-sm text-muted-foreground">
-                      No upcoming services. Schedule your next visit to keep things sparkling.
-                    </p>
+                              <div className="space-y-1 overflow-y-auto">
+                                {events.map((event, idx) => (
+                                  <div
+                                    key={`${event.id}-${event.date ?? ''}-${event.time ?? ''}-${idx}`}
+                                    className={`rounded-xl px-2 py-1 text-[11px] font-medium ${
+                                      event.status === "completed"
+                                        ? "bg-emerald-100 text-emerald-700"
+                                        : event.status === "canceled"
+                                          ? "bg-rose-100 text-rose-700"
+                                          : "bg-sky-100 text-sky-700"
+                                    }`}
+                                  >
+                                    <p className="truncate">{event.time}</p>
+                                    <p className="truncate text-[10px] font-semibold">{event.service}</p>
+                                    <p className="text-[10px] font-medium text-muted-foreground/80 truncate">{event.provider}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {scheduledBookings.length === 0 && (
+                        <p className="text-center text-sm text-muted-foreground">
+                          No upcoming services. Schedule your next visit to keep things sparkling.
+                        </p>
+                      )}
+                    </>
                   )}
                 </CardContent>
               </Card>

@@ -874,6 +874,25 @@ export function AddBookingForm({
           couponCode: savedCouponCode || "",
           couponType: savedCouponMode === "amount" ? "amount" : (savedCouponMode === "percent" ? "percent" : "coupon-code"),
           notes: (b.notes || '').trim(),
+          keyInfoOption: (() => {
+            const ka = (cust as Record<string, unknown>).key_access ?? (cust as Record<string, unknown>).keyAccess;
+            if (ka && typeof ka === 'object' && !Array.isArray(ka)) {
+              const po = String((ka as Record<string, unknown>).primary_option ?? '').replace(/-/g, '_');
+              return po === 'hide_keys' ? 'hide-keys' : 'someone-home';
+            }
+            return 'someone-home';
+          })(),
+          keepKeyWithProvider: (() => {
+            const ka = (cust as Record<string, unknown>).key_access ?? (cust as Record<string, unknown>).keyAccess;
+            if (ka && typeof ka === 'object' && !Array.isArray(ka)) {
+              return Boolean((ka as Record<string, unknown>).keep_key);
+            }
+            return false;
+          })(),
+          customerNoteForProvider: (() => {
+            const v = (cust as Record<string, unknown>).customer_note_for_provider ?? (cust as Record<string, unknown>).customerNoteForProvider;
+            return typeof v === 'string' ? v : '';
+          })(),
           selectedExtras,
           extraQuantities,
           categoryValues: loadedCategoryValues,
@@ -1184,6 +1203,11 @@ const handleAddBooking = async (status: string = 'pending') => {
             },
           }
         : undefined,
+      key_access: {
+        primary_option: newBooking.keyInfoOption === 'hide-keys' ? 'hide_keys' : 'someone_home',
+        keep_key: newBooking.keepKeyWithProvider,
+      },
+      customer_note_for_provider: newBooking.customerNoteForProvider.trim(),
     };
     if (status === "draft" || status === "quote") {
       const dq = newBooking.draftQuoteExpiresOn?.trim();

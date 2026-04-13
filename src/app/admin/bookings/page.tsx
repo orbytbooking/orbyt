@@ -59,6 +59,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import Link from "next/link";
 import { formatProviderWageDisplay } from "@/lib/formatProviderWage";
 import { getBookingSummaryVariableRows } from "@/lib/bookingSummaryVariableRows";
+import { formatKeyInformationSummary, getJobNotesFromCustomization } from "@/lib/bookingKeyJobNotes";
 import {
   Search, 
   Filter, 
@@ -2045,6 +2046,19 @@ export default function BookingsPage() {
                           .join(", ");
                         if (!loc) return null;
                         return <DetailRow label="Location" value={loc} className="text-right" />;
+                      })()}
+                      {(() => {
+                        const c = (selectedBooking as { customization?: unknown }).customization;
+                        const rec =
+                          c && typeof c === "object" && !Array.isArray(c) ? (c as Record<string, unknown>) : null;
+                        const keyLine = formatKeyInformationSummary(rec);
+                        const jobNotes = getJobNotesFromCustomization(rec);
+                        return (
+                          <>
+                            <DetailRow label="Key information" value={keyLine ?? "—"} className="text-right" />
+                            <DetailRow label="Job notes" value={jobNotes ?? "—"} className="text-right" />
+                          </>
+                        );
                       })()}
                       {(selectedBooking.status === "cancelled" || (selectedBooking as any).status === "cancelled") && (selectedBooking as any).cancellation_fee_amount != null && Number((selectedBooking as any).cancellation_fee_amount) > 0 && (
                         <div className="flex justify-between items-center gap-4 py-1.5">

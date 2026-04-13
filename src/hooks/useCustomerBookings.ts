@@ -9,7 +9,7 @@ export const useCustomerBookings = () => {
   const searchParams = useSearchParams();
   const businessId = searchParams?.get("business") ?? null;
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => Boolean(businessId));
 
   /** Dedupe by booking id + occurrence (recurring expands to many rows per id). */
   const dedupeById = useCallback((list: Booking[]): Booking[] => {
@@ -44,13 +44,16 @@ export const useCustomerBookings = () => {
         if (!cancelled) setLoading(false);
         return;
       }
+      if (!cancelled) setLoading(true);
       const data = await readStoredBookings(businessId);
       if (!cancelled) {
         setBookings(dedupeById(Array.isArray(data) ? data : []));
       }
       if (!cancelled) setLoading(false);
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [businessId, dedupeById]);
 
   const updateBookings = useCallback(

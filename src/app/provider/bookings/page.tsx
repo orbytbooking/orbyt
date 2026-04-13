@@ -68,6 +68,7 @@ import { getSupabaseProviderClient } from "@/lib/supabaseProviderClient";
 import { cn } from "@/lib/utils";
 import { compareBookingsByScheduleAsc } from "@/lib/bookingScheduleSort";
 import { getBookingSummaryVariableRows } from "@/lib/bookingSummaryVariableRows";
+import { formatKeyInformationSummary, getJobNotesFromCustomization } from "@/lib/bookingKeyJobNotes";
 
 type Booking = {
   id: string;
@@ -1033,6 +1034,20 @@ const ProviderBookings = () => {
                             ]
                               .filter(Boolean)
                               .join(', ') || '—',
+                        },
+                        {
+                          label: 'Key information',
+                          value:
+                            formatKeyInformationSummary(
+                              selectedBooking.customization as Record<string, unknown> | null | undefined,
+                            ) ?? '—',
+                        },
+                        {
+                          label: 'Job notes',
+                          value:
+                            getJobNotesFromCustomization(
+                              selectedBooking.customization as Record<string, unknown> | null | undefined,
+                            ) ?? '—',
                         },
                         { label: 'Payment method', value: selectedBooking.payment_method ? String(selectedBooking.payment_method).toLowerCase() : '—' },
                       ].map(({ label, value }) => (

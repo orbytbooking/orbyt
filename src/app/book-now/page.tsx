@@ -541,17 +541,16 @@ function BookingPageContent() {
   const { config } = useWebsiteConfig();
 
   const bookNowNavLogo = useMemo(() => {
-    const fromBranding = config?.branding?.logo?.trim();
+    // Match Website Builder / customer portal: header "Header Logo" wins over legacy branding.logo.
     const header = (
       config?.sections?.find((s) => s.type === "header")?.data as { logo?: string } | undefined
     )?.logo?.trim();
+    const fromBranding = config?.branding?.logo?.trim();
     const fromBusiness = businessLogoUrl?.trim();
-    return fromBranding || header || fromBusiness || "/images/orbit.png";
+    return header || fromBranding || fromBusiness || "/images/orbit.png";
   }, [businessLogoUrl, config]);
 
   const bookNowNavigationProps = useMemo(() => {
-    const companyName = businessName || config?.branding?.companyName || "Cleaning Service";
-    const logo = bookNowNavLogo;
     const headerSection = config?.sections?.find((s) => s.type === "header")?.data as
       | {
           companyName?: string;
@@ -560,6 +559,12 @@ function BookingPageContent() {
           navigationLinks?: Array<{ text: string; url: string }>;
         }
       | undefined;
+    const fromHeaderName = headerSection?.companyName?.trim() ?? "";
+    const fromBrandingName = config?.branding?.companyName?.trim() ?? "";
+    const fromBusinessRecord = businessName.trim();
+    const companyName =
+      fromHeaderName || fromBrandingName || fromBusinessRecord || "Cleaning Service";
+    const logo = bookNowNavLogo;
     return {
       branding: {
         ...(config?.branding ?? {}),
@@ -567,8 +572,6 @@ function BookingPageContent() {
         logo,
       },
       headerData: {
-        companyName,
-        logo,
         showNavigation: true,
         navigationLinks: [] as Array<{ text: string; url: string }>,
         ...headerSection,
@@ -2399,6 +2402,10 @@ function BookingPageContent() {
           String(selectedFreq).toLowerCase().replace(/\s+/g, " ") !== "one-time" &&
           String(selectedFreq).toLowerCase().replace(/\s+/g, "") !== "onetime";
         const estimatedDurationMins = getEstimatedDurationMinutes();
+        const keyAccessForm = form.getValues("keyAccess") ?? { primary_option: "someone_home" as const, keep_key: false };
+        const keyPrimary =
+          keyAccessForm.primary_option === "hide_keys" ? ("hide_keys" as const) : ("someone_home" as const);
+        const jobNoteForProvider = String(form.getValues("customerNoteForProvider") ?? "").trim();
         const payload = {
           business_id: currentBusinessId,
           industry_id: selectedIndustryId || undefined,
@@ -2428,6 +2435,8 @@ function BookingPageContent() {
             : {}),
           customization: {
             ...(newBooking.customization ?? {}),
+            key_access: { primary_option: keyPrimary, keep_key: Boolean(keyAccessForm.keep_key) },
+            ...(jobNoteForProvider ? { customer_note_for_provider: jobNoteForProvider } : {}),
             pricing_summary: serializePricingSummaryForCustomization(tot),
             ...(appliedCoupon
               ? {
@@ -3216,6 +3225,10 @@ function BookingPageContent() {
         String(selectedFreq).toLowerCase().replace(/\s+/g, " ") !== "one-time" &&
         String(selectedFreq).toLowerCase().replace(/\s+/g, "") !== "onetime";
       const estimatedDurationMinsStripe = getEstimatedDurationMinutes();
+      const keyAccessStripe = form.getValues("keyAccess") ?? { primary_option: "someone_home" as const, keep_key: false };
+      const keyPrimaryStripe =
+        keyAccessStripe.primary_option === "hide_keys" ? ("hide_keys" as const) : ("someone_home" as const);
+      const jobNoteStripe = String(form.getValues("customerNoteForProvider") ?? "").trim();
       const payload = {
         business_id: currentBusinessId,
         industry_id: selectedIndustryId || undefined,
@@ -3245,6 +3258,8 @@ function BookingPageContent() {
           : {}),
         customization: {
           ...(newBooking.customization ?? {}),
+          key_access: { primary_option: keyPrimaryStripe, keep_key: Boolean(keyAccessStripe.keep_key) },
+          ...(jobNoteStripe ? { customer_note_for_provider: jobNoteStripe } : {}),
           pricing_summary: serializePricingSummaryForCustomization(tot),
           ...(appliedCoupon
             ? {

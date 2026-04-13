@@ -23,6 +23,7 @@ import {
 } from '@/lib/bookingApiAuth';
 import { finalStatusForAdminBooking, providerIdFromBookingPayload } from '@/lib/adminBookingStatus';
 import { sendCustomerBookingConfirmedEmail } from '@/lib/sendCustomerBookingConfirmedEmail';
+import { applyKeyAndJobNotesFromPayload } from '@/lib/bookingKeyJobNotes';
 
 export async function GET(
   request: Request,
@@ -218,20 +219,34 @@ export async function PUT(
       const hasPartialCleaning = Boolean(bookingData.is_partial_cleaning);
       const excludedAreas = Array.isArray(bookingData.excluded_areas) ? bookingData.excluded_areas : [];
       const excludeQuantities = bookingData.exclude_quantities && typeof bookingData.exclude_quantities === 'object' && !Array.isArray(bookingData.exclude_quantities) ? bookingData.exclude_quantities : {};
-      const hasCustomization = hasPartialCleaning || excludedAreas.length > 0 || Object.keys(excludeQuantities).length > 0 ||
+      const hasStructuredCustomization = hasPartialCleaning || excludedAreas.length > 0 || Object.keys(excludeQuantities).length > 0 ||
         (Array.isArray(bookingData.selected_extras) && bookingData.selected_extras.length > 0) ||
         (bookingData.extra_quantities && typeof bookingData.extra_quantities === 'object' && Object.keys(bookingData.extra_quantities as object).length > 0) ||
         (bookingData.category_values && typeof bookingData.category_values === 'object' && Object.keys(bookingData.category_values as object).length > 0);
-      if (hasCustomization) {
-        built.customization = {
-          ...(bookingData.customization && typeof bookingData.customization === 'object' ? bookingData.customization : {}),
-          isPartialCleaning: hasPartialCleaning,
-          excludedAreas,
-          excludeQuantities,
-          selectedExtras: Array.isArray(bookingData.selected_extras) ? bookingData.selected_extras : [],
-          extraQuantities: bookingData.extra_quantities && typeof bookingData.extra_quantities === 'object' ? bookingData.extra_quantities : {},
-          categoryValues: bookingData.category_values && typeof bookingData.category_values === 'object' ? bookingData.category_values : {},
-        };
+      const rawClientCustomization =
+        bookingData.customization && typeof bookingData.customization === 'object' && !Array.isArray(bookingData.customization)
+          ? { ...(bookingData.customization as Record<string, unknown>) }
+          : {};
+      const hasKeyJobPayload =
+        (bookingData.key_access != null && typeof bookingData.key_access === 'object' && !Array.isArray(bookingData.key_access)) ||
+        (bookingData.keyAccess != null && typeof bookingData.keyAccess === 'object' && !Array.isArray(bookingData.keyAccess)) ||
+        Object.prototype.hasOwnProperty.call(bookingData, 'customer_note_for_provider');
+      const shouldSetCustomization =
+        hasStructuredCustomization || Object.keys(rawClientCustomization).length > 0 || hasKeyJobPayload;
+      if (shouldSetCustomization) {
+        let cust: Record<string, unknown> = { ...rawClientCustomization };
+        if (hasStructuredCustomization) {
+          cust = {
+            ...cust,
+            isPartialCleaning: hasPartialCleaning,
+            excludedAreas,
+            excludeQuantities,
+            selectedExtras: Array.isArray(bookingData.selected_extras) ? bookingData.selected_extras : [],
+            extraQuantities: bookingData.extra_quantities && typeof bookingData.extra_quantities === 'object' ? bookingData.extra_quantities : {},
+            categoryValues: bookingData.category_values && typeof bookingData.category_values === 'object' ? bookingData.category_values : {},
+          };
+        }
+        built.customization = applyKeyAndJobNotesFromPayload(cust, bookingData as Record<string, unknown>);
       }
       if (providerWage !== null && providerWageType) {
         built.provider_wage = providerWage;
