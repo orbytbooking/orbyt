@@ -7,10 +7,12 @@ import {
   getBookingCountForDate,
   getReserveSlotSettingsAndBlocks,
   getBookingCountByTimeForDate,
-  getDayNameFromDate,
   getCalendarDayOfWeek,
+  getDayNameFromDate,
   normalizeTimeToHHmm,
   filterDisplaySlotsByReservedBlocks,
+  buildReserveCustomerSlotDisplaysForDate,
+  filterDisplaySlotsByProviderWindows,
 } from '@/lib/schedulingFilters';
 import type { ReserveSlotSettings } from '@/lib/schedulingFilters';
 
@@ -94,8 +96,32 @@ export async function GET(request: Request) {
       }
     }
 
-    // Spots based on provider availability: when false, return default full-day slots (no provider filter)
     const useProviderAvailability = storeOpts?.spots_based_on_provider_availability ?? true;
+
+    // Reserve Slot "Maximum" defines the customer booking grid when that weekday is enabled (30-min spots, etc.)
+    const { settings: reserveSettings } = await getReserveSlotSettingsAndBlocks(businessId);
+    const reserveDisplays = date ? buildReserveCustomerSlotDisplaysForDate(reserveSettings, date) : null;
+
+    if (date && reserveDisplays?.length) {
+      let slots = reserveDisplays;
+      if (useProviderAvailability) {
+        const dayOfWeek = getCalendarDayOfWeek(date);
+        const { data: availabilityRows } = await supabaseAdmin
+          .from('provider_availability')
+          .select('start_time, end_time')
+          .eq('business_id', businessId)
+          .eq('day_of_week', dayOfWeek)
+          .eq('is_available', true)
+          .order('start_time');
+        if (availabilityRows?.length) {
+          slots = filterDisplaySlotsByProviderWindows(slots, availabilityRows);
+        }
+      }
+      const filtered = await applyReserveSlotPipeline(slots, businessId, date, supabaseAdmin);
+      return NextResponse.json({ timeSlots: filtered });
+    }
+
+    // Spots based on provider availability: when false, return default full-day slots (no provider filter)
     if (!useProviderAvailability && date) {
       const defaultSlots: string[] = [];
       for (let h = 7; h < 20; h++) {

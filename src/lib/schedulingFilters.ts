@@ -272,6 +272,80 @@ export function getDayNameFromDate(dateStr: string): string {
   return DAY_NAMES[getCalendarDayOfWeek(dateStr)];
 }
 
+/** Minutes from midnight for slot comparison (uses normalizeTimeToHHmm). */
+function displayTimeToMinutes(displayOrDbTime: string): number {
+  const hhmm = normalizeTimeToHHmm(displayOrDbTime);
+  if (!hhmm) return -1;
+  const [h, m] = hhmm.split(':').map((x) => parseInt(x, 10));
+  if (Number.isNaN(h) || Number.isNaN(m)) return -1;
+  return h * 60 + m;
+}
+
+/**
+ * When Reserve Slot "Maximum" has an enabled day with spots, those times are the booking grid
+ * (Booking Koala-style), not merely a filter on a generic hourly range.
+ * Returns display strings (e.g. "8:30 AM") sorted by time, or null if this day is not driven by reserve max.
+ */
+export function buildReserveCustomerSlotDisplaysForDate(
+  settings: ReserveSlotSettings | null,
+  dateStr: string
+): string[] | null {
+  if (!settings?.maximumByDay || !dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
+  const dayName = getDayNameFromDate(dateStr);
+  const dayConfig = settings.maximumByDay[dayName];
+  if (!dayConfig?.enabled || !dayConfig.slots?.length) return null;
+
+  const customerSlots = dayConfig.slots.filter(
+    (s) => (s.displayOn ?? 'Both') === 'Both',
+  );
+  if (!customerSlots.length) return null;
+
+  const seenMin = new Set<number>();
+  const withMin: { min: number; display: string }[] = [];
+  for (const s of customerSlots) {
+    const hhmm = normalizeTimeToHHmm(s.time);
+    if (!hhmm) continue;
+    const [h, m] = hhmm.split(':').map((x) => parseInt(x, 10));
+    if (Number.isNaN(h) || Number.isNaN(m)) continue;
+    const min = h * 60 + m;
+    if (seenMin.has(min)) continue;
+    seenMin.add(min);
+    const d = new Date(2000, 0, 1, h, m, 0);
+    const display = d.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+    withMin.push({ min, display });
+  }
+  withMin.sort((a, b) => a.min - b.min);
+  return withMin.length ? withMin.map((x) => x.display) : null;
+}
+
+/**
+ * Keep customer slot display times whose start falls inside any provider availability window that day.
+ */
+export function filterDisplaySlotsByProviderWindows(
+  displaySlots: string[],
+  availabilityRows: { start_time: string; end_time: string }[],
+): string[] {
+  if (!availabilityRows.length) return displaySlots;
+  const windows = availabilityRows
+    .map((r) => {
+      const s = displayTimeToMinutes(String(r.start_time));
+      const e = displayTimeToMinutes(String(r.end_time));
+      return { s, e };
+    })
+    .filter((w) => w.s >= 0 && w.e >= 0 && w.e > w.s);
+  if (!windows.length) return displaySlots;
+
+  return displaySlots.filter((disp) => {
+    const sm = displayTimeToMinutes(disp);
+    if (sm < 0) return false;
+    return windows.some((w) => sm >= w.s && sm < w.e);
+  });
+}
+
 /** Booking Koala-style: return true if the time slot has capacity (or no reserve-slot limit for that time) */
 export async function isTimeSlotAvailableForBooking(
   supabase: any,

@@ -53,6 +53,7 @@ import {
   resolveIndustryFormLucideIcon,
 } from "@/lib/industryExtraIcons";
 import { industryExtraPassesBookingDependencyRules } from "@/lib/industryExtraDependencies";
+import { normalizeTimeToHHmm } from "@/lib/schedulingFilters";
 
 /** `YYYY-MM-DD` for `<input type="date" />` (handles ISO strings from API). */
 function normalizeBookingDateInput(raw: unknown): string {
@@ -69,18 +70,6 @@ function normalizeBookingDateInput(raw: unknown): string {
     return `${y}-${m}-${day}`;
   }
   return s.length >= 10 ? s.slice(0, 10) : s;
-}
-
-/** `HH:mm` for time selects (matches typical slot keys). */
-function normalizeTimeToHHmm(raw: unknown): string {
-  if (raw == null) return "";
-  const s = String(raw).trim();
-  if (!s) return "";
-  const m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-  if (!m) return s;
-  const h = Math.min(23, Math.max(0, parseInt(m[1], 10)));
-  const min = Math.min(59, Math.max(0, parseInt(m[2], 10)));
-  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
 }
 
 function slotMatchesSelectedTime(slot: string, selectedTime: string): boolean {
@@ -1415,6 +1404,10 @@ const handleAddBooking = async (status: string = 'pending') => {
 
       if (allProviders.length === 0) {
         setFilteredProvidersByDate([]);
+        setSelectedProvider(null);
+        setNewBooking((prev) => ({ ...prev, serviceProvider: "" }));
+        setProviderWage("");
+        setProviderWageType("hourly");
         return;
       }
 
@@ -1449,25 +1442,33 @@ const handleAddBooking = async (status: string = 'pending') => {
           }
         }
 
-        let list = availableProvidersList;
-        const assignedId = (newBooking.serviceProvider || "").trim();
-        if (editingBookingId && assignedId) {
-          const assigned = allProviders.find((p) => p.id === assignedId);
-          if (assigned && !list.some((p) => p.id === assignedId)) {
-            list = [...list, assigned];
-          }
-        }
+        const list = availableProvidersList;
 
-        console.log(`📊 Found ${list.length} providers for picker (incl. assigned when editing)`);
         setFilteredProvidersByDate(list);
 
-        if (selectedProvider && !list.some((p) => p.id === selectedProvider.id)) {
-          const keepAssignedEdit =
-            editingBookingId && assignedId && selectedProvider.id === assignedId;
-          if (!keepAssignedEdit) {
-            setSelectedProvider(null);
-            setNewBooking((prev) => ({ ...prev, serviceProvider: "", selectedTime: "" }));
-          }
+        const hasAssign =
+          Boolean(selectedProvider) || Boolean((newBooking.serviceProvider || "").trim());
+        if (list.length === 0 && hasAssign) {
+          setSelectedProvider(null);
+          setNewBooking((prev) => ({ ...prev, serviceProvider: "" }));
+          setProviderWage("");
+          setProviderWageType("hourly");
+        } else if (
+          selectedProvider &&
+          !list.some((p) => p.id === selectedProvider.id)
+        ) {
+          setSelectedProvider(null);
+          setNewBooking((prev) => ({ ...prev, serviceProvider: "" }));
+          setProviderWage("");
+          setProviderWageType("hourly");
+        } else if (
+          (newBooking.serviceProvider || "").trim() &&
+          !list.some((p) => p.id === (newBooking.serviceProvider || "").trim())
+        ) {
+          setSelectedProvider(null);
+          setNewBooking((prev) => ({ ...prev, serviceProvider: "" }));
+          setProviderWage("");
+          setProviderWageType("hourly");
         }
       } catch (error) {
         console.error("Error filtering providers by date:", error);
@@ -1480,7 +1481,7 @@ const handleAddBooking = async (status: string = 'pending') => {
     filterProvidersByDate();
   }, [newBooking.selectedDate, newBooking.serviceProvider, allProviders, selectedProvider, currentBusiness?.id, editingBookingId]);
 
-  // Fetch available time slots for ALL providers on the selected date
+  // Time slots: union of provider available-slots; if none (no providers / no schedules), use /api/time-slots like book-now
   useEffect(() => {
     const fetchAvailableSlotsForDate = async () => {
       if (!newBooking.selectedDate) {
@@ -1491,42 +1492,30 @@ const handleAddBooking = async (status: string = 'pending') => {
         return;
       }
 
-      if (allProviders.length === 0) {
-        return;
-      }
-
       try {
         setLoadingTimeSlots(true);
         const slotSet = new Set<string>();
 
-        console.log(`🔍 Fetching available time slots for all providers on ${newBooking.selectedDate}`);
+        if (allProviders.length > 0) {
+          for (const provider of allProviders) {
+            try {
+              const url = `/api/admin/providers/${provider.id}/available-slots?date=${newBooking.selectedDate}&businessId=${currentBusiness?.id || ''}`;
+              const response = await fetch(url);
 
-        for (const provider of allProviders) {
-          try {
-            const url = `/api/admin/providers/${provider.id}/available-slots?date=${newBooking.selectedDate}&businessId=${currentBusiness?.id || ''}`;
-            console.log(`  Checking provider ${provider.name} (${provider.id}) for time slots...`);
-
-            const response = await fetch(url);
-
-            if (response.ok) {
-              const data = await response.json();
-              const slots: string[] = data.availableSlots || [];
-
-              if (slots.length > 0) {
-                console.log(`    ✅ Provider ${provider.name} has ${slots.length} slots`);
+              if (response.ok) {
+                const data = await response.json();
+                const slots: string[] = data.availableSlots || [];
                 slots.forEach((slot) => {
                   const n = normalizeTimeToHHmm(slot);
                   if (n) slotSet.add(n);
                 });
               } else {
-                console.log(`    ❌ Provider ${provider.name} has no slots for this date`);
+                const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+                console.error(`Failed to fetch slots for ${provider.name}:`, response.status, errorData);
               }
-            } else {
-              const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
-              console.error(`    ❌ Failed to fetch slots for ${provider.name}:`, response.status, errorData);
+            } catch (error) {
+              console.error(`Error fetching slots for provider ${provider.id}:`, error);
             }
-          } catch (error) {
-            console.error(`    ❌ Error fetching slots for provider ${provider.id}:`, error);
           }
         }
 
@@ -1535,6 +1524,28 @@ const handleAddBooking = async (status: string = 'pending') => {
           const [bHour, bMin] = b.split(":").map(Number);
           return aHour * 60 + aMin - (bHour * 60 + bMin);
         });
+
+        if (sortedSlots.length === 0 && currentBusiness?.id) {
+          try {
+            const tsUrl = `/api/time-slots?business_id=${encodeURIComponent(currentBusiness.id)}&date=${encodeURIComponent(newBooking.selectedDate)}`;
+            const tsRes = await fetch(tsUrl);
+            if (tsRes.ok) {
+              const tsData = await tsRes.json();
+              const list: string[] = Array.isArray(tsData.timeSlots) ? tsData.timeSlots : [];
+              for (const slot of list) {
+                const n = normalizeTimeToHHmm(slot);
+                if (n) slotSet.add(n);
+              }
+              sortedSlots = Array.from(slotSet).sort((a, b) => {
+                const [aHour, aMin] = a.split(":").map(Number);
+                const [bHour, bMin] = b.split(":").map(Number);
+                return aHour * 60 + aMin - (bHour * 60 + bMin);
+              });
+            }
+          } catch (e) {
+            console.error("Admin add-booking: fallback /api/time-slots failed:", e);
+          }
+        }
 
         const currentTime = (newBooking.selectedTime || "").trim();
         if (editingBookingId && currentTime) {
@@ -1549,8 +1560,6 @@ const handleAddBooking = async (status: string = 'pending') => {
           }
         }
 
-        console.log(`📊 Found ${sortedSlots.length} unique time slots across all providers`);
-
         setAvailableTimeSlots(sortedSlots);
 
         if (
@@ -1558,7 +1567,6 @@ const handleAddBooking = async (status: string = 'pending') => {
           !sortedSlots.some((s) => slotMatchesSelectedTime(s, newBooking.selectedTime))
         ) {
           if (!editingBookingId) {
-            console.log(`   Clearing selected time ${newBooking.selectedTime} - not available on this date`);
             setNewBooking((prev) => ({ ...prev, selectedTime: "" }));
           }
         }
@@ -1590,7 +1598,7 @@ const handleAddBooking = async (status: string = 'pending') => {
       for (const provider of allProviders) {
         try {
           const response = await fetch(
-            `/api/admin/providers/${provider.id}/available-slots?date=${newBooking.selectedDate}`
+            `/api/admin/providers/${provider.id}/available-slots?date=${newBooking.selectedDate}&businessId=${currentBusiness?.id || ""}`
           );
 
           if (response.ok) {
@@ -1605,34 +1613,41 @@ const handleAddBooking = async (status: string = 'pending') => {
         }
       }
 
-      let modalList = availableProvidersList;
-      const assignedForModal = (newBooking.serviceProvider || "").trim();
-      if (editingBookingId && assignedForModal) {
-        const assigned = allProviders.find((p) => p.id === assignedForModal);
-        if (assigned && !modalList.some((p) => p.id === assignedForModal)) {
-          modalList = [...modalList, assigned];
-        }
-      }
-      setAvailableProviders(modalList);
+      setAvailableProviders(availableProvidersList);
 
-      if (selectedProvider) {
-        const isStillAvailable = availableProvidersList.some((p) => p.id === selectedProvider.id);
-        if (!isStillAvailable && availableProvidersList.length > 0) {
-          // keep selection for edit when this booking already has this provider
-        } else if (!isStillAvailable && availableProvidersList.length === 0) {
-          // keep selection; UI may show modal list empty
+      if (availableProvidersList.length === 0) {
+        if (selectedProvider || (newBooking.serviceProvider || "").trim()) {
+          setSelectedProvider(null);
+          setNewBooking((prev) => ({ ...prev, serviceProvider: "" }));
+          setProviderWage("");
+          setProviderWageType("hourly");
         }
-      } else if (
-        availableProvidersList.length > 0 &&
-        !(newBooking.serviceProvider || "").trim()
-      ) {
-        setSelectedProvider(availableProvidersList[0]);
-        setNewBooking((prev) => ({ ...prev, serviceProvider: availableProvidersList[0].id }));
+        return;
+      }
+
+      const pickId = (selectedProvider?.id || newBooking.serviceProvider || "").trim();
+      const match = pickId
+        ? availableProvidersList.find((p) => p.id === pickId)
+        : undefined;
+
+      if (match) {
+        if (!selectedProvider || selectedProvider.id !== match.id) {
+          setSelectedProvider(match);
+        }
+        if ((newBooking.serviceProvider || "").trim() !== match.id) {
+          setNewBooking((prev) => ({ ...prev, serviceProvider: match.id }));
+        }
+      } else {
+        const first = availableProvidersList[0];
+        setSelectedProvider(first);
+        setNewBooking((prev) => ({ ...prev, serviceProvider: first.id }));
+        setProviderWage(first.wage?.toString() || "");
+        setProviderWageType(first.wageType || "hourly");
       }
     };
 
     filterProviders();
-  }, [newBooking.selectedDate, newBooking.selectedTime, allProviders, selectedProvider, newBooking.serviceProvider, editingBookingId]);
+  }, [newBooking.selectedDate, newBooking.selectedTime, allProviders, selectedProvider, newBooking.serviceProvider, editingBookingId, currentBusiness?.id]);
 
 
   const handleAssignProvider = (provider: Provider) => {
@@ -4077,7 +4092,9 @@ const handleAddBooking = async (status: string = 'pending') => {
                       </div>
                     ) : (
                       <div className="p-3 border border-gray-200 bg-gray-50 rounded-lg">
-                        <div className="text-gray-500">No available providers for selected date and time</div>
+                        <div className="text-gray-500">
+                          Unassigned — no provider is available for this date and time. You can still save the booking; assign someone later or choose a different time.
+                        </div>
                       </div>
                     )}
                     
