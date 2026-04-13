@@ -1,22 +1,24 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState } from "react";
-import PhoneInput, { type Value } from "react-phone-number-input";
+import PhoneInput, { type Country, type Value } from "react-phone-number-input";
 import "react-phone-number-input/style.css";
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 import { guessDefaultCountry } from "@/lib/phoneDefaultCountry";
 import { toPhoneInputValue } from "@/lib/phoneE164";
 
+export type { Country };
+
 export const PHONE_FIELD_HELPER_TEXT =
-  "Default country follows your device time zone (then language if needed). Change it with the flag dropdown anytime.";
+  "Default country and dial code follow your device time zone (and browser language), set once when the field loads. Do not type over the + prefix—use the flag to change country. The prefix stays tied to the selected flag while you type.";
 
 export type PhoneFieldProps = {
   id?: string;
   label?: string;
   /** Use with FormItem + FormLabel so the label is not duplicated */
   hideLabel?: boolean;
-  value: string;
+  value: string | null | undefined;
   onChange: (e164: string) => void;
   onBlur?: () => void;
   disabled?: boolean;
@@ -29,6 +31,8 @@ export type PhoneFieldProps = {
   showHelperText?: boolean;
   helperText?: string;
   descriptionClassName?: string;
+  /** When set, overrides time zone / language detection for the default country (still fixed for the life of this field instance). */
+  preferredDefaultCountry?: Country;
 };
 
 export function PhoneField({
@@ -47,34 +51,41 @@ export function PhoneField({
   showHelperText = true,
   helperText = PHONE_FIELD_HELPER_TEXT,
   descriptionClassName,
+  preferredDefaultCountry,
 }: PhoneFieldProps) {
-  const [detectedCountry, setDetectedCountry] = useState<ReturnType<typeof guessDefaultCountry> | null>(null);
+  const [defaultCountry, setDefaultCountry] = useState<Country | null>(null);
   const migratedFromRef = useRef<string | null>(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
+  /**
+   * Default country comes only from `preferredDefaultCountry` or auto-detect (time zone → language → US),
+   * not from parsing the current phone value, so +… digits cannot override your region.
+   */
   useLayoutEffect(() => {
-    setDetectedCountry(guessDefaultCountry());
-  }, []);
+    setDefaultCountry(preferredDefaultCountry ?? guessDefaultCountry());
+  }, [preferredDefaultCountry]);
 
   /** Migrate legacy national / messy DB values to E.164 before paint so controlled input stays valid. */
   useLayoutEffect(() => {
-    if (detectedCountry === null) return;
+    if (defaultCountry === null) return;
     const raw = String(value ?? "").trim();
     if (!raw) {
       migratedFromRef.current = null;
       return;
     }
-    const safe = toPhoneInputValue(value, detectedCountry);
+    const safe = toPhoneInputValue(value, defaultCountry);
     if (!safe || safe === raw) {
       migratedFromRef.current = null;
       return;
     }
     if (migratedFromRef.current === raw) return;
     migratedFromRef.current = raw;
-    onChange(safe);
-  }, [detectedCountry, value, onChange]);
+    onChangeRef.current(safe);
+  }, [defaultCountry, value]);
 
   const phoneInputValue =
-    detectedCountry === null ? undefined : (toPhoneInputValue(value, detectedCountry) as Value | undefined);
+    defaultCountry === null ? undefined : (toPhoneInputValue(value, defaultCountry) as Value | undefined);
 
   const shellClass = cn(
     "flex h-10 w-full items-stretch rounded-md border bg-background shadow-sm transition-colors",
@@ -85,22 +96,26 @@ export function PhoneField({
   );
 
   const inputBlock =
-    detectedCountry === null ? (
+    defaultCountry === null ? (
       <div className={shellClass} aria-busy="true">
-        <span className="sr-only">Detecting country from your time zone</span>
-        <div className="flex flex-1 items-center px-3 text-sm text-muted-foreground">Using your time zone…</div>
+        <span className="sr-only">Initializing phone field</span>
+        <div className="flex flex-1 items-center px-3 text-sm text-muted-foreground">Preparing phone field…</div>
       </div>
     ) : (
       <div className={shellClass}>
         <PhoneInput
           id={id}
           international
-          defaultCountry={detectedCountry}
+          defaultCountry={defaultCountry}
+          addInternationalOption={false}
+          /* `true` lets lib re-guess country from partial +… digits. `false` keeps prefix on the selected flag. */
           countryCallingCodeEditable={false}
+          focusInputOnCountrySelection={false}
+          smartCaret={false}
           limitMaxLength
           placeholder={placeholder}
           value={phoneInputValue}
-          onChange={(v) => onChange(typeof v === "string" ? v : "")}
+          onChange={(v) => onChangeRef.current(typeof v === "string" ? v : "")}
           onBlur={onBlur}
           disabled={disabled}
           className={cn(

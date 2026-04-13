@@ -89,6 +89,10 @@ export function normalizeStoredPhoneToE164(raw: string | null | undefined, defau
 
 /**
  * Safe `value` for react-phone-number-input (E.164 or undefined — never pass national-only strings).
+ *
+ * Partial international input (`+` with more digits) must pass through unchanged. Otherwise
+ * `isValidPhoneNumber` is false while typing, `normalizeStoredPhoneToE164` often returns "",
+ * the parent gets `undefined`, and the controlled field resets / jumps country every keystroke.
  */
 export function toPhoneInputValue(
   raw: string | null | undefined,
@@ -97,6 +101,9 @@ export function toPhoneInputValue(
   const t = String(raw ?? "").trim();
   if (!t) return undefined;
   if (isValidE164(t)) return t;
+  if (t.startsWith("+") && t.length > 1) {
+    return t;
+  }
   const n = normalizeStoredPhoneToE164(t, defaultCountry);
   return n || undefined;
 }

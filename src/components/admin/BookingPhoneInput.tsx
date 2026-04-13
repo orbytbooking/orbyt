@@ -1,6 +1,6 @@
 "use client";
 
-import { PhoneField } from "@/components/ui/phone-field";
+import { PhoneField, type Country } from "@/components/ui/phone-field";
 
 type BookingPhoneInputProps = {
   id?: string;
@@ -10,6 +10,7 @@ type BookingPhoneInputProps = {
   error?: boolean;
   placeholder?: string;
   className?: string;
+  preferredDefaultCountry?: Country;
 };
 
 /**
@@ -23,6 +24,7 @@ export function BookingPhoneInput({
   error,
   placeholder = "Phone number",
   className,
+  preferredDefaultCountry,
 }: BookingPhoneInputProps) {
   return (
     <PhoneField
@@ -30,6 +32,7 @@ export function BookingPhoneInput({
       hideLabel
       showHelperText={false}
       value={value}
+      preferredDefaultCountry={preferredDefaultCountry}
       onChange={onChange}
       disabled={disabled}
       error={error}
