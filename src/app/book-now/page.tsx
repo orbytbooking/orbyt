@@ -297,7 +297,6 @@ const servicesByIndustry: Record<string, {
 };
 
 const FREQUENCY_OPTIONS = ["One-Time", "2x per week", "Weekly", "Every Other Week", "Monthly"] as const;
-const DEFAULT_TIME_SLOTS = ["9:00 AM", "11:00 AM", "1:00 PM", "3:00 PM", "5:00 PM"] as const;
 const AREA_SIZE_OPTIONS = ["10-20 sqm", "21-30 sqm", "31-40 sqm", "41-50 sqm", "51+ sqm"] as const;
 const BEDROOM_OPTIONS = ["1 Bedroom", "2 Bedrooms", "3 Bedrooms", "4 Bedrooms", "5 Bedrooms", "6 Bedrooms"] as const;
 const BATHROOM_OPTIONS = ["1 Bathroom", "2 Bathrooms", "3 Bathrooms", "4 Bathrooms", "5 Bathrooms", "6 Bathrooms"] as const;
@@ -619,6 +618,7 @@ function BookingPageContent() {
     Array<{ name: string; price?: number; qty_based?: boolean; time_minutes?: number }>
   >([]);
   const [dynamicTimeSlots, setDynamicTimeSlots] = useState<string[]>([]);
+  const [timeSlotsLoading, setTimeSlotsLoading] = useState(false);
   const [availableProviders, setAvailableProviders] = useState<any[]>([]);
   const [providersLoading, setProvidersLoading] = useState(false);
   const [schedulingType, setSchedulingType] = useState<string>("accepted_automatically");
@@ -1726,18 +1726,19 @@ function BookingPageContent() {
     },
   });
 
-  // Fetch dynamic time slots when date changes
+  // Fetch time slots from /api/time-slots (store options, provider availability, Reserve Maximum fallback, capacity, holidays)
   useEffect(() => {
     const fetchTimeSlots = async () => {
       const selectedDate = form.getValues("date");
       const businessIdParam = searchParams.get("business");
       
       if (!businessIdParam || !selectedDate) {
-        // Use default time slots if no date or business ID
         setDynamicTimeSlots([]);
+        setTimeSlotsLoading(false);
         return;
       }
 
+      setTimeSlotsLoading(true);
       try {
         const response = await fetch(
           `/api/time-slots?business_id=${businessIdParam}&date=${format(selectedDate, 'yyyy-MM-dd')}`
@@ -1745,7 +1746,7 @@ function BookingPageContent() {
         
         if (response.ok) {
           const data = await response.json();
-          setDynamicTimeSlots(data.timeSlots || []);
+          setDynamicTimeSlots(Array.isArray(data.timeSlots) ? data.timeSlots : []);
         } else {
           console.error('Failed to fetch time slots');
           setDynamicTimeSlots([]);
@@ -1753,6 +1754,8 @@ function BookingPageContent() {
       } catch (error) {
         console.error('Error fetching time slots:', error);
         setDynamicTimeSlots([]);
+      } finally {
+        setTimeSlotsLoading(false);
       }
     };
 
@@ -1824,6 +1827,16 @@ function BookingPageContent() {
       form.setValue("time", "");
     }
   }, [isDateSelected, selectedTime, form]);
+
+  // Drop selected time if it is not in the list returned for this date (e.g. reserve grid or provider windows changed)
+  useEffect(() => {
+    if (timeSlotsLoading) return;
+    const t = form.getValues("time");
+    if (!t) return;
+    if (dynamicTimeSlots.length === 0 || !dynamicTimeSlots.includes(t)) {
+      form.setValue("time", "");
+    }
+  }, [dynamicTimeSlots, timeSlotsLoading, form]);
 
   // Handle category selection
   const handleCategorySelect = (categoryKey: ServiceCategory) => {
@@ -4262,17 +4275,28 @@ function BookingPageContent() {
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel className={styles.formLabel}>Select Time Slot</FormLabel>
-                                <div className={styles.timeSlots}>
-                                  {(dynamicTimeSlots.length > 0 ? dynamicTimeSlots : DEFAULT_TIME_SLOTS).map((time) => (
-                                    <div
-                                      key={time}
-                                      className={cn(styles.timeSlot, field.value === time && styles.selected)}
-                                      onClick={() => field.onChange(time)}
-                                    >
-                                      {time}
-                                    </div>
-                                  ))}
-                                </div>
+                                {timeSlotsLoading ? (
+                                  <div className="flex items-center gap-2 py-6 text-muted-foreground text-sm">
+                                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                                    Loading available times…
+                                  </div>
+                                ) : dynamicTimeSlots.length > 0 ? (
+                                  <div className={styles.timeSlots}>
+                                    {dynamicTimeSlots.map((time) => (
+                                      <div
+                                        key={time}
+                                        className={cn(styles.timeSlot, field.value === time && styles.selected)}
+                                        onClick={() => field.onChange(time)}
+                                      >
+                                        {time}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-sm text-muted-foreground py-2">
+                                    No time slots are available for this date. Try another day or contact the business.
+                                  </p>
+                                )}
                                 <FormMessage />
                               </FormItem>
                             )}
