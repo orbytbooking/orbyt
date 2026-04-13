@@ -23,6 +23,7 @@ export async function mergeCheckoutCardOntoCustomer(
     brand: string | null | undefined;
     expMonth?: number | null;
     expYear?: number | null;
+    stripePaymentMethodId?: string | null;
   }
 ): Promise<void> {
   const rawLast = String(params.last4 ?? "").replace(/\D/g, "");
@@ -48,11 +49,13 @@ export async function mergeCheckoutCardOntoCustomer(
 
   const deduped = existing.filter((c) => String(c?.last4 || "") !== last4);
 
+  const pm = params.stripePaymentMethodId?.trim();
   const newCard: CustomerBillingCardRow = {
     brand,
     last4,
     ...(params.expMonth != null ? { expMonth: params.expMonth } : {}),
     ...(params.expYear != null ? { expYear: params.expYear } : {}),
+    ...(pm ? { stripePaymentMethodId: pm } : {}),
     createdAt: new Date().toISOString(),
     source: "checkout",
   };

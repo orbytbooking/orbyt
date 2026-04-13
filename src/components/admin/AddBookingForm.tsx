@@ -181,6 +181,12 @@ type Customer = {
   lastBooking?: string;
 };
 
+type CustomerSavedCardOption = {
+  brand: string;
+  last4: string;
+  stripePaymentMethodId: string | null;
+};
+
 type Industry = { id: string; name: string };
 
 const createEmptyBookingForm = () => ({
@@ -213,6 +219,9 @@ const createEmptyBookingForm = () => ({
   selectedTime: "",
   priority: "Medium",
   paymentMethod: "",
+  /** When payment is Credit Card: use a new card (payment link / manual) vs saved Stripe PM */
+  creditCardMode: "new" as "new" | "saved",
+  savedStripePaymentMethodId: "",
   cardNumber: "",
   notes: "",
   adjustServiceTotal: false,
@@ -285,6 +294,8 @@ export function AddBookingForm({
   const { toast } = useToast();
   const { currentBusiness } = useBusiness();
   const [newBooking, setNewBooking] = useState(createEmptyBookingForm());
+  const [customerSavedCards, setCustomerSavedCards] = useState<CustomerSavedCardOption[]>([]);
+  const [businessPaymentProvider, setBusinessPaymentProvider] = useState<"stripe" | "authorize_net" | null>(null);
   const [errors, setErrors] = useState({
     firstName: false,
     lastName: false,
@@ -860,6 +871,8 @@ export function AddBookingForm({
           selectedDate: normalizeBookingDateInput(b.scheduled_date ?? b.date),
           selectedTime: normalizeTimeToHHmm(b.scheduled_time ?? b.time),
           paymentMethod,
+          creditCardMode: "new",
+          savedStripePaymentMethodId: "",
           couponCode: savedCouponCode || "",
           couponType: savedCouponMode === "amount" ? "amount" : (savedCouponMode === "percent" ? "percent" : "coupon-code"),
           notes: (b.notes || '').trim(),
@@ -967,6 +980,92 @@ export function AddBookingForm({
     };
   }, [editingBookingId, currentBusiness?.id]);
 
+  useEffect(() => {
+    const bid = currentBusiness?.id;
+    if (!bid) {
+      setBusinessPaymentProvider(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from("businesses").select("payment_provider").eq("id", bid).maybeSingle();
+      if (cancelled) return;
+      const p = (data as { payment_provider?: string } | null)?.payment_provider;
+      setBusinessPaymentProvider(p === "authorize_net" ? "authorize_net" : "stripe");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentBusiness?.id]);
+
+  useEffect(() => {
+    if (newBooking.customerType !== "existing") {
+      setCustomerSavedCards([]);
+      return;
+    }
+    const cid = (newBooking.customerId || "").trim();
+    if (!cid || !currentBusiness?.id) {
+      setCustomerSavedCards([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const res = await fetch(`/api/admin/customers/${cid}`, {
+          headers: {
+            ...adminCustomerApiHeaders(currentBusiness.id),
+            Authorization: `Bearer ${session?.access_token || ""}`,
+          },
+        });
+        const json = await res.json().catch(() => ({}));
+        if (cancelled || !res.ok || !json?.customer) {
+          if (!cancelled) setCustomerSavedCards([]);
+          return;
+        }
+        const raw = json.customer.billing_cards ?? json.customer.billingCards;
+        const list: CustomerSavedCardOption[] = Array.isArray(raw)
+          ? raw.map((c: Record<string, unknown>) => {
+              const pm = c?.stripePaymentMethodId;
+              const pmStr = typeof pm === "string" && pm.startsWith("pm_") ? pm : null;
+              return {
+                brand: String(c?.brand ?? "Card"),
+                last4: String(c?.last4 ?? "")
+                  .replace(/\D/g, "")
+                  .slice(-4),
+                stripePaymentMethodId: pmStr,
+              };
+            })
+          : [];
+        const normalized = list.filter((x) => x.last4.length === 4);
+        if (!cancelled) setCustomerSavedCards(normalized);
+      } catch {
+        if (!cancelled) setCustomerSavedCards([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [newBooking.customerId, newBooking.customerType, currentBusiness?.id]);
+
+  useEffect(() => {
+    if (newBooking.paymentMethod !== "Credit Card" || newBooking.creditCardMode !== "saved") return;
+    const chargeable = customerSavedCards.filter((c) => c.stripePaymentMethodId);
+    if (chargeable.length === 0) return;
+    if (newBooking.savedStripePaymentMethodId) return;
+    setNewBooking((prev) => ({
+      ...prev,
+      savedStripePaymentMethodId: chargeable[0].stripePaymentMethodId!,
+    }));
+  }, [
+    newBooking.paymentMethod,
+    newBooking.creditCardMode,
+    newBooking.savedStripePaymentMethodId,
+    customerSavedCards,
+  ]);
+
   // Edit mode: provider Select is bound to `selectedProvider`; hydrate from `serviceProvider` once providers load
   useEffect(() => {
     if (!editingBookingId) return;
@@ -1048,6 +1147,8 @@ export function AddBookingForm({
       email: customer.email,
       phone: customer.phone || '',
       address: customer.address || '',
+      creditCardMode: "new",
+      savedStripePaymentMethodId: "",
     }));
     setCustomerSearch(customer.name);
     setShowCustomerDropdown(false);
@@ -1086,6 +1187,37 @@ const handleAddBooking = async (status: string = 'pending') => {
     });
     return;
   }
+
+    const chargeableSavedCards = customerSavedCards.filter((c) => c.stripePaymentMethodId);
+    if (newBooking.paymentMethod === "Credit Card" && newBooking.creditCardMode === "saved") {
+      if (!newBooking.customerId.trim()) {
+        toast({
+          title: "Customer required",
+          description: "Select an existing customer to charge a saved card.",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (chargeableSavedCards.length === 0) {
+        toast({
+          title: "No rechargeable card on file",
+          description:
+            businessPaymentProvider === "authorize_net"
+              ? "Authorize.Net businesses cannot charge a saved card from this form yet. Choose Cash/Check, or collect payment with a hosted link from Booking Charges after saving."
+              : "This customer has no Stripe payment method on file. Add a card from their admin profile, or have them complete an online booking with card payment first.",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (!newBooking.savedStripePaymentMethodId.trim()) {
+        toast({
+          title: "Select a card",
+          description: "Choose which saved card to charge.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
 
     const customerName = `${newBooking.firstName} ${newBooking.lastName}`.trim();
     const customerEmail = newBooking.email.trim();
@@ -1287,20 +1419,79 @@ const handleAddBooking = async (status: string = 'pending') => {
       });
     }
 
-    toast({
-      title:
-        editingBookingId && !finalizeFromDraftQuote
-          ? 'Booking updated'
-          : editingBookingId
-            ? 'Booking saved'
-            : 'Booking Added',
-      description:
-        editingBookingId && !finalizeFromDraftQuote
-          ? `Booking for ${customerName} has been updated.`
-          : editingBookingId
-            ? `Booking for ${customerName} has been saved.`
-            : `New booking created for ${customerName}`,
-    });
+    const createdBooking = result?.data;
+    const newBookingId: string | null =
+      typeof createdBooking?.id === "string"
+        ? createdBooking.id
+        : typeof result?.id === "string"
+          ? result.id
+          : null;
+
+    let savedCardChargeOk = false;
+    let savedCardChargeFailed = false;
+    if (
+      !editingBookingId &&
+      status === "pending" &&
+      newBooking.paymentMethod === "Credit Card" &&
+      newBooking.creditCardMode === "saved" &&
+      newBooking.savedStripePaymentMethodId &&
+      newBookingId
+    ) {
+      try {
+        const chargeRes = await fetch("/api/admin/bookings/stripe-charge-saved-card", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session?.access_token || ""}`,
+            "x-business-id": businessIdForApi,
+          },
+          body: JSON.stringify({
+            bookingId: newBookingId,
+            stripePaymentMethodId: newBooking.savedStripePaymentMethodId,
+          }),
+        });
+        const cj = await chargeRes.json().catch(() => ({}));
+        if (!chargeRes.ok) {
+          savedCardChargeFailed = true;
+          toast({
+            title: "Booking saved — card not charged",
+            description:
+              typeof cj.error === "string"
+                ? cj.error
+                : "Collect payment from Booking Charges or send a payment link.",
+            variant: "destructive",
+          });
+        } else {
+          savedCardChargeOk = true;
+        }
+      } catch {
+        savedCardChargeFailed = true;
+        toast({
+          title: "Booking saved — payment error",
+          description: "Could not reach the payment service. Collect payment separately.",
+          variant: "destructive",
+        });
+      }
+    }
+
+    if (!savedCardChargeFailed) {
+      toast({
+        title:
+          editingBookingId && !finalizeFromDraftQuote
+            ? "Booking updated"
+            : editingBookingId
+              ? "Booking saved"
+              : "Booking Added",
+        description:
+          editingBookingId && !finalizeFromDraftQuote
+            ? `Booking for ${customerName} has been updated.`
+            : editingBookingId
+              ? `Booking for ${customerName} has been saved.`
+              : savedCardChargeOk
+                ? `New booking for ${customerName} — card charged successfully.`
+                : `New booking created for ${customerName}`,
+      });
+    }
 
     setTimeout(() => {
       if (onSaved) {
@@ -2714,7 +2905,14 @@ const handleAddBooking = async (status: string = 'pending') => {
                   <RadioGroup
                     value={newBooking.customerType}
                     onValueChange={(value) => {
-                      setNewBooking({ ...newBooking, customerType: value, customerId: value === 'new' ? '' : newBooking.customerId });
+                      setNewBooking({
+                        ...newBooking,
+                        customerType: value,
+                        customerId: value === "new" ? "" : newBooking.customerId,
+                        ...(value === "new"
+                          ? { creditCardMode: "new" as const, savedStripePaymentMethodId: "" }
+                          : {}),
+                      });
                       if (value === 'new') {
                         setCustomerSearch('');
                         setShowCustomerDropdown(false);
@@ -4335,41 +4533,130 @@ const handleAddBooking = async (status: string = 'pending') => {
             
                 <div>
                   <Label htmlFor="payment" className={embInk.labelSmBlock}>Payment Method</Label>
-                  <Select value={newBooking.paymentMethod} onValueChange={(value) => setNewBooking({ ...newBooking, paymentMethod: value })}>
+                  <Select
+                    value={newBooking.paymentMethod}
+                    onValueChange={(value) =>
+                      setNewBooking({
+                        ...newBooking,
+                        paymentMethod: value,
+                        ...(value === "Cash" ? { creditCardMode: "new", savedStripePaymentMethodId: "" } : {}),
+                      })
+                    }
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder="Select payment method" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Credit Card">New Credit Card</SelectItem>
+                      <SelectItem value="Credit Card">Credit Card</SelectItem>
                       <SelectItem value="Cash">Cash/Check</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
                 {newBooking.paymentMethod === "Credit Card" && (
-                  <div className="mt-4">
-                    <h4 className="text-sm font-semibold mb-2 text-black">Add new card</h4>
-                    <div className="relative flex items-center">
-                      <CreditCard className="absolute left-3 text-gray-400 w-5 h-5 z-10" />
-                      <Input
-                        id="card-number"
-                        placeholder="Card number"
-                        value={newBooking.cardNumber}
-                        onChange={(e) => setNewBooking({ ...newBooking, cardNumber: e.target.value })}
-                        className="pl-10 pr-32 border-gray-300"
-                      />
-                      <Button
-                        variant="ghost"
-                        className="absolute right-0 top-1/2 -translate-y-1/2 h-full bg-green-900 text-white hover:bg-green-800 rounded-l-none"
-                        onClick={() => {
-                          toast({
-                            title: "Autofill",
-                            description: "Autofill functionality not implemented.",
-                          });
-                        }}
-                      >
-                        Autofill <span className="underline ml-1">link</span>
-                      </Button>
+                  <div className="mt-4 space-y-3">
+                    {newBooking.customerType === "existing" && newBooking.customerId.trim() ? (
+                      <>
+                        <Label className="text-sm font-medium text-black">Card</Label>
+                        <RadioGroup
+                          value={newBooking.creditCardMode}
+                          onValueChange={(v) =>
+                            setNewBooking({
+                              ...newBooking,
+                              creditCardMode: v as "new" | "saved",
+                              savedStripePaymentMethodId: v === "saved" ? newBooking.savedStripePaymentMethodId : "",
+                            })
+                          }
+                          className="grid gap-2"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="new" id="admin-cc-new" />
+                            <Label htmlFor="admin-cc-new" className="font-normal cursor-pointer">
+                              New card (send payment link / collect later)
+                            </Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem
+                              value="saved"
+                              id="admin-cc-saved"
+                              disabled={
+                                businessPaymentProvider === "authorize_net" ||
+                                customerSavedCards.filter((c) => c.stripePaymentMethodId).length === 0
+                              }
+                            />
+                            <Label htmlFor="admin-cc-saved" className="font-normal cursor-pointer">
+                              Existing saved card (Stripe)
+                            </Label>
+                          </div>
+                        </RadioGroup>
+                        {newBooking.creditCardMode === "saved" &&
+                        customerSavedCards.filter((c) => c.stripePaymentMethodId).length > 0 ? (
+                          <Select
+                            value={newBooking.savedStripePaymentMethodId}
+                            onValueChange={(v) =>
+                              setNewBooking({ ...newBooking, savedStripePaymentMethodId: v })
+                            }
+                          >
+                            <SelectTrigger className="border-gray-300">
+                              <SelectValue placeholder="Choose saved card" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {customerSavedCards
+                                .filter((c) => c.stripePaymentMethodId)
+                                .map((c) => (
+                                  <SelectItem key={c.stripePaymentMethodId!} value={c.stripePaymentMethodId!}>
+                                    {c.brand} •••• {c.last4}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                        ) : null}
+                        {customerSavedCards.some((c) => !c.stripePaymentMethodId) &&
+                        businessPaymentProvider !== "authorize_net" ? (
+                          <p className="text-xs text-gray-600">
+                            Some masked cards on file cannot be charged from admin until the customer adds a card via
+                            your Stripe flow or completes a card checkout (so we store the payment method id).
+                          </p>
+                        ) : null}
+                        {businessPaymentProvider === "authorize_net" ? (
+                          <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-2">
+                            Authorize.Net: charging a card on file from admin is not available here yet. Use Cash/Check,
+                            or save the booking and send a payment link from Booking Charges.
+                          </p>
+                        ) : null}
+                      </>
+                    ) : null}
+                    <div>
+                      <h4 className="text-sm font-semibold mb-2 text-black">
+                        {newBooking.creditCardMode === "saved" ? "New card (optional)" : "Add new card"}
+                      </h4>
+                      <p className="text-xs text-gray-600 mb-2">
+                        Card entry here is for reference only. To charge a new card, use a payment link or customer
+                        checkout.
+                      </p>
+                      <div className="relative flex items-center">
+                        <CreditCard className="absolute left-3 text-gray-400 w-5 h-5 z-10" />
+                        <Input
+                          id="card-number"
+                          placeholder="Card number (reference)"
+                          value={newBooking.cardNumber}
+                          onChange={(e) => setNewBooking({ ...newBooking, cardNumber: e.target.value })}
+                          className="pl-10 pr-32 border-gray-300"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="absolute right-0 top-1/2 -translate-y-1/2 h-full bg-green-900 text-white hover:bg-green-800 rounded-l-none"
+                          onClick={() => {
+                            toast({
+                              title: "Autofill",
+                              description: "Autofill functionality not implemented.",
+                            });
+                          }}
+                        >
+                          Autofill <span className="underline ml-1">link</span>
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 )}

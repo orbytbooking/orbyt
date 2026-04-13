@@ -85,6 +85,23 @@ export async function applyBookingPaidFromStripeSession(
             : await stripe.paymentIntents.retrieve(piId);
         const charge = pi.charges?.data?.[0];
         const card = charge?.payment_method_details?.card;
+        const pmFromCharge = charge?.payment_method;
+        const stripePaymentMethodId =
+          typeof pmFromCharge === "string"
+            ? pmFromCharge
+            : pmFromCharge &&
+ typeof pmFromCharge === "object" &&
+                "id" in pmFromCharge &&
+                typeof (pmFromCharge as { id: unknown }).id === "string"
+              ? (pmFromCharge as { id: string }).id
+              : typeof pi.payment_method === "string"
+                ? pi.payment_method
+                : pi.payment_method &&
+ typeof pi.payment_method === "object" &&
+                    "id" in pi.payment_method &&
+                    typeof (pi.payment_method as { id: unknown }).id === "string"
+                  ? (pi.payment_method as { id: string }).id
+                  : null;
         if (card?.last4 || card?.brand) {
           await supabase
             .from("bookings")
@@ -103,6 +120,26 @@ export async function applyBookingPaidFromStripeSession(
             .eq("business_id", businessId)
             .maybeSingle();
           const custId = (bk as { customer_id?: string | null } | null)?.customer_id;
+          const sessionCustRaw = session.customer;
+          const sessionStripeCustomerId =
+            typeof sessionCustRaw === "string"
+              ? sessionCustRaw
+              : sessionCustRaw &&
+                  typeof sessionCustRaw === "object" &&
+                  "id" in sessionCustRaw &&
+                  typeof (sessionCustRaw as { id: unknown }).id === "string"
+                ? (sessionCustRaw as { id: string }).id
+                : null;
+          if (custId && sessionStripeCustomerId) {
+            await supabase
+              .from("customers")
+              .update({
+                stripe_customer_id: sessionStripeCustomerId,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", custId)
+              .eq("business_id", businessId);
+          }
           if (custId && (card?.last4 || card?.brand)) {
             await mergeCheckoutCardOntoCustomer(supabase, {
               customerId: custId,
@@ -111,6 +148,7 @@ export async function applyBookingPaidFromStripeSession(
               brand: card.brand ?? null,
               expMonth: card.exp_month ?? null,
               expYear: card.exp_year ?? null,
+              stripePaymentMethodId,
             });
           }
         }
