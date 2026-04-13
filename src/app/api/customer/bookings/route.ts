@@ -16,6 +16,7 @@ import { formatFrequencyRepeatsForDisplay, resolveFrequencyRepeatsForBooking } f
 import { compareBookingsByScheduleAsc } from '@/lib/bookingScheduleSort';
 import { parseDurationMinutesFromBookingPayload } from '@/lib/bookingDuration';
 import { extractPricingSummaryFromCustomization } from '@/lib/customerBookingPricingDisplay';
+import { ensureCustomerRowForBusiness } from '@/lib/ensureCustomerRowForBusiness';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -389,16 +390,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Business ID required' }, { status: 400 });
   }
 
-  const { data: customer, error: customerError } = await supabase
-    .from('customers')
-    .select('id, name, email, phone, access_blocked, booking_blocked')
-    .eq('auth_user_id', user.id)
-    .eq('business_id', businessId)
-    .single();
-
-  if (customerError || !customer) {
-    return NextResponse.json({ error: 'Customer profile not found for this business' }, { status: 403 });
+  const ensured = await ensureCustomerRowForBusiness(supabase, user, String(businessId), {
+    customer_name: body.customer_name ?? body.customerName,
+    customer_email: body.customer_email ?? body.customerEmail,
+    customer_phone: body.customer_phone ?? body.customerPhone ?? body.contact,
+    address: body.address,
+  });
+  if (!ensured.ok) {
+    return NextResponse.json({ error: ensured.error }, { status: ensured.status });
   }
+  const customer = ensured.customer;
 
   if ((customer as { access_blocked?: boolean }).access_blocked || (customer as { booking_blocked?: boolean }).booking_blocked) {
     const { data: accessRow } = await supabase

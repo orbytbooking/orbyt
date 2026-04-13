@@ -5,6 +5,7 @@ import { getCancellationFeeForBooking } from '@/lib/cancellationFee';
 import { syncBookingCancelled } from '@/lib/googleCalendar';
 import { formatFrequencyRepeatsForDisplay } from '@/lib/industryFrequencyRepeats';
 import { extractPricingSummaryFromCustomization } from '@/lib/customerBookingPricingDisplay';
+import { ensureCustomerRowForBusiness } from '@/lib/ensureCustomerRowForBusiness';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -100,16 +101,11 @@ export async function GET(
     return NextResponse.json({ error: 'Booking ID required' }, { status: 400 });
   }
 
-  const { data: customer, error: customerError } = await supabase
-    .from('customers')
-    .select('id')
-    .eq('auth_user_id', user.id)
-    .eq('business_id', businessId)
-    .single();
-
-  if (customerError || !customer) {
-    return NextResponse.json({ error: 'Customer profile not found for this business' }, { status: 403 });
+  const ensured = await ensureCustomerRowForBusiness(supabase, user, businessId);
+  if (!ensured.ok) {
+    return NextResponse.json({ error: ensured.error }, { status: ensured.status });
   }
+  const customer = ensured.customer;
 
   const { data: row, error } = await supabase
     .from('bookings')
@@ -190,16 +186,6 @@ export async function PATCH(
     return NextResponse.json({ error: 'Booking ID required' }, { status: 400 });
   }
 
-  const { data: customer, error: customerError } = await supabase
-    .from('customers')
-    .select('id')
-    .eq('auth_user_id', user.id)
-    .single();
-
-  if (customerError || !customer) {
-    return NextResponse.json({ error: 'Customer profile not found' }, { status: 403 });
-  }
-
   const { data: booking, error: fetchError } = await supabase
     .from('bookings')
     .select(
@@ -212,11 +198,27 @@ export async function PATCH(
     return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
   }
 
+  const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+
+  const bizId = (booking as { business_id?: string }).business_id;
+  if (!bizId) {
+    return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
+  }
+
+  const ensured = await ensureCustomerRowForBusiness(supabase, user, bizId, {
+    customer_name: body.customer_name,
+    customer_email: body.customer_email,
+    customer_phone: body.customer_phone,
+    address: body.address,
+  });
+  if (!ensured.ok) {
+    return NextResponse.json({ error: ensured.error }, { status: ensured.status });
+  }
+  const customer = ensured.customer;
+
   if (booking.customer_id !== customer.id) {
     return NextResponse.json({ error: 'You can only update your own bookings' }, { status: 403 });
   }
-
-  const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   const rawStatusIn = body.status;
   let status: string | undefined;
   if (typeof rawStatusIn === 'string') {

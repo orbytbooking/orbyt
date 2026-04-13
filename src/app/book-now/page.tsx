@@ -519,6 +519,8 @@ function BookingPageContent() {
   const [bookingData, setBookingData] = useState<z.infer<typeof formSchema> | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  /** After booking success: null while checking session; true = guest (stay on thank-you); false = logged-in customer (redirect to appointments). */
+  const [successFlowGuest, setSuccessFlowGuest] = useState<boolean | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [flippedCardId, setFlippedCardId] = useState<string | null>(null);
   const [cardCustomizations, setCardCustomizations] = useState<Record<string, ServiceCustomization>>({});
@@ -2236,14 +2238,29 @@ function BookingPageContent() {
   }, [searchParams]);
 
   useEffect(() => {
-    if (currentStep === "success") {
-      const anetSb = searchParams.get("anet_sb")?.trim();
-      let bid = searchParams.get("business")?.trim() || null;
-      if (!bid && anetSb?.includes(".")) {
-        bid = anetSb.slice(anetSb.indexOf(".") + 1).trim() || null;
-      }
-      router.push(bid ? `/customer/appointments?business=${bid}` : "/customer/appointments");
+    if (currentStep !== "success") {
+      setSuccessFlowGuest(null);
+      return;
     }
+    let cancelled = false;
+    (async () => {
+      const { data: { session } } = await getSupabaseCustomerClient().auth.getSession();
+      if (cancelled) return;
+      if (session?.access_token) {
+        setSuccessFlowGuest(false);
+        const anetSb = searchParams.get("anet_sb")?.trim();
+        let bid = searchParams.get("business")?.trim() || null;
+        if (!bid && anetSb?.includes(".")) {
+          bid = anetSb.slice(anetSb.indexOf(".") + 1).trim() || null;
+        }
+        router.push(bid ? `/customer/appointments?business=${bid}` : "/customer/appointments");
+      } else {
+        setSuccessFlowGuest(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [currentStep, router, searchParams]);
 
   /** Estimated job length: hourly custom time → card hours/min; else pricing-parameter sum (+extras, −partial) or duration label. */
@@ -3498,6 +3515,7 @@ function BookingPageContent() {
 
   // Success Screen
   if (currentStep === "success") {
+    const successBid = searchParams.get("business")?.trim() || null;
     return (
       <div className="min-h-screen">
         <Navigation branding={bookNowNavigationProps.branding} headerData={bookNowNavigationProps.headerData} />
@@ -3508,9 +3526,34 @@ function BookingPageContent() {
                 <CheckCircle size={48} />
               </div>
               <h2 className={styles.successTitle}>Booking Confirmed!</h2>
-              <p className={styles.successText}>
-                Thanks for booking with us. We’re sending you back to your appointments dashboard…
-              </p>
+              {successFlowGuest === null && (
+                <p className={styles.successText}>Thanks for booking with us. One moment…</p>
+              )}
+              {successFlowGuest === false && (
+                <p className={styles.successText}>
+                  Thanks for booking with us. Taking you to your appointments…
+                </p>
+              )}
+              {successFlowGuest === true && (
+                <>
+                  <p className={styles.successText}>
+                    Thanks for booking with us. You should receive a confirmation email shortly. You booked as a guest—you
+                    can create an account with the same email anytime to view and manage appointments online.
+                  </p>
+                  <div className="mt-6 flex flex-wrap justify-center gap-3">
+                    {successBid ? (
+                      <Button asChild variant="default">
+                        <Link href={`/customer-auth?business=${encodeURIComponent(successBid)}`}>
+                          Create account / Sign in
+                        </Link>
+                      </Button>
+                    ) : null}
+                    <Button asChild variant="outline">
+                      <Link href={successBid ? `/?business=${encodeURIComponent(successBid)}` : "/"}>Back to site</Link>
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
