@@ -222,6 +222,15 @@ export async function POST(request: NextRequest) {
 
   const industryIdForServiceArea = (body.industry_id ?? body.industryId ?? '').toString().trim();
   const serviceAreaInput = (body.service_area_input ?? body.zip_code ?? body.zipCode ?? '').toString();
+  /** Persisted on `bookings.zip_code` for admin/provider summaries (same value used for service-area checks). */
+  const zipCodeForDb =
+    String(
+      body.service_area_input ??
+        body.service_areaInput ??
+        body.zip_code ??
+        body.zipCode ??
+        '',
+    ).trim() || null;
   if (industryIdForServiceArea) {
     const areaGate = await assertBookingServiceAreaAllowed({
       supabase,
@@ -314,6 +323,7 @@ export async function POST(request: NextRequest) {
     provider_id: providerIdClean ?? null,
     service: (body.service ?? '').toString().trim() || null,
     address: (body.address ?? '').toString().trim() || '',
+    zip_code: zipCodeForDb,
     notes: (body.notes ?? '').toString().trim() || null,
     frequency: frequency ?? null,
     total_price: totalPrice,

@@ -27,6 +27,7 @@ import {
   User as UserIcon,
   Plus,
   Minus,
+  Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +40,22 @@ import {
 } from "@/components/ui/sheet";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -49,8 +66,8 @@ import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSupabaseProviderClient } from "@/lib/supabaseProviderClient";
 import { cn } from "@/lib/utils";
-import { computeProviderNetPayFromBooking } from "@/lib/bookingProviderWage";
 import { compareBookingsByScheduleAsc } from "@/lib/bookingScheduleSort";
+import { getBookingSummaryVariableRows } from "@/lib/bookingSummaryVariableRows";
 
 type Booking = {
   id: string;
@@ -64,6 +81,8 @@ type Booking = {
   time: string;
   status: "pending" | "confirmed" | "in_progress" | "completed" | "cancelled";
   amount: string;
+  /** Customer/job total (formatted); `amount` is your estimated net pay from the API. */
+  job_total_display?: string;
   location: string;
   notes?: string;
   service_provider_notes?: string[];
@@ -79,6 +98,34 @@ type Booking = {
   total_price_number?: number;
   is_recurring?: boolean;
 };
+
+function getResolvedBookingZipForSummary(booking: Booking): string {
+  const z = String(booking.zip_code ?? "").trim();
+  if (z) return z;
+  const c = booking.customization;
+  if (!c || typeof c !== "object") return "";
+  const o = c as Record<string, unknown>;
+  return String(o.zip_code ?? o.zipCode ?? o.postal_code ?? o.postalCode ?? o.zip ?? "").trim();
+}
+
+function getPartialCleaningFromCustomization(customization: Record<string, unknown> | null | undefined): {
+  isPartial: boolean;
+  excludedIds: string[];
+  quantities: Record<string, number>;
+} {
+  if (!customization || typeof customization !== "object") {
+    return { isPartial: false, excludedIds: [], quantities: {} };
+  }
+  const isPartial = Boolean(customization.isPartialCleaning ?? customization.is_partial_cleaning);
+  const rawExcluded = customization.excludedAreas ?? customization.excluded_areas;
+  const excludedIds = Array.isArray(rawExcluded) ? (rawExcluded as string[]).filter(Boolean) : [];
+  const rawQty = customization.excludeQuantities ?? customization.exclude_quantities;
+  const quantities =
+    rawQty && typeof rawQty === "object" && !Array.isArray(rawQty)
+      ? (rawQty as Record<string, number>)
+      : {};
+  return { isPartial, excludedIds, quantities };
+}
 
 type BookingPhotos = {
   before?: string;
@@ -101,6 +148,9 @@ type BookingsData = {
     completed: number;
     cancelled: number;
   };
+  /** First industry for the business (same ordering as admin booking summary). */
+  industry_id?: string | null;
+  industry_name?: string | null;
 };
 
 const formatTime = (t: string) => {
@@ -158,6 +208,33 @@ const getStatusBadge = (status: string) => {
   );
 };
 
+type SheetTimeLog = {
+  provider_status?: string;
+  on_the_way_at?: string;
+  at_location_at?: string;
+  clocked_in_at?: string;
+  clocked_out_at?: string;
+} | null;
+
+/** Sheet header status: recurring rows stay `confirmed` in the API while time tracking runs; reflect live clock state here. */
+function getSheetStatusDisplay(
+  booking: Booking,
+  timeLog: SheetTimeLog,
+  clockEnabled: boolean,
+): Booking["status"] {
+  const base = booking.status;
+  if (base === "completed" || base === "cancelled") return base;
+  if (!clockEnabled || !timeLog) return base;
+  if (timeLog.clocked_out_at) return base;
+  const hasTimestamp = Boolean(
+    timeLog.on_the_way_at || timeLog.at_location_at || timeLog.clocked_in_at,
+  );
+  const ps = String(timeLog.provider_status || "").toLowerCase();
+  const midJob = ["on_the_way", "at_location", "clocked_in", "lunch_break"].includes(ps);
+  if (hasTimestamp || midJob) return "in_progress";
+  return base;
+}
+
 const getStatusTone = (status: string) => {
   switch (status) {
     case "completed":
@@ -181,7 +258,9 @@ const ProviderBookings = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+  const [confirmMarkCompleteOpen, setConfirmMarkCompleteOpen] = useState(false);
   const [bookingPhotos, setBookingPhotos] = useState<BookingPhotosMap>({});
+  const [excludeParamNames, setExcludeParamNames] = useState<Record<string, string>>({});
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const [isPhotoDialogOpen, setIsPhotoDialogOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -238,6 +317,37 @@ const ProviderBookings = () => {
       }
     }
   }, [searchParams, bookingsData, loading]);
+
+  useEffect(() => {
+    const industryId = bookingsData?.industry_id?.trim();
+    if (!selectedBooking?.customization || typeof selectedBooking.customization !== "object" || !industryId) {
+      setExcludeParamNames({});
+      return;
+    }
+    const { excludedIds } = getPartialCleaningFromCustomization(selectedBooking.customization as Record<string, unknown>);
+    if (excludedIds.length === 0) {
+      setExcludeParamNames({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const epRes = await fetch(`/api/exclude-parameters?industryId=${encodeURIComponent(industryId)}`);
+        const epData = await epRes.json();
+        const params = epData.excludeParameters || [];
+        const map: Record<string, string> = {};
+        (params as { id: string; name?: string }[]).forEach((p) => {
+          if (p.id && excludedIds.includes(p.id)) map[p.id] = p.name || p.id;
+        });
+        if (!cancelled) setExcludeParamNames(map);
+      } catch {
+        if (!cancelled) setExcludeParamNames({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBooking?.id, selectedBooking?.customization, bookingsData?.industry_id]);
 
   useEffect(() => {
     setMounted(true);
@@ -496,12 +606,18 @@ const ProviderBookings = () => {
         return;
       }
       setTimeLog(data.timeLog ?? { provider_status: action });
-      // Update booking status to In progress when provider starts time tracking (on the way, at location, or clock in)
+      // Update list + sheet immediately. Match id + date so only this occurrence changes (recurring-safe).
       if (["on_the_way", "at_location", "clocked_in"].includes(action) && selectedBooking) {
+        const d = String(selectedBooking.date || "").slice(0, 10);
         setSelectedBooking((prev) => (prev ? { ...prev, status: "in_progress" as const } : null));
         setBookingsData((prev) => {
           if (!prev) return prev;
-          const match = (b: Booking) => b.id === selectedBooking.id && (selectedBooking.date ? b.date === selectedBooking.date : true);
+          const match = (b: Booking) => {
+            if (b.id !== selectedBooking.id) return false;
+            const bd = String(b.date || "").slice(0, 10);
+            if (selectedBooking.is_recurring) return Boolean(d) && bd === d;
+            return !d || bd === d;
+          };
           return {
             ...prev,
             bookings: prev.bookings.map((b) => (match(b) ? { ...b, status: "in_progress" as const } : b)),
@@ -539,11 +655,6 @@ const ProviderBookings = () => {
               <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <h4 className="font-semibold">{booking.customer.name}</h4>
                 {getStatusBadge(booking.status)}
-                {booking.is_recurring && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300">
-                    Recurring
-                  </span>
-                )}
                 {photosExist && (
                   <span 
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400"
@@ -815,7 +926,10 @@ const ProviderBookings = () => {
           <SheetHeader className="px-6 pt-6 pb-4 shrink-0 border-b border-border">
             <div className="flex items-center justify-between">
               <SheetTitle className="text-lg font-bold">Booking summary</SheetTitle>
-              {selectedBooking && getStatusBadge(selectedBooking.status)}
+              {selectedBooking &&
+                getStatusBadge(
+                  getSheetStatusDisplay(selectedBooking, timeLog, clockEnabled),
+                )}
             </div>
           </SheetHeader>
 
@@ -842,14 +956,23 @@ const ProviderBookings = () => {
                       <span>{selectedBooking.customer.phone}</span>
                     </div>
                   )}
-                  {selectedBooking.location && (
-                    <div className="flex items-start gap-2 text-sm text-muted-foreground">
-                      <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                      <span className="break-words">
-                        {[selectedBooking.apt_no ? `Apt ${selectedBooking.apt_no}, ` : null, selectedBooking.location, selectedBooking.zip_code].filter(Boolean).join(' ')}
-                      </span>
-                    </div>
-                  )}
+                  {(() => {
+                    const zip = getResolvedBookingZipForSummary(selectedBooking);
+                    const line = [
+                      selectedBooking.apt_no ? `Apt ${selectedBooking.apt_no}` : null,
+                      selectedBooking.location?.trim() ? selectedBooking.location : null,
+                      zip || null,
+                    ]
+                      .filter(Boolean)
+                      .join(", ");
+                    if (!line) return null;
+                    return (
+                      <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                        <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                        <span className="break-words">{line}</span>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -867,31 +990,15 @@ const ProviderBookings = () => {
                   </CollapsibleTrigger>
                   <CollapsibleContent className="overflow-visible">
                     <div className="px-4 pb-4 space-y-0">
-                      {(() => {
-                        const grossFallback = parseFloat(
-                          String(selectedBooking.amount || "").replace(/[^0-9.-]/g, "")
-                        );
-                        const estimatedPay = computeProviderNetPayFromBooking({
-                          total_price:
-                            selectedBooking.total_price_number ??
-                            (Number.isFinite(grossFallback) ? grossFallback : null),
-                          provider_wage: selectedBooking.provider_wage,
-                          provider_wage_type: selectedBooking.provider_wage_type,
-                          duration_minutes: selectedBooking.duration_minutes,
-                          notes: selectedBooking.notes,
-                        });
-                        return [
+                      {[
                         { label: 'Booking id', value: selectedBooking.id },
-                        { label: 'Zip/Postal code', value: selectedBooking.zip_code || '—' },
-                        { label: 'Industry', value: '—' },
+                        { label: 'Zip/Postal code', value: getResolvedBookingZipForSummary(selectedBooking) || '—' },
+                        { label: 'Industry', value: bookingsData?.industry_name?.trim() || '—' },
                         { label: 'Service', value: selectedBooking.service },
                         { label: 'Frequency', value: selectedBooking.frequency || '—' },
-                        {
-                          label: 'Bathrooms',
-                          value: selectedBooking.customization && typeof selectedBooking.customization === 'object' && ('bathroom' in selectedBooking.customization || 'bathrooms' in selectedBooking.customization)
-                            ? String((selectedBooking.customization as Record<string, unknown>).bathroom ?? (selectedBooking.customization as Record<string, unknown>).bathrooms ?? '—')
-                            : '—',
-                        },
+                        ...getBookingSummaryVariableRows(
+                          selectedBooking.customization as Record<string, unknown> | null | undefined,
+                        ).map(({ label, value }) => ({ label, value })),
                         {
                           label: 'Extras',
                           value: selectedBooking.customization && typeof selectedBooking.customization === 'object' && 'extras' in selectedBooking.customization
@@ -917,33 +1024,110 @@ const ProviderBookings = () => {
                         { label: 'Service date', value: selectedBooking.date ? formatDate(selectedBooking.date) : '—' },
                         { label: 'Assigned to', value: bookingsData?.provider?.name ?? 'You' },
                         {
-                          label: 'Provider payment',
-                          value: selectedBooking.provider_wage != null && selectedBooking.provider_wage_type
-                            ? selectedBooking.provider_wage_type === 'percentage'
-                              ? `${selectedBooking.provider_wage}%`
-                              : selectedBooking.provider_wage_type === 'hourly'
-                                ? `$${Number(selectedBooking.provider_wage).toFixed(2)}/hr`
-                                : `$${Number(selectedBooking.provider_wage).toFixed(2)}`
-                            : '—',
-                        },
-                        ...(estimatedPay != null
-                          ? [
-                              {
-                                label: 'Estimated pay (this job)',
-                                value: `$${estimatedPay.toFixed(2)}`,
-                              },
+                          label: 'Location',
+                          value:
+                            [
+                              selectedBooking.location,
+                              selectedBooking.apt_no ? `Apt ${selectedBooking.apt_no}` : null,
+                              getResolvedBookingZipForSummary(selectedBooking) || null,
                             ]
-                          : []),
-                        { label: 'Location', value: [selectedBooking.location, selectedBooking.apt_no ? `Apt ${selectedBooking.apt_no}` : null, selectedBooking.zip_code].filter(Boolean).join(', ') || '—' },
+                              .filter(Boolean)
+                              .join(', ') || '—',
+                        },
                         { label: 'Payment method', value: selectedBooking.payment_method ? String(selectedBooking.payment_method).toLowerCase() : '—' },
-                        { label: 'Price details', value: selectedBooking.amount },
-                      ];
-                      })().map(({ label, value }) => (
+                      ].map(({ label, value }) => (
                         <div key={label} className="flex justify-between items-start gap-4 py-1.5 min-w-0 border-b border-border/50 last:border-0">
                           <span className="text-muted-foreground text-sm shrink-0">{label}</span>
                           <span className="text-sm font-medium text-right break-words break-all min-w-0 flex-1">{value}</span>
                         </div>
                       ))}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+
+              {(() => {
+                const partial = getPartialCleaningFromCustomization(
+                  selectedBooking.customization as Record<string, unknown> | null | undefined,
+                );
+                if (!partial.isPartial && partial.excludedIds.length === 0) return null;
+                return (
+                  <div className="rounded-lg bg-amber-50/80 dark:bg-amber-950/20 p-3 border border-amber-100 dark:border-amber-900/30 shrink-0">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-600 mb-2">
+                      Partial cleaning
+                    </h4>
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between items-start gap-4 py-1 min-w-0">
+                        <span className="text-muted-foreground text-sm shrink-0">Partial cleaning</span>
+                        <span className="text-sm font-medium text-right">{partial.isPartial ? "Yes" : "No"}</span>
+                      </div>
+                      {partial.excludedIds.length > 0 ? (
+                        <div>
+                          <span className="text-muted-foreground text-sm">Excluded areas: </span>
+                          <span className="text-sm font-medium break-words">
+                            {partial.excludedIds.map((paramId) => {
+                              const qty = partial.quantities[paramId] ?? 1;
+                              const name = excludeParamNames[paramId] || `${paramId.slice(0, 8)}…`;
+                              return `${name}${qty > 1 ? ` × ${qty}` : ""}`;
+                            }).join(", ")}
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Payment details — provider fee / total pay (same estimated net as list card) */}
+              <div className="rounded-lg bg-slate-100/90 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 min-w-0 shrink-0">
+                <Collapsible defaultOpen className="group">
+                  <div className="flex w-full items-center justify-between gap-2 py-3 px-4 rounded-t-lg hover:bg-slate-200/50 dark:hover:bg-slate-700/40 transition-colors">
+                    <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 text-left font-semibold text-sm text-slate-900 dark:text-slate-100 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-md -m-1 p-1">
+                      <span>Payment details</span>
+                    </CollapsibleTrigger>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <TooltipProvider delayDuration={200}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2"
+                              aria-label="About payment details"
+                            >
+                              <Info className="h-3 w-3" strokeWidth={2.5} />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs text-xs">
+                            Your estimated fee and total pay for this job, based on your pay rate for this booking.
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      <CollapsibleTrigger className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-white shadow-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:bg-gray-800">
+                        <Plus className="h-3.5 w-3.5 text-muted-foreground group-data-[state=open]:hidden" />
+                        <Minus className="hidden h-3.5 w-3.5 text-muted-foreground group-data-[state=open]:inline-flex" />
+                      </CollapsibleTrigger>
+                    </div>
+                  </div>
+                  <CollapsibleContent>
+                    <div className="px-4 pb-4">
+                      <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-600 dark:bg-gray-900">
+                        <div className="flex items-center justify-between gap-4 border-b border-border/50 py-2 last:border-0">
+                          <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                            Fee
+                          </span>
+                          <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                            {selectedBooking.amount}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-4 py-2">
+                          <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                            Total pay
+                          </span>
+                          <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                            {selectedBooking.amount}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </CollapsibleContent>
                 </Collapsible>
@@ -1216,7 +1400,7 @@ const ProviderBookings = () => {
             )}
             {selectedBooking?.status === "confirmed" && (
               <Button
-                onClick={() => handleCompleteBooking(selectedBooking!)}
+                onClick={() => setConfirmMarkCompleteOpen(true)}
                 className="bg-green-600 hover:bg-green-700"
               >
                 Mark as Completed
@@ -1239,6 +1423,33 @@ const ProviderBookings = () => {
         </SheetContent>
       </Sheet>
       )}
+
+      <AlertDialog open={confirmMarkCompleteOpen} onOpenChange={setConfirmMarkCompleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark booking as completed?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedBooking?.is_recurring
+                ? "This will mark this scheduled visit as completed. You can still find it under the Completed tab."
+                : "This will mark the job as completed. You can still find it under the Completed tab."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-green-600 text-white hover:bg-green-700 focus:ring-green-600"
+              onClick={() => {
+                const b = selectedBooking;
+                setConfirmMarkCompleteOpen(false);
+                if (!b || b.status !== "confirmed") return;
+                handleCompleteBooking(b);
+              }}
+            >
+              Mark as completed
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

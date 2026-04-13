@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
 
     const { data: booking } = await supabaseAdmin
       .from('bookings')
-      .select('id, provider_id, business_id, recurring_series_id')
+      .select('id, provider_id, business_id, recurring_series_id, scheduled_date, date')
       .eq('id', bookingId)
       .eq('business_id', provider.business_id)
       .single();
@@ -136,7 +136,17 @@ export async function POST(request: NextRequest) {
     }
 
     const isRecurring = !!(booking as { recurring_series_id?: string }).recurring_series_id;
-    const logOccurrenceDate = isRecurring && occurrenceDate ? occurrenceDate : null;
+    const rowDateFallback =
+      !occurrenceDate && isRecurring
+        ? String(
+            (booking as { scheduled_date?: string; date?: string }).scheduled_date ||
+              (booking as { date?: string }).date ||
+              '',
+          ).slice(0, 10) || null
+        : null;
+    const effectiveOccurrenceDate =
+      occurrenceDate || (/^\d{4}-\d{2}-\d{2}$/.test(String(rowDateFallback || '')) ? rowDateFallback : null);
+    const logOccurrenceDate = isRecurring && effectiveOccurrenceDate ? effectiveOccurrenceDate : null;
 
     let existingLogQuery = supabaseAdmin
       .from('booking_time_logs')
@@ -171,8 +181,10 @@ export async function POST(request: NextRequest) {
       providerStatus = 'clocked_in';
       updates.clocked_in_at = now;
     }
-    // Move booking to in_progress when provider starts time tracking (on the way, at location, or clocked in)
-    if (['on_the_way', 'at_location', 'clocked_in'].includes(action)) {
+    // Move booking to in_progress when provider starts time tracking (on the way, at location, or clocked in).
+    // Recurring series uses one DB row for many dates: never set row-level in_progress — it would paint every
+    // occurrence as in progress on admin/provider calendars. Per-occurrence state lives in booking_time_logs.
+    if (['on_the_way', 'at_location', 'clocked_in'].includes(action) && !isRecurring) {
       await supabaseAdmin
         .from('bookings')
         .update({ status: 'in_progress', updated_at: now })
@@ -185,8 +197,12 @@ export async function POST(request: NextRequest) {
     } else if (action === 'clocked_out') {
       providerStatus = 'completed';
       updates.clocked_out_at = now;
-      if (opts?.completion_on_clock_out !== false) {
-        if (isRecurring && logOccurrenceDate) {
+      if (isRecurring && logOccurrenceDate) {
+        const bookingPatch: Record<string, unknown> = {
+          status: 'confirmed',
+          updated_at: now,
+        };
+        if (opts?.completion_on_clock_out !== false) {
           const { data: row } = await supabaseAdmin
             .from('bookings')
             .select('completed_occurrence_dates')
@@ -196,24 +212,25 @@ export async function POST(request: NextRequest) {
             ? (row as { completed_occurrence_dates: string[] }).completed_occurrence_dates
             : [];
           if (!list.includes(logOccurrenceDate)) {
-            await supabaseAdmin
-              .from('bookings')
-              .update({
-                completed_occurrence_dates: [...list, logOccurrenceDate],
-                updated_at: now,
-              })
-              .eq('id', bookingId)
-              .eq('provider_id', provider.id)
-              .eq('business_id', provider.business_id);
+            bookingPatch.completed_occurrence_dates = [...list, logOccurrenceDate];
           }
-        } else {
-          const { error: bookingUpdateErr } = await supabaseAdmin
-            .from('bookings')
-            .update({ status: 'completed', updated_at: now })
-            .eq('id', bookingId);
-          if (bookingUpdateErr) {
-            console.error('Clock out: failed to set booking completed', bookingUpdateErr.message);
-          }
+        }
+        const { error: recurringOutErr } = await supabaseAdmin
+          .from('bookings')
+          .update(bookingPatch)
+          .eq('id', bookingId)
+          .eq('provider_id', provider.id)
+          .eq('business_id', provider.business_id);
+        if (recurringOutErr) {
+          console.error('Clock out: recurring booking row update failed', recurringOutErr.message);
+        }
+      } else if (opts?.completion_on_clock_out !== false) {
+        const { error: bookingUpdateErr } = await supabaseAdmin
+          .from('bookings')
+          .update({ status: 'completed', updated_at: now })
+          .eq('id', bookingId);
+        if (bookingUpdateErr) {
+          console.error('Clock out: failed to set booking completed', bookingUpdateErr.message);
         }
       }
     }

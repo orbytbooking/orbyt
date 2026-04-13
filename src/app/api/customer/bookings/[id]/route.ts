@@ -217,15 +217,36 @@ export async function PATCH(
   }
 
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
-  const status = body.status === 'canceled' || body.status === 'cancelled' ? 'cancelled' : body.status;
+  const rawStatusIn = body.status;
+  let status: string | undefined;
+  if (typeof rawStatusIn === 'string') {
+    const s = rawStatusIn.trim().toLowerCase();
+    if (s === 'canceled' || s === 'cancelled') status = 'cancelled';
+    else if (s === 'complete' || s === 'completed') status = 'completed';
+    else status = rawStatusIn.trim();
+  } else if (rawStatusIn != null && rawStatusIn !== '') {
+    status = String(rawStatusIn);
+  }
   const occurrenceDateRaw = typeof body.occurrence_date === 'string' ? body.occurrence_date.slice(0, 10) : '';
 
   const isRecurring = !!(booking as { recurring_series_id?: string }).recurring_series_id;
   const perOccurrenceCancel =
     status === 'cancelled' && isRecurring && occurrenceDateRaw.length >= 8;
+  const wantsComplete = status === 'completed';
+  const perOccurrenceComplete = wantsComplete && isRecurring && occurrenceDateRaw.length >= 8;
+
+  if (wantsComplete && isRecurring && occurrenceDateRaw.length < 8) {
+    return NextResponse.json(
+      {
+        error:
+          'For recurring bookings, include occurrence_date (YYYY-MM-DD) when marking a single visit completed.',
+      },
+      { status: 400 },
+    );
+  }
 
   const updates: Record<string, unknown> = {};
-  if (status && !perOccurrenceCancel) updates.status = status;
+  if (status && !perOccurrenceCancel && !perOccurrenceComplete) updates.status = status;
 
   // Allow customer to update only their details (Booking Koala-style: edit details + payment only when self-reschedule is off)
   if (typeof body.customer_name === 'string' && body.customer_name.trim()) updates.customer_name = body.customer_name.trim();
@@ -281,6 +302,19 @@ export async function PATCH(
       updates.cancellation_fee_currency = fee.currency;
     }
     updates.customer_cancelled_occurrence_dates = [...prevCancelled, occurrenceDateRaw];
+    updates.updated_at = new Date().toISOString();
+  }
+
+  // Recurring: mark one visit completed without setting the whole row to completed
+  if (perOccurrenceComplete) {
+    const prevDone = Array.isArray(
+      (booking as { completed_occurrence_dates?: string[] }).completed_occurrence_dates,
+    )
+      ? [...(booking as { completed_occurrence_dates: string[] }).completed_occurrence_dates]
+      : [];
+    if (!prevDone.includes(occurrenceDateRaw)) {
+      updates.completed_occurrence_dates = [...prevDone, occurrenceDateRaw];
+    }
     updates.updated_at = new Date().toISOString();
   }
 

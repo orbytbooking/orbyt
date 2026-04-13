@@ -3,6 +3,15 @@ import { createClient } from '@supabase/supabase-js';
 import { syncBookingStatusToAdmin, syncProviderStatusToAdmin } from '@/lib/adminProviderSync';
 import { getOccurrenceDatesForSeriesSync, statusForRecurringOccurrence } from '@/lib/recurringBookings';
 import { compareBookingsByScheduleAsc } from '@/lib/bookingScheduleSort';
+import {
+  estimateProviderNetPayForPortal,
+  type ProviderPayRateRow,
+} from '@/lib/bookingProviderWage';
+import {
+  collectActiveTimeLogKeys,
+  applyInProgressFromOpenTimeLogs,
+  type OpenTimeLogRow,
+} from '@/lib/bookingTimeLogActiveProgress';
 
 export async function GET(request: NextRequest) {
   try {
@@ -62,6 +71,19 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const { data: industryRows } = await supabaseAdmin
+      .from('industries')
+      .select('id, name')
+      .eq('business_id', provider.business_id)
+      .order('created_at', { ascending: true })
+      .limit(1);
+    const firstIndustry = industryRows?.[0];
+    const industry_id = firstIndustry?.id != null && String(firstIndustry.id).trim() ? String(firstIndustry.id).trim() : null;
+    const industry_name =
+      firstIndustry?.name != null && String(firstIndustry.name).trim()
+        ? String(firstIndustry.name).trim()
+        : null;
+
     // Get provider's bookings with customer info (include recurring_series_id for expansion)
     const { searchParams } = new URL(request.url);
     const view = searchParams.get('view') || 'occurrences'; // 'occurrences' = one row per date (default) | 'bookings' = one row per DB booking
@@ -91,6 +113,34 @@ export async function GET(request: NextRequest) {
 
     const formatPrice = (val: unknown) => `$${Number(val || 0).toFixed(2)}`;
 
+    const { data: payRatesRaw } = await supabaseAdmin
+      .from('provider_pay_rates')
+      .select('service_id, is_active, rate_type, percentage_rate, flat_rate, hourly_rate')
+      .eq('provider_id', provider.id)
+      .eq('business_id', provider.business_id)
+      .eq('is_active', true);
+
+    const payRates: ProviderPayRateRow[] = (payRatesRaw || []) as ProviderPayRateRow[];
+
+    const portalAmountsForBooking = (booking: Record<string, unknown>) => {
+      const gross = Number(booking.total_price ?? booking.amount ?? 0) || 0;
+      const job_total_display = formatPrice(gross);
+      const net = estimateProviderNetPayForPortal(
+        {
+          total_price: booking.total_price,
+          amount: booking.amount,
+          provider_wage: booking.provider_wage,
+          provider_wage_type: booking.provider_wage_type,
+          duration_minutes:
+            booking.duration_minutes != null ? Number(booking.duration_minutes) : null,
+          notes: (booking.notes as string | null) ?? null,
+          service_id: (booking.service_id as string | null) ?? null,
+        },
+        payRates,
+      );
+      return { amount: formatPrice(net), job_total_display };
+    };
+
     type BookingRow = {
       id: string;
       occurrence_date?: string;
@@ -100,6 +150,8 @@ export async function GET(request: NextRequest) {
       time: string;
       status: string;
       amount: string;
+      /** Customer/job total (formatted); `amount` is provider estimated net pay. */
+      job_total_display: string;
       location: string;
       notes?: string;
       service_provider_notes?: string[];
@@ -117,10 +169,20 @@ export async function GET(request: NextRequest) {
       occurrence_count?: number;
     };
 
+    const { data: openLogsForPortal } = await supabaseAdmin
+      .from('booking_time_logs')
+      .select(
+        'booking_id, occurrence_date, on_the_way_at, at_location_at, clocked_in_at, provider_status',
+      )
+      .eq('provider_id', provider.id)
+      .is('clocked_out_at', null);
+    const activeKeysPortal = collectActiveTimeLogKeys(openLogsForPortal as OpenTimeLogRow[]);
+
     // view=bookings: return one entry per DB row (no expansion) so list matches actual booking count
     if (view === 'bookings') {
       const transformedBookings: BookingRow[] = (bookings || []).map((booking) => {
         const b = booking as Record<string, unknown>;
+        const { amount, job_total_display } = portalAmountsForBooking(b);
         return {
           id: booking.id,
           customer: {
@@ -132,7 +194,8 @@ export async function GET(request: NextRequest) {
           date: booking.scheduled_date || booking.date || '',
           time: booking.scheduled_time || booking.time || '',
           status: booking.status || 'pending',
-          amount: formatPrice(booking.total_price ?? booking.amount),
+          amount,
+          job_total_display,
           location: booking.address || '',
           notes: booking.notes,
           service_provider_notes: Array.isArray(booking.service_provider_notes) ? booking.service_provider_notes : (booking.service_provider_notes ? [booking.service_provider_notes] : []),
@@ -149,18 +212,22 @@ export async function GET(request: NextRequest) {
         };
       });
       const sorted = [...transformedBookings].sort(compareBookingsByScheduleAsc);
+      const withProgress = applyInProgressFromOpenTimeLogs(sorted, activeKeysPortal);
       const stats = {
-        total: sorted.length,
-        pending: sorted.filter(b => b.status === 'pending').length,
-        confirmed: sorted.filter(b => b.status === 'confirmed').length,
-        completed: sorted.filter(b => b.status === 'completed').length,
-        cancelled: sorted.filter(b => b.status === 'cancelled').length,
+        total: withProgress.length,
+        pending: withProgress.filter((b) => b.status === 'pending').length,
+        confirmed: withProgress.filter((b) => b.status === 'confirmed').length,
+        completed: withProgress.filter((b) => b.status === 'completed').length,
+        cancelled: withProgress.filter((b) => b.status === 'cancelled').length,
+        in_progress: withProgress.filter((b) => b.status === 'in_progress').length,
       };
       return NextResponse.json({
         provider: { id: provider.id, name: `${provider.first_name || ''} ${provider.last_name || ''}`.trim() || provider.name || 'Provider', email: provider.email || '' },
-        bookings: sorted,
+        bookings: withProgress,
         stats,
         view: 'bookings',
+        industry_id,
+        industry_name,
       });
     }
 
@@ -181,6 +248,7 @@ export async function GET(request: NextRequest) {
     const expanded: BookingRow[] = [];
     for (const booking of bookings || []) {
       const b = booking as Record<string, unknown>;
+      const { amount, job_total_display } = portalAmountsForBooking(b);
       const base: BookingRow = {
         id: booking.id,
         customer: {
@@ -192,7 +260,8 @@ export async function GET(request: NextRequest) {
         date: booking.scheduled_date || booking.date || '',
         time: booking.scheduled_time || booking.time || '',
         status: booking.status || 'pending',
-        amount: formatPrice(booking.total_price ?? booking.amount),
+        amount,
+        job_total_display,
         location: booking.address || '',
         notes: booking.notes,
         service_provider_notes: Array.isArray(booking.service_provider_notes) ? booking.service_provider_notes : (booking.service_provider_notes ? [booking.service_provider_notes] : []),
@@ -220,6 +289,7 @@ export async function GET(request: NextRequest) {
             completed_occurrence_dates: completedDates,
             customer_cancelled_occurrence_dates: (booking as { customer_cancelled_occurrence_dates?: string[] })
               .customer_cancelled_occurrence_dates,
+            recurring_series_id: seriesId,
           });
           expanded.push({
             ...base,
@@ -227,6 +297,7 @@ export async function GET(request: NextRequest) {
             time: timeStr,
             occurrence_date: d,
             status: occurrenceStatus,
+            is_recurring: true,
           });
         }
       } else {
@@ -243,15 +314,16 @@ export async function GET(request: NextRequest) {
 
     deduped.sort(compareBookingsByScheduleAsc);
 
-    const transformedBookings = deduped;
+    const transformedBookings = applyInProgressFromOpenTimeLogs(deduped, activeKeysPortal);
 
     // Calculate stats
     const stats = {
       total: transformedBookings.length,
-      pending: transformedBookings.filter(b => b.status === 'pending').length,
-      confirmed: transformedBookings.filter(b => b.status === 'confirmed').length,
-      completed: transformedBookings.filter(b => b.status === 'completed').length,
-      cancelled: transformedBookings.filter(b => b.status === 'cancelled').length,
+      pending: transformedBookings.filter((b) => b.status === 'pending').length,
+      confirmed: transformedBookings.filter((b) => b.status === 'confirmed').length,
+      completed: transformedBookings.filter((b) => b.status === 'completed').length,
+      cancelled: transformedBookings.filter((b) => b.status === 'cancelled').length,
+      in_progress: transformedBookings.filter((b) => b.status === 'in_progress').length,
     };
 
     // Return format expected by frontend
@@ -264,6 +336,8 @@ export async function GET(request: NextRequest) {
       bookings: transformedBookings,
       stats,
       view: 'occurrences',
+      industry_id,
+      industry_name,
     });
 
   } catch (error) {
@@ -364,6 +438,7 @@ export async function PUT(request: NextRequest) {
           .from('bookings')
           .update({
             completed_occurrence_dates: [...completedList, dateStr],
+            status: 'confirmed',
             updated_at: new Date().toISOString(),
           })
           .eq('id', bookingId)

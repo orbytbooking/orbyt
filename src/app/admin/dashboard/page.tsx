@@ -48,6 +48,7 @@ import { AdminBookingsCalendar } from "@/components/admin/AdminBookingsCalendar"
 import { EditBookingSheet } from "@/components/admin/EditBookingSheet";
 import { getOccurrenceDatesForSeriesSync, statusForRecurringOccurrence } from "@/lib/recurringBookings";
 import { minutesFromCustomization } from "@/lib/bookingDuration";
+import { getBookingSummaryVariableRows } from "@/lib/bookingSummaryVariableRows";
 import { compareBookingsByScheduleDesc } from "@/lib/bookingScheduleSort";
 
 // Icon mapping for API responses
@@ -1026,20 +1027,11 @@ const Dashboard = () => {
                     {(selectedBooking.frequency || (selectedBooking as any).frequency) && (
                       <DetailRow label="Frequency" value={selectedBooking.frequency || (selectedBooking as any).frequency} />
                     )}
-                    {selectedBooking.customization && typeof selectedBooking.customization === "object" && (() => {
-                      const c = selectedBooking.customization as Record<string, unknown>;
-                      const cv = (c.categoryValues || {}) as Record<string, string>;
-                      const bath = cv.Bathroom ?? cv.bathroom ?? c.bathroom ?? c.bathrooms;
-                      const sqft = cv["Sq Ft"] ?? cv.sqFt ?? cv.squareMeters ?? c.squareMeters ?? c.sqFt ?? c.sqft;
-                      const bed = cv.Bedroom ?? cv.bedroom ?? c.bedroom ?? c.bedrooms;
-                      return (
-                        <>
-                          {bath != null && String(bath).trim() && <DetailRow label="Bathrooms" value={String(bath).trim()} />}
-                          {sqft != null && String(sqft).trim() && <DetailRow label="Sq Ft" value={String(sqft).trim()} />}
-                          {bed != null && String(bed).trim() && <DetailRow label="Bedrooms" value={String(bed).trim()} />}
-                        </>
-                      );
-                    })()}
+                    {getBookingSummaryVariableRows(
+                      selectedBooking.customization as Record<string, unknown> | null | undefined,
+                    ).map(({ label, value }) => (
+                      <DetailRow key={`${label}-${value}`} label={label} value={value} />
+                    ))}
                     {(() => {
                       const c = (selectedBooking.customization || {}) as Record<string, unknown>;
                       const ids = (c.selectedExtras as string[]) || [];

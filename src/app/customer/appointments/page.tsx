@@ -73,7 +73,7 @@ const CustomerAppointmentsPage = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
   const businessId = searchParams?.get("business") ?? "";
-  const { bookings, loading: bookingsLoading, updateBookings } = useCustomerBookings();
+  const { bookings, loading: bookingsLoading, updateBookings, refreshBookings } = useCustomerBookings();
   const { customerName, customerEmail, customerAccount, accountLoading, handleLogout } = useCustomerAccount();
   const { toast } = useToast();
   const [search, setSearch] = useState("");
@@ -109,6 +109,14 @@ const CustomerAppointmentsPage = () => {
       cancelled = true;
     };
   }, [businessId]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible" && businessId) void refreshBookings();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [businessId, refreshBookings]);
 
   const upcomingBookings = useMemo(
     () => bookings.filter((b) => !["completed", "canceled", "cancelled"].includes(b.status?.toLowerCase() ?? "")),

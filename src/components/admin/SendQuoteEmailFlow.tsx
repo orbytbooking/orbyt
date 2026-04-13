@@ -38,7 +38,6 @@ export type SendQuoteBooking = {
   customer_email?: string;
   /** Saved on the booking (e.g. add-booking, Change expiration, or last send). */
   draft_quote_expires_on?: string | null;
-  [key: string]: unknown;
 };
 
 function initialExpiresDateFromBooking(booking: SendQuoteBooking | null): Date {

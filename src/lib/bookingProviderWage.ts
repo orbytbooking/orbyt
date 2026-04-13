@@ -75,3 +75,91 @@ export function computeProviderNetPayFromBooking(booking: {
   }
   return null;
 }
+
+export type ProviderPayRateRow = {
+  service_id?: string | null;
+  is_active?: boolean | null;
+  rate_type: string;
+  percentage_rate?: number | null;
+  flat_rate?: number | null;
+  hourly_rate?: number | null;
+};
+
+/** Prefer service-specific rate, then business-wide (null service_id). */
+export function pickActivePayRateForBooking(
+  rates: ProviderPayRateRow[],
+  bookingServiceId: string | null | undefined,
+): ProviderPayRateRow | null {
+  const active = rates.filter((r) => r.is_active !== false);
+  const sid =
+    bookingServiceId != null && String(bookingServiceId).trim() !== ""
+      ? String(bookingServiceId)
+      : null;
+
+  if (sid == null) {
+    const generic = active.filter((r) => r.service_id == null);
+    return generic[0] ?? null;
+  }
+
+  const forService = active.find(
+    (r) => r.service_id != null && String(r.service_id) === sid,
+  );
+  if (forService) return forService;
+  return active.find((r) => r.service_id == null) ?? null;
+}
+
+function clampProviderNetToGross(net: number, gross: number): number {
+  let n = net;
+  if (!Number.isFinite(n)) n = 0;
+  if (n < 0) n = 0;
+  if (n > gross) n = gross;
+  return +n.toFixed(2);
+}
+
+/**
+ * Estimated provider net for portal UI: booking-level wage, else provider_pay_rates (same basis as
+ * calculateProviderEarnings in adminProviderSync), else 80% of gross.
+ */
+export function estimateProviderNetPayForPortal(
+  booking: {
+    total_price?: number | string | null;
+    amount?: number | string | null;
+    provider_wage?: number | string | null;
+    provider_wage_type?: string | null;
+    duration_minutes?: number | null;
+    notes?: string | null;
+    service_id?: string | null;
+  },
+  payRates: ProviderPayRateRow[],
+): number {
+  const gross = Number(booking.total_price ?? booking.amount ?? 0);
+  if (!Number.isFinite(gross) || gross <= 0) return 0;
+
+  const fromBooking = computeProviderNetPayFromBooking(booking);
+  if (fromBooking != null) {
+    return clampProviderNetToGross(fromBooking, gross);
+  }
+
+  const payRate = pickActivePayRateForBooking(payRates, booking.service_id);
+  if (payRate) {
+    const t = (payRate.rate_type || "").toLowerCase();
+    let net = 0;
+    if (t === "percentage") {
+      const commission = (gross * (Number(payRate.percentage_rate) || 0)) / 100;
+      net = gross - commission;
+    } else if (t === "flat") {
+      net = Number(payRate.flat_rate) || 0;
+    } else if (t === "hourly") {
+      const hours = hoursForHourlyProviderPay({
+        duration_minutes: booking.duration_minutes,
+        notes: booking.notes,
+      });
+      net = (Number(payRate.hourly_rate) || 0) * hours;
+    } else {
+      net = gross * 0.8;
+    }
+    return clampProviderNetToGross(net, gross);
+  }
+
+  return clampProviderNetToGross(gross * 0.8, gross);
+}

@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import {
+  estimateProviderNetPayForPortal,
+  type ProviderPayRateRow,
+} from '@/lib/bookingProviderWage';
 
 export async function GET(request: NextRequest) {
   try {
@@ -82,6 +86,12 @@ export async function GET(request: NextRequest) {
         time,
         status,
         total_price,
+        amount,
+        provider_wage,
+        provider_wage_type,
+        duration_minutes,
+        notes,
+        service_id,
         address,
         apt_no,
         zip_code,
@@ -96,6 +106,15 @@ export async function GET(request: NextRequest) {
       console.error('Error fetching bookings:', bookingsError);
     }
 
+    const { data: payRatesRaw } = await supabaseAdmin
+      .from('provider_pay_rates')
+      .select('service_id, is_active, rate_type, percentage_rate, flat_rate, hourly_rate')
+      .eq('provider_id', provider.id)
+      .eq('business_id', provider.business_id)
+      .eq('is_active', true);
+
+    const payRates: ProviderPayRateRow[] = (payRatesRaw || []) as ProviderPayRateRow[];
+
     // Get provider's earnings from provider_earnings table
     const { data: earnings, error: earningsError } = await supabaseAdmin
       .from('provider_earnings')
@@ -105,6 +124,15 @@ export async function GET(request: NextRequest) {
 
     if (earningsError) {
       console.error('Error fetching earnings:', earningsError);
+    }
+
+    const netAmountByBookingId = new Map<string, number>();
+    for (const row of earnings || []) {
+      const bid = (row as { booking_id?: string | null }).booking_id;
+      const net = (row as { net_amount?: number | null }).net_amount;
+      if (bid != null && net != null) {
+        netAmountByBookingId.set(bid, Number(net));
+      }
     }
 
     // Get provider's performance metrics
@@ -131,6 +159,21 @@ export async function GET(request: NextRequest) {
 
     const formatPrice = (val: unknown) => `$${Number(val || 0).toFixed(2)}`;
 
+    const portalNetForDashboardBooking = (booking: Record<string, unknown>) =>
+      estimateProviderNetPayForPortal(
+        {
+          total_price: booking.total_price,
+          amount: booking.amount,
+          provider_wage: booking.provider_wage,
+          provider_wage_type: booking.provider_wage_type,
+          duration_minutes:
+            booking.duration_minutes != null ? Number(booking.duration_minutes) : null,
+          notes: (booking.notes as string | null) ?? null,
+          service_id: (booking.service_id as string | null) ?? null,
+        },
+        payRates,
+      );
+
     // Format upcoming bookings
     const upcomingBookings = bookings?.filter(booking => 
       booking.status === 'confirmed' || booking.status === 'pending'
@@ -143,7 +186,7 @@ export async function GET(request: NextRequest) {
       date: booking.scheduled_date || booking.date || '',
       time: booking.scheduled_time || booking.time || '',
       status: booking.status,
-      amount: formatPrice(booking.total_price),
+      amount: formatPrice(portalNetForDashboardBooking(booking as Record<string, unknown>)),
       location: `${booking.address || ''}${booking.apt_no ? `, ${booking.apt_no}` : ''}${booking.zip_code ? `, ${booking.zip_code}` : ''}`
     })) || [];
 
@@ -153,13 +196,20 @@ export async function GET(request: NextRequest) {
     // Add recent completed bookings
     const recentCompleted = bookings?.filter(booking => booking.status === 'completed')
       .slice(-3)
-      .map(booking => ({
-        id: `booking-${booking.id}`,
-        type: "completed",
-        message: `Completed job for ${booking.customer_name} - ${booking.service}`,
-        time: "2 hours ago",
-        amount: formatPrice(booking.total_price)
-      }));
+      .map(booking => {
+        const recorded = netAmountByBookingId.get(booking.id);
+        const display =
+          recorded != null
+            ? recorded
+            : portalNetForDashboardBooking(booking as Record<string, unknown>);
+        return {
+          id: `booking-${booking.id}`,
+          type: "completed" as const,
+          message: `Completed job for ${booking.customer_name} - ${booking.service}`,
+          time: "2 hours ago",
+          amount: formatPrice(display),
+        };
+      });
 
     // Add recent earnings
     const recentEarnings = earnings?.filter(earning => earning.status === 'paid')

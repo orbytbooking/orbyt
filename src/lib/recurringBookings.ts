@@ -611,6 +611,15 @@ export async function extendAllRecurringSeries(
   return { extended: seriesList?.length ?? 0, totalCreated };
 }
 
+export type StatusForRecurringOccurrenceOptions = {
+  /**
+   * When true (default), recurring rows with DB status `in_progress` are shown as `confirmed` per occurrence.
+   * Admin/provider UIs use this so legacy row-level in_progress does not mark every visit in progress.
+   * Customer GET passes false and merges with open time logs via `resolveCustomerOccurrenceProgressStatus`.
+   */
+  collapseRecurringRowInProgress?: boolean;
+};
+
 /**
  * Display status for one expanded occurrence of a recurring booking row.
  * Per-date completed / customer-cancelled overrides; otherwise uses the parent row status
@@ -622,8 +631,11 @@ export function statusForRecurringOccurrence(
     status?: string | null;
     completed_occurrence_dates?: string[] | null;
     customer_cancelled_occurrence_dates?: string[] | null;
-  }
+    recurring_series_id?: string | null;
+  },
+  options?: StatusForRecurringOccurrenceOptions,
 ): string {
+  const collapseInProgress = options?.collapseRecurringRowInProgress !== false;
   const d = String(occurrenceDate).slice(0, 10);
   const completed = Array.isArray(booking.completed_occurrence_dates) ? booking.completed_occurrence_dates : [];
   const customerCancelled = Array.isArray(booking.customer_cancelled_occurrence_dates)
@@ -632,6 +644,20 @@ export function statusForRecurringOccurrence(
   if (completed.includes(d)) return "completed";
   if (customerCancelled.includes(d)) return "cancelled";
   if (booking.status === "cancelled") return "cancelled";
-  const raw = String(booking.status ?? "pending").trim().toLowerCase();
-  return raw || "pending";
+
+  const isRecurring = Boolean(booking.recurring_series_id);
+  const rowStatus = String(booking.status ?? "pending").trim().toLowerCase() || "pending";
+
+  // One DB row covers the whole series: never treat row-level "completed" as every date completed.
+  // Match customer GET expansion (api/customer/bookings): only dates in completed_occurrence_dates are completed.
+  if (isRecurring && rowStatus === "completed" && !completed.includes(d)) {
+    return "confirmed";
+  }
+
+  // Same for in_progress when collapsing: clock-in used to set the whole row; only one occurrence is active (time log).
+  if (collapseInProgress && isRecurring && rowStatus === "in_progress" && !completed.includes(d)) {
+    return "confirmed";
+  }
+
+  return rowStatus;
 }

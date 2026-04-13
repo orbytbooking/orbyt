@@ -231,7 +231,10 @@ export const readStoredBookings = async (businessId?: string | null): Promise<Bo
 
     const res = await fetch(
       `/api/customer/bookings?business=${encodeURIComponent(businessId)}`,
-      { headers: { Authorization: `Bearer ${session.access_token}` } }
+      {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        cache: "no-store",
+      }
     );
     if (!res.ok) return [];
 

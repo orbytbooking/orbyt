@@ -6,7 +6,12 @@ import { sendCustomerFacingBookingEmailAfterScheduling } from '@/lib/sendCustome
 import { syncBookingCreated, createRecurringCalendarEvent } from '@/lib/googleCalendar';
 import { getStoreOptionsScheduling, isDateHoliday, getSpotLimits, getBookingCountForDate, getBookingCountForWeek, isTimeSlotAvailableForBooking } from '@/lib/schedulingFilters';
 import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProviderWage';
-import { getOccurrenceDatesForSeriesSync } from '@/lib/recurringBookings';
+import { getOccurrenceDatesForSeriesSync, statusForRecurringOccurrence } from '@/lib/recurringBookings';
+import {
+  collectActiveTimeLogKeys,
+  normalizeBookingDateYmd,
+  resolveCustomerOccurrenceProgressStatus,
+} from '@/lib/bookingTimeLogActiveProgress';
 import { formatFrequencyRepeatsForDisplay, resolveFrequencyRepeatsForBooking } from '@/lib/industryFrequencyRepeats';
 import { compareBookingsByScheduleAsc } from '@/lib/bookingScheduleSort';
 import { parseDurationMinutesFromBookingPayload } from '@/lib/bookingDuration';
@@ -257,24 +262,21 @@ export async function GET(request: NextRequest) {
       )
         ? (row as { customer_cancelled_occurrence_dates: string[] }).customer_cancelled_occurrence_dates
         : [];
-      const masterCancelled = (row as { status?: string }).status === 'cancelled';
-
       if (!dates.length) {
         expanded.push({ row, frequencyRepeatsFromSeries });
         continue;
       }
       for (const d of dates) {
-        let occurrenceStatusOverride: string;
-        if (masterCancelled || cancelledByCustomer.includes(d)) {
-          occurrenceStatusOverride = 'cancelled';
-        } else if (completedDates.includes(d)) {
-          occurrenceStatusOverride = 'completed';
-        } else {
-          const st = String((row as { status?: string }).status ?? 'confirmed');
-          if (st === 'pending') occurrenceStatusOverride = 'pending';
-          else if (st === 'in_progress') occurrenceStatusOverride = 'in_progress';
-          else occurrenceStatusOverride = 'confirmed';
-        }
+        const occurrenceStatusOverride = statusForRecurringOccurrence(
+          d,
+          {
+            status: (row as { status?: string }).status,
+            completed_occurrence_dates: completedDates,
+            customer_cancelled_occurrence_dates: cancelledByCustomer,
+            recurring_series_id: seriesId,
+          },
+          { collapseRecurringRowInProgress: false },
+        );
         expanded.push({
           row: {
             ...row,
@@ -311,13 +313,41 @@ export async function GET(request: NextRequest) {
     ),
   );
 
-  const bookings = deduped.map((item) =>
-    dbToCustomerBooking(item.row, providerNameById, {
+  const bookingIds = [...new Set(rawRows.map((r: { id?: string }) => r.id).filter(Boolean))] as string[];
+  let activeKeys = new Set<string>();
+  if (bookingIds.length > 0) {
+    const { data: openTimeLogs, error: openLogsError } = await supabase
+      .from('booking_time_logs')
+      .select(
+        'booking_id, occurrence_date, on_the_way_at, at_location_at, clocked_in_at, provider_status',
+      )
+      .in('booking_id', bookingIds)
+      .is('clocked_out_at', null);
+    if (openLogsError) {
+      console.error('Customer bookings: open time logs query failed', openLogsError.message);
+    }
+    activeKeys = collectActiveTimeLogKeys(openTimeLogs ?? []);
+  }
+
+  const bookings = deduped.map((item) => {
+    const r = item.row;
+    const d = normalizeBookingDateYmd(String(r.date ?? r.scheduled_date ?? ''));
+    const base = item.occurrenceStatusOverride ?? String(r.status ?? 'pending');
+    const isRecurring = Boolean((r as { recurring_series_id?: string }).recurring_series_id);
+    const finalStatus = resolveCustomerOccurrenceProgressStatus({
+      baseStatus: base,
+      bookingId: String(r.id),
+      occurrenceDateYmd: d,
+      isRecurring,
+      dbRowStatus: (r as { status?: string }).status,
+      activeKeys,
+    });
+    return dbToCustomerBooking(item.row, providerNameById, {
       occurrenceDate: item.occurrenceDate,
-      occurrenceStatusOverride: item.occurrenceStatusOverride,
+      occurrenceStatusOverride: finalStatus,
       frequencyRepeats: item.frequencyRepeatsFromSeries,
-    }),
-  );
+    });
+  });
   return NextResponse.json({ bookings });
 }
 
@@ -462,6 +492,14 @@ export async function POST(request: NextRequest) {
   const providerIdClean = providerId && String(providerId).trim() ? String(providerId).trim() : null;
 
   const notesVal = (body.notes ?? '').toString().trim();
+  const zipCodeForDb =
+    String(
+      body.service_area_input ??
+        body.service_areaInput ??
+        body.zip_code ??
+        body.zipCode ??
+        '',
+    ).trim() || null;
 
   const durationMinutes = parseDurationMinutesFromBookingPayload(body as Record<string, unknown>);
   if (durationMinutes > 0) {
@@ -539,6 +577,7 @@ export async function POST(request: NextRequest) {
     provider_id: providerIdClean ?? null,
     service: (body.service ?? '').toString().trim() || null,
     address: (body.address ?? '').toString().trim() || '',
+    zip_code: zipCodeForDb,
     notes: notesVal || null,
     frequency: frequency ?? null,
     total_price: totalPrice,

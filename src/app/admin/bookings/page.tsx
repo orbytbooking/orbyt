@@ -58,6 +58,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import Link from "next/link";
 import { formatProviderWageDisplay } from "@/lib/formatProviderWage";
+import { getBookingSummaryVariableRows } from "@/lib/bookingSummaryVariableRows";
 import {
   Search, 
   Filter, 
@@ -105,10 +106,14 @@ import { useBusiness } from "@/contexts/BusinessContext";
 import { SendScheduleDialog } from "@/components/admin/SendScheduleDialog";
 import { SendQuoteEmailFlow } from "@/components/admin/SendQuoteEmailFlow";
 import { DraftQuoteLogsDialog } from "@/components/admin/DraftQuoteLogsDialog";
-import { AdminBookingsCalendar } from "@/components/admin/AdminBookingsCalendar";
+import { AdminBookingsCalendar, type CalendarBooking } from "@/components/admin/AdminBookingsCalendar";
 import { EditBookingSheet } from "@/components/admin/EditBookingSheet";
 import { getOccurrenceDatesForSeriesSync, statusForRecurringOccurrence } from "@/lib/recurringBookings";
 import { compareBookingsByScheduleDesc } from "@/lib/bookingScheduleSort";
+import {
+  applyInProgressFromOpenTimeLogs,
+  collectActiveTimeLogKeys,
+} from "@/lib/bookingTimeLogActiveProgress";
 import {
   DEFAULT_ADMIN_CALENDAR_PREFS,
   parseAdminCalendarPrefs,
@@ -148,6 +153,27 @@ interface Booking {
   updated_at?: string;
   customization?: BookingCustomization | null;
   draft_quote_expires_on?: string | null;
+  /** Expanded recurring row: visit date (aligns with provider time logs). */
+  occurrence_date?: string;
+  is_recurring?: boolean;
+}
+
+function getResolvedBookingZipForSummary(booking: Booking): string {
+  const b = booking as any;
+  const cust = b?.customization;
+  const fromCust =
+    cust && typeof cust === "object"
+      ? String(
+          cust.zip_code ??
+            cust.zipCode ??
+            cust.postal_code ??
+            cust.postalCode ??
+            cust.zip ??
+            "",
+        ).trim()
+      : "";
+  const z = String(b?.zip_code ?? b?.postal_code ?? b?.postalCode ?? "").trim();
+  return z || fromCust;
 }
 
 // Provider type definition
@@ -289,6 +315,7 @@ export default function BookingsPage() {
   const [changeExpiryDate, setChangeExpiryDate] = useState("");
   const [changeExpirySaving, setChangeExpirySaving] = useState(false);
   const [sheetEditBookingId, setSheetEditBookingId] = useState<string | null>(null);
+  const [confirmMarkCompleteOpen, setConfirmMarkCompleteOpen] = useState(false);
 
   // Sync activeTab with URL
   useEffect(() => {
@@ -525,6 +552,7 @@ export default function BookingsPage() {
             if (!dates.length) {
               expanded.push({
                 ...booking,
+                is_recurring: true,
                 ...(mergedDuration != null ? { duration_minutes: mergedDuration } : {}),
               });
               continue;
@@ -536,14 +564,19 @@ export default function BookingsPage() {
                 booking_row_status: booking.status,
                 date: d,
                 scheduled_date: d,
+                occurrence_date: d,
                 time,
                 scheduled_time: time,
                 status: occurrenceStatus,
+                is_recurring: true,
                 ...(mergedDuration != null ? { duration_minutes: mergedDuration } : {}),
               });
             }
           } else {
-            expanded.push(booking);
+            expanded.push({
+              ...booking,
+              is_recurring: !!booking.recurring_series_id,
+            });
           }
         }
         list = expanded.sort((a: any, b: any) =>
@@ -596,12 +629,22 @@ export default function BookingsPage() {
           scheduled_date: booking.scheduled_date ?? (normalizedDate || null),
           scheduled_time: booking.scheduled_time ?? (normalizedTime || null),
           assignedProvider: providerName,
-          provider_id: booking.provider_id || null
+          provider_id: booking.provider_id || null,
         };
       });
-      
+
+      const { data: openTimeLogs } = await supabase
+        .from("booking_time_logs")
+        .select(
+          "booking_id, occurrence_date, on_the_way_at, at_location_at, clocked_in_at, provider_status",
+        )
+        .eq("business_id", currentBusiness.id)
+        .is("clocked_out_at", null);
+      const activeKeys = collectActiveTimeLogKeys(openTimeLogs ?? []);
+      const withLiveProgress = applyInProgressFromOpenTimeLogs(bookingsWithProvider, activeKeys);
+
       if (!cancelled) {
-        setBookings(bookingsWithProvider);
+        setBookings(withLiveProgress);
       }
       if (!cancelled) setLoading(false);
     }
@@ -742,8 +785,18 @@ export default function BookingsPage() {
     return `at 11:59 PM (${days} day(s))`;
   }, [changeExpiryDate]);
 
-  const handleViewDetails = (booking: Booking) => {
-    setSelectedBooking(booking);
+  const handleViewDetails = (booking: CalendarBooking | Booking) => {
+    const clickedDate = String((booking as CalendarBooking).date ?? "").trim();
+    const byOccurrence =
+      clickedDate &&
+      filteredBookings.find(
+        (b) => b.id === booking.id && String(b.date ?? "").trim() === clickedDate,
+      );
+    const resolved =
+      byOccurrence ??
+      filteredBookings.find((b) => b.id === booking.id) ??
+      (booking as Booking);
+    setSelectedBooking(resolved);
     setShowDetails(true);
   };
 
@@ -999,6 +1052,7 @@ export default function BookingsPage() {
             completed_occurrence_dates: completedDates,
             customer_cancelled_occurrence_dates: (b as { customer_cancelled_occurrence_dates?: string[] })
               .customer_cancelled_occurrence_dates,
+            recurring_series_id: (b as { recurring_series_id?: string }).recurring_series_id,
           });
           return {
             ...b,
@@ -1055,7 +1109,7 @@ export default function BookingsPage() {
     const wasAlreadyConfirmed = selectedBooking.status === "confirmed";
 
     // Update provider_id and (if column exists) provider_name so customer portal shows assigned provider
-    const providerName = selectedProvider.name || `${selectedProvider.first_name || ''} ${selectedProvider.last_name || ''}`.trim();
+    const providerName = selectedProvider.name || `${selectedProvider.firstName || ""} ${selectedProvider.lastName || ""}`.trim();
     let error = (await supabase
       .from('bookings')
       .update({ 
@@ -1139,6 +1193,42 @@ export default function BookingsPage() {
     } catch {
       return timeStr;
     }
+  };
+
+  /** Service date line: locale date + time when available; reads time from ISO `date` if time columns are empty. */
+  const formatServiceDateTimeForSummary = (rawDate: unknown, rawTime: unknown) => {
+    let explicit = rawTime != null ? String(rawTime).trim() : "";
+    let dateRaw = rawDate != null ? String(rawDate).trim() : "";
+
+    if (dateRaw.includes("T")) {
+      try {
+        const parsed = parseISO(dateRaw);
+        if (!Number.isNaN(parsed.getTime())) {
+          dateRaw = format(parsed, "yyyy-MM-dd");
+          if (!explicit) {
+            explicit = format(parsed, "HH:mm");
+          }
+        }
+      } catch {
+        /* keep dateRaw */
+      }
+    }
+
+    let datePart = "";
+    const ymd = dateRaw.length >= 10 ? dateRaw.slice(0, 10) : dateRaw;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+      datePart = new Date(`${ymd}T12:00:00`).toLocaleDateString(undefined, {
+        weekday: "long",
+        month: "2-digit",
+        day: "2-digit",
+        year: "numeric",
+      });
+    }
+
+    if (datePart && explicit) return `${datePart}, ${formatTime(explicit)}`;
+    if (datePart) return datePart;
+    if (explicit) return formatTime(explicit);
+    return "—";
   };
 
   const DetailRow = ({ label, value, className }: { label: string; value: string; className?: string }) => (
@@ -1695,6 +1785,41 @@ export default function BookingsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={confirmMarkCompleteOpen} onOpenChange={setConfirmMarkCompleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark booking as completed?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedBooking &&
+              (selectedBooking as { recurring_series_id?: string }).recurring_series_id &&
+              selectedBooking.date
+                ? "This will mark this date’s visit as completed for the recurring series. You can still view it in booking history."
+                : "This will mark the booking as completed. You can still view it in booking history."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-green-600 text-white hover:bg-green-700 focus:ring-green-600"
+              onClick={() => {
+                const b = selectedBooking;
+                setConfirmMarkCompleteOpen(false);
+                if (!b || b.status === "completed") return;
+                const rid = (b as { recurring_series_id?: string }).recurring_series_id;
+                const occDate = b.date;
+                if (rid && occDate) {
+                  void handleStatusChange(b.id, "completed", { occurrenceDate: occDate, recurring_series_id: rid });
+                } else {
+                  void handleStatusChange(b.id, "completed");
+                }
+              }}
+            >
+              Mark as completed
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Dialog
         open={changeExpiryOpen}
         onOpenChange={(open) => {
@@ -1816,12 +1941,24 @@ export default function BookingsPage() {
                       <span>{selectedBooking.customer_phone}</span>
                     </div>
                   )}
-                  {selectedBooking.address && (
-                    <div className="flex items-start gap-2 text-sm text-muted-foreground">
-                      <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                      <span className="break-words">{((selectedBooking as any).apt_no ? `Apt - ${(selectedBooking as any).apt_no}, ` : "")}{selectedBooking.address}</span>
-                    </div>
-                  )}
+                  {(() => {
+                    const b = selectedBooking as any;
+                    const zip = getResolvedBookingZipForSummary(selectedBooking);
+                    const line = [
+                      b.apt_no ? `Apt - ${b.apt_no}` : null,
+                      selectedBooking.address?.trim() ? selectedBooking.address : null,
+                      zip || null,
+                    ]
+                      .filter(Boolean)
+                      .join(", ");
+                    if (!line) return null;
+                    return (
+                      <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                        <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                        <span className="break-words">{line}</span>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -1840,7 +1977,10 @@ export default function BookingsPage() {
                   <CollapsibleContent className="overflow-visible">
                     <div className="px-4 pb-4 space-y-2">
                       <DetailRow label="Booking id" value={String(selectedBooking.id)} />
-                      {(selectedBooking as any).zip_code && <DetailRow label="Zip/Postal code" value={(selectedBooking as any).zip_code} />}
+                      <DetailRow
+                        label="Zip/Postal code"
+                        value={getResolvedBookingZipForSummary(selectedBooking) || "—"}
+                      />
                       {industries[0]?.name && <DetailRow label="Industry" value={industries[0].name} />}
                       {selectedBooking.service && <DetailRow label="Service" value={selectedBooking.service} />}
                       {(selectedBooking as any).frequency && (
@@ -1854,20 +1994,11 @@ export default function BookingsPage() {
                           </span>
                         </div>
                       )}
-                      {(() => {
-                        const c = selectedBooking.customization as Record<string, unknown> | undefined;
-                        const cv = (c?.categoryValues || {}) as Record<string, string>;
-                        const bath = cv?.Bathroom ?? cv?.bathroom ?? (c as any)?.bathroom ?? (c as any)?.bathrooms;
-                        const sqft = cv?.["Sq Ft"] ?? cv?.sqFt ?? (c as any)?.squareMeters ?? (c as any)?.sqFt ?? (c as any)?.sqft;
-                        const bed = cv?.Bedroom ?? cv?.bedroom ?? (c as any)?.bedroom ?? (c as any)?.bedrooms;
-                        return (
-                          <>
-                            {bath != null && String(bath).trim() && <DetailRow label="Bathrooms" value={String(bath).trim()} />}
-                            {sqft != null && String(sqft).trim() && <DetailRow label="Sq Ft" value={String(sqft).trim()} />}
-                            {bed != null && String(bed).trim() && <DetailRow label="Bedrooms" value={String(bed).trim()} />}
-                          </>
-                        );
-                      })()}
+                      {getBookingSummaryVariableRows(
+                        selectedBooking.customization as Record<string, unknown> | null | undefined,
+                      ).map(({ label, value }) => (
+                        <DetailRow key={`${label}-${value}`} label={label} value={value} />
+                      ))}
                       {(() => {
                         const c = (selectedBooking as any).customization as Record<string, unknown> | undefined;
                         const ids = (c?.selectedExtras as string[]) || [];
@@ -1883,20 +2014,13 @@ export default function BookingsPage() {
                             : `${(selectedBooking as any).duration_minutes} Min`}
                         />
                       )}
-                      {((selectedBooking as any).scheduled_date ?? selectedBooking.date ?? (selectedBooking as any).scheduled_time ?? selectedBooking.time) && (
-                        <DetailRow
-                          label="Service date"
-                          value={(() => {
-                            const d = (selectedBooking as any).scheduled_date ?? selectedBooking.date;
-                            const t = (selectedBooking as any).scheduled_time ?? selectedBooking.time;
-                            const dateStr = d != null ? String(d).trim() : "";
-                            const timeStr = t != null ? String(t).trim() : "";
-                            if (dateStr && timeStr) return `${new Date(dateStr + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "2-digit", day: "2-digit", year: "numeric" })}, ${formatTime(timeStr)}`;
-                            if (dateStr) return `${new Date(dateStr + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "2-digit", day: "2-digit", year: "numeric" })}`;
-                            return timeStr ? formatTime(timeStr) : "—";
-                          })()}
-                        />
-                      )}
+                      {(() => {
+                        const d = (selectedBooking as any).scheduled_date ?? selectedBooking.date;
+                        const t = (selectedBooking as any).scheduled_time ?? selectedBooking.time;
+                        const line = formatServiceDateTimeForSummary(d, t);
+                        if (line === "—") return null;
+                        return <DetailRow label="Service date" value={line} />;
+                      })()}
                       <DetailRow label="Assigned to" value={selectedBooking.assignedProvider || (selectedBooking as any).provider_name || "Unassigned"} />
                       {(() => {
                         const wageLabel = formatProviderWageDisplay(
@@ -1913,13 +2037,15 @@ export default function BookingsPage() {
                           </div>
                         ) : null;
                       })()}
-                      {((selectedBooking as any).apt_no || selectedBooking.address) && (
-                        <DetailRow
-                          label="Location"
-                          value={[(selectedBooking as any).apt_no ? `Apt - ${(selectedBooking as any).apt_no}` : null, selectedBooking.address].filter(Boolean).join(", ")}
-                          className="text-right"
-                        />
-                      )}
+                      {(() => {
+                        const b = selectedBooking as any;
+                        const zip = getResolvedBookingZipForSummary(selectedBooking);
+                        const loc = [b.apt_no ? `Apt - ${b.apt_no}` : null, selectedBooking.address, zip || null]
+                          .filter(Boolean)
+                          .join(", ");
+                        if (!loc) return null;
+                        return <DetailRow label="Location" value={loc} className="text-right" />;
+                      })()}
                       {(selectedBooking.status === "cancelled" || (selectedBooking as any).status === "cancelled") && (selectedBooking as any).cancellation_fee_amount != null && Number((selectedBooking as any).cancellation_fee_amount) > 0 && (
                         <div className="flex justify-between items-center gap-4 py-1.5">
                           <span className="text-muted-foreground text-sm shrink-0">Cancellation fee (applied)</span>
@@ -2089,15 +2215,7 @@ export default function BookingsPage() {
                 {selectedBooking.status !== "completed" && (
                   <Button
                     className="w-full text-white bg-green-600 hover:bg-green-700"
-                    onClick={() => {
-                      const rid = (selectedBooking as { recurring_series_id?: string }).recurring_series_id;
-                      const occDate = selectedBooking.date;
-                      if (rid && occDate) {
-                        handleStatusChange(selectedBooking.id, "completed", { occurrenceDate: occDate, recurring_series_id: rid });
-                      } else {
-                        handleStatusChange(selectedBooking.id, "completed");
-                      }
-                    }}
+                    onClick={() => setConfirmMarkCompleteOpen(true)}
                   >
                     <CheckCircle2 className="h-4 w-4 mr-2" />Mark as completed
                   </Button>

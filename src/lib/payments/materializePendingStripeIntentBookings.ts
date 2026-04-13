@@ -133,6 +133,14 @@ export async function materializeGuestBookingFromIntentPayload(
 
   const customizationRaw = body.customization;
   const durationMinutes = parseDurationMinutesFromBookingPayload(body);
+  const zipCodeForDb =
+    String(
+      body.service_area_input ??
+        body.service_areaInput ??
+        body.zip_code ??
+        body.zipCode ??
+        "",
+    ).trim() || null;
 
   const insert: Record<string, unknown> = {
     business_id: businessId,
@@ -143,6 +151,7 @@ export async function materializeGuestBookingFromIntentPayload(
     provider_id: providerIdClean ?? null,
     service: (body.service ?? "").toString().trim() || null,
     address: (body.address ?? "").toString().trim() || "",
+    zip_code: zipCodeForDb,
     notes: (body.notes ?? "").toString().trim() || null,
     frequency: frequency ?? null,
     total_price: totalPrice,
@@ -384,6 +393,14 @@ export async function materializeCustomerBookingFromIntentPayload(
   const providerId = body.provider_id ?? body.providerId ?? body.provider ?? null;
   const providerIdClean = providerId && String(providerId).trim() ? String(providerId).trim() : null;
   const notesVal = (body.notes ?? "").toString().trim();
+  const zipCodeForDb =
+    String(
+      body.service_area_input ??
+        body.service_areaInput ??
+        body.zip_code ??
+        body.zipCode ??
+        "",
+    ).trim() || null;
 
   const durationMinutes = parseDurationMinutesFromBookingPayload(body);
 
@@ -396,6 +413,7 @@ export async function materializeCustomerBookingFromIntentPayload(
     provider_id: providerIdClean ?? null,
     service: (body.service ?? "").toString().trim() || null,
     address: (body.address ?? "").toString().trim() || "",
+    zip_code: zipCodeForDb,
     notes: notesVal || null,
     frequency: frequency ?? null,
     total_price: totalPrice,

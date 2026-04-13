@@ -51,7 +51,7 @@ async function handleRequest(request: NextRequest) {
     // Fetch bookings that are confirmed or in_progress and past their end time
     const { data: bookings, error } = await supabase
       .from('bookings')
-      .select('id, business_id, provider_id, scheduled_date, scheduled_time, date, time, duration_minutes')
+      .select('id, business_id, provider_id, scheduled_date, scheduled_time, date, time, duration_minutes, recurring_series_id, completed_occurrence_dates')
       .in('business_id', businessIds)
       .in('status', ['confirmed', 'in_progress']);
 
@@ -60,10 +60,16 @@ async function handleRequest(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const toComplete: { id: string; business_id: string; provider_id: string | null }[] = [];
+    const toComplete: {
+      id: string;
+      business_id: string;
+      provider_id: string | null;
+      recurring_series_id: string | null;
+      occurrenceDate: string | null;
+    }[] = [];
 
     for (const b of bookings || []) {
-      const dateStr = b.scheduled_date || (b as { date?: string }).date;
+      const dateStr = String(b.scheduled_date || (b as { date?: string }).date || '').slice(0, 10);
       const timeStr = b.scheduled_time || (b as { time?: string }).time;
       if (!dateStr || !timeStr) continue;
 
@@ -75,19 +81,48 @@ async function handleRequest(request: NextRequest) {
       const end = new Date(start.getTime() + durationMins * 60 * 1000);
 
       if (end <= now) {
+        const seriesId = (b as { recurring_series_id?: string | null }).recurring_series_id ?? null;
         toComplete.push({
           id: b.id,
           business_id: b.business_id,
           provider_id: b.provider_id,
+          recurring_series_id: seriesId,
+          occurrenceDate: seriesId ? dateStr : null,
         });
       }
     }
 
     for (const b of toComplete) {
-      const { error: updateErr } = await supabase
-        .from('bookings')
-        .update({ status: 'completed', updated_at: new Date().toISOString() })
-        .eq('id', b.id);
+      const nowIso = new Date().toISOString();
+      let updateErr: { message?: string } | null = null;
+
+      if (b.recurring_series_id && b.occurrenceDate) {
+        const row = await supabase
+          .from('bookings')
+          .select('completed_occurrence_dates')
+          .eq('id', b.id)
+          .single();
+        const list = Array.isArray(
+          (row.data as { completed_occurrence_dates?: string[] } | null)?.completed_occurrence_dates,
+        )
+          ? [...((row.data as { completed_occurrence_dates: string[] }).completed_occurrence_dates)]
+          : [];
+        if (list.includes(b.occurrenceDate)) continue;
+        const res = await supabase
+          .from('bookings')
+          .update({
+            completed_occurrence_dates: [...list, b.occurrenceDate],
+            updated_at: nowIso,
+          })
+          .eq('id', b.id);
+        updateErr = res.error;
+      } else {
+        const res = await supabase
+          .from('bookings')
+          .update({ status: 'completed', updated_at: nowIso })
+          .eq('id', b.id);
+        updateErr = res.error;
+      }
 
       if (updateErr) {
         console.error('[auto-complete-bookings] Update error:', b.id, updateErr);
@@ -95,7 +130,7 @@ async function handleRequest(request: NextRequest) {
       }
 
       totalCompleted++;
-      if (b.provider_id) {
+      if (b.provider_id && !b.recurring_series_id) {
         try {
           await calculateProviderEarnings(b.id, b.provider_id, b.business_id);
         } catch (e) {
