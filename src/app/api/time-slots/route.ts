@@ -33,16 +33,20 @@ async function filterSlotsByReserveSlotCapacity(
   );
   if (!customerSlots.length) return slots;
   const countsByTime = await getBookingCountByTimeForDate(supabase, businessId, dateStr);
-  const allowedHHmm = new Set<string>();
+  /** Only these clock times are capped by maxJobs; other times (e.g. from provider windows) stay available */
+  const maxJobsByHHmm = new Map<string, number>();
   for (const s of customerSlots) {
     const key = normalizeTimeToHHmm(s.time);
     if (!key) continue;
-    const count = countsByTime[key] ?? 0;
-    if (count < (s.maxJobs ?? 1)) allowedHHmm.add(key);
+    maxJobsByHHmm.set(key, s.maxJobs ?? 1);
   }
   return slots.filter((displayTime) => {
     const hhmm = normalizeTimeToHHmm(displayTime);
-    return allowedHHmm.has(hhmm);
+    if (!hhmm) return false;
+    const cap = maxJobsByHHmm.get(hhmm);
+    if (cap === undefined) return true;
+    const count = countsByTime[hhmm] ?? 0;
+    return count < cap;
   });
 }
 
