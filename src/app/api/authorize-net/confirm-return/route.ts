@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { EmailService } from "@/lib/emailService";
+import { fetchMerchantTransactionCardSnapshot } from "@/lib/payments/authorizeNetMerchantTransactionDetails";
+import { mergeCheckoutCardOntoCustomer } from "@/lib/customerBillingCardSync";
 
 /**
  * Called when the customer returns from Authorize.net with payment success.
@@ -12,6 +14,12 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const bookingId = typeof body.booking_id === "string" ? body.booking_id.trim() : null;
     const businessId = typeof body.business_id === "string" ? body.business_id.trim() : null;
+    const transId =
+      typeof body.trans_id === "string"
+        ? body.trans_id.trim()
+        : typeof body.transaction_id === "string"
+          ? body.transaction_id.trim()
+          : null;
 
     if (!bookingId) {
       return NextResponse.json({ error: "booking_id is required" }, { status: 400 });
@@ -27,7 +35,9 @@ export async function POST(request: Request) {
 
     const { data: booking, error: fetchError } = await supabase
       .from("bookings")
-      .select("id, business_id, payment_status, payment_method, customer_email, customer_name, service, total_price")
+      .select(
+        "id, business_id, customer_id, payment_status, payment_method, customer_email, customer_name, service, total_price"
+      )
       .eq("id", bookingId)
       .single();
 
@@ -37,6 +47,7 @@ export async function POST(request: Request) {
 
     const b = booking as {
       business_id?: string;
+      customer_id?: string | null;
       payment_status?: string;
       payment_method?: string;
       customer_email?: string | null;
@@ -55,6 +66,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Booking does not match business" }, { status: 400 });
     }
 
+    const bizIdForRow = b.business_id ?? businessId ?? null;
+
     const { error: updateError } = await supabase
       .from("bookings")
       .update({ payment_status: "paid" })
@@ -63,6 +76,55 @@ export async function POST(request: Request) {
     if (updateError) {
       console.error("[Authorize.net confirm-return] Failed to update booking:", bookingId, updateError);
       return NextResponse.json({ error: "Failed to update booking" }, { status: 500 });
+    }
+
+    if (transId && bizIdForRow) {
+      try {
+        const { data: biz } = await supabase
+          .from("businesses")
+          .select("authorize_net_api_login_id, authorize_net_transaction_key, payment_provider")
+          .eq("id", bizIdForRow)
+          .maybeSingle();
+        const row = biz as {
+          payment_provider?: string | null;
+          authorize_net_api_login_id?: string | null;
+          authorize_net_transaction_key?: string | null;
+        } | null;
+        if (
+          row?.payment_provider === "authorize_net" &&
+          row.authorize_net_api_login_id &&
+          row.authorize_net_transaction_key
+        ) {
+          const snap = await fetchMerchantTransactionCardSnapshot(
+            row.authorize_net_api_login_id,
+            row.authorize_net_transaction_key,
+            transId
+          );
+          if (snap.responseCode === "1" && (snap.last4 || snap.brand)) {
+            await supabase
+              .from("bookings")
+              .update({
+                ...(snap.last4 ? { card_last4: snap.last4 } : {}),
+                ...(snap.brand ? { card_brand: snap.brand } : {}),
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", bookingId)
+              .eq("business_id", bizIdForRow);
+            if (b.customer_id && (snap.last4 || snap.brand)) {
+              await mergeCheckoutCardOntoCustomer(supabase, {
+                customerId: b.customer_id,
+                businessId: bizIdForRow,
+                last4: snap.last4,
+                brand: snap.brand,
+                expMonth: snap.expMonth,
+                expYear: snap.expYear,
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("[Authorize.net confirm-return] card snapshot skipped:", e);
+      }
     }
 
     const custEmail = b.customer_email;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Clock, UserRound, Upload, Trash2 } from "lucide-react";
+import { Clock, UserRound, Upload, Trash2, CreditCard } from "lucide-react";
 
 import { CustomerSidebar } from "@/components/customer/CustomerSidebar";
 import { useCustomerAccount } from "@/hooks/useCustomerAccount";
@@ -19,20 +19,23 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 const CustomerProfilePage = () => {
   const { customerAccount, accountLoading, handleLogout, updateAccount, updatePassword } = useCustomerAccount();
   const { toast } = useToast();
-  const [formState, setFormState] = useState(customerAccount || {
-    id: "",
-    name: "",
-    email: "",
-    phone: "",
-    address: "",
-    avatar: "",
-    businessName: "",
-    notifications: {
-      emailUpdates: true,
-      smsUpdates: false,
-      pushUpdates: true,
-    },
-  });
+  const [formState, setFormState] = useState(
+    customerAccount || {
+      id: "",
+      name: "",
+      email: "",
+      phone: "",
+      address: "",
+      avatar: "",
+      businessName: "",
+      billingCards: [],
+      notifications: {
+        emailUpdates: true,
+        smsUpdates: false,
+        pushUpdates: true,
+      },
+    }
+  );
   const [passwordForm, setPasswordForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
   const [passwordSaving, setPasswordSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -280,6 +283,54 @@ const CustomerProfilePage = () => {
                     </Button>
                   </div>
                 </form>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CreditCard className="h-5 w-5" />
+                  Billing
+                </CardTitle>
+                <CardDescription>
+                  When you pay online for a booking, we store only the card brand and last four digits for your reference
+                  (not the full number). Admins may also attach cards from the business dashboard.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {formState.billingCards && formState.billingCards.length > 0 ? (
+                  <ul className="space-y-3">
+                    {formState.billingCards.map((card, idx) => (
+                      <li
+                        key={`${card.last4}-${idx}`}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3"
+                      >
+                        <div>
+                          <p className="font-medium">
+                            {card.brand} •••• {card.last4}
+                          </p>
+                          {card.expMonth != null && card.expYear != null ? (
+                            <p className="text-sm text-muted-foreground">
+                              Expires {String(card.expMonth).padStart(2, "0")}/{card.expYear}
+                            </p>
+                          ) : null}
+                          {card.source === "checkout" ? (
+                            <p className="text-xs text-muted-foreground mt-1">Saved from a recent checkout</p>
+                          ) : null}
+                        </div>
+                        {idx === 0 ? (
+                          <span className="text-xs font-medium rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200 px-2 py-0.5">
+                            Default
+                          </span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No saved card yet. Complete a booking with card payment to see it here.
+                  </p>
+                )}
               </CardContent>
             </Card>
 

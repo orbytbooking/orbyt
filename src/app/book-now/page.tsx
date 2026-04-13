@@ -77,6 +77,7 @@ import {
 } from "@/lib/serviceCategoryMinimumTime";
 import { hourlyCustomTimeTotalMinutes, hourlyExtrasBillableSubtotal } from "@/lib/hourlyServiceBookingDuration";
 import { resolveQtyBasedExtraLine } from "@/lib/extraQtyPricing";
+import { extractAuthorizeNetTransIdFromSearchParams } from "@/lib/payments/extractAuthorizeNetTransId";
 import {
   getAllowedWeekdaysForFrequencyRepeatsEvery,
   normalizeFrequencyRepeatKey,
@@ -2209,10 +2210,15 @@ function BookingPageContent() {
     const endpoint = authorizeNetSuccess && bookingId ? "/api/authorize-net/confirm-return" : null;
     if (!endpoint || !bookingId || paymentConfirmSentRef.current) return;
     paymentConfirmSentRef.current = true;
+    const transId = extractAuthorizeNetTransIdFromSearchParams(new URLSearchParams(searchParams.toString()));
     fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ booking_id: bookingId, business_id: businessId || undefined }),
+      body: JSON.stringify({
+        booking_id: bookingId,
+        business_id: businessId || undefined,
+        ...(transId ? { trans_id: transId } : {}),
+      }),
     }).catch(() => {});
   }, [searchParams]);
 

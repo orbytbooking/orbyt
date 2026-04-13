@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { EmailService } from "@/lib/emailService";
 import StripeSdk from "stripe";
 import { fulfillPendingStripeBookingIntent } from "@/lib/payments/fulfillPendingStripeBookingIntent";
+import { mergeCheckoutCardOntoCustomer } from "@/lib/customerBillingCardSync";
 
 /**
  * Mark a booking paid from a completed Stripe Checkout session.
@@ -94,6 +95,24 @@ export async function applyBookingPaidFromStripeSession(
             })
             .eq("id", bookingId)
             .eq("business_id", businessId);
+
+          const { data: bk } = await supabase
+            .from("bookings")
+            .select("customer_id")
+            .eq("id", bookingId)
+            .eq("business_id", businessId)
+            .maybeSingle();
+          const custId = (bk as { customer_id?: string | null } | null)?.customer_id;
+          if (custId && (card?.last4 || card?.brand)) {
+            await mergeCheckoutCardOntoCustomer(supabase, {
+              customerId: custId,
+              businessId,
+              last4: card.last4 ?? null,
+              brand: card.brand ?? null,
+              expMonth: card.exp_month ?? null,
+              expYear: card.exp_year ?? null,
+            });
+          }
         }
       }
     }

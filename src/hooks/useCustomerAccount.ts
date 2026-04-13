@@ -4,6 +4,15 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getSupabaseCustomerClient } from "@/lib/supabaseCustomerClient";
 
+export type CustomerBillingCardDisplay = {
+  brand: string;
+  last4: string;
+  expMonth?: number | null;
+  expYear?: number | null;
+  source?: string;
+  createdAt?: string;
+};
+
 export type CustomerAccount = {
   id: string;
   name: string;
@@ -12,6 +21,7 @@ export type CustomerAccount = {
   address: string;
   avatar: string;
   businessName: string;
+  billingCards: CustomerBillingCardDisplay[];
   notifications: {
     emailUpdates: boolean;
     smsUpdates: boolean;
@@ -62,7 +72,7 @@ export const useCustomerAccount = (requireAuth: boolean = true) => {
         // Only try to fetch customer data if we have a session and business context
         const { data: customer, error } = await supabase
           .from('customers')
-          .select('id, name, email, phone, address, avatar, email_notifications, sms_notifications, push_notifications, businesses(name)')
+          .select('id, name, email, phone, address, avatar, billing_cards, email_notifications, sms_notifications, push_notifications, businesses(name)')
           .eq('auth_user_id', session.user.id)
           .eq('business_id', businessId)
           .maybeSingle();
@@ -84,6 +94,20 @@ export const useCustomerAccount = (requireAuth: boolean = true) => {
           return;
         }
 
+        const rawCards = (customer as { billing_cards?: unknown }).billing_cards;
+        const billingCards: CustomerBillingCardDisplay[] = Array.isArray(rawCards)
+          ? rawCards
+              .map((c: Record<string, unknown>) => ({
+                brand: String(c?.brand ?? 'Card'),
+                last4: String(c?.last4 ?? '').replace(/\D/g, '').slice(-4),
+                expMonth: typeof c?.expMonth === 'number' ? c.expMonth : null,
+                expYear: typeof c?.expYear === 'number' ? c.expYear : null,
+                source: typeof c?.source === 'string' ? c.source : undefined,
+                createdAt: typeof c?.createdAt === 'string' ? c.createdAt : undefined,
+              }))
+              .filter((c) => c.last4.length === 4)
+          : [];
+
         setAccount({
           id: customer.id,
           name: customer.name || '',
@@ -92,6 +116,7 @@ export const useCustomerAccount = (requireAuth: boolean = true) => {
           address: customer.address || '',
           avatar: customer.avatar || '',
           businessName: (customer.businesses as any)?.name || '',
+          billingCards,
           notifications: {
             emailUpdates: customer.email_notifications ?? true,
             smsUpdates: customer.sms_notifications ?? false,
