@@ -46,6 +46,7 @@ export function estimateBookingDurationMinutes(args: {
 
   let totalMinutes = 0;
   const vc = customization.variableCategories ?? {};
+  const bedroomTier = String(vc['Bedroom'] ?? customization.bedroom ?? '').trim() || null;
   let addedAreaLike = false;
 
   if (pricingParametersFull.length > 0) {
@@ -65,9 +66,12 @@ export function estimateBookingDurationMinutes(args: {
               frequency: p.frequency,
               show_based_on_service_category: p.show_based_on_service_category,
               service_category: p.service_category,
+              show_based_on_service_category2: Boolean(p.show_based_on_service_category2),
+              service_category2: p.service_category2 ?? null,
             },
             selectedFrequency,
             serviceName,
+            bedroomTier,
           ),
       );
       if (param && typeof param.time_minutes === "number" && param.time_minutes > 0) {
@@ -98,9 +102,12 @@ export function estimateBookingDurationMinutes(args: {
                 frequency: p.frequency,
                 show_based_on_service_category: p.show_based_on_service_category,
                 service_category: p.service_category,
+                show_based_on_service_category2: Boolean(p.show_based_on_service_category2),
+                service_category2: p.service_category2 ?? null,
               },
               selectedFrequency,
               serviceName,
+              bedroomTier,
             ),
         );
         if (areaLikeParam && typeof areaLikeParam.time_minutes === "number" && areaLikeParam.time_minutes > 0) {

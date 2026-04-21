@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { ChevronDown } from "lucide-react";
 import { useBusiness } from "@/contexts/BusinessContext";
+import { bookingFormScopeFromSearchParams } from "@/lib/bookingFormScope";
 
 export default function IndustryFormFrequenciesPage() {
   const params = useSearchParams();
@@ -18,6 +19,8 @@ export default function IndustryFormFrequenciesPage() {
   const { toast } = useToast();
   const { currentBusiness } = useBusiness();
   const industry = params.get("industry") || "Industry";
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const scopeQs = `&bookingFormScope=${bookingFormScope}`;
   type Row = {
     id: string;
     name: string;
@@ -34,6 +37,7 @@ export default function IndustryFormFrequenciesPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [industryId, setIndustryId] = useState<string | null>(null);
+  const industryIdQs = industryId ? `&industryId=${encodeURIComponent(industryId)}` : "";
 
   useEffect(() => {
     const fetchIndustries = async () => {
@@ -66,7 +70,9 @@ export default function IndustryFormFrequenciesPage() {
       
       try {
         setLoading(true);
-        const response = await fetch(`/api/industry-frequency?industryId=${industryId}&includeAll=true`);
+        const response = await fetch(
+          `/api/industry-frequency?industryId=${industryId}&includeAll=true${scopeQs}`,
+        );
         const data = await response.json();
         
         if (response.ok && data.frequencies) {
@@ -92,7 +98,7 @@ export default function IndustryFormFrequenciesPage() {
     };
 
     fetchFrequencies();
-  }, [industryId, toast]);
+  }, [industryId, toast, bookingFormScope]);
 
   const remove = async (id: string) => {
     try {
@@ -183,7 +189,7 @@ export default function IndustryFormFrequenciesPage() {
     <div className="space-y-6">
       <div className="flex justify-end">
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => router.push(`/admin/settings/industries/form-1/frequencies/new?industry=${encodeURIComponent(industry)}`)}>Add New</Button>
+          <Button variant="outline" onClick={() => router.push(`/admin/settings/industries/form-1/frequencies/new?industry=${encodeURIComponent(industry)}${industryIdQs}${scopeQs}`)}>Add New</Button>
           <Button variant="default" onClick={updatePriority}>Update priority</Button>
         </div>
       </div>
@@ -235,7 +241,7 @@ export default function IndustryFormFrequenciesPage() {
                           <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground">Options <ChevronDown className="h-4 w-4" /></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => router.push(`/admin/settings/industries/form-1/frequencies/new?industry=${encodeURIComponent(industry)}&editId=${r.id}`)}>Edit</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => router.push(`/admin/settings/industries/form-1/frequencies/new?industry=${encodeURIComponent(industry)}${industryIdQs}&editId=${r.id}${scopeQs}`)}>Edit</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => move(r.id, -1)}>Move Up</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => move(r.id, 1)}>Move Down</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => remove(r.id)} className="text-red-600">Delete</DropdownMenuItem>

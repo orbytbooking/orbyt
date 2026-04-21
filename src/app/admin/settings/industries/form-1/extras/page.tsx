@@ -11,6 +11,10 @@ import { useToast } from "@/components/ui/use-toast";
 import { ChevronDown, Loader2 } from "lucide-react";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { toast } from "sonner";
+import {
+  bookingFormScopeFromSearchParams,
+  parseListingKindParam,
+} from "@/lib/bookingFormScope";
 
 type Extra = {
   id: string;
@@ -41,6 +45,12 @@ export default function IndustryFormExtrasPage() {
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
   const industryIdFromUrl = params.get("industryId");
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const listingKindFilter = parseListingKindParam(params.get("listingKind"));
+  const scopeQs =
+    `&bookingFormScope=${bookingFormScope}` +
+    (listingKindFilter ? `&listingKind=${listingKindFilter}` : "");
+  const extrasSectionLabel = listingKindFilter === "addon" ? "Add-ons" : "Extras";
   const { currentBusiness } = useBusiness();
   
   const [extras, setExtras] = useState<Extra[]>([]);
@@ -65,7 +75,7 @@ export default function IndustryFormExtrasPage() {
       }, 5000);
       return () => clearTimeout(timeout);
     }
-  }, [industryIdFromUrl, currentBusiness, industry]);
+  }, [industryIdFromUrl, currentBusiness, industry, bookingFormScope, listingKindFilter]);
 
   const fetchIndustryId = async () => {
     if (!currentBusiness) return;
@@ -96,7 +106,9 @@ export default function IndustryFormExtrasPage() {
     
     try {
       setLoading(true);
-      const response = await fetch(`/api/extras?industryId=${targetId}`);
+      const response = await fetch(
+        `/api/extras?industryId=${targetId}&businessId=${currentBusiness?.id ?? ""}${scopeQs}`,
+      );
       const data = await response.json();
       
       if (!response.ok) {
@@ -114,7 +126,9 @@ export default function IndustryFormExtrasPage() {
 
   const remove = async (id: string) => {
     try {
-      const response = await fetch(`/api/extras?id=${id}`, {
+      const response = await fetch(
+        `/api/extras?id=${id}&industryId=${industryId}&businessId=${currentBusiness?.id ?? ""}`,
+        {
         method: 'DELETE'
       });
       
@@ -149,7 +163,7 @@ export default function IndustryFormExtrasPage() {
       const response = await fetch('/api/extras/reorder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates })
+        body: JSON.stringify({ updates, industryId, businessId: currentBusiness?.id })
       });
       
       if (!response.ok) {
@@ -173,7 +187,7 @@ export default function IndustryFormExtrasPage() {
       const response = await fetch('/api/extras/reorder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates })
+        body: JSON.stringify({ updates, industryId, businessId: currentBusiness?.id })
       });
       
       if (!response.ok) {
@@ -191,15 +205,21 @@ export default function IndustryFormExtrasPage() {
     <div className="space-y-6">
       <div className="flex justify-end">
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => router.push(`/admin/settings/industries/form-1/extras/new?industry=${encodeURIComponent(industry)}&industryId=${industryId}`)}>Add New</Button>
+          <Button variant="outline" onClick={() => router.push(`/admin/settings/industries/form-1/extras/new?industry=${encodeURIComponent(industry)}&industryId=${industryId}${scopeQs}`)}>Add New</Button>
           <Button variant="default" onClick={updatePriority}>Update priority</Button>
         </div>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>{industry} - Form 1 / Extras</CardTitle>
-          <CardDescription>Manage upsell extras and add-ons for {industry}.</CardDescription>
+          <CardTitle>
+            {industry} — {extrasSectionLabel}
+          </CardTitle>
+          <CardDescription>
+            {listingKindFilter === "addon"
+              ? `Package add-ons for ${industry} (Form 2 configuration).`
+              : `Manage upsell extras for ${industry}.`}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto rounded-md border">
@@ -232,7 +252,11 @@ export default function IndustryFormExtrasPage() {
                   </>
                 ) : extras.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">No extras found. Click Add New to create one.</TableCell>
+                    <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
+                      {listingKindFilter === "addon"
+                        ? "Package add-ons not found."
+                        : "No extras found. Click Add New to create one."}
+                    </TableCell>
                   </TableRow>
                 ) : null}
                 {!loading && extras.map((extra) => {
@@ -277,7 +301,7 @@ export default function IndustryFormExtrasPage() {
                           <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground">Options <ChevronDown className="h-4 w-4" /></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => router.push(`/admin/settings/industries/form-1/extras/new?industry=${encodeURIComponent(industry)}&industryId=${industryId}&editId=${extra.id}`)}>Edit</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => router.push(`/admin/settings/industries/form-1/extras/new?industry=${encodeURIComponent(industry)}&industryId=${industryId}&editId=${extra.id}${scopeQs}`)}>Edit</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => move(extra.id, -1)}>Move Up</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => move(extra.id, 1)}>Move Down</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => remove(extra.id)} className="text-red-600">Delete</DropdownMenuItem>

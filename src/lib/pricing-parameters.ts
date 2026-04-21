@@ -1,4 +1,5 @@
 import { supabase, supabaseAdmin } from '@/lib/supabaseClient';
+import type { BookingFormScope } from '@/lib/bookingFormScope';
 
 export interface PricingParameter {
   id: string;
@@ -24,6 +25,13 @@ export interface PricingParameter {
   sort_order: number;
   created_at: string;
   updated_at: string;
+  booking_form_scope?: BookingFormScope;
+  pricing_variable_id?: string | null;
+  /** Form 2 merchant location (M.L.); null = same as service area until set. */
+  price_merchant_location?: number | null;
+  time_minutes_merchant_location?: number | null;
+  quantity_based?: boolean;
+  icon?: string | null;
 }
 
 export interface CreatePricingParameterData {
@@ -47,6 +55,12 @@ export interface CreatePricingParameterData {
   excluded_providers?: string[];
   exclude_parameters?: string[];
   sort_order?: number;
+  booking_form_scope?: BookingFormScope;
+  pricing_variable_id?: string | null;
+  price_merchant_location?: number | null;
+  time_minutes_merchant_location?: number | null;
+  quantity_based?: boolean;
+  icon?: string | null;
 }
 
 export interface UpdatePricingParameterData extends Partial<CreatePricingParameterData> {}
@@ -58,11 +72,22 @@ class PricingParametersService {
     this.supabase = (typeof window === 'undefined' && supabaseAdmin) ? supabaseAdmin : supabase;
   }
 
-  async getPricingParametersByIndustry(industryId: string): Promise<PricingParameter[]> {
-    const { data, error } = await this.supabase
+  async getPricingParametersByIndustry(
+    industryId: string,
+    businessId?: string | null,
+    bookingFormScope?: BookingFormScope | null,
+  ): Promise<PricingParameter[]> {
+    let q = this.supabase
       .from('industry_pricing_parameter')
       .select('*')
-      .eq('industry_id', industryId)
+      .eq('industry_id', industryId);
+    if (businessId?.trim()) {
+      q = q.eq('business_id', businessId.trim());
+    }
+    if (bookingFormScope === 'form1' || bookingFormScope === 'form2') {
+      q = q.eq('booking_form_scope', bookingFormScope);
+    }
+    const { data, error } = await q
       .order('variable_category', { ascending: true })
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true });
@@ -75,12 +100,18 @@ class PricingParametersService {
     return data || [];
   }
 
-  async getPricingParameterById(id: string): Promise<PricingParameter | null> {
-    const { data, error } = await this.supabase
-      .from('industry_pricing_parameter')
-      .select('*')
-      .eq('id', id)
-      .single();
+  async getPricingParameterById(
+    id: string,
+    scope?: { business_id: string; industry_id: string },
+  ): Promise<PricingParameter | null> {
+    let q = this.supabase.from('industry_pricing_parameter').select('*').eq('id', id);
+    if (scope?.business_id?.trim()) {
+      q = q.eq('business_id', scope.business_id.trim());
+    }
+    if (scope?.industry_id?.trim()) {
+      q = q.eq('industry_id', scope.industry_id.trim());
+    }
+    const { data, error } = await q.single();
 
     if (error) {
       console.error('Error fetching pricing parameter:', error);
@@ -124,25 +155,38 @@ class PricingParametersService {
     return data;
   }
 
-  async deletePricingParameter(id: string): Promise<void> {
-    const { error } = await this.supabase
-      .from('industry_pricing_parameter')
-      .delete()
-      .eq('id', id);
+  async deletePricingParameter(
+    id: string,
+    scope?: { business_id: string; industry_id: string },
+  ): Promise<{ deleted: boolean }> {
+    let q = this.supabase.from('industry_pricing_parameter').delete().eq('id', id);
+    if (scope) {
+      q = q.eq('business_id', scope.business_id).eq('industry_id', scope.industry_id);
+    }
+    const { data, error } = await q.select('id');
 
     if (error) {
       console.error('Error deleting pricing parameter:', error);
       throw error;
     }
+
+    return { deleted: Array.isArray(data) && data.length > 0 };
   }
 
-  async updatePricingParameterOrder(updates: Array<{ id: string; sort_order: number }>): Promise<void> {
-    const promises = updates.map(({ id, sort_order }) =>
-      this.supabase
+  async updatePricingParameterOrder(
+    updates: Array<{ id: string; sort_order: number }>,
+    scope?: { business_id: string; industry_id: string },
+  ): Promise<void> {
+    const promises = updates.map(({ id, sort_order }) => {
+      let q = this.supabase
         .from('industry_pricing_parameter')
         .update({ sort_order })
-        .eq('id', id)
-    );
+        .eq('id', id);
+      if (scope) {
+        q = q.eq('business_id', scope.business_id).eq('industry_id', scope.industry_id);
+      }
+      return q;
+    });
 
     const results = await Promise.all(promises);
     

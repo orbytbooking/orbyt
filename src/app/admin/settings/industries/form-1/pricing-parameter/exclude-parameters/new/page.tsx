@@ -28,6 +28,7 @@ import {
   normalizeFrequencyPopupDisplay,
   type FrequencyPopupDisplay,
 } from "@/lib/frequencyPopupDisplay";
+import { bookingFormScopeFromSearchParams } from "@/lib/bookingFormScope";
 
 function normalizeIdList(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
@@ -40,6 +41,8 @@ export default function ExcludeParameterNewPage() {
   const industry = params.get("industry") || "Industry";
   const industryId = params.get("industryId");
   const editId = params.get("editId");
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const scopeQs = `&bookingFormScope=${bookingFormScope}`;
   const { currentBusiness } = useBusiness();
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
@@ -124,14 +127,19 @@ export default function ExcludeParameterNewPage() {
 
         // Load service categories
         try {
-          const serviceCategoriesData = await serviceCategoriesService.getServiceCategoriesByIndustry(industryId);
+          const serviceCategoriesData = await serviceCategoriesService.getServiceCategoriesByIndustry(
+            industryId,
+            bookingFormScope,
+          );
           setServices(serviceCategoriesData.map(s => ({ id: s.id, name: s.name })));
         } catch (error) {
           console.error('Error loading service categories:', error);
         }
 
         try {
-          const extrasRes = await fetch(`/api/extras?industryId=${encodeURIComponent(industryId)}`);
+          const extrasRes = await fetch(
+            `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness?.id ?? "")}${scopeQs}&listingKind=${bookingFormScope === "form2" ? "addon" : "extra"}`,
+          );
           if (extrasRes.ok) {
             const extrasData = await extrasRes.json();
             if (extrasData.extras && Array.isArray(extrasData.extras)) {
@@ -154,7 +162,11 @@ export default function ExcludeParameterNewPage() {
 
         // Load pricing parameters (variables)
         try {
-          const pricingParamsData = await pricingParametersService.getPricingParametersByIndustry(industryId);
+          const pricingParamsData = await pricingParametersService.getPricingParametersByIndustry(
+            industryId,
+            currentBusiness?.id ?? undefined,
+            bookingFormScope,
+          );
           const allVariables: Array<{ id: string; name: string; category: string }> = [];
           pricingParamsData.forEach(param => {
             allVariables.push({
@@ -170,7 +182,9 @@ export default function ExcludeParameterNewPage() {
 
         // Load frequencies from API
         try {
-          const response = await fetch(`/api/industry-frequency?industryId=${industryId}&includeAll=true`);
+          const response = await fetch(
+            `/api/industry-frequency?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness?.id ?? "")}&includeAll=true${scopeQs}`,
+          );
           const data = await response.json();
           if (data.frequencies && Array.isArray(data.frequencies)) {
             setFrequencies(data.frequencies.map((f: any) => ({ id: f.id, name: f.name })));
@@ -208,7 +222,7 @@ export default function ExcludeParameterNewPage() {
     };
 
     loadData();
-  }, [industryId, currentBusiness?.id, toast]);
+  }, [industryId, currentBusiness?.id, bookingFormScope, scopeQs, toast]);
 
   // Load the row being edited from the API (single record, not a client-side list)
   useEffect(() => {
@@ -453,7 +467,9 @@ export default function ExcludeParameterNewPage() {
         });
       }
 
-      router.push(`/admin/settings/industries/form-1/pricing-parameter?industry=${encodeURIComponent(industry)}`);
+      router.push(
+        `/admin/settings/industries/form-1/pricing-parameter?industry=${encodeURIComponent(industry)}${industryId ? `&industryId=${encodeURIComponent(industryId)}` : ""}${scopeQs}`,
+      );
     } catch (error: any) {
       console.error('Error saving exclude parameter:', error);
       toast({
@@ -1386,7 +1402,11 @@ export default function ExcludeParameterNewPage() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => router.push(`/admin/settings/industries/form-1/pricing-parameter?industry=${encodeURIComponent(industry)}`)}
+              onClick={() =>
+                router.push(
+                  `/admin/settings/industries/form-1/pricing-parameter?industry=${encodeURIComponent(industry)}${industryId ? `&industryId=${encodeURIComponent(industryId)}` : ""}${scopeQs}`,
+                )
+              }
               disabled={saving}
             >
               Cancel

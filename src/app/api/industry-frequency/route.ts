@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { normalizeFrequencyPopupDisplay } from '@/lib/frequencyPopupDisplay';
+import { parseBookingFormScopeParam, type BookingFormScope } from '@/lib/bookingFormScope';
 
 function createSupabaseServiceClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -17,12 +18,14 @@ async function clearOtherIndustryFrequencyDefaults(
   businessId: string,
   industryId: string,
   exceptId: string,
+  bookingFormScope: BookingFormScope,
 ) {
   const { error } = await supabase
     .from('industry_frequency')
     .update({ is_default: false, updated_at: new Date().toISOString() })
     .eq('business_id', businessId)
     .eq('industry_id', industryId)
+    .eq('booking_form_scope', bookingFormScope)
     .neq('id', exceptId);
   if (error) {
     console.error('Error clearing other frequency defaults:', error);
@@ -96,6 +99,7 @@ export async function GET(request: NextRequest) {
     const zipcode = searchParams.get('zipcode')?.trim();
     const includeAll = searchParams.get('includeAll') === 'true' || searchParams.get('admin') === 'true';
     const useWildcard = searchParams.get('wildcard') === 'true';
+    const bookingFormScope = parseBookingFormScopeParam(searchParams.get('bookingFormScope'));
 
     console.log('=== INDUSTRY FREQUENCY API DEBUG ===');
     console.log('Industry ID:', industryId);
@@ -132,6 +136,10 @@ export async function GET(request: NextRequest) {
 
     if (businessId) {
       query = query.eq('business_id', businessId);
+    }
+
+    if (bookingFormScope) {
+      query = query.eq('booking_form_scope', bookingFormScope);
     }
 
     const { data: frequencies, error } = await query;
@@ -246,8 +254,12 @@ export async function POST(request: NextRequest) {
       sqft_variables,
       bedroom_variables,
       exclude_parameters,
-      extras
+      extras,
+      booking_form_scope: booking_form_scope_raw,
     } = body;
+
+    const booking_form_scope: BookingFormScope =
+      booking_form_scope_raw === 'form2' ? 'form2' : 'form1';
 
     if (!business_id || !industry_id || !name || !occurrence_time) {
       return NextResponse.json(
@@ -293,7 +305,8 @@ export async function POST(request: NextRequest) {
           sqft_variables: sqft_variables || [],
           bedroom_variables: bedroom_variables || [],
           exclude_parameters: exclude_parameters || [],
-          extras: extras || []
+          extras: extras || [],
+          booking_form_scope,
         }
       ])
       .select()
@@ -324,6 +337,9 @@ export async function POST(request: NextRequest) {
         frequency.business_id,
         frequency.industry_id,
         frequency.id,
+        (frequency as { booking_form_scope?: string }).booking_form_scope === 'form2'
+          ? 'form2'
+          : 'form1',
       );
     }
 
@@ -399,19 +415,28 @@ export async function PUT(request: NextRequest) {
     if (updateData.bedroom_variables !== undefined) cleanedData.bedroom_variables = updateData.bedroom_variables;
     if (updateData.exclude_parameters !== undefined) cleanedData.exclude_parameters = updateData.exclude_parameters;
     if (updateData.extras !== undefined) cleanedData.extras = updateData.extras;
+    if (updateData.booking_form_scope !== undefined) {
+      cleanedData.booking_form_scope =
+        updateData.booking_form_scope === 'form2' ? 'form2' : 'form1';
+    }
 
     if (cleanedData.is_default === true) {
       const { data: scopeRow, error: scopeErr } = await supabase
         .from('industry_frequency')
-        .select('business_id, industry_id')
+        .select('business_id, industry_id, booking_form_scope')
         .eq('id', id)
         .single();
       if (!scopeErr && scopeRow?.business_id && scopeRow?.industry_id) {
+        const scope: BookingFormScope =
+          (scopeRow as { booking_form_scope?: string }).booking_form_scope === 'form2'
+            ? 'form2'
+            : 'form1';
         await clearOtherIndustryFrequencyDefaults(
           supabase,
           scopeRow.business_id,
           scopeRow.industry_id,
           id,
+          scope,
         );
       }
     }

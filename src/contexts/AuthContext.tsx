@@ -3,6 +3,11 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
+import {
+  clearTenantAuthSessionOnlyMode,
+  isTenantAuthSessionOnlyMode,
+  reapplyTenantAuthCookiesAsSessionOnly,
+} from '@/lib/tenantAuthCookies'
 import { User } from '@supabase/supabase-js'
 
 interface AuthContextType {
@@ -72,6 +77,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (session?.user) {
           setUser(session.user)
         }
+        if (isTenantAuthSessionOnlyMode()) {
+          reapplyTenantAuthCookiesAsSessionOnly()
+        }
         return
       }
 
@@ -86,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [isSuperAdminShell])
 
   const signOut = async () => {
+    clearTenantAuthSessionOnlyMode()
     await supabase.auth.signOut()
   }
 

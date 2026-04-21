@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { parseBookingFormScopeParam, type BookingFormScope } from '@/lib/bookingFormScope';
 
 function createSupabaseServiceClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -17,6 +18,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const industryId = searchParams.get('industryId');
     const businessId = searchParams.get('businessId');
+    const bookingFormScope = parseBookingFormScopeParam(searchParams.get('bookingFormScope'));
 
     console.log('🔍 SERVICE CATEGORIES API DEBUG');
     console.log('📥 industryId:', industryId);
@@ -43,6 +45,10 @@ export async function GET(request: NextRequest) {
     if (businessId) {
       query = query.eq('business_id', businessId);
       console.log('🏢 Filtering by business_id:', businessId);
+    }
+
+    if (bookingFormScope) {
+      query = query.eq('booking_form_scope', bookingFormScope);
     }
 
     console.log('📊 Executing query...');
@@ -111,8 +117,12 @@ export async function POST(request: NextRequest) {
       minimum_time,
       override_provider_pay,
       excluded_providers,
-      sort_order
+      sort_order,
+      booking_form_scope: booking_form_scope_raw,
     } = body;
+
+    const booking_form_scope: BookingFormScope =
+      booking_form_scope_raw === 'form2' ? 'form2' : 'form1';
 
     if (!business_id || !industry_id || !name) {
       return NextResponse.json(
@@ -220,7 +230,8 @@ export async function POST(request: NextRequest) {
           },
           excluded_providers: excluded_providers || [],
           sort_order: sort_order || 0,
-          is_active: true
+          is_active: true,
+          booking_form_scope,
         }
       ])
       .select()
@@ -300,6 +311,10 @@ export async function PUT(request: NextRequest) {
     if (updateData.override_provider_pay !== undefined) cleanedData.override_provider_pay = updateData.override_provider_pay;
     if (updateData.excluded_providers !== undefined) cleanedData.excluded_providers = updateData.excluded_providers;
     if (updateData.sort_order !== undefined) cleanedData.sort_order = updateData.sort_order;
+    if (updateData.booking_form_scope !== undefined) {
+      cleanedData.booking_form_scope =
+        updateData.booking_form_scope === 'form2' ? 'form2' : 'form1';
+    }
 
     const { data: category, error } = await supabase
       .from('industry_service_category')

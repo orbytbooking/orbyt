@@ -41,6 +41,8 @@ import {
   normalizeFrequencyPopupDisplay,
   type FrequencyPopupDisplay,
 } from "@/lib/frequencyPopupDisplay";
+import { FORM1_NEW_CATEGORY_FORM_DEFAULTS } from "@/lib/form1DefaultServiceCategoryConfig";
+import { bookingFormScopeFromSearchParams } from "@/lib/bookingFormScope";
 
 // Simple Rich Text Editor for popup content
 function RichTextEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
@@ -99,6 +101,8 @@ export default function ServiceCategoryNewPage() {
   const industry = params.get("industry") || "Industry";
   const industryIdFromUrl = params.get("industryId");
   const editId = params.get("editId") || null;
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const scopeQs = `&bookingFormScope=${bookingFormScope}`;
 
   const [loading, setLoading] = useState(false);
   const [industryId, setIndustryId] = useState<string | null>(industryIdFromUrl);
@@ -114,8 +118,8 @@ export default function ServiceCategoryNewPage() {
     popupContent: "",
     popupDisplay: "customer_frontend_backend_admin" as FrequencyPopupDisplay,
     excludedProviders: [] as string[],
-    serviceCategoryFrequency: false,
-    selectedFrequencies: [] as string[],
+    serviceCategoryFrequency: FORM1_NEW_CATEGORY_FORM_DEFAULTS.serviceCategoryFrequency,
+    selectedFrequencies: [...FORM1_NEW_CATEGORY_FORM_DEFAULTS.selectedFrequencies],
     variables: {} as { [key: string]: string[] },
     excludeParameters: {
       pets: false,
@@ -124,7 +128,7 @@ export default function ServiceCategoryNewPage() {
     },
     extras: [] as string[],
     selectedExcludeParameters: [] as string[],
-    display: "customer_frontend_backend_admin",
+    display: FORM1_NEW_CATEGORY_FORM_DEFAULTS.display,
     displayServiceLengthCustomer: "admin_only",
     enableServiceLengthTooltipCustomer: false,
     serviceLengthTooltipTextCustomer: "",
@@ -531,11 +535,13 @@ export default function ServiceCategoryNewPage() {
   // Load pricing parameters from database
   useEffect(() => {
     const fetchPricingParameters = async () => {
-      if (!industryId) return;
-      
+      if (!industryId || !currentBusiness?.id) return;
+
       try {
         console.log('Fetching pricing parameters for industryId:', industryId);
-        const response = await fetch(`/api/pricing-parameters?industryId=${encodeURIComponent(industryId)}`);
+        const response = await fetch(
+          `/api/pricing-parameters?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
+        );
         console.log('Pricing parameters API response status:', response.status);
         
         if (response.ok) {
@@ -572,10 +578,10 @@ export default function ServiceCategoryNewPage() {
       }
     };
     
-    if (industryId) {
+    if (industryId && currentBusiness?.id) {
       fetchPricingParameters();
     }
-  }, [industryId]);
+  }, [industryId, currentBusiness?.id, bookingFormScope]);
 
   // Fetch industryId if not in URL
   useEffect(() => {
@@ -613,7 +619,9 @@ export default function ServiceCategoryNewPage() {
       
       try {
         console.log('Fetching extras for industryId:', industryId);
-        const response = await fetch(`/api/extras?industryId=${encodeURIComponent(industryId)}`);
+        const response = await fetch(
+          `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness?.id ?? "")}${scopeQs}`,
+        );
         console.log('Extras API response status:', response.status);
         
         if (response.ok) {
@@ -637,7 +645,7 @@ export default function ServiceCategoryNewPage() {
     if (industryId) {
       fetchExtras();
     }
-  }, [industryId]);
+  }, [industryId, bookingFormScope]);
 
   // Load frequencies from database
   useEffect(() => {
@@ -646,7 +654,9 @@ export default function ServiceCategoryNewPage() {
       
       try {
         console.log('Fetching frequencies for industryId:', industryId);
-        const response = await fetch(`/api/industry-frequency?industryId=${encodeURIComponent(industryId)}&includeAll=true`);
+        const response = await fetch(
+          `/api/industry-frequency?industryId=${encodeURIComponent(industryId)}&includeAll=true${scopeQs}`,
+        );
         console.log('Frequencies API response status:', response.status);
         
         if (response.ok) {
@@ -675,7 +685,7 @@ export default function ServiceCategoryNewPage() {
     if (industryId) {
       fetchFrequencies();
     }
-  }, [industryId]);
+  }, [industryId, bookingFormScope]);
 
   // Load exclude parameters from database
   useEffect(() => {
@@ -974,6 +984,7 @@ export default function ServiceCategoryNewPage() {
       const categoryData = {
         business_id: business.id,
         industry_id: industryId,
+        booking_form_scope: bookingFormScope,
         name: form.name.trim(),
         different_on_customer_end: form.differentOnCustomerEnd,
         customer_end_name: form.differentOnCustomerEnd ? (form.customerEndName.trim() || null) : null,
@@ -1162,7 +1173,9 @@ export default function ServiceCategoryNewPage() {
         }
       }
 
-      router.push(`/admin/settings/industries/form-1/service-category?industry=${encodeURIComponent(industry)}`);
+      router.push(
+        `/admin/settings/industries/form-1/service-category?industry=${encodeURIComponent(industry)}${scopeQs}`,
+      );
     } catch (error) {
       console.error('Error saving category:', error);
       console.error('Error details:', {

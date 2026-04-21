@@ -409,7 +409,7 @@ export default function BookingsPage() {
     if (ids.length === 0) { setExtrasMap({}); return; }
     const industryId = industries[0]?.id;
     if (!industryId) return;
-    fetch(`/api/extras?industryId=${industryId}`)
+    fetch(`/api/extras?industryId=${industryId}&businessId=${currentBusiness?.id ?? ""}`)
       .then((r) => r.json())
       .then((data) => {
         const list = data.extras || [];

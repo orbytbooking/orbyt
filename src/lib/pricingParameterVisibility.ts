@@ -63,8 +63,10 @@ export type PricingParamRow = {
   display?: string;
   frequency?: string | null;
   service_category?: string | null;
+  service_category2?: string | null;
   show_based_on_frequency?: boolean;
   show_based_on_service_category?: boolean;
+  show_based_on_service_category2?: boolean;
   price?: number;
   time_minutes?: number;
   sort_order?: number;
@@ -78,6 +80,8 @@ export function buildCustomerAvailableVariables(
   selectedService: { name: string; raw?: Record<string, unknown> } | null,
   selectedFrequency: string,
   frequencyDependencies?: FrequencyDependencies | null,
+  /** When set, bathroom (etc.) rows with `show_based_on_service_category2` only show after a bedroom tier is chosen. */
+  selectedBedroomTier?: string | null,
 ): Record<string, { id: string; name: string; variable_category: string }[]> {
   if (!params.length || !selectedService?.name) return {};
 
@@ -103,22 +107,24 @@ export function buildCustomerAvailableVariables(
     let visible = false;
 
     if (useFrequencyDeps) {
-      if (param.show_based_on_frequency) {
-        if (!freqTrim || !param.frequency?.trim()) {
-          visible = false;
-        } else {
-          visible = adminFrequencyCsvMatchesSelection(param.frequency, freqTrim);
-        }
-      } else {
-        visible = true;
+      if (
+        !pricingParamAppliesToSelection(
+          {
+            show_based_on_frequency: param.show_based_on_frequency,
+            frequency: param.frequency,
+            show_based_on_service_category: param.show_based_on_service_category,
+            service_category: param.service_category,
+            show_based_on_service_category2: param.show_based_on_service_category2,
+            service_category2: param.service_category2,
+          },
+          freqTrim,
+          serviceName,
+          selectedBedroomTier,
+        )
+      ) {
+        continue;
       }
-
-      if (!visible) continue;
-
-      if (param.show_based_on_service_category) {
-        if (!param.service_category?.trim()) continue;
-        if (!adminServiceCategoryCsvMatchesSelection(param.service_category, serviceName)) continue;
-      }
+      visible = true;
     } else {
       const vars = rawCat?.variables;
       if (vars && vars[rawCategory] && Array.isArray(vars[rawCategory])) {
@@ -161,9 +167,13 @@ export function pricingParamAppliesToSelection(
     frequency?: string | null;
     show_based_on_service_category?: boolean;
     service_category?: string | null;
+    show_based_on_service_category2?: boolean;
+    service_category2?: string | null;
   },
   selectedFrequency: string,
   selectedServiceName: string,
+  /** Required bedroom / Studio tier name when `show_based_on_service_category2` is set (e.g. Full Bathroom deps). */
+  selectedBedroomTier?: string | null,
 ): boolean {
   const freqTrim = selectedFrequency.trim();
   const svcTrim = selectedServiceName.trim();
@@ -174,6 +184,12 @@ export function pricingParamAppliesToSelection(
 
   if (param.show_based_on_service_category && param.service_category?.trim()) {
     if (!adminServiceCategoryCsvMatchesSelection(param.service_category, svcTrim)) return false;
+  }
+
+  if (param.show_based_on_service_category2 && param.service_category2?.trim()) {
+    const bed = String(selectedBedroomTier ?? '').trim();
+    if (!bed || bed.toLowerCase() === 'none') return false;
+    if (!adminServiceCategoryCsvMatchesSelection(param.service_category2, bed)) return false;
   }
 
   return true;

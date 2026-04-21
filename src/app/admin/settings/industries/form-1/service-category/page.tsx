@@ -10,6 +10,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { ChevronDown } from "lucide-react";
 import { serviceCategoriesService, ServiceCategory } from "@/lib/serviceCategories";
 import { useBusiness } from "@/contexts/BusinessContext";
+import { bookingFormScopeFromSearchParams } from "@/lib/bookingFormScope";
 
 export default function IndustryFormServiceCategoryPage() {
   const params = useSearchParams();
@@ -18,6 +19,8 @@ export default function IndustryFormServiceCategoryPage() {
   const { currentBusiness } = useBusiness();
   const industry = params.get("industry") || "Industry";
   const industryIdFromUrl = params.get("industryId");
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const scopeQs = `&bookingFormScope=${bookingFormScope}`;
   
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,7 +76,7 @@ export default function IndustryFormServiceCategoryPage() {
       console.log('Loading categories for industryId:', industryId);
       loadCategories();
     }
-  }, [industryId]);
+  }, [industryId, bookingFormScope]);
 
   const loadCategories = async () => {
     if (!industryId) {
@@ -84,7 +87,10 @@ export default function IndustryFormServiceCategoryPage() {
     try {
       setLoading(true);
       console.log('Fetching service categories for industryId:', industryId);
-      const data = await serviceCategoriesService.getServiceCategoriesByIndustry(industryId);
+      const data = await serviceCategoriesService.getServiceCategoriesByIndustry(
+        industryId,
+        bookingFormScope,
+      );
       console.log('Service categories loaded:', data);
       setCategories(data);
     } catch (error) {
@@ -153,7 +159,7 @@ export default function IndustryFormServiceCategoryPage() {
     <div className="space-y-6">
       <div className="flex justify-end">
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => router.push(`/admin/settings/industries/form-1/service-category/new?industry=${encodeURIComponent(industry)}&industryId=${industryId || ''}`)}>Add New</Button>
+          <Button variant="outline" onClick={() => router.push(`/admin/settings/industries/form-1/service-category/new?industry=${encodeURIComponent(industry)}&industryId=${industryId || ''}${scopeQs}`)}>Add New</Button>
           <Button variant="default" onClick={updatePriority}>Update priority</Button>
         </div>
       </div>
@@ -215,7 +221,7 @@ export default function IndustryFormServiceCategoryPage() {
                           <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground">Options <ChevronDown className="h-4 w-4" /></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => router.push(`/admin/settings/industries/form-1/service-category/new?industry=${encodeURIComponent(industry)}&industryId=${industryId || ''}&editId=${category.id}`)}>Edit</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => router.push(`/admin/settings/industries/form-1/service-category/new?industry=${encodeURIComponent(industry)}&industryId=${industryId || ''}&editId=${category.id}${scopeQs}`)}>Edit</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => move(category.id, -1)}>Move Up</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => move(category.id, 1)}>Move Down</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => remove(category.id)} className="text-red-600">Delete</DropdownMenuItem>

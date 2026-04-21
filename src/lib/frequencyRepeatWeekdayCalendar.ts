@@ -1,7 +1,7 @@
 /**
  * Maps industry_frequency.frequency_repeats (kebab-case) to JS Date.getDay(): 0 Sun … 6 Sat.
  * Used for customer date-picker rules and by recurring occurrence logic (see recurringBookings).
- * Keep keys aligned with admin `frequencies/new` SelectItem values.
+ * Keep keys aligned with admin `frequencies/new` SelectItem values (incl. `monthly`).
  */
 export const FREQUENCY_REPEAT_WEEKDAY_PATTERNS: Record<string, number[]> = {
   "every-mon-fri": [1, 5],

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" role="img" aria-hidden="true">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e879f9"/>
+      <stop offset="100%" stop-color="#a21caf"/>
+    </linearGradient>
+  </defs>
+  <circle cx="36" cy="36" r="34" fill="url(#bg)"/>
+  <rect x="14" y="16" width="44" height="44" rx="10" fill="#fff" opacity="0.96"/>
+  <rect x="14" y="16" width="44" height="44" rx="10" fill="none" stroke="#c026d3" stroke-width="1.4" opacity="0.35"/>
+  <!-- Roller frame -->
+  <rect x="22" y="24" width="22" height="12" rx="2" fill="#fae8ff" stroke="#86198f" stroke-width="1.6"/>
+  <rect x="26" y="27" width="14" height="6" rx="1" fill="#f0abfc"/>
+  <!-- Handle -->
+  <path fill="none" stroke="#86198f" stroke-width="3" stroke-linecap="round" d="M22 30L16 44"/>
+  <!-- Roller tube -->
+  <rect x="20" y="34" width="26" height="5" rx="2" fill="#fdf4ff" stroke="#86198f" stroke-width="1.4"/>
+  <!-- Paint drip -->
+  <path fill="#d946ef" d="M34 42c2 4 2 8 0 10s-4-2-2-6 2-6 2-4z" opacity="0.9"/>
+</svg>

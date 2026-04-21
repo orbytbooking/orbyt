@@ -3631,7 +3631,7 @@ export default function GeneralSettingsPage() {
                                 Saving…
                               </>
                             ) : (
-                              "Save My Drive setting"
+                              "Save customer general options"
                             )}
                           </Button>
                         </div>

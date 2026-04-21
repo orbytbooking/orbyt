@@ -7,6 +7,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import {
+  bookingFormPresetIconTextClass,
+  bookingFormPresetRichIconSrc,
   DEFAULT_INDUSTRY_EXTRA_ICON_SRC,
   industryFormIconIsImageSrc,
   resolveCustomerExcludeParameterLineIcon,
@@ -43,6 +45,24 @@ function BookingLineIcon({
   labelHint: string;
 }) {
   const hint = labelHint.trim();
+  if (icon && industryFormIconIsImageSrc(icon)) {
+    return (
+      <img src={icon} alt="" width={36} height={36} className="h-9 w-9 object-contain" loading="lazy" />
+    );
+  }
+  const richSrc = bookingFormPresetRichIconSrc(icon, hint);
+  if (richSrc) {
+    return (
+      <img
+        src={richSrc}
+        alt=""
+        width={36}
+        height={36}
+        className="h-9 w-9 object-contain drop-shadow-sm"
+        loading="lazy"
+      />
+    );
+  }
   if (iconKind === 'exclude') {
     const resolved = resolveCustomerExcludeParameterLineIcon(icon, hint);
     if (resolved.type === 'image') {
@@ -58,16 +78,13 @@ function BookingLineIcon({
       );
     }
     const Lucide = resolved.Icon;
-    return <Lucide className="h-9 w-9 shrink-0 text-slate-700" aria-hidden />;
-  }
-  if (icon && industryFormIconIsImageSrc(icon)) {
-    return (
-      <img src={icon} alt="" width={36} height={36} className="h-9 w-9 object-contain" loading="lazy" />
-    );
+    const colorClass = bookingFormPresetIconTextClass(icon, hint);
+    return <Lucide className={`h-9 w-9 shrink-0 ${colorClass}`} aria-hidden />;
   }
   const Preset = resolveIndustryExtraPresetLucideIcon(icon);
   if (Preset) {
-    return <Preset className="h-9 w-9 shrink-0 text-slate-700" aria-hidden />;
+    const colorClass = bookingFormPresetIconTextClass(icon, hint);
+    return <Preset className={`h-9 w-9 shrink-0 ${colorClass}`} aria-hidden />;
   }
   return (
     <img

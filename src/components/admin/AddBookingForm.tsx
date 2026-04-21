@@ -5,6 +5,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { serviceCategoriesService, ServiceCategory } from '@/lib/serviceCategories';
 import { frequencyDepOptionNamesForCategory, getFrequencyDependencies } from '@/lib/frequencyFilter';
+import { pricingParamAppliesToSelection } from '@/lib/pricingParameterVisibility';
 import { filterFrequencyOptionsForServiceCategory } from '@/lib/form1CustomerBooking';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,8 @@ import { couponRequiresCustomerEmailForScope } from "@/lib/marketingCouponCustom
 import { popupDisplayAppliesToSurface } from "@/lib/frequencyPopupDisplay";
 import { getExtraCustomerDisplayName } from "@/lib/form1CustomerBooking";
 import {
+  bookingFormPresetIconTextClass,
+  bookingFormPresetRichIconSrc,
   DEFAULT_INDUSTRY_EXTRA_ICON_SRC,
   industryFormIconIsImageSrc,
   resolveIndustryExtraPresetLucideIcon,
@@ -54,6 +57,8 @@ import {
 } from "@/lib/industryExtraIcons";
 import { industryExtraPassesBookingDependencyRules } from "@/lib/industryExtraDependencies";
 import { normalizeTimeToHHmm } from "@/lib/schedulingFilters";
+import { FORM1_SEEDED_SERVICE_CATEGORIES } from "@/lib/form1DefaultServiceCategoryConfig";
+import { FORM2_STANDALONE_PACKAGE_CATEGORY } from "@/lib/bookingFormScope";
 
 /** `YYYY-MM-DD` for `<input type="date" />` (handles ISO strings from API). */
 function normalizeBookingDateInput(raw: unknown): string {
@@ -157,15 +162,23 @@ type PricingParameter = {
   time_minutes: number;
   display: string;
   service_category: string;
+  service_category2?: string | null;
   frequency: string;
   variable_category: string;
   description: string;
   is_default: boolean;
   show_based_on_frequency: boolean;
   show_based_on_service_category: boolean;
+  show_based_on_service_category2?: boolean;
   excluded_extras: string[];
   excluded_services: string[];
   sort_order: number;
+};
+
+type PricingVariable = {
+  id: string;
+  name: string;
+  category?: string | null;
 };
 
 type Customer = {
@@ -187,7 +200,7 @@ type CustomerSavedCardOption = {
   stripePaymentMethodId: string | null;
 };
 
-type Industry = { id: string; name: string };
+type Industry = { id: string; name: string; customer_booking_form_layout?: "form1" | "form2" };
 
 const createEmptyBookingForm = () => ({
   customerType: "new",
@@ -340,6 +353,16 @@ export function AddBookingForm({
   const [loadingProviders, setLoadingProviders] = useState(false);
   const [industries, setIndustries] = useState<Industry[]>([]);
   const [selectedIndustryId, setSelectedIndustryId] = useState<string>("");
+  const selectedIndustry = useMemo(
+    () => industries.find((i) => i.id === selectedIndustryId) ?? null,
+    [industries, selectedIndustryId],
+  );
+  const bookingFormScopeForCatalog: "form1" | "form2" =
+    selectedIndustry?.customer_booking_form_layout === "form2" ? "form2" : "form1";
+  const isForm2Catalog = bookingFormScopeForCatalog === "form2";
+  const extrasListingKindForCatalog = bookingFormScopeForCatalog === "form2" ? "addon" : "extra";
+  const [pricingVariables, setPricingVariables] = useState<PricingVariable[]>([]);
+  const [selectedForm2Item, setSelectedForm2Item] = useState<string>("");
   const [hasLocationBasedFrequencies, setHasLocationBasedFrequencies] = useState(false);
   const [cancellationFeeDisplay, setCancellationFeeDisplay] = useState<{ enabled: boolean; amount: number; currency: string } | null>(null);
   const [specificProviderForAdmin, setSpecificProviderForAdmin] = useState(true);
@@ -376,6 +399,14 @@ export function AddBookingForm({
       setNewBooking((prev) => (prev.serviceProvider ? { ...prev, serviceProvider: "" } : prev));
     }
   }, [specificProviderForAdmin]);
+
+  // Form 2 does not use partial-cleaning / exclude-parameters behavior.
+  useEffect(() => {
+    if (!isForm2Catalog) return;
+    setIsPartialCleaning(false);
+    setSelectedExcludeParams([]);
+    setNewBooking((prev) => ({ ...prev, excludeQuantities: {} }));
+  }, [isForm2Catalog]);
 
   // Load cancellation settings for Payment Summary display
   useEffect(() => {
@@ -428,7 +459,7 @@ export function AddBookingForm({
     fetch(
       `/api/industry-frequency?industryId=${selectedIndustryId}&businessId=${encodeURIComponent(
         currentBusiness.id,
-      )}&includeAll=true`,
+      )}&includeAll=true&bookingFormScope=${bookingFormScopeForCatalog}`,
     )
       .then((r) => r.json())
       .then((data) => {
@@ -437,7 +468,7 @@ export function AddBookingForm({
         setHasLocationBasedFrequencies(hasLocation);
       })
       .catch(() => setHasLocationBasedFrequencies(false));
-  }, [selectedIndustryId, currentBusiness?.id]);
+  }, [selectedIndustryId, currentBusiness?.id, bookingFormScopeForCatalog]);
 
   // Load frequencies from API (uses selected industry; requires zip when location-based)
   useEffect(() => {
@@ -456,10 +487,10 @@ export function AddBookingForm({
         const url = hasLocationBasedFrequencies
           ? `/api/industry-frequency?industryId=${selectedIndustryId}&businessId=${encodeURIComponent(
               currentBusiness.id,
-            )}&zipcode=${encodeURIComponent(zipParam)}`
+            )}&zipcode=${encodeURIComponent(zipParam)}&bookingFormScope=${bookingFormScopeForCatalog}`
           : `/api/industry-frequency?industryId=${selectedIndustryId}&businessId=${encodeURIComponent(
               currentBusiness.id,
-            )}&includeAll=true`;
+            )}&includeAll=true&bookingFormScope=${bookingFormScopeForCatalog}`;
         const res = await fetch(url);
         const data = await res.json();
         if (!res.ok || !data.frequencies) return;
@@ -479,7 +510,7 @@ export function AddBookingForm({
       }
     };
     fetchFrequencies();
-  }, [currentBusiness, selectedIndustryId, newBooking.zipCode, hasLocationBasedFrequencies]);
+  }, [currentBusiness, selectedIndustryId, newBooking.zipCode, hasLocationBasedFrequencies, bookingFormScopeForCatalog]);
 
   // Load frequency dependencies when frequency changes
   useEffect(() => {
@@ -489,10 +520,11 @@ export function AddBookingForm({
     }
     getFrequencyDependencies(selectedIndustryId, newBooking.frequency, {
       businessId: currentBusiness?.id,
+      bookingFormScope: bookingFormScopeForCatalog,
     })
       .then(setFrequencyDependencies)
       .catch(() => setFrequencyDependencies(null));
-  }, [selectedIndustryId, newBooking.frequency, currentBusiness?.id]);
+  }, [selectedIndustryId, newBooking.frequency, currentBusiness?.id, bookingFormScopeForCatalog]);
 
   // Update exclude parameters when frequency dependencies or industry change
   useEffect(() => {
@@ -516,51 +548,66 @@ export function AddBookingForm({
 
   // Load extras from API (uses selected industry)
   useEffect(() => {
-    if (!selectedIndustryId) return;
-    fetch(`/api/extras?industryId=${selectedIndustryId}`)
-      .then((r) => r.json())
-      .then((extrasData) => {
-        if (!extrasData.extras) return;
-        const rows = extrasData.extras.filter((e: any) => !!e);
-        setAllExtras(rows.map((e: any) => ({
-          id: e.id,
-          name: e.name,
-          icon: e.icon,
-          time: e.time_minutes,
-          serviceCategory: e.service_category || '',
-          price: e.price,
-          display: e.display,
-          qtyBased: e.qty_based,
-          maximumQuantity: e.maximum_quantity,
-          pricingStructure: e.pricing_structure === 'manual' ? 'manual' : 'multiply',
-          manualPrices: Array.isArray(e.manual_prices) ? e.manual_prices : [],
-          exemptFromDiscount: e.exempt_from_discount,
-          description: e.description,
-          serviceChecklists: [],
-          differentOnCustomerEnd: Boolean(e.different_on_customer_end),
-          customerEndName: e.customer_end_name ?? null,
-          showExplanationIconOnForm: Boolean(e.show_explanation_icon_on_form),
-          explanationTooltipText: e.explanation_tooltip_text ?? null,
-          enablePopupOnSelection: Boolean(e.enable_popup_on_selection),
-          popupContent: e.popup_content ?? null,
-          popupDisplay: e.popup_display ?? null,
-          show_based_on_frequency: Boolean(e.show_based_on_frequency),
-          frequency_options: Array.isArray(e.frequency_options) ? [...e.frequency_options] : [],
-          show_based_on_service_category: Boolean(e.show_based_on_service_category),
-          service_category_options: Array.isArray(e.service_category_options)
-            ? [...e.service_category_options]
-            : [],
-          show_based_on_variables: Boolean(e.show_based_on_variables),
-          variable_options: Array.isArray(e.variable_options) ? [...e.variable_options] : [],
-        })));
+    if (!selectedIndustryId || !currentBusiness?.id) return;
+    const baseQs = `industryId=${selectedIndustryId}&businessId=${currentBusiness.id}&bookingFormScope=${bookingFormScopeForCatalog}`;
+    const urls =
+      bookingFormScopeForCatalog === "form2"
+        ? [
+            `/api/extras?${baseQs}`,
+            `/api/extras?${baseQs}&listingKind=addon`,
+            `/api/extras?${baseQs}&listingKind=extra`,
+          ]
+        : [`/api/extras?${baseQs}&listingKind=${extrasListingKindForCatalog}`];
+
+    Promise.all(urls.map((u) => fetch(u).then((r) => (r.ok ? r.json() : { extras: [] }))))
+      .then((payloads) => {
+        const merged = payloads.flatMap((p) => (Array.isArray(p.extras) ? p.extras : []));
+        const rows = merged.filter((e: any) => !!e);
+        const deduped = rows.filter(
+          (e: any, idx: number, arr: any[]) =>
+            arr.findIndex((x) => String(x?.id) === String(e?.id)) === idx,
+        );
+        setAllExtras(
+          deduped.map((e: any) => ({
+            id: e.id,
+            name: e.name,
+            icon: e.icon,
+            time: e.time_minutes,
+            serviceCategory: e.service_category || "",
+            price: e.price,
+            display: e.display,
+            qtyBased: e.qty_based,
+            maximumQuantity: e.maximum_quantity,
+            pricingStructure: e.pricing_structure === "manual" ? "manual" : "multiply",
+            manualPrices: Array.isArray(e.manual_prices) ? e.manual_prices : [],
+            exemptFromDiscount: e.exempt_from_discount,
+            description: e.description,
+            serviceChecklists: [],
+            differentOnCustomerEnd: Boolean(e.different_on_customer_end),
+            customerEndName: e.customer_end_name ?? null,
+            showExplanationIconOnForm: Boolean(e.show_explanation_icon_on_form),
+            explanationTooltipText: e.explanation_tooltip_text ?? null,
+            enablePopupOnSelection: Boolean(e.enable_popup_on_selection),
+            popupContent: e.popup_content ?? null,
+            popupDisplay: e.popup_display ?? null,
+            show_based_on_frequency: Boolean(e.show_based_on_frequency),
+            frequency_options: Array.isArray(e.frequency_options) ? [...e.frequency_options] : [],
+            show_based_on_service_category: Boolean(e.show_based_on_service_category),
+            service_category_options: Array.isArray(e.service_category_options)
+              ? [...e.service_category_options]
+              : [],
+            show_based_on_variables: Boolean(e.show_based_on_variables),
+            variable_options: Array.isArray(e.variable_options) ? [...e.variable_options] : [],
+          })),
+        );
       })
       .catch((e) => console.error("Error loading extras:", e));
-  }, [selectedIndustryId]);
+  }, [selectedIndustryId, currentBusiness?.id, bookingFormScopeForCatalog, extrasListingKindForCatalog]);
 
   // Update service categories when frequency dependencies or industry change
   useEffect(() => {
     if (!selectedIndustryId) return;
-    serviceCategoriesService.getServiceCategoriesByIndustry(selectedIndustryId).then((categories) => {
+    serviceCategoriesService.getServiceCategoriesByIndustry(selectedIndustryId, bookingFormScopeForCatalog).then((categories) => {
       const filtered = categories.filter((category: ServiceCategory) => {
         if (!category.service_category_frequency) return true;
         if (!frequencyDependencies) return true;
@@ -569,7 +616,7 @@ export function AddBookingForm({
       });
       setServiceCategories(filtered);
     }).catch(() => setServiceCategories([]));
-  }, [frequencyDependencies, selectedIndustryId]);
+  }, [frequencyDependencies, selectedIndustryId, bookingFormScopeForCatalog]);
 
   // Pre-fill provider wage from service category override when service is selected
   useEffect(() => {
@@ -603,7 +650,9 @@ export function AddBookingForm({
               : [])
           : [];
 
-        if (!useFreq) {
+        // Form 1-only narrowing by service-category `extras` list.
+        // Form 2 add-ons/extras should still render even when that Form 1 list is empty.
+        if (!isForm2Catalog && !useFreq) {
           const ce = selectedServiceCategory.extras;
           if (ce && ce.length > 0) {
             filteredExtras = filteredExtras.filter((e) =>
@@ -648,6 +697,7 @@ export function AddBookingForm({
     frequencyDependencies,
     allExtras,
     categoryValues,
+    isForm2Catalog,
   ]);
 
   // Load providers from API
@@ -708,10 +758,12 @@ export function AddBookingForm({
 
   // Load pricing parameters from database (uses selected industry)
   useEffect(() => {
-    if (!selectedIndustryId) return;
+    if (!selectedIndustryId || !currentBusiness?.id) return;
     const load = async () => {
       try {
-        const pricingRes = await fetch(`/api/pricing-parameters?industryId=${selectedIndustryId}`);
+        const pricingRes = await fetch(
+          `/api/pricing-parameters?industryId=${encodeURIComponent(selectedIndustryId)}&businessId=${encodeURIComponent(currentBusiness.id)}&bookingFormScope=${bookingFormScopeForCatalog}`,
+        );
         const pricingData = await pricingRes.json();
         if (pricingData.pricingParameters) {
           setPricingParameters(pricingData.pricingParameters);
@@ -732,7 +784,40 @@ export function AddBookingForm({
       }
     };
     load();
-  }, [selectedIndustryId]);
+  }, [selectedIndustryId, currentBusiness?.id, bookingFormScopeForCatalog]);
+
+  // Form 2 item catalog (pricing variables)
+  useEffect(() => {
+    if (!isForm2Catalog || !selectedIndustryId || !currentBusiness?.id) {
+      setPricingVariables([]);
+      setSelectedForm2Item("");
+      return;
+    }
+    const load = async () => {
+      try {
+        const res = await fetch(
+          `/api/pricing-variables?industryId=${encodeURIComponent(selectedIndustryId)}&businessId=${encodeURIComponent(currentBusiness.id)}&bookingFormScope=form2`,
+        );
+        const data = await res.json();
+        if (res.ok && Array.isArray(data.variables)) {
+          const rows = data.variables as PricingVariable[];
+          setPricingVariables(rows);
+          setSelectedForm2Item((prev) => {
+            if (prev && rows.some((r) => (r.category || r.name) === prev)) return prev;
+            return rows[0]?.category || rows[0]?.name || "";
+          });
+        } else {
+          setPricingVariables([]);
+          setSelectedForm2Item("");
+        }
+      } catch (e) {
+        console.error("Error loading pricing variables:", e);
+        setPricingVariables([]);
+        setSelectedForm2Item("");
+      }
+    };
+    load();
+  }, [isForm2Catalog, selectedIndustryId, currentBusiness?.id]);
 
   // Edit mode: embedded sheet uses `bookingIdOverride`; full page uses URL (override optional).
   const fromUrl = searchParams.get("bookingId");
@@ -1284,7 +1369,7 @@ const handleAddBooking = async (status: string = 'pending') => {
       selected_extras: newBooking.selectedExtras,
       extra_quantities: newBooking.extraQuantities,
       category_values: categoryValues,
-      is_partial_cleaning: isPartialCleaning,
+      is_partial_cleaning: isForm2Catalog ? false : isPartialCleaning,
       excluded_areas: selectedExcludeParams,
       exclude_quantities: newBooking.excludeQuantities,
       service_provider_id: effectiveProviderId,
@@ -1910,21 +1995,28 @@ const handleAddBooking = async (status: string = 'pending') => {
     if (newBooking.duration && !hourlyPricingUsesParameterTime) return null;
 
     let totalMinutes = 0;
+    const bedroomTier = categoryValues['Bedroom'] ?? null;
 
     for (const [categoryKey, optionName] of Object.entries(categoryValues)) {
       if (!optionName?.trim() || optionName.trim().toLowerCase() === "none") continue;
-      const param = pricingParameters.find(p => {
-        if (p.variable_category !== categoryKey || p.name !== optionName) return false;
-        if (p.show_based_on_frequency && p.frequency) {
-          const allowed = p.frequency.split(', ').map(f => f.trim());
-          if (!allowed.includes(newBooking.frequency)) return false;
-        }
-        if (p.show_based_on_service_category && p.service_category) {
-          const allowed = p.service_category.split(', ').map(s => s.trim());
-          if (!allowed.includes(newBooking.service)) return false;
-        }
-        return true;
-      });
+      const param = pricingParameters.find(
+        (p) =>
+          p.variable_category === categoryKey &&
+          p.name === optionName &&
+          pricingParamAppliesToSelection(
+            {
+              show_based_on_frequency: p.show_based_on_frequency,
+              frequency: p.frequency,
+              show_based_on_service_category: p.show_based_on_service_category,
+              service_category: p.service_category,
+              show_based_on_service_category2: Boolean(p.show_based_on_service_category2),
+              service_category2: p.service_category2 ?? null,
+            },
+            newBooking.frequency,
+            newBooking.service,
+            bedroomTier,
+          ),
+      );
       if (param?.time_minutes && param.time_minutes > 0) {
         totalMinutes += param.time_minutes;
       }
@@ -1983,20 +2075,27 @@ const handleAddBooking = async (status: string = 'pending') => {
 
     // 2) Add prices for each selected option (Bathroom, Bedroom, Living Room, Sq Ft, Storage, etc.)
     let optionsSum = 0;
+    const bedroomTierForPrice = categoryValues['Bedroom'] ?? null;
     for (const [categoryKey, optionName] of Object.entries(categoryValues)) {
       if (!optionName?.trim() || optionName.trim().toLowerCase() === "none") continue;
-      const param = pricingParameters.find(p => {
-        if (p.variable_category !== categoryKey || p.name !== optionName) return false;
-        if (p.show_based_on_frequency && p.frequency) {
-          const allowed = (p.frequency || '').split(', ').map((f: string) => f.trim());
-          if (!allowed.includes(newBooking.frequency)) return false;
-        }
-        if (p.show_based_on_service_category && p.service_category) {
-          const allowed = (p.service_category || '').split(', ').map((s: string) => s.trim());
-          if (!allowed.includes(newBooking.service)) return false;
-        }
-        return true;
-      });
+      const param = pricingParameters.find(
+        (p) =>
+          p.variable_category === categoryKey &&
+          p.name === optionName &&
+          pricingParamAppliesToSelection(
+            {
+              show_based_on_frequency: p.show_based_on_frequency,
+              frequency: p.frequency,
+              show_based_on_service_category: p.show_based_on_service_category,
+              service_category: p.service_category,
+              show_based_on_service_category2: Boolean(p.show_based_on_service_category2),
+              service_category2: p.service_category2 ?? null,
+            },
+            newBooking.frequency,
+            newBooking.service,
+            bedroomTierForPrice,
+          ),
+      );
       if (param) {
         const price = Number(param.price);
         if (!Number.isNaN(price) && price >= 0) optionsSum += price;
@@ -2430,7 +2529,7 @@ const handleAddBooking = async (status: string = 'pending') => {
               <div className="flex justify-between items-center gap-2">
                 <span className="text-muted-foreground">Industry</span>
                 {industries.length > 1 ? (
-                  <Select value={selectedIndustryId} onValueChange={(v) => { setSelectedIndustryId(v); setNewBooking(prev => ({ ...prev, service: "", frequency: "", duration: "", selectedExtras: [], extraQuantities: {}, excludeQuantities: {}, categoryValues: {} })); setCategoryValues({}); }}>
+                  <Select value={selectedIndustryId} onValueChange={(v) => { setSelectedIndustryId(v); setSelectedForm2Item(""); setNewBooking(prev => ({ ...prev, service: "", frequency: "", duration: "", selectedExtras: [], extraQuantities: {}, excludeQuantities: {}, categoryValues: {} })); setCategoryValues({}); }}>
                     <SelectTrigger className="w-[180px] h-8">
                       <SelectValue placeholder="Select industry" />
                     </SelectTrigger>
@@ -3119,6 +3218,18 @@ const handleAddBooking = async (status: string = 'pending') => {
                   </SelectContent>
                 </Select>
               )}
+              {serviceCategories.length === 0 &&
+              selectedIndustryId &&
+              !(hasLocationBasedFrequencies && (!newBooking.zipCode?.trim() || newBooking.zipCode.trim().length < 5)) ? (
+                <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                  <span className="font-medium text-foreground">Form 1 starter template</span>{" "}
+                  (default when you add an industry with the Form 1 seed) usually includes:{" "}
+                  {FORM1_SEEDED_SERVICE_CATEGORIES.filter((c) => c.display === "customer_frontend_backend_admin")
+                    .map((c) => c.name)
+                    .join(", ")}
+                  . Configure them under Settings → Industries → Form 1 for this industry.
+                </p>
+              ) : null}
             </div>
 
             {newBooking.service ? (
@@ -3373,8 +3484,73 @@ const handleAddBooking = async (status: string = 'pending') => {
               );
             })()}
             
-            {/* Dynamic Variable Categories from Pricing Parameters with Service Category and Frequency Filtering */}
-            {variableCategories.length > 0 && (
+            {/* Form 2: item + package selector (instead of Form 1 variable dropdowns) */}
+            {isForm2Catalog && (
+              <div className="space-y-4">
+                <div>
+                  <Label className="text-sm font-medium mb-2 block">Items</Label>
+                  <Select value={selectedForm2Item} onValueChange={setSelectedForm2Item}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select item" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {pricingVariables.length > 0 ? (
+                        pricingVariables.map((row) => {
+                          const categoryKey = (row.category || row.name || "").trim();
+                          return (
+                            <SelectItem key={row.id} value={categoryKey}>
+                              {row.name}
+                            </SelectItem>
+                          );
+                        })
+                      ) : (
+                        <SelectItem value="no-items" disabled>
+                          No items configured
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium mb-2 block">Packages</Label>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {pricingParameters
+                      .filter((p) => {
+                        const categoryKey = String(p.variable_category || "").trim();
+                        if (!categoryKey) return false;
+                        if (categoryKey === FORM2_STANDALONE_PACKAGE_CATEGORY) return true;
+                        return selectedForm2Item ? categoryKey === selectedForm2Item : false;
+                      })
+                      .map((p) => {
+                        const categoryKey = String(p.variable_category || "").trim();
+                        const selectedName = categoryValues[categoryKey] || "";
+                        const selected = selectedName === p.name;
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            className={cn(
+                              "rounded-md border p-3 text-left transition-colors",
+                              selected ? "border-cyan-500 bg-cyan-50" : "border-border hover:bg-muted/40",
+                            )}
+                            onClick={() => {
+                              setCategoryValues((prev) => ({ ...prev, [categoryKey]: p.name }));
+                            }}
+                          >
+                            <p className="font-medium text-sm">{p.name}</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              ${Number(p.price || 0).toFixed(2)} · {Math.max(0, Number(p.time_minutes || 0))} min
+                            </p>
+                          </button>
+                        );
+                      })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Form 1: dynamic variable categories from pricing parameters */}
+            {!isForm2Catalog && variableCategories.length > 0 && (
               <div className={`grid gap-4 ${variableCategories.length === 1 ? 'md:grid-cols-1' : variableCategories.length === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
                 {variableCategories.map((category) => {
                   const categoryOptions = pricingParameters.filter(p => p.variable_category === category);
@@ -3468,6 +3644,23 @@ const handleAddBooking = async (status: string = 'pending') => {
                       
                       console.log('After service category filtering:', filteredOptions.length, 'options remaining');
 
+                      const bedroomTierForVars = categoryValues['Bedroom'] ?? null;
+                      filteredOptions = filteredOptions.filter((option) =>
+                        pricingParamAppliesToSelection(
+                          {
+                            show_based_on_frequency: option.show_based_on_frequency,
+                            frequency: option.frequency,
+                            show_based_on_service_category: option.show_based_on_service_category,
+                            service_category: option.service_category,
+                            show_based_on_service_category2: Boolean(option.show_based_on_service_category2),
+                            service_category2: option.service_category2 ?? null,
+                          },
+                          newBooking.frequency,
+                          newBooking.service,
+                          bedroomTierForVars,
+                        ),
+                      );
+
                       if (frequencyDependencies) {
                         filteredOptions = filteredOptions.filter((option) => {
                           const allowed = frequencyDepOptionNamesForCategory(category, frequencyDependencies);
@@ -3524,18 +3717,20 @@ const handleAddBooking = async (status: string = 'pending') => {
               </div>
             )}
 
-            {/* Partial Cleaning Checkbox */}
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="partial-cleaning"
-                checked={isPartialCleaning}
-                onCheckedChange={(checked) => setIsPartialCleaning(!!checked)}
-              />
-              <Label htmlFor="partial-cleaning" className="text-sm font-medium">This Is Partial Cleaning Only</Label>
-            </div>
+            {/* Form 1 only: Partial Cleaning + Exclude Parameters */}
+            {!isForm2Catalog && (
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="partial-cleaning"
+                  checked={isPartialCleaning}
+                  onCheckedChange={(checked) => setIsPartialCleaning(!!checked)}
+                />
+                <Label htmlFor="partial-cleaning" className="text-sm font-medium">This Is Partial Cleaning Only</Label>
+              </div>
+            )}
 
             {/* Exclude Parameters - Show when partial cleaning is checked */}
-            {isPartialCleaning && (() => {
+            {!isForm2Catalog && isPartialCleaning && (() => {
               // Apply filtering based on service category configuration
               let filteredExcludeParams = excludeParameters;
               
@@ -3631,12 +3826,23 @@ const handleAddBooking = async (status: string = 'pending') => {
                           />
                         ) : (
                           (() => {
+                            const rich = bookingFormPresetRichIconSrc(param.icon, param.name);
+                            if (rich) {
+                              return (
+                                <img
+                                  src={rich}
+                                  alt={param.name}
+                                  className="w-16 h-16 mb-2 object-contain drop-shadow-sm"
+                                />
+                              );
+                            }
                             const IconComponent = resolveIndustryFormLucideIcon(
                               param.icon,
                               param.name,
                             );
+                            const colorClass = bookingFormPresetIconTextClass(param.icon, param.name);
                             return (
-                              <IconComponent className="w-16 h-16 mb-2 text-gray-700" />
+                              <IconComponent className={`w-16 h-16 mb-2 ${colorClass}`} />
                             );
                           })()
                         )}
@@ -3749,9 +3955,22 @@ const handleAddBooking = async (status: string = 'pending') => {
                             />
                           ) : (
                             (() => {
+                              const rich = bookingFormPresetRichIconSrc(extra.icon, extraDisplayLabel);
+                              if (rich) {
+                                return (
+                                  <img
+                                    src={rich}
+                                    alt=""
+                                    width={48}
+                                    height={48}
+                                    className="h-12 w-12 object-contain drop-shadow-sm"
+                                  />
+                                );
+                              }
                               const PresetIcon = resolveIndustryExtraPresetLucideIcon(extra.icon);
                               if (PresetIcon) {
-                                return <PresetIcon className="h-12 w-12 text-gray-700" />;
+                                const colorClass = bookingFormPresetIconTextClass(extra.icon, extraDisplayLabel);
+                                return <PresetIcon className={`h-12 w-12 ${colorClass}`} />;
                               }
                               return (
                                 <img

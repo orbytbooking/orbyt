@@ -90,6 +90,8 @@ interface ServiceCardProps {
   industryId?: string;
   /** Business that owns Form 1; required for correct industry_frequency dependency rows. */
   businessId?: string;
+  /** When set, limits dependency fetch to Form 1 vs Form 2 frequency rows. */
+  bookingFormScope?: "form1" | "form2";
   serviceCategory?: any; // Add service category prop
   availableExtras?: any[]; // Add available extras prop
   availableVariables?: { [key: string]: any[] }; // Add available variables prop
@@ -170,6 +172,7 @@ export default function FrequencyAwareServiceCard({
   onCustomizationChange,
   industryId,
   businessId,
+  bookingFormScope,
   serviceCategory,
   availableExtras = [],
   availableVariables = {},
@@ -388,7 +391,7 @@ export default function FrequencyAwareServiceCard({
     return () => {
       cancelled = true;
     };
-  }, [industryId, businessId, customization.frequency]);
+  }, [industryId, businessId, customization.frequency, bookingFormScope]);
 
   // Raw exclude parameters from API (industry-wide); filtered in the next effect like admin
   useEffect(() => {

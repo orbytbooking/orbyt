@@ -6,81 +6,146 @@ import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useBusiness } from "@/contexts/BusinessContext";
+import {
+  parseBookingFormScopeParam,
+  type BookingFormScope,
+} from "@/lib/bookingFormScope";
 
 type FormStats = {
   serviceCategories: number;
   extras: number;
+  addons: number;
   frequencies: number;
   locations: number;
   pricingParams: number;
+  items: number;
+};
+
+type IndustryRow = {
+  id: string;
+  name: string;
+  customer_booking_form_layout?: string | null;
 };
 
 export default function IndustryForm1Page() {
   const params = useSearchParams();
-  const industry = params.get("industry") || "Industry";
+  const industryName = params.get("industry") || "Industry";
+  const industryIdFromUrl = params.get("industryId");
   const { currentBusiness } = useBusiness();
-  const [industryId, setIndustryId] = useState<string | null>(null);
+  const [industryId, setIndustryId] = useState<string | null>(industryIdFromUrl);
+  const [bookingFormScope, setBookingFormScope] = useState<BookingFormScope>("form1");
   const [stats, setStats] = useState<FormStats>({
     serviceCategories: 0,
     extras: 0,
+    addons: 0,
     frequencies: 0,
     locations: 0,
     pricingParams: 0,
+    items: 0,
   });
 
   useEffect(() => {
-    if (!currentBusiness || !industry) return;
+    if (industryIdFromUrl) setIndustryId(industryIdFromUrl);
+  }, [industryIdFromUrl]);
+
+  const bookingFormScopeKey = params.get("bookingFormScope") ?? "";
+
+  useEffect(() => {
+    if (!currentBusiness || !industryName) return;
 
     const fetchIndustryData = async () => {
       try {
-        // Fetch the industry ID
         const industriesResponse = await fetch(`/api/industries?business_id=${currentBusiness.id}`);
         const industriesData = await industriesResponse.json();
-        const currentIndustry = industriesData.industries?.find((ind: any) => ind.name === industry);
-        
-        if (currentIndustry) {
-          setIndustryId(currentIndustry.id);
-          
-          // Fetch all stats from database
-          const extrasResponse = await fetch(`/api/extras?industryId=${currentIndustry.id}`);
+        const currentIndustry = industriesData.industries?.find(
+          (ind: IndustryRow) => ind.name === industryName,
+        ) as IndustryRow | undefined;
+
+        if (!currentIndustry) return;
+
+        const id = currentIndustry.id;
+        setIndustryId(id);
+
+        const fromUrl = parseBookingFormScopeParam(bookingFormScopeKey || null);
+        const effectiveScope: BookingFormScope =
+          fromUrl ?? (currentIndustry.customer_booking_form_layout === "form2" ? "form2" : "form1");
+        setBookingFormScope(effectiveScope);
+
+        const scopeQs = `bookingFormScope=${effectiveScope}`;
+        const bid = encodeURIComponent(currentBusiness.id);
+        const iid = encodeURIComponent(id);
+
+        const serviceCategoriesResponse = await fetch(
+          `/api/service-categories?industryId=${iid}&${scopeQs}`,
+        );
+        const serviceCategoriesData = await serviceCategoriesResponse.json();
+        const serviceCategories = serviceCategoriesData.serviceCategories?.length || 0;
+
+        const frequenciesResponse = await fetch(
+          `/api/industry-frequency?industryId=${iid}&includeAll=true&${scopeQs}`,
+        );
+        const frequenciesData = await frequenciesResponse.json();
+        const frequencies = frequenciesData.frequencies?.length || 0;
+
+        const locationsResponse = await fetch(`/api/locations?business_id=${currentBusiness.id}`);
+        const locationsData = await locationsResponse.json();
+        const locations = locationsData.locations?.length || 0;
+
+        const pricingResponse = await fetch(
+          `/api/pricing-parameters?industryId=${iid}&businessId=${bid}&${scopeQs}`,
+        );
+        const pricingData = await pricingResponse.json();
+        const pricingParams = pricingData.pricingParameters?.length || 0;
+
+        let extrasCount = 0;
+        let addonsCount = 0;
+        let itemsCount = 0;
+
+        if (effectiveScope === "form2") {
+          const [addonsRes, extrasRes, variablesRes] = await Promise.all([
+            fetch(`/api/extras?industryId=${iid}&businessId=${bid}&${scopeQs}&listingKind=addon`),
+            fetch(`/api/extras?industryId=${iid}&businessId=${bid}&${scopeQs}&listingKind=extra`),
+            fetch(`/api/pricing-variables?industryId=${iid}&businessId=${bid}&${scopeQs}`),
+          ]);
+          const addonsData = await addonsRes.json();
+          const extrasData = await extrasRes.json();
+          const variablesData = await variablesRes.json();
+          addonsCount = addonsData.extras?.length || 0;
+          extrasCount = extrasData.extras?.length || 0;
+          itemsCount = variablesData.variables?.length || 0;
+        } else {
+          const extrasResponse = await fetch(
+            `/api/extras?industryId=${iid}&businessId=${bid}&${scopeQs}&listingKind=extra`,
+          );
           const extrasData = await extrasResponse.json();
-          const extrasCount = extrasData.extras?.length || 0;
-
-          const serviceCategoriesResponse = await fetch(`/api/service-categories?industryId=${currentIndustry.id}`);
-          const serviceCategoriesData = await serviceCategoriesResponse.json();
-          const serviceCategories = serviceCategoriesData.serviceCategories?.length || 0;
-
-          const frequenciesResponse = await fetch(`/api/industry-frequency?industryId=${currentIndustry.id}&includeAll=true`);
-          const frequenciesData = await frequenciesResponse.json();
-          const frequencies = frequenciesData.frequencies?.length || 0;
-
-          const locationsResponse = await fetch(`/api/locations?business_id=${currentBusiness.id}`);
-          const locationsData = await locationsResponse.json();
-          const locations = locationsData.locations?.length || 0;
-
-          const pricingResponse = await fetch(`/api/pricing-parameters?industryId=${currentIndustry.id}`);
-          const pricingData = await pricingResponse.json();
-          const pricingParams = pricingData.pricingParameters?.length || 0;
-
-          setStats({
-            serviceCategories,
-            extras: extrasCount,
-            frequencies,
-            locations,
-            pricingParams,
-          });
+          extrasCount = extrasData.extras?.length || 0;
         }
+
+        setStats({
+          serviceCategories,
+          extras: extrasCount,
+          addons: addonsCount,
+          frequencies,
+          locations,
+          pricingParams,
+          items: itemsCount,
+        });
       } catch (error) {
-        console.error('Error fetching industry data:', error);
+        console.error("Error fetching industry data:", error);
       }
     };
 
-    fetchIndustryData();
-  }, [industry, currentBusiness]);
+    void fetchIndustryData();
+  }, [industryName, currentBusiness?.id, bookingFormScopeKey, industryIdFromUrl]);
+
+  const isForm2 = bookingFormScope === "form2";
+  const formLabel = isForm2 ? "Form 2" : "Form 1";
+  const scopeQs = `&bookingFormScope=${bookingFormScope}`;
+  const idQs = industryId ? `&industryId=${encodeURIComponent(industryId)}` : "";
 
   return (
     <div className="space-y-6">
-      {industry === "Barber" && (
+      {industryName === "Barber" && (
         <Card className="border-cyan-500 border-2 bg-cyan-50">
           <CardHeader>
             <CardTitle>Barber-Specific Features (Booksy Style)</CardTitle>
@@ -131,15 +196,20 @@ export default function IndustryForm1Page() {
       )}
       <Card>
         <CardHeader>
-          <CardTitle>{industry} – Booking Form (Form 1)</CardTitle>
+          <CardTitle>
+            {industryName} – Booking form ({formLabel})
+          </CardTitle>
           <CardDescription>
-            Configure the main booking form for this industry.
+            {isForm2
+              ? "Configure the single-page booking catalog: locations through packages, add-ons, and extras — same data model as Form 1, scoped for Form 2."
+              : "Configure the main booking form for this industry."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <p className="text-sm text-muted-foreground">
-            Work through the sections below to define how customers book {industry.toLowerCase()} services:
-            categories, extras, visit frequency, locations, and pricing parameters.
+            {isForm2
+              ? `Work through the same dependency sections as the tabs above so customers see the right frequencies, categories, items, packages, and upsells for ${industryName.toLowerCase()}.`
+              : `Work through the sections below to define how customers book ${industryName.toLowerCase()} services: categories, extras, visit frequency, locations, and pricing parameters.`}
           </p>
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -156,32 +226,79 @@ export default function IndustryForm1Page() {
                   <p className="text-xs text-muted-foreground">categories configured</p>
                 </div>
                 <Button asChild size="sm">
-                  <Link href={`/admin/settings/industries/form-1/service-category?industry=${encodeURIComponent(industry)}`}>
+                  <Link
+                    href={`/admin/settings/industries/form-1/service-category?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}`}
+                  >
                     Manage
                   </Link>
                 </Button>
               </CardContent>
             </Card>
 
-            <Card className="border-dashed">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Extras &amp; Add‑ons</CardTitle>
-                <CardDescription>
-                  Upsells such as inside fridge, inside oven, windows, etc. shown on the form.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex items-end justify-between">
-                <div>
-                  <p className="text-2xl font-semibold">{stats.extras}</p>
-                  <p className="text-xs text-muted-foreground">extras configured</p>
-                </div>
-                <Button asChild size="sm">
-                  <Link href={`/admin/settings/industries/form-1/extras?industry=${encodeURIComponent(industry)}&industryId=${industryId || ''}`}>
-                    Manage
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
+            {isForm2 ? (
+              <>
+                <Card className="border-dashed">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Add-ons</CardTitle>
+                    <CardDescription>Optional upsells tied to packages on the Form 2 layout.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex items-end justify-between">
+                    <div>
+                      <p className="text-2xl font-semibold">{stats.addons}</p>
+                      <p className="text-xs text-muted-foreground">add-ons configured</p>
+                    </div>
+                    <Button asChild size="sm">
+                      <Link
+                        href={`/admin/settings/industries/form-1/extras?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}&listingKind=addon`}
+                      >
+                        Manage
+                      </Link>
+                    </Button>
+                  </CardContent>
+                </Card>
+                <Card className="border-dashed">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Extras</CardTitle>
+                    <CardDescription>Standard extras list for this industry (Form 2).</CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex items-end justify-between">
+                    <div>
+                      <p className="text-2xl font-semibold">{stats.extras}</p>
+                      <p className="text-xs text-muted-foreground">extras configured</p>
+                    </div>
+                    <Button asChild size="sm">
+                      <Link
+                        href={`/admin/settings/industries/form-1/extras?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}&listingKind=extra`}
+                      >
+                        Manage
+                      </Link>
+                    </Button>
+                  </CardContent>
+                </Card>
+              </>
+            ) : (
+              <Card className="border-dashed">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Extras &amp; Add‑ons</CardTitle>
+                  <CardDescription>
+                    Upsells such as inside fridge, inside oven, windows, etc. shown on the form.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex items-end justify-between">
+                  <div>
+                    <p className="text-2xl font-semibold">{stats.extras}</p>
+                    <p className="text-xs text-muted-foreground">extras configured</p>
+                  </div>
+                  <Button asChild size="sm">
+                    <Link
+                      href={`/admin/settings/industries/form-1/extras?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}&listingKind=extra`}
+                    >
+                      Manage
+                    </Link>
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
 
             <Card className="border-dashed">
               <CardHeader className="pb-3">
@@ -196,7 +313,9 @@ export default function IndustryForm1Page() {
                   <p className="text-xs text-muted-foreground">frequencies configured</p>
                 </div>
                 <Button asChild size="sm">
-                  <Link href={`/admin/settings/industries/form-1/frequencies?industry=${encodeURIComponent(industry)}`}>
+                  <Link
+                    href={`/admin/settings/industries/form-1/frequencies?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}`}
+                  >
                     Manage
                   </Link>
                 </Button>
@@ -216,32 +335,79 @@ export default function IndustryForm1Page() {
                   <p className="text-xs text-muted-foreground">locations configured</p>
                 </div>
                 <Button asChild size="sm">
-                  <Link href={`/admin/settings/industries/form-1/locations?industry=${encodeURIComponent(industry)}`}>
+                  <Link
+                    href={`/admin/settings/industries/form-1/locations?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}`}
+                  >
                     Manage
                   </Link>
                 </Button>
               </CardContent>
             </Card>
 
-            <Card className="border-dashed">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Pricing Parameters</CardTitle>
-                <CardDescription>
-                  Size‑based pricing (sq ft, bedrooms, bathrooms) and time estimates.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex items-end justify-between">
-                <div>
-                  <p className="text-2xl font-semibold">{stats.pricingParams}</p>
-                  <p className="text-xs text-muted-foreground">pricing rows configured</p>
-                </div>
-                <Button asChild size="sm">
-                  <Link href={`/admin/settings/industries/form-1/pricing-parameter?industry=${encodeURIComponent(industry)}`}>
-                    Manage
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
+            {isForm2 ? (
+              <>
+                <Card className="border-dashed">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Items</CardTitle>
+                    <CardDescription>Service types or line items customers pick before packages.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex items-end justify-between">
+                    <div>
+                      <p className="text-2xl font-semibold">{stats.items}</p>
+                      <p className="text-xs text-muted-foreground">items configured</p>
+                    </div>
+                    <Button asChild size="sm">
+                      <Link
+                        href={`/admin/settings/industries/form-1/pricing-parameter/manage-variables?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}`}
+                      >
+                        Manage
+                      </Link>
+                    </Button>
+                  </CardContent>
+                </Card>
+                <Card className="border-dashed">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Packages</CardTitle>
+                    <CardDescription>Bundled pricing rows for Form 2 (optional add-on attachment).</CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex items-end justify-between">
+                    <div>
+                      <p className="text-2xl font-semibold">{stats.pricingParams}</p>
+                      <p className="text-xs text-muted-foreground">packages configured</p>
+                    </div>
+                    <Button asChild size="sm">
+                      <Link
+                        href={`/admin/settings/industries/form-1/pricing-parameter?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}`}
+                      >
+                        Manage
+                      </Link>
+                    </Button>
+                  </CardContent>
+                </Card>
+              </>
+            ) : (
+              <Card className="border-dashed">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Pricing Parameters</CardTitle>
+                  <CardDescription>
+                    Size‑based pricing (sq ft, bedrooms, bathrooms) and time estimates.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex items-end justify-between">
+                  <div>
+                    <p className="text-2xl font-semibold">{stats.pricingParams}</p>
+                    <p className="text-xs text-muted-foreground">pricing rows configured</p>
+                  </div>
+                  <Button asChild size="sm">
+                    <Link
+                      href={`/admin/settings/industries/form-1/pricing-parameter?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}`}
+                    >
+                      Manage
+                    </Link>
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           <Card className="bg-muted/40 border-dashed">
@@ -250,12 +416,12 @@ export default function IndustryForm1Page() {
             </CardHeader>
             <CardContent className="space-y-2 text-sm text-muted-foreground">
               <p>
-                Once these sections are configured, your public booking form can use them to show the right categories,
-                extras, visit frequencies, locations, and price estimates.
+                Once these sections are configured, your public booking form and admin “Add booking” flow use the same{" "}
+                {isForm2 ? "Form 2 catalog" : "Form 1 catalog"} for {industryName.toLowerCase()}, scoped by your business.
               </p>
               <p>
-                You can revisit this screen any time to adjust how Form 1 behaves for {industry.toLowerCase()} as your
-                business evolves.
+                Use the tabs at the top of this section to move between dependencies; counts here stay in sync with that
+                navigation.
               </p>
             </CardContent>
           </Card>

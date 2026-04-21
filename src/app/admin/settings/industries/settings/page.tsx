@@ -1,44 +1,64 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { ArrowLeft, Loader2 } from "lucide-react";
+import Link from "next/link";
+function LegacySettingsRedirect() {
+  const router = useRouter();
+  const industryId = useSearchParams().get("industryId")?.trim() || "";
 
-export default function IndustrySettingsPage() {
-  const params = useSearchParams();
-  const industry = params.get("industry") || "Industry";
+  useEffect(() => {
+    if (industryId) {
+      router.replace(
+        `/admin/settings/industries/booking-template?industryId=${encodeURIComponent(industryId)}`,
+      );
+    }
+  }, [industryId, router]);
+
+  if (industryId) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-16">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">Opening form template…</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>{industry} - Settings</CardTitle>
-          <CardDescription>General settings for this industry.</CardDescription>
+          <CardTitle>Industry settings</CardTitle>
+          <CardDescription>
+            Booking form templates now live on the dedicated page. Add an industry to be redirected there automatically.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="display-name">Display Name</Label>
-              <Input id="display-name" defaultValue={industry} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="slug">Slug</Label>
-              <Input id="slug" placeholder={`${industry.toLowerCase().replace(/\s+/g, '-')}`} />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="desc">Description</Label>
-            <Textarea id="desc" rows={3} placeholder={`Describe ${industry} here`} />
-          </div>
-          <div className="flex gap-2">
-            <Button variant="default">Save</Button>
-            <Button variant="outline">Cancel</Button>
-          </div>
+        <CardContent>
+          <Button variant="outline" asChild>
+            <Link href="/admin/settings/industries">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Industries
+            </Link>
+          </Button>
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function IndustrySettingsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <LegacySettingsRedirect />
+    </Suspense>
   );
 }

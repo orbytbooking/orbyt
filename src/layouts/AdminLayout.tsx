@@ -70,6 +70,86 @@ interface Industry {
   is_custom: boolean;
   created_at: string;
   updated_at: string;
+  /** Public book-now layout: drives sidebar label (Form 1 vs Form 2). */
+  customer_booking_form_layout?: string | null;
+}
+
+function industryFormNavEntry(industry: Industry): { label: "Form 1" | "Form 2"; path: string } {
+  const q = encodeURIComponent(industry.name);
+  const id = encodeURIComponent(industry.id);
+  const isForm2 = industry.customer_booking_form_layout === "form2";
+  if (isForm2) {
+    return {
+      label: "Form 2",
+      path: `/admin/settings/industries/form-1/locations?industry=${q}&industryId=${id}&bookingFormScope=form2`,
+    };
+  }
+  return {
+    label: "Form 1",
+    path: `/admin/settings/industries/form-1/locations?industry=${q}&industryId=${id}&bookingFormScope=form1`,
+  };
+}
+
+/** Sidebar paths include query; `usePathname()` does not — match base + search params. */
+function isIndustryFormNavLinkActive(menuPath: string, pathname: string, searchParams: URLSearchParams): boolean {
+  const raw = menuPath || "";
+  const qIdx = raw.indexOf("?");
+  const base = qIdx >= 0 ? raw.slice(0, qIdx) : raw;
+  const qs = qIdx >= 0 ? new URLSearchParams(raw.slice(qIdx + 1)) : new URLSearchParams();
+  if (pathname !== base) return false;
+  if (base === "/admin/settings/industries/form-1") {
+    return (
+      searchParams.get("industry") === qs.get("industry") &&
+      searchParams.get("bookingFormScope") === qs.get("bookingFormScope")
+    );
+  }
+  if (base === "/admin/settings/industries/booking-template") {
+    return searchParams.get("industryId") === qs.get("industryId");
+  }
+  for (const key of qs.keys()) {
+    if (searchParams.get(key) !== qs.get(key)) return false;
+  }
+  return true;
+}
+
+/** Form 1 configuration (data model for book-now); available for every industry regardless of Form 1 vs Form 2 layout. */
+function industryForm1AdminLinks(industry: Industry): Array<{ label: string; path: string }> {
+  const q = encodeURIComponent(industry.name);
+  const id = encodeURIComponent(industry.id);
+  const scope = "bookingFormScope=form1";
+  return [
+    { label: "Service categories", path: `/admin/settings/industries/form-1/service-category?industry=${q}&${scope}` },
+    { label: "Frequencies", path: `/admin/settings/industries/form-1/frequencies?industry=${q}&${scope}` },
+    { label: "Locations", path: `/admin/settings/industries/form-1/locations?industry=${q}` },
+    { label: "Pricing parameters", path: `/admin/settings/industries/form-1/pricing-parameter?industry=${q}&${scope}` },
+    {
+      label: "Extras",
+      path: `/admin/settings/industries/form-1/extras?industry=${q}&industryId=${id}&${scope}&listingKind=extra`,
+    },
+  ];
+}
+
+/** Form 2 sidebar template: same underlying Form 1 data, ordered for the long-scroll booking layout. */
+function industryForm2AdminLinks(industry: Industry): Array<{ label: string; path: string }> {
+  const q = encodeURIComponent(industry.name);
+  const id = encodeURIComponent(industry.id);
+  const scope = "bookingFormScope=form2";
+  return [
+    { label: "Locations", path: `/admin/settings/industries/form-1/locations?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Frequencies", path: `/admin/settings/industries/form-1/frequencies?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Service Category", path: `/admin/settings/industries/form-1/service-category?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Items", path: `/admin/settings/industries/form-1/pricing-parameter/manage-variables?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Packages", path: `/admin/settings/industries/form-1/pricing-parameter?industry=${q}&industryId=${id}&${scope}` },
+    {
+      label: "Addons",
+      path: `/admin/settings/industries/form-1/extras?industry=${q}&industryId=${id}&${scope}&listingKind=addon`,
+    },
+    {
+      label: "Extras",
+      path: `/admin/settings/industries/form-1/extras?industry=${q}&industryId=${id}&${scope}&listingKind=extra`,
+    },
+    { label: "Custom Sections", path: `/admin/settings/design` },
+  ];
 }
 
 const AdminLayout = ({ children }: { children: React.ReactNode }) => {
@@ -545,30 +625,39 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
           path: "/admin/settings/industries",
           children: [
             { label: 'Add Industries', path: '/admin/settings/industries' },
-            ...(industries || []).map((industry) => ({
-              label: industry.name,
-              path: `/admin/settings/industries/form-1?industry=${encodeURIComponent(industry.name)}`,
-              children: [
-                { 
-                  label: 'Form 1', 
-                  path: `/admin/settings/industries/form-1?industry=${encodeURIComponent(industry.name)}`
-                },
-                { 
-                  label: 'Settings', 
-                  path: `/admin/settings/industries/settings?industry=${encodeURIComponent(industry.name)}`,
-                  children: [
-                    {
-                      label: 'Form Settings',
-                      path: `/admin/settings/industries/settings/form-settings?industry=${encodeURIComponent(industry.name)}`
-                    },
-                    {
-                      label: 'Add/Combine Form',
-                      path: `/admin/settings/industries/settings/add-combine-form?industry=${encodeURIComponent(industry.name)}`
-                    }
-                  ]
-                }
-              ],
-            })),
+            ...(industries || []).map((industry) => {
+              const formEntry = industryFormNavEntry(industry);
+              const isForm2Layout = industry.customer_booking_form_layout === "form2";
+              return {
+                label: industry.name,
+                path: formEntry.path,
+                children: [
+                  {
+                    label: formEntry.label,
+                    path: formEntry.path,
+                    /** Click chevron to expand Form 1 vs Form 2 setup links */
+                    formSetupKind: (isForm2Layout ? "form2" : "form1") as const,
+                    children: isForm2Layout
+                      ? industryForm2AdminLinks(industry)
+                      : industryForm1AdminLinks(industry),
+                  },
+                  {
+                    label: "Settings",
+                    path: `/admin/settings/industries/settings?industry=${encodeURIComponent(industry.name)}`,
+                    children: [
+                      {
+                        label: "Form Settings",
+                        path: `/admin/settings/industries/settings/form-settings?industry=${encodeURIComponent(industry.name)}`,
+                      },
+                      {
+                        label: "Add/Combine Form",
+                        path: `/admin/settings/industries/settings/add-combine-form?industry=${encodeURIComponent(industry.name)}`,
+                      },
+                    ],
+                  },
+                ],
+              };
+            }),
           ],
         },
         { 
@@ -793,7 +882,14 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                               ? pathname === "/admin/booking-charges"
                               : pathname === child.path;
                         const grandchildActive = childHasChildren
-                          ? child.children.some((gc: { path: string }) => pathname === gc.path)
+                          ? child.children.some((gc: { path?: string; children?: { path: string }[] }) => {
+                              if (child.label === "Industries" && Array.isArray(gc.children) && gc.children.length > 0) {
+                                return gc.children.some((ggc) =>
+                                  isIndustryFormNavLinkActive(ggc.path, pathname || "", searchParams),
+                                );
+                              }
+                              return (gc.path && pathname === gc.path) || false;
+                            })
                           : false;
                         if (childHasChildren) {
                           return (
@@ -830,7 +926,12 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                                 <div className="mt-1 space-y-1">
                                   {child.children.map((gc: any) => {
                                     const gcHasChildren = Array.isArray(gc.children);
-                                    const gcActive = pathname === gc.path;
+                                    const gcActive =
+                                      gcHasChildren && child.label === "Industries"
+                                        ? gc.children.some((ggc: { path: string }) =>
+                                            isIndustryFormNavLinkActive(ggc.path, pathname || "", searchParams),
+                                          )
+                                        : pathname === gc.path;
                                     const isAddIndustries = gc.label === 'Add Industries';
                                     const addIndustriesActive = isAddIndustries && pathname === '/admin/settings/industries' && !searchParams.get('industry');
                                     if (gcHasChildren) {
@@ -851,7 +952,112 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                                             <div className="mt-1 space-y-1">
                                               {gc.children.map((ggc: any) => {
                                                 const ggcHasChildren = Array.isArray(ggc.children);
-                                                const ggcActive = pathname === ggc.path;
+                                                const ggcActive = isIndustryFormNavLinkActive(
+                                                  ggc.path,
+                                                  pathname || "",
+                                                  searchParams,
+                                                );
+                                                const flyoutSubActive =
+                                                  ggc.formSetupKind &&
+                                                  Array.isArray(ggc.children) &&
+                                                  ggc.children.some((sub: { path: string }) =>
+                                                    isIndustryFormNavLinkActive(
+                                                      sub.path,
+                                                      pathname || "",
+                                                      searchParams,
+                                                    ),
+                                                  );
+                                                const highlightFormRow = ggcActive || flyoutSubActive;
+
+                                                if (ggc.formSetupKind && Array.isArray(ggc.children)) {
+                                                  const formSetupMenuKey = `form-setup:${ggc.path}:${ggc.formSetupKind}`;
+                                                  const formSetupOpen = !!openIndustryMenus[formSetupMenuKey];
+                                                  return (
+                                                    <div key={formSetupMenuKey}>
+                                                      <div
+                                                        className={cn(
+                                                          "relative flex items-center gap-1 rounded-lg py-2 pl-16 pr-2 text-sm transition-all",
+                                                          highlightFormRow
+                                                            ? "text-white shadow neon-cyan"
+                                                            : "text-gray-300 hover:bg-white/5 hover:text-cyan-300",
+                                                        )}
+                                                        style={
+                                                          highlightFormRow
+                                                            ? {
+                                                                background:
+                                                                  "linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%)",
+                                                              }
+                                                            : {}
+                                                        }
+                                                      >
+                                                        <Link
+                                                          href={ggc.path}
+                                                          className="min-w-0 flex-1 truncate text-left"
+                                                          style={{
+                                                            fontFamily: "var(--font-inter), system-ui, sans-serif",
+                                                          }}
+                                                        >
+                                                          {ggc.label}
+                                                        </Link>
+                                                        <button
+                                                          type="button"
+                                                          aria-expanded={formSetupOpen}
+                                                          aria-label={`${ggc.label} setup menu`}
+                                                          onClick={() =>
+                                                            setOpenIndustryMenus((m) => ({
+                                                              ...m,
+                                                              [formSetupMenuKey]: !m[formSetupMenuKey],
+                                                            }))
+                                                          }
+                                                          className={cn(
+                                                            "rounded-md p-1 text-current transition-colors hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60",
+                                                            highlightFormRow && "hover:bg-white/20",
+                                                          )}
+                                                        >
+                                                          <ChevronDown
+                                                            className={cn(
+                                                              "h-4 w-4 shrink-0 transition-transform",
+                                                              formSetupOpen && "rotate-180",
+                                                            )}
+                                                            aria-hidden
+                                                          />
+                                                        </button>
+                                                      </div>
+                                                      {formSetupOpen && (
+                                                        <div className="mt-1 space-y-0.5 border-l border-cyan-400/40 py-1 pl-3 ml-[3.25rem]">
+                                                          <p className="px-0.5 pb-1 text-[10px] font-medium uppercase tracking-wide text-gray-500">
+                                                            {ggc.formSetupKind === "form2" ? "Form 2 setup" : "Form 1 setup"}
+                                                          </p>
+                                                          {ggc.children.map((sub: { label: string; path: string }) => {
+                                                            const subActive = isIndustryFormNavLinkActive(
+                                                              sub.path,
+                                                              pathname || "",
+                                                              searchParams,
+                                                            );
+                                                            return (
+                                                              <Link
+                                                                key={sub.path}
+                                                                href={sub.path}
+                                                                className={cn(
+                                                                  "block rounded-md py-1.5 pr-2 text-xs transition-colors",
+                                                                  subActive
+                                                                    ? "bg-white/15 font-medium text-white"
+                                                                    : "text-gray-400 hover:bg-white/10 hover:text-cyan-200",
+                                                                )}
+                                                                style={{
+                                                                  fontFamily:
+                                                                    "var(--font-inter), system-ui, sans-serif",
+                                                                }}
+                                                              >
+                                                                {sub.label}
+                                                              </Link>
+                                                            );
+                                                          })}
+                                                        </div>
+                                                      )}
+                                                    </div>
+                                                  );
+                                                }
                                                 if (ggcHasChildren) {
                                                   const subKey = ggc.path as string;
                                                   const subOpen = !!openIndustryMenus[subKey];
@@ -893,8 +1099,16 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                                                   <Link
                                                     key={ggc.path}
                                                     href={ggc.path}
-                                                    className={`relative flex items-center rounded-lg py-2 pl-16 pr-3 text-sm transition-all text-gray-300 hover:bg-white/5 hover:text-cyan-300`}
-                                                    style={{}}
+                                                    className={`relative flex items-center rounded-lg py-2 pl-16 pr-3 text-sm transition-all ${
+                                                      ggcActive
+                                                        ? "text-white shadow neon-cyan"
+                                                        : "text-gray-300 hover:bg-white/5 hover:text-cyan-300"
+                                                    }`}
+                                                    style={
+                                                      ggcActive
+                                                        ? { background: "linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%)" }
+                                                        : {}
+                                                    }
                                                   >
                                                     <span style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{ggc.label}</span>
                                                   </Link>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,7 +27,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Info, Loader2 } from "lucide-react";
+import { Info, Layers, Loader2, Package, Sparkles } from "lucide-react";
+import {
+  bookingFormScopeFromSearchParams,
+  FORM2_STANDALONE_PACKAGE_CATEGORY,
+} from "@/lib/bookingFormScope";
+import { cn } from "@/lib/utils";
+import { Form1RichTextEditor } from "@/components/admin/Form1RichTextEditor";
 
 type PricingVariable = {
   id: string;
@@ -35,7 +41,40 @@ type PricingVariable = {
   category: string;
   description: string;
   isActive: boolean;
+  sortOrder: number;
 };
+
+const DEFAULT_BEDROOM_TIER_NAMES_FOR_DEPS = [
+  "Studio",
+  "1 Bedroom",
+  "2 Bedrooms",
+  "3 Bedrooms",
+  "4 Bedrooms",
+  "5 Bedrooms",
+  "6 Bedrooms",
+] as const;
+
+const FORM2_HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => String(i));
+const FORM2_MINUTE_OPTIONS = Array.from({ length: 60 }, (_, i) => String(i));
+
+function OrangeInfoTip({ text }: { text: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex shrink-0 rounded-full text-orange-600 outline-none hover:text-orange-700 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:text-orange-400"
+          aria-label="More information"
+        >
+          <Info className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-sm text-left text-xs font-normal leading-snug">
+        {text}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 export default function PricingParameterNewPage() {
   const params = useSearchParams();
@@ -44,9 +83,15 @@ export default function PricingParameterNewPage() {
   const industryId = params.get("industryId");
   const editId = params.get("editId");
   const editCategory = params.get("category") || "";
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const scopeQs = `&bookingFormScope=${bookingFormScope}`;
+  const isForm2 = bookingFormScope === "form2";
   const { currentBusiness } = useBusiness();
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
+  const freqCatDepsDoneForIndustry = useRef<string | null>(null);
+  const excludeDepsPrefilledForIndustry = useRef<string | null>(null);
+  const prevEditIdRef = useRef<string | null | undefined>(undefined);
 
   const [variables, setVariables] = useState<PricingVariable[]>([]);
   const [extras, setExtras] = useState<Array<{id: number; name: string}>>([]);
@@ -65,9 +110,9 @@ export default function PricingParameterNewPage() {
     hours: "",
     minutes: "",
     isDefault: false,
-    showBasedOnFrequency: false,
-    showBasedOnServiceCategory: false,
-    showBasedOnServiceCategory2: false,
+    showBasedOnFrequency: true,
+    showBasedOnServiceCategory: true,
+    showBasedOnServiceCategory2: true,
     excludedExtras: [] as number[],
     excludedServices: [] as number[],
     excludedProviders: [] as string[],
@@ -79,6 +124,13 @@ export default function PricingParameterNewPage() {
     differentOnCustomerEnd: false,
     showExplanationIcon: false,
     enablePopupOnSelection: false,
+    /** Form 2: M.L. price/time (S.A. uses price, hours, minutes above). */
+    priceMerchant: "",
+    hoursMerchant: "",
+    minutesMerchant: "",
+    quantityBased: false,
+    /** Preset name (layers|package|sparkles) or uploaded image data URL */
+    packageIcon: "" as string,
   });
 
   const [existingParameters, setExistingParameters] = useState<any[]>([]);
@@ -100,7 +152,9 @@ export default function PricingParameterNewPage() {
       if (!industryId) return;
       
       try {
-        const response = await fetch(`/api/extras?industryId=${industryId}`);
+        const response = await fetch(
+          `/api/extras?industryId=${industryId}&businessId=${currentBusiness?.id ?? ""}${scopeQs}`,
+        );
         if (!response.ok) {
           throw new Error('Failed to fetch extras');
         }
@@ -118,7 +172,7 @@ export default function PricingParameterNewPage() {
     };
 
     fetchExtras();
-  }, [industryId]);
+  }, [industryId, bookingFormScope]);
 
   // Load service categories from backend
   useEffect(() => {
@@ -126,7 +180,7 @@ export default function PricingParameterNewPage() {
       if (!industryId) return;
       
       try {
-        const response = await fetch(`/api/service-categories?industryId=${industryId}`);
+        const response = await fetch(`/api/service-categories?industryId=${industryId}${scopeQs}`);
         if (!response.ok) {
           throw new Error('Failed to fetch service categories');
         }
@@ -148,7 +202,7 @@ export default function PricingParameterNewPage() {
     };
 
     fetchServiceCategories();
-  }, [industryId]);
+  }, [industryId, bookingFormScope]);
 
   // Load frequencies from backend
   useEffect(() => {
@@ -156,7 +210,9 @@ export default function PricingParameterNewPage() {
       if (!industryId) return;
       
       try {
-        const response = await fetch(`/api/industry-frequency?industryId=${industryId}&includeAll=true`);
+        const response = await fetch(
+          `/api/industry-frequency?industryId=${industryId}&includeAll=true${scopeQs}`,
+        );
         if (!response.ok) {
           throw new Error('Failed to fetch frequencies');
         }
@@ -175,7 +231,7 @@ export default function PricingParameterNewPage() {
     };
 
     fetchFrequencies();
-  }, [industryId]);
+  }, [industryId, bookingFormScope]);
 
   // Load providers from backend
   useEffect(() => {
@@ -204,23 +260,28 @@ export default function PricingParameterNewPage() {
   }, [currentBusiness?.id]);
 
   const fetchVariables = useCallback(async () => {
-    if (!industryId) return;
+    if (!industryId || !currentBusiness?.id) return;
     try {
-      const res = await fetch(`/api/pricing-variables?industryId=${encodeURIComponent(industryId)}`);
+      const res = await fetch(
+        `/api/pricing-variables?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
+      );
       const data = await res.json();
       if (res.ok && Array.isArray(data.variables)) {
-        setVariables(data.variables.map((v: any) => ({
-          id: v.id,
-          name: v.name,
-          category: v.category,
-          description: v.description ?? "",
-          isActive: v.is_active ?? true,
-        })));
+        setVariables(
+          data.variables.map((v: any) => ({
+            id: v.id,
+            name: v.name,
+            category: v.category,
+            description: v.description ?? "",
+            isActive: v.is_active ?? true,
+            sortOrder: typeof v.sort_order === "number" ? v.sort_order : 0,
+          })),
+        );
       }
     } catch (e) {
       console.error("Error loading variables:", e);
     }
-  }, [industryId]);
+  }, [industryId, bookingFormScope, currentBusiness?.id]);
 
   // Load variables from API (no localStorage)
   useEffect(() => {
@@ -287,11 +348,13 @@ export default function PricingParameterNewPage() {
 
   // Industry-wide list: duplicate-name checks (always from API)
   useEffect(() => {
-    if (!industryId) return;
+    if (!industryId || !currentBusiness?.id) return;
 
     const loadList = async () => {
       try {
-        const response = await fetch(`/api/pricing-parameters?industryId=${encodeURIComponent(industryId)}`);
+        const response = await fetch(
+          `/api/pricing-parameters?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
+        );
         const data = await response.json();
         setExistingParameters(Array.isArray(data.pricingParameters) ? data.pricingParameters : []);
       } catch (error) {
@@ -301,16 +364,80 @@ export default function PricingParameterNewPage() {
     };
 
     loadList();
+  }, [industryId, currentBusiness?.id, bookingFormScope]);
+
+  useEffect(() => {
+    freqCatDepsDoneForIndustry.current = null;
+    excludeDepsPrefilledForIndustry.current = null;
   }, [industryId]);
+
+  useEffect(() => {
+    if (prevEditIdRef.current && !editId) {
+      freqCatDepsDoneForIndustry.current = null;
+      excludeDepsPrefilledForIndustry.current = null;
+    }
+    prevEditIdRef.current = editId;
+  }, [editId]);
+
+  useEffect(() => {
+    if (editId || !editCategory.trim()) return;
+    setForm((p) => (p.variableCategory === editCategory ? p : { ...p, variableCategory: editCategory }));
+    setValidationErrors((prev) => ({ ...prev, variableCategory: validateVariableCategory(editCategory) }));
+  }, [editId, editCategory]);
+
+  /** Form 2: packages without `?category=` use a shared standalone bucket so the Details tab does not require picking an item. */
+  useEffect(() => {
+    if (!isForm2 || editId) return;
+    if (editCategory.trim()) return;
+    setForm((p) => {
+      if (p.variableCategory.trim()) return p;
+      return { ...p, variableCategory: FORM2_STANDALONE_PACKAGE_CATEGORY };
+    });
+    setValidationErrors((prev) => ({ ...prev, variableCategory: "" }));
+  }, [isForm2, editId, editCategory]);
+
+  // New pricing parameter only: dependency radios default to Yes; select all frequencies, categories, bedroom tiers.
+  useEffect(() => {
+    if (editId) return;
+    if (isForm2) return;
+    if (!industryId || !frequencies.length || !serviceCategories.length) return;
+    if (freqCatDepsDoneForIndustry.current === industryId) return;
+    freqCatDepsDoneForIndustry.current = industryId;
+
+    const bedTiers = existingParameters
+      .filter((p: { variable_category?: string }) => (p.variable_category || "") === "Bedroom")
+      .map((p: { name?: string }) => String(p.name ?? "").trim())
+      .filter(Boolean);
+    const serviceCategory2 = bedTiers.length ? bedTiers : [...DEFAULT_BEDROOM_TIER_NAMES_FOR_DEPS];
+
+    setForm((p) => ({
+      ...p,
+      showBasedOnFrequency: true,
+      showBasedOnServiceCategory: true,
+      showBasedOnServiceCategory2: true,
+      frequency: frequencies.map((f) => f.name),
+      serviceCategory: serviceCategories.map((c) => c.name),
+      serviceCategory2,
+    }));
+  }, [editId, industryId, frequencies, serviceCategories, existingParameters, isForm2]);
+
+  useEffect(() => {
+    if (editId) return;
+    if (isForm2) return;
+    if (!industryId || !excludeParameters.length) return;
+    if (excludeDepsPrefilledForIndustry.current === industryId) return;
+    excludeDepsPrefilledForIndustry.current = industryId;
+    setForm((p) => ({ ...p, excludeParameters: excludeParameters.map((ep) => ep.id) }));
+  }, [editId, industryId, excludeParameters, isForm2]);
 
   // Single row for edit (authoritative; no client-side find on a cached list)
   useEffect(() => {
-    if (!editId || !industryId) return;
+    if (!editId || !industryId || !currentBusiness?.id) return;
 
     const loadOne = async () => {
       try {
         const response = await fetch(
-          `/api/pricing-parameters?id=${encodeURIComponent(editId)}&industryId=${encodeURIComponent(industryId)}`,
+          `/api/pricing-parameters?id=${encodeURIComponent(editId)}&industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
         );
         const data = await response.json();
 
@@ -323,9 +450,22 @@ export default function PricingParameterNewPage() {
           return;
         }
 
-        const existing = data.pricingParameter;
+        const existing = data.pricingParameter as typeof data.pricingParameter & {
+          price_merchant_location?: number | null;
+          time_minutes_merchant_location?: number | null;
+          quantity_based?: boolean;
+          icon?: string | null;
+        };
         const hours = Math.floor(existing.time_minutes / 60);
         const minutes = existing.time_minutes % 60;
+        const mlMinsRaw =
+          existing.time_minutes_merchant_location != null
+            ? existing.time_minutes_merchant_location
+            : existing.time_minutes;
+        const mlHours = Math.floor(mlMinsRaw / 60);
+        const mlMinutes = mlMinsRaw % 60;
+        const mlPrice =
+          existing.price_merchant_location != null ? existing.price_merchant_location : existing.price;
 
         setForm({
           variableCategory: existing.variable_category,
@@ -349,6 +489,11 @@ export default function PricingParameterNewPage() {
           differentOnCustomerEnd: false,
           showExplanationIcon: false,
           enablePopupOnSelection: false,
+          priceMerchant: String(mlPrice ?? 0),
+          hoursMerchant: String(mlHours),
+          minutesMerchant: String(mlMinutes),
+          quantityBased: !!existing.quantity_based,
+          packageIcon: typeof existing.icon === "string" ? existing.icon : "",
         });
       } catch (error) {
         console.error("Error fetching pricing parameter for edit:", error);
@@ -361,7 +506,7 @@ export default function PricingParameterNewPage() {
     };
 
     loadOne();
-  }, [editId, industryId, toast]);
+  }, [editId, industryId, currentBusiness?.id, toast, bookingFormScope]);
 
   // Real-time validation for variable category
   const validateVariableCategory = (value: string) => {
@@ -403,6 +548,7 @@ export default function PricingParameterNewPage() {
         body: JSON.stringify({
           industryId,
           businessId: currentBusiness.id,
+          bookingFormScope,
           variables: updatedList,
         }),
       });
@@ -414,6 +560,7 @@ export default function PricingParameterNewPage() {
         category: v.category ?? v.name ?? "",
         description: v.description ?? "",
         isActive: v.is_active ?? true,
+        sortOrder: typeof v.sort_order === "number" ? v.sort_order : 0,
       }));
       setVariables(list);
       setForm((p) => ({ ...p, variableCategory: name }));
@@ -432,23 +579,28 @@ export default function PricingParameterNewPage() {
   // Real-time validation for name
   const validateName = (value: string) => {
     if (!value.trim()) {
-      return "Name is required";
+      return isForm2 ? "This field cannot be left empty" : "Name is required";
     }
-    
-    // Check for duplicate name in the same variable category
+
     if (form.variableCategory) {
       const duplicate = existingParameters.find(
-        (p: any) => 
-          p.variable_category === form.variableCategory && 
+        (p: any) =>
+          p.variable_category === form.variableCategory &&
           p.name.toLowerCase() === value.trim().toLowerCase() &&
-          p.id !== editId
+          p.id !== editId,
       );
-      
+
       if (duplicate) {
+        if (isForm2 && form.variableCategory === FORM2_STANDALONE_PACKAGE_CATEGORY) {
+          return "A package with this name already exists. Choose a different name.";
+        }
+        if (isForm2) {
+          return "A package with this name already exists for this item. Choose a different name.";
+        }
         return `A parameter with this name already exists in "${form.variableCategory}" category`;
       }
     }
-    
+
     return "";
   };
 
@@ -495,11 +647,359 @@ export default function PricingParameterNewPage() {
     return "";
   };
 
+  const renderForm2Details = () => (
+    <>
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Label htmlFor="f2-name">Name</Label>
+          <OrangeInfoTip text="Public name for this package (for example Basic package or Rug cleaning)." />
+        </div>
+        <Input
+          id="f2-name"
+          value={form.name}
+          onChange={(e) => {
+            const value = e.target.value;
+            setForm((p) => ({ ...p, name: value }));
+            setValidationErrors((prev) => ({ ...prev, name: validateName(value) }));
+          }}
+          onBlur={(e) => setValidationErrors((prev) => ({ ...prev, name: validateName(e.target.value) }))}
+          placeholder="Ex: Bike Cleaning"
+          className={validationErrors.name ? "border-red-500" : ""}
+        />
+        {validationErrors.name && <p className="text-xs text-red-500">{validationErrors.name}</p>}
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="different-on-customer-end-f2"
+          checked={form.differentOnCustomerEnd}
+          onCheckedChange={(v) => setForm((p) => ({ ...p, differentOnCustomerEnd: !!v }))}
+        />
+        <Label htmlFor="different-on-customer-end-f2" className="text-sm font-normal">
+          Different on customer end
+        </Label>
+        <OrangeInfoTip text="When enabled, you can show a different label or copy to customers than staff see (configured elsewhere)." />
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Label>Description</Label>
+          <OrangeInfoTip text="Rich text shown where this package is described (staff or customer views depend on Display)." />
+        </div>
+        <Form1RichTextEditor
+          value={form.description}
+          onChange={(html) => setForm((p) => ({ ...p, description: html }))}
+        />
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="show-explanation-icon-f2"
+            checked={form.showExplanationIcon}
+            onCheckedChange={(v) => setForm((p) => ({ ...p, showExplanationIcon: !!v }))}
+          />
+          <Label htmlFor="show-explanation-icon-f2" className="text-sm font-normal">
+            Show explanation icon on form
+          </Label>
+          <OrangeInfoTip text="Shows a help icon next to this package on the booking form so customers can read more." />
+        </div>
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="enable-popup-on-selection-f2"
+            checked={form.enablePopupOnSelection}
+            onCheckedChange={(v) => setForm((p) => ({ ...p, enablePopupOnSelection: !!v }))}
+          />
+          <Label htmlFor="enable-popup-on-selection-f2" className="text-sm font-normal">
+            Enable popup on selection
+          </Label>
+          <OrangeInfoTip text="Opens a popup when this package is selected so you can show longer details." />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Label>Display</Label>
+          <OrangeInfoTip text="Choose whether this package appears on the public booking page, only when logged in, or for admin only." />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Where should this package be visible—customer booking (logged in or out), backend, or admin only?
+        </p>
+        <RadioGroup
+          value={form.display}
+          onValueChange={(v: typeof form.display) => setForm((p) => ({ ...p, display: v }))}
+          className="mt-2 grid gap-2"
+        >
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <RadioGroupItem value="Customer Frontend, Backend & Admin" /> Customer frontend, backend & admin
+          </label>
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <RadioGroupItem value="Customer Backend & Admin" /> Customer backend & admin
+          </label>
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <RadioGroupItem value="Admin Only" /> Admin only
+          </label>
+        </RadioGroup>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Label>Quantity based</Label>
+          <OrangeInfoTip text="When Yes, this package is sold by quantity (for example packs of three). When No, one line item per booking." />
+        </div>
+        <RadioGroup
+          value={form.quantityBased ? "yes" : "no"}
+          onValueChange={(v) => setForm((p) => ({ ...p, quantityBased: v === "yes" }))}
+          className="grid gap-2"
+        >
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <RadioGroupItem value="yes" /> Yes
+          </label>
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <RadioGroupItem value="no" /> No
+          </label>
+        </RadioGroup>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Label className="text-base font-medium">Price &amp; Time</Label>
+          <OrangeInfoTip text="S.A. is service area (at the customer’s location). M.L. is merchant location (at your store). You can set different price and duration for each." />
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-3 rounded-lg border bg-card p-4 shadow-sm">
+            <p className="text-sm font-semibold tracking-wide text-muted-foreground">S.A</p>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Pricing</Label>
+              <div className="flex items-center gap-1">
+                <span className="text-sm text-muted-foreground">$</span>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  value={form.price}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setForm((p) => ({ ...p, price: value }));
+                    setValidationErrors((prev) => ({ ...prev, price: validatePrice(value) }));
+                  }}
+                  onBlur={(e) => setValidationErrors((prev) => ({ ...prev, price: validatePrice(e.target.value) }))}
+                  placeholder="0"
+                  className={validationErrors.price ? "max-w-[140px] border-red-500" : "max-w-[140px]"}
+                />
+              </div>
+              {validationErrors.price && <p className="text-xs text-red-500">{validationErrors.price}</p>}
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Time</Label>
+              <div className="grid max-w-xs grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Hours</Label>
+                  <Select
+                    value={form.hours === "" ? "0" : form.hours}
+                    onValueChange={(v) => {
+                      setForm((p) => ({ ...p, hours: v }));
+                      setValidationErrors((prev) => ({
+                        ...prev,
+                        hours: validateHours(v, form.minutes),
+                        minutes: validateMinutes(form.minutes, v),
+                      }));
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Hours" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-48">
+                      {FORM2_HOUR_OPTIONS.map((h) => (
+                        <SelectItem key={h} value={h}>
+                          {h}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Minutes</Label>
+                  <Select
+                    value={form.minutes === "" ? "0" : form.minutes}
+                    onValueChange={(v) => {
+                      setForm((p) => ({ ...p, minutes: v }));
+                      setValidationErrors((prev) => ({
+                        ...prev,
+                        minutes: validateMinutes(v, form.hours),
+                        hours: validateHours(form.hours, v),
+                      }));
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Minutes" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-48">
+                      {FORM2_MINUTE_OPTIONS.map((m) => (
+                        <SelectItem key={m} value={m}>
+                          {m}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3 rounded-lg border bg-card p-4 shadow-sm">
+            <p className="text-sm font-semibold tracking-wide text-muted-foreground">M.L</p>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Pricing</Label>
+              <div className="flex items-center gap-1">
+                <span className="text-sm text-muted-foreground">$</span>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  value={form.priceMerchant}
+                  onChange={(e) => setForm((p) => ({ ...p, priceMerchant: e.target.value }))}
+                  placeholder="0"
+                  className="max-w-[140px]"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Time</Label>
+              <div className="grid max-w-xs grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Hours</Label>
+                  <Select
+                    value={form.hoursMerchant === "" ? "0" : form.hoursMerchant}
+                    onValueChange={(v) => setForm((p) => ({ ...p, hoursMerchant: v }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Hours" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-48">
+                      {FORM2_HOUR_OPTIONS.map((h) => (
+                        <SelectItem key={`ml-h-${h}`} value={h}>
+                          {h}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Minutes</Label>
+                  <Select
+                    value={form.minutesMerchant === "" ? "0" : form.minutesMerchant}
+                    onValueChange={(v) => setForm((p) => ({ ...p, minutesMerchant: v }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Minutes" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-48">
+                      {FORM2_MINUTE_OPTIONS.map((m) => (
+                        <SelectItem key={`ml-m-${m}`} value={m}>
+                          {m}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Label>Select icon</Label>
+          <OrangeInfoTip text="Optional icon on cards and lists. Use a preset or upload a square image (recommended max 300×300 px)." />
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex gap-2">
+            {(
+              [
+                { id: "layers", Icon: Layers },
+                { id: "package", Icon: Package },
+                { id: "sparkles", Icon: Sparkles },
+              ] as const
+            ).map(({ id, Icon }) => (
+              <Button
+                key={id}
+                type="button"
+                variant={form.packageIcon === id ? "default" : "outline"}
+                size="icon"
+                className="h-11 w-11"
+                onClick={() => setForm((p) => ({ ...p, packageIcon: id }))}
+                aria-label={`Icon ${id}`}
+              >
+                <Icon className="h-5 w-5" />
+              </Button>
+            ))}
+          </div>
+          <span className="text-sm text-muted-foreground">Or</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              id="f2-package-icon-upload"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                if (!file.type.startsWith("image/")) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                  const r = String(reader.result || "");
+                  if (r.length > 400_000) {
+                    toast({
+                      title: "Image too large",
+                      description: "Please use a smaller file (try under 300×300 px).",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+                  setForm((p) => ({ ...p, packageIcon: r }));
+                };
+                reader.readAsDataURL(file);
+              }}
+            />
+            <Button type="button" variant="default" className="bg-blue-600 hover:bg-blue-700" asChild>
+              <label htmlFor="f2-package-icon-upload" className="cursor-pointer">
+                Browse
+              </label>
+            </Button>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">Image size should not be more than 300px by 300px.</p>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="default-tier-f2"
+          checked={form.isDefault}
+          onCheckedChange={(v) => setForm((p) => ({ ...p, isDefault: !!v }))}
+        />
+        <Label htmlFor="default-tier-f2" className="text-sm font-normal">
+          Set as default
+        </Label>
+      </div>
+    </>
+  );
+
   const save = async () => {
-    if (!form.variableCategory || !form.name.trim()) {
+    if (!form.name.trim()) {
       toast({
         title: "Validation Error",
-        description: "Variable category and name are required",
+        description: isForm2 ? "Name is required." : "Name is required.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!form.variableCategory) {
+      toast({
+        title: "Validation Error",
+        description: "Variable category is required",
         variant: "destructive",
       });
       return;
@@ -523,18 +1023,32 @@ export default function PricingParameterNewPage() {
       return;
     }
 
-    // Check for duplicate name in the same variable category
-    const duplicate = existingParameters.find(
-      (p: any) => 
-        p.variable_category === form.variableCategory && 
-        p.name.toLowerCase() === form.name.trim().toLowerCase() &&
-        p.id !== editId // Exclude current parameter when editing
-    );
+    const serviceCategoryValue = form.showBasedOnServiceCategory ? form.serviceCategory.join(", ") : "";
+
+    // Same name is allowed when scoped to a different service category (e.g. Full Bathroom per service type).
+    const duplicate = existingParameters.find((p: any) => {
+      if (p.variable_category !== form.variableCategory) return false;
+      if (p.name.toLowerCase() !== form.name.trim().toLowerCase()) return false;
+      if (p.id === editId) return false;
+      const pSc = String(p.service_category ?? "").trim();
+      const formSc = serviceCategoryValue.trim();
+      if (form.showBasedOnServiceCategory && Boolean(p.show_based_on_service_category)) {
+        return pSc === formSc;
+      }
+      if (form.showBasedOnServiceCategory !== Boolean(p.show_based_on_service_category)) return false;
+      return true;
+    });
 
     if (duplicate) {
+      const standalone = form.variableCategory === FORM2_STANDALONE_PACKAGE_CATEGORY;
       toast({
-        title: "Duplicate Parameter",
-        description: `A parameter with the name "${form.name.trim()}" already exists in the "${form.variableCategory}" category. Please use a different name.`,
+        title: isForm2 ? "Duplicate package" : "Duplicate Parameter",
+        description:
+          isForm2 && standalone
+            ? `A package named "${form.name.trim()}" already exists. Choose a different name.`
+            : isForm2
+              ? `A package with the name "${form.name.trim()}" already exists for this item and service scope. Change the name or service category selection.`
+              : `A parameter with the name "${form.name.trim()}" already exists for this variable category and service scope. Change the name or service category selection.`,
         variant: "destructive",
       });
       return;
@@ -547,9 +1061,13 @@ export default function PricingParameterNewPage() {
       const hours = Number(form.hours) || 0;
       const minutes = Number(form.minutes) || 0;
       const timeMinutes = (hours * 60) + minutes;
+      const mlHours = Number(form.hoursMerchant) || 0;
+      const mlMinutes = Number(form.minutesMerchant) || 0;
+      const timeMinutesMerchant = (mlHours * 60) + mlMinutes;
+      const hasMlPrice = form.priceMerchant.trim() !== "";
+      const hasMlTime = Boolean(form.hoursMerchant.trim() || form.minutesMerchant.trim());
 
       // Auto-set service category and frequency based on form state
-      const serviceCategoryValue = form.showBasedOnServiceCategory ? form.serviceCategory.join(", ") : "";
       const serviceCategory2Value = form.showBasedOnServiceCategory2 ? form.serviceCategory2.join(", ") : "";
       const frequencyValue = form.showBasedOnFrequency ? form.frequency.join(", ") : "";
 
@@ -564,9 +1082,10 @@ export default function PricingParameterNewPage() {
       console.log('form.excludeParameters type:', typeof form.excludeParameters);
       console.log('form.excludeParameters array?:', Array.isArray(form.excludeParameters));
 
-      const paramData = {
+      const paramData: Record<string, unknown> = {
         business_id: currentBusiness.id,
         industry_id: industryId,
+        booking_form_scope: bookingFormScope,
         name: form.name.trim(),
         description: form.description || undefined,
         variable_category: form.variableCategory,
@@ -585,6 +1104,13 @@ export default function PricingParameterNewPage() {
         excluded_providers: form.excludedProviders,
         exclude_parameters: form.excludeParameters,
       };
+
+      if (isForm2) {
+        paramData.price_merchant_location = hasMlPrice ? Number(form.priceMerchant) || 0 : null;
+        paramData.time_minutes_merchant_location = hasMlTime ? timeMinutesMerchant : null;
+        paramData.quantity_based = form.quantityBased;
+        paramData.icon = form.packageIcon.trim() ? form.packageIcon.trim() : null;
+      }
 
       if (editId) {
         // Update existing
@@ -622,7 +1148,9 @@ export default function PricingParameterNewPage() {
         });
       }
 
-      router.push(`/admin/settings/industries/form-1/pricing-parameter?industry=${encodeURIComponent(industry)}`);
+      router.push(
+        `/admin/settings/industries/form-1/pricing-parameter?industry=${encodeURIComponent(industry)}${scopeQs}`,
+      );
     } catch (error: any) {
       console.error('Error saving pricing parameter:', error);
       toast({
@@ -636,22 +1164,70 @@ export default function PricingParameterNewPage() {
   };
 
   return (
+    <TooltipProvider delayDuration={200}>
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>{editId ? "Edit Pricing Parameter" : "Add Pricing Parameter"}</CardTitle>
-          <CardDescription>Configure pricing parameter for {industry}.</CardDescription>
+          <CardTitle>
+            {isForm2
+              ? editId
+                ? "Edit package"
+                : "Add package"
+              : editId
+                ? "Edit Pricing Parameter"
+                : "Add Pricing Parameter"}
+          </CardTitle>
+          <CardDescription>
+            {isForm2
+              ? `Packages can be tailored to your business—for example a barber might sell “3 haircuts within 3 months.” You can attach packages to specific items, or offer them on their own so customers pick from a package list (${industry}).`
+              : `Configure pricing parameter for ${industry}.`}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="details" className="w-full">
-            <TabsList className="grid w-full grid-cols-3 mb-6">
-              <TabsTrigger value="details">Details</TabsTrigger>
-              <TabsTrigger value="dependencies">Dependencies</TabsTrigger>
-              <TabsTrigger value="providers">Providers</TabsTrigger>
+            <TabsList
+              className={cn(
+                "mb-6 w-full",
+                isForm2
+                  ? "grid h-auto grid-cols-3 gap-0 rounded-none border-b border-border bg-transparent p-0"
+                  : "grid grid-cols-3",
+              )}
+            >
+              <TabsTrigger
+                value="details"
+                className={cn(
+                  isForm2 &&
+                    "rounded-none border-b-2 border-transparent pb-2 data-[state=active]:border-orange-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none",
+                )}
+              >
+                Details
+              </TabsTrigger>
+              <TabsTrigger
+                value="dependencies"
+                className={cn(
+                  isForm2 &&
+                    "rounded-none border-b-2 border-transparent pb-2 data-[state=active]:border-orange-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none",
+                )}
+              >
+                Dependencies
+              </TabsTrigger>
+              <TabsTrigger
+                value="providers"
+                className={cn(
+                  isForm2 &&
+                    "rounded-none border-b-2 border-transparent pb-2 data-[state=active]:border-orange-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none",
+                )}
+              >
+                Providers
+              </TabsTrigger>
             </TabsList>
 
             {/* DETAILS TAB */}
-            <TabsContent value="details" className="mt-4 space-y-6">
+            <TabsContent value="details" className={cn("mt-4 space-y-6", isForm2 && "space-y-8")}>
+              {isForm2 ? (
+                renderForm2Details()
+              ) : (
+              <>
               <p className="text-sm text-muted-foreground">
                 Every service has a variable attached to them and based on that variable a pricing structure begins.
                 For example a cleaning service may use the variable called bedrooms and the first variable might be 1 Bedroom that starts at $90 and you can add on extras to this variable later.
@@ -782,7 +1358,16 @@ export default function PricingParameterNewPage() {
                       {(() => {
                         const hasCurrent = form.variableCategory && !variables.some((v) => v.category === form.variableCategory);
                         const options = hasCurrent
-                          ? [...variables, { id: "_current", name: form.variableCategory, category: form.variableCategory, isActive: true }]
+                          ? [
+                              ...variables,
+                              {
+                                id: "_current",
+                                name: form.variableCategory,
+                                category: form.variableCategory,
+                                isActive: true,
+                                sortOrder: 0,
+                              },
+                            ]
                           : variables;
                         if (options.length === 0) {
                           return (
@@ -809,35 +1394,6 @@ export default function PricingParameterNewPage() {
                     Add Variable Category
                   </Button>
                 </div>
-                <Dialog open={showAddVariableDialog} onOpenChange={setShowAddVariableDialog}>
-                  <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                      <DialogTitle>Add Variable Category</DialogTitle>
-                    </DialogHeader>
-                    <p className="text-sm text-muted-foreground">
-                      Add a new category here; it will be saved and selected for this pricing parameter.
-                    </p>
-                    <div className="space-y-2">
-                      <Label htmlFor="new-variable-category">Category name</Label>
-                      <Input
-                        id="new-variable-category"
-                        placeholder="e.g. Bedrooms, Bathroom, Sq Ft"
-                        value={newVariableCategoryName}
-                        onChange={(e) => setNewVariableCategoryName(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && addVariableCategoryInline()}
-                      />
-                    </div>
-                    <DialogFooter className="gap-2 sm:gap-0">
-                      <DialogClose asChild>
-                        <Button variant="outline">Cancel</Button>
-                      </DialogClose>
-                      <Button onClick={addVariableCategoryInline} disabled={addingVariable}>
-                        {addingVariable ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                        Add
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
                 {validationErrors.variableCategory && (
                   <p className="text-xs text-red-500">{validationErrors.variableCategory}</p>
                 )}
@@ -931,6 +1487,8 @@ export default function PricingParameterNewPage() {
                 />
                 <Label htmlFor="default-tier" className="text-sm font-normal">Set as Default</Label>
               </div>
+              </>
+              )}
             </TabsContent>
 
             {/* DEPENDENCIES TAB */}
@@ -1235,10 +1793,46 @@ export default function PricingParameterNewPage() {
             </TabsContent>
           </Tabs>
 
+          <Dialog open={showAddVariableDialog} onOpenChange={setShowAddVariableDialog}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>{isForm2 ? "Add item" : "Add Variable Category"}</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-muted-foreground">
+                {isForm2
+                  ? "Creates a new item and selects it for this package."
+                  : "Add a new category here; it will be saved and selected for this pricing parameter."}
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="new-variable-category">{isForm2 ? "Item name" : "Category name"}</Label>
+                <Input
+                  id="new-variable-category"
+                  placeholder={isForm2 ? "e.g. Bedroom tier, Square footage" : "e.g. Bedrooms, Bathroom, Sq Ft"}
+                  value={newVariableCategoryName}
+                  onChange={(e) => setNewVariableCategoryName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addVariableCategoryInline()}
+                />
+              </div>
+              <DialogFooter className="gap-2 sm:gap-0">
+                <DialogClose asChild>
+                  <Button variant="outline">Cancel</Button>
+                </DialogClose>
+                <Button onClick={addVariableCategoryInline} disabled={addingVariable}>
+                  {addingVariable ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Add
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
           <div className="mt-6 flex gap-2 justify-end">
             <Button
               variant="outline"
-              onClick={() => router.push(`/admin/settings/industries/form-1/pricing-parameter?industry=${encodeURIComponent(industry)}`)}
+              onClick={() =>
+                router.push(
+                  `/admin/settings/industries/form-1/pricing-parameter?industry=${encodeURIComponent(industry)}${scopeQs}`,
+                )
+              }
             >
               Cancel
             </Button>
@@ -1265,5 +1859,6 @@ export default function PricingParameterNewPage() {
         </CardContent>
       </Card>
     </div>
+    </TooltipProvider>
   );
 }

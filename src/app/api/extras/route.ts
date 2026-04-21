@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extrasService, pickIndustryExtraWritePayload } from '@/lib/extras';
+import { parseBookingFormScopeParam, parseListingKindParam } from '@/lib/bookingFormScope';
+import { requireIndustryBelongsToBusiness } from '@/lib/industryTenantGuard';
+import { supabaseAdmin } from '@/lib/supabaseClient';
+
+function queryBusinessId(searchParams: URLSearchParams): string | null {
+  return searchParams.get('businessId') || searchParams.get('business_id');
+}
 
 function messageFromUnknownError(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -34,7 +41,9 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const industryId = searchParams.get('industryId');
-    const businessId = searchParams.get('businessId');
+    const businessId = queryBusinessId(searchParams);
+    const bookingFormScope = parseBookingFormScopeParam(searchParams.get('bookingFormScope'));
+    const listingKind = parseListingKindParam(searchParams.get('listingKind'));
 
     if (!industryId) {
       return NextResponse.json(
@@ -42,8 +51,22 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
+    if (!businessId?.trim()) {
+      return NextResponse.json({ error: 'businessId is required' }, { status: 400 });
+    }
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
+    }
+    const tenant = await requireIndustryBelongsToBusiness(supabaseAdmin, businessId, industryId);
+    if (!tenant.ok) {
+      return NextResponse.json({ error: 'Extras not found' }, { status: 404 });
+    }
 
-    const extras = await extrasService.getExtrasByIndustry(industryId);
+    const extras = await extrasService.getExtrasByIndustry(industryId, {
+      businessId,
+      bookingFormScope,
+      listingKind,
+    });
     
     return NextResponse.json({ extras });
   } catch (error) {
@@ -61,6 +84,13 @@ export async function POST(request: NextRequest) {
     const extraData = pickIndustryExtraWritePayload(body) as Parameters<
       typeof extrasService.createExtra
     >[0];
+
+    if (extraData.booking_form_scope !== 'form2') {
+      extraData.booking_form_scope = 'form1';
+    }
+    if (extraData.listing_kind !== 'addon') {
+      extraData.listing_kind = 'extra';
+    }
 
     console.log('Received extra data:', JSON.stringify(extraData, null, 2));
 
@@ -83,6 +113,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
     }
     extraData.name = name;
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
+    }
+    const tenant = await requireIndustryBelongsToBusiness(
+      supabaseAdmin,
+      String(extraData.business_id),
+      String(extraData.industry_id),
+    );
+    if (!tenant.ok) {
+      return NextResponse.json({ error: 'Industry not found for this business' }, { status: 404 });
+    }
 
     const extra = await extrasService.createExtra(extraData);
     
@@ -106,13 +147,26 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, ...rest } = body;
+    const { id, business_id: bodyBusinessId, industry_id: bodyIndustryId, ...rest } = body;
 
     if (!id) {
       return NextResponse.json(
         { error: 'Extra ID is required' },
         { status: 400 }
       );
+    }
+    if (!bodyBusinessId || !bodyIndustryId) {
+      return NextResponse.json(
+        { error: 'business_id and industry_id are required' },
+        { status: 400 },
+      );
+    }
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
+    }
+    const tenantPut = await requireIndustryBelongsToBusiness(supabaseAdmin, bodyBusinessId, bodyIndustryId);
+    if (!tenantPut.ok) {
+      return NextResponse.json({ error: 'Extra not found' }, { status: 404 });
     }
 
     const updateData = pickIndustryExtraWritePayload(rest) as Record<string, unknown>;
@@ -128,7 +182,10 @@ export async function PUT(request: NextRequest) {
       updateData.name = name;
     }
 
-    const extra = await extrasService.updateExtra(id, updateData);
+    const extra = await extrasService.updateExtra(id, updateData, {
+      business_id: bodyBusinessId,
+      industry_id: bodyIndustryId,
+    });
     
     return NextResponse.json({ extra });
   } catch (error: unknown) {
@@ -149,6 +206,8 @@ export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
+    const industryId = searchParams.get('industryId');
+    const businessId = queryBusinessId(searchParams);
     const permanent = searchParams.get('permanent') === 'true';
 
     if (!id) {
@@ -157,11 +216,34 @@ export async function DELETE(request: NextRequest) {
         { status: 400 }
       );
     }
+    if (!industryId || !businessId) {
+      return NextResponse.json(
+        { error: 'industryId and businessId are required' },
+        { status: 400 },
+      );
+    }
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
+    }
+    const tenantDel = await requireIndustryBelongsToBusiness(supabaseAdmin, businessId, industryId);
+    if (!tenantDel.ok) {
+      return NextResponse.json({ error: 'Extra not found' }, { status: 404 });
+    }
 
+    let result: { deleted: boolean };
     if (permanent) {
-      await extrasService.permanentlyDeleteExtra(id);
+      result = await extrasService.permanentlyDeleteExtra(id, {
+        business_id: businessId,
+        industry_id: industryId,
+      });
     } else {
-      await extrasService.deleteExtra(id);
+      result = await extrasService.deleteExtra(id, {
+        business_id: businessId,
+        industry_id: industryId,
+      });
+    }
+    if (!result.deleted) {
+      return NextResponse.json({ error: 'Extra not found' }, { status: 404 });
     }
     
     return NextResponse.json({ success: true });

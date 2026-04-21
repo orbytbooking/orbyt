@@ -1,7 +1,8 @@
 .bookingContainer {
   background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
   min-height: 100vh;
-  padding: 2rem 0;
+  /* Clear fixed Navigation (~4rem) + breathing room so long Form 2 pages scroll naturally */
+  padding: 5.5rem 0 3rem;
 }
 
 .header {
@@ -48,6 +49,28 @@
   position: relative;
   overflow: hidden;
   border: 1px solid #e2e8f0;
+}
+
+/* Form 2: one long scroll page — don’t clip tall content (sticky sidebar lives outside this box) */
+.formContainerForm2 {
+  overflow: visible;
+}
+
+.form2SectionCard {
+  scroll-margin-top: 5.5rem;
+}
+
+.form2SectionTitle {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.form2FrequencyBar {
+  gap: 0.125rem;
+}
+
+.form2FrequencyPill {
+  border-radius: 9999px;
 }
 
 .formContainer::before {

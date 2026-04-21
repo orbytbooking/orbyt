@@ -24,6 +24,8 @@ const businessUpdateSchema = z.object({
   website: z.string().optional(),
   description: z.string().optional(),
   logo_url: z.string().optional(),
+  /** Saved on Industries settings; used when POST /api/industries omits `seed_form1_template`. */
+  default_seed_form1_template: z.boolean().optional(),
 });
 
 // GET business information
@@ -114,9 +116,9 @@ export async function PUT(request: NextRequest) {
 
     Object.keys(validatedData).forEach((key) => {
       const value = validatedData[key as keyof typeof validatedData];
-      if (value !== undefined && value !== null && value !== '') {
-        updateData[key] = value;
-      }
+      if (value === undefined || value === null) return;
+      if (value === '' && typeof value !== 'boolean') return;
+      updateData[key] = value;
     });
 
     const { data: business, error: updateError } = await supabase

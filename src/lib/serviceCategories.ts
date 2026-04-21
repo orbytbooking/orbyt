@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabaseClient';
+import type { BookingFormScope } from '@/lib/bookingFormScope';
 
 export interface ServiceCategory {
   id: string;
@@ -121,6 +122,7 @@ export interface ServiceCategory {
   sort_order: number;
   created_at: string;
   updated_at: string;
+  booking_form_scope?: BookingFormScope;
 }
 
 export interface CreateServiceCategoryData {
@@ -167,6 +169,7 @@ export interface CreateServiceCategoryData {
   enable_service_length_tooltip_provider?: boolean;
   service_length_tooltip_text_provider?: string;
   sort_order?: number;
+  booking_form_scope?: BookingFormScope;
 }
 
 export interface UpdateServiceCategoryData extends Partial<CreateServiceCategoryData> {}
@@ -178,11 +181,18 @@ class ServiceCategoriesService {
     this.supabase = supabase;
   }
 
-  async getServiceCategoriesByIndustry(industryId: string): Promise<ServiceCategory[]> {
-    const { data, error } = await this.supabase
+  async getServiceCategoriesByIndustry(
+    industryId: string,
+    bookingFormScope?: BookingFormScope | null,
+  ): Promise<ServiceCategory[]> {
+    let q = this.supabase
       .from('industry_service_category')
       .select('*')
-      .eq('industry_id', industryId)
+      .eq('industry_id', industryId);
+    if (bookingFormScope === 'form1' || bookingFormScope === 'form2') {
+      q = q.eq('booking_form_scope', bookingFormScope);
+    }
+    const { data, error } = await q
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true });
 

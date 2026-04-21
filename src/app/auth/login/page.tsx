@@ -19,6 +19,10 @@ import { useToast } from "@/components/ui/use-toast";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  reapplyTenantAuthCookiesAsSessionOnly,
+  setTenantAuthSessionOnlyMode,
+} from "@/lib/tenantAuthCookies";
 
 // Login schema
 const loginSchema = z.object({
@@ -28,6 +32,7 @@ const loginSchema = z.object({
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
 
@@ -72,7 +77,15 @@ export default function LoginPage() {
           window.location.href = "/provider/login";
           return;
         }
-        
+
+        // Remember me: persistent cookies (Supabase default). Unchecked: session cookies only.
+        if (rememberMe) {
+          setTenantAuthSessionOnlyMode(false);
+        } else {
+          setTenantAuthSessionOnlyMode(true);
+          reapplyTenantAuthCookiesAsSessionOnly();
+        }
+
         // Check if user has completed onboarding by looking for their business
         // For providers, they don't need a business to access their dashboard
         const { data: business, error: businessError } = await supabase
@@ -217,8 +230,13 @@ export default function LoginPage() {
               />
 
               <div className="flex items-center justify-between text-sm">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" className="rounded border-border" />
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="rounded border-border"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                  />
                   <span className="text-muted-foreground">Remember me</span>
                 </label>
                 <Link href="/auth/resend" className="text-sm text-primary hover:underline">

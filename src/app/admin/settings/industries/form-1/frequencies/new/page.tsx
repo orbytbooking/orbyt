@@ -27,6 +27,7 @@ import {
   Underline,
 } from "lucide-react";
 import { useBusiness } from "@/contexts/BusinessContext";
+import { bookingFormScopeFromSearchParams } from "@/lib/bookingFormScope";
 import {
   Tooltip,
   TooltipContent,
@@ -182,7 +183,10 @@ export default function FrequencyNewPage() {
   const params = useSearchParams();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
+  const industryIdFromUrl = params.get("industryId");
   const editId = params.get("editId");
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const scopeQs = `&bookingFormScope=${bookingFormScope}`;
   const { currentBusiness } = useBusiness();
 
   type LocationRow = {
@@ -225,7 +229,7 @@ export default function FrequencyNewPage() {
   // Dynamic data states
   const [pricingParameters, setPricingParameters] = useState<any[]>([]);
   const [loadingPricingParams, setLoadingPricingParams] = useState(true);
-  const [industryId, setIndustryId] = useState<string | null>(null);
+  const [industryId, setIndustryId] = useState<string | null>(industryIdFromUrl || null);
   const [loadingExtras, setLoadingExtras] = useState(true);
   const [extras, setExtras] = useState<any[]>([]);
   const [excludeParameters, setExcludeParameters] = useState<any[]>([]);
@@ -324,12 +328,18 @@ export default function FrequencyNewPage() {
   const bedroomOptions = ["0", "1", "2", "3", "4", "5"];
 
   useEffect(() => {
+    if (industryIdFromUrl) setIndustryId(industryIdFromUrl);
+  }, [industryIdFromUrl]);
+
+  useEffect(() => {
     const fetchFrequency = async () => {
       if (!editId || !industryId) return;
       
       try {
         setLoadingFrequency(true);
-        const response = await fetch(`/api/industry-frequency?industryId=${industryId}&includeAll=true`);
+        const response = await fetch(
+          `/api/industry-frequency?industryId=${industryId}&includeAll=true${scopeQs}`,
+        );
         const data = await response.json();
         
         if (response.ok && data.frequencies) {
@@ -378,7 +388,7 @@ export default function FrequencyNewPage() {
     };
 
     fetchFrequency();
-  }, [editId, industryId]);
+  }, [editId, industryId, bookingFormScope]);
 
   // Load industries from API
   useEffect(() => {
@@ -409,7 +419,7 @@ export default function FrequencyNewPage() {
     };
 
     fetchIndustries();
-  }, [currentBusiness, industry]);
+  }, [currentBusiness, industry, industryIdFromUrl]);
   
   // Load service categories from API
   useEffect(() => {
@@ -421,7 +431,9 @@ export default function FrequencyNewPage() {
       
       try {
         setLoadingServiceCategories(true);
-        const response = await fetch(`/api/service-categories?industryId=${industryId}`);
+        const response = await fetch(
+          `/api/service-categories?industryId=${industryId}&businessId=${encodeURIComponent(currentBusiness?.id ?? "")}${scopeQs}`,
+        );
         const data = await response.json();
         
         if (response.ok && data.serviceCategories) {
@@ -435,7 +447,7 @@ export default function FrequencyNewPage() {
     };
 
     fetchServiceCategories();
-  }, [industryId]);
+  }, [industryId, bookingFormScope, currentBusiness?.id]);
 
   // Load extras from API
   useEffect(() => {
@@ -447,12 +459,41 @@ export default function FrequencyNewPage() {
       
       try {
         setLoadingExtras(true);
-        const response = await fetch(`/api/extras?industryId=${industryId}`);
-        const data = await response.json();
-        
-        if (response.ok && data.extras) {
-          setExtras(data.extras.map((e: any) => ({ id: e.id, name: e.name })));
-        }
+        const baseQs = `industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness?.id ?? "")}${scopeQs}`;
+        const urls =
+          bookingFormScope === "form2"
+            ? [
+                `/api/extras?${baseQs}`,
+                `/api/extras?${baseQs}&listingKind=addon`,
+                `/api/extras?${baseQs}&listingKind=extra`,
+              ]
+            : [`/api/extras?${baseQs}&listingKind=extra`];
+
+        const payloads = await Promise.all(
+          urls.map(async (u) => {
+            const r = await fetch(u);
+            const data = r.ok ? await r.json() : { extras: [] };
+            const inferredListingKind =
+              u.includes("listingKind=addon") ? "addon" : u.includes("listingKind=extra") ? "extra" : null;
+            return { data, inferredListingKind };
+          }),
+        );
+        const merged = payloads.flatMap(({ data, inferredListingKind }) =>
+          (Array.isArray(data.extras) ? data.extras : []).map((e: any) => ({
+            ...e,
+            listing_kind: e?.listing_kind ?? inferredListingKind ?? (bookingFormScope === "form2" ? "addon" : "extra"),
+          })),
+        );
+        const deduped = merged.filter(
+          (e: any, idx: number, arr: any[]) => arr.findIndex((x) => String(x?.id) === String(e?.id)) === idx,
+        );
+        setExtras(
+          deduped.map((e: any) => ({
+            id: e.id,
+            name: e.name,
+            listing_kind: e.listing_kind === "extra" ? "extra" : "addon",
+          })),
+        );
       } catch (error) {
         console.error('Error fetching extras:', error);
       } finally {
@@ -461,7 +502,7 @@ export default function FrequencyNewPage() {
     };
 
     fetchExtras();
-  }, [industryId]);
+  }, [industryId, bookingFormScope, currentBusiness?.id]);
 
   // Load locations from API
   useEffect(() => {
@@ -500,14 +541,16 @@ export default function FrequencyNewPage() {
   // Load pricing parameters from API
   useEffect(() => {
     const fetchPricingParameters = async () => {
-      if (!industryId) {
+      if (!industryId || !currentBusiness?.id) {
         setLoadingPricingParams(false);
         return;
       }
-      
+
       try {
         setLoadingPricingParams(true);
-        const response = await fetch(`/api/pricing-parameters?industryId=${industryId}`);
+        const response = await fetch(
+          `/api/pricing-parameters?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
+        );
         const data = await response.json();
         
         if (response.ok && data.pricingParameters) {
@@ -521,7 +564,7 @@ export default function FrequencyNewPage() {
     };
 
     fetchPricingParameters();
-  }, [industryId]);
+  }, [industryId, currentBusiness?.id, bookingFormScope]);
 
   // Load exclude parameters from API
   useEffect(() => {
@@ -639,6 +682,7 @@ export default function FrequencyNewPage() {
       bedroom_variables: form.bedroomVariables,
       exclude_parameters: form.excludeParameters,
       extras: form.extras,
+      booking_form_scope: bookingFormScope,
     };
 
     try {
@@ -668,12 +712,17 @@ export default function FrequencyNewPage() {
         }
       }
 
-      router.push(`/admin/settings/industries/form-1/frequencies?industry=${encodeURIComponent(industry)}`);
+      router.push(
+        `/admin/settings/industries/form-1/frequencies?industry=${encodeURIComponent(industry)}${scopeQs}`,
+      );
     } catch (error) {
       console.error('Error saving frequency:', error);
       alert('An error occurred while saving the frequency. Please try again.');
     }
   };
+
+  const form2AddonRows = bookingFormScope === "form2" ? extras.filter((e) => e.listing_kind !== "extra") : [];
+  const form2ExtraRows = bookingFormScope === "form2" ? extras.filter((e) => e.listing_kind === "extra") : [];
 
   return (
     <div className="space-y-6">
@@ -936,6 +985,7 @@ export default function FrequencyNewPage() {
                       <SelectItem value="every-tue-thu">Every Tuesday And Thursday</SelectItem>
                       <SelectItem value="sat-sun">Saturday & Sunday</SelectItem>
                       <SelectItem value="every-week">Every Week</SelectItem>
+                      <SelectItem value="monthly">Monthly</SelectItem>
                       <SelectItem value="every-tue-wed-fri">Every Tuesday, Wednesday & Friday</SelectItem>
                       <SelectItem value="every-mon-wed">Every Monday & Wednesday</SelectItem>
                       <SelectItem value="every-mon-thu">Every Monday & Thursday</SelectItem>
@@ -1141,7 +1191,7 @@ export default function FrequencyNewPage() {
               <div className="border-t pt-6">
                 <div className="mb-4">
                   <h3 className="text-lg font-semibold mb-1">{industry}</h3>
-                  <p className="text-sm text-muted-foreground">Form 1</p>
+                  <p className="text-sm text-muted-foreground">{bookingFormScope === "form2" ? "Form 2" : "Form 1"}</p>
                 </div>
 
                 {/* Location-based Display */}
@@ -1404,6 +1454,60 @@ export default function FrequencyNewPage() {
                   )}
                 </div>
 
+                {/* Form 2 Add-ons */}
+                {bookingFormScope === "form2" && (
+                  <div className="space-y-3 mb-6 border p-4 rounded-md bg-white">
+                    <Label className="text-base font-semibold">Add-ons</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Select which add-on(s) will display for this frequency.
+                    </p>
+                    {loadingExtras ? (
+                      <p className="text-sm text-muted-foreground italic">Loading add-ons...</p>
+                    ) : form2AddonRows.length === 0 ? (
+                      <p className="text-sm text-muted-foreground italic">
+                        No add-ons added yet. Add add-ons from the Add-ons section.
+                      </p>
+                    ) : (
+                      <div className="space-y-2 mt-3">
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            id="select-all-addons"
+                            checked={form2AddonRows.every((addon) => form.extras.includes(String(addon.id)))}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setForm((p) => ({
+                                  ...p,
+                                  extras: Array.from(new Set([...p.extras, ...form2AddonRows.map((e) => String(e.id))])),
+                                }));
+                              } else {
+                                const addonIds = new Set(form2AddonRows.map((e) => String(e.id)));
+                                setForm((p) => ({ ...p, extras: p.extras.filter((id) => !addonIds.has(id)) }));
+                              }
+                            }}
+                          />
+                          <Label htmlFor="select-all-addons" className="text-sm font-medium cursor-pointer">Select All</Label>
+                        </div>
+                        {form2AddonRows.map((addon) => (
+                          <div key={addon.id} className="flex items-center gap-2">
+                            <Checkbox
+                              id={`addon-${addon.id}`}
+                              checked={form.extras.includes(String(addon.id))}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setForm((p) => ({ ...p, extras: [...p.extras, String(addon.id)] }));
+                                } else {
+                                  setForm((p) => ({ ...p, extras: p.extras.filter((e) => e !== String(addon.id)) }));
+                                }
+                              }}
+                            />
+                            <Label htmlFor={`addon-${addon.id}`} className="text-sm cursor-pointer">{addon.name}</Label>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Extras */}
                 <div className="space-y-3 mb-6 border p-4 rounded-md bg-white">
                   <Label className="text-base font-semibold">Extras</Label>
@@ -1414,7 +1518,7 @@ export default function FrequencyNewPage() {
                     <p className="text-sm text-muted-foreground italic">
                       Loading extras...
                     </p>
-                  ) : extras.length === 0 ? (
+                  ) : (bookingFormScope === "form2" ? form2ExtraRows.length === 0 : extras.length === 0) ? (
                     <p className="text-sm text-muted-foreground italic">
                       No extras added yet. Add extras from the Extras section.
                     </p>
@@ -1423,18 +1527,35 @@ export default function FrequencyNewPage() {
                       <div className="flex items-center gap-2">
                         <Checkbox
                           id="select-all-extras"
-                          checked={form.extras.length === extras.length && extras.length > 0}
+                          checked={
+                            bookingFormScope === "form2"
+                              ? form2ExtraRows.length > 0 &&
+                                form2ExtraRows.every((extra) => form.extras.includes(String(extra.id)))
+                              : form.extras.length === extras.length && extras.length > 0
+                          }
                           onCheckedChange={(checked) => {
                             if (checked) {
-                              setForm(p => ({ ...p, extras: extras.map(e => String(e.id)) }));
+                              if (bookingFormScope === "form2") {
+                                setForm((p) => ({
+                                  ...p,
+                                  extras: Array.from(new Set([...p.extras, ...form2ExtraRows.map((e) => String(e.id))])),
+                                }));
+                              } else {
+                                setForm(p => ({ ...p, extras: extras.map(e => String(e.id)) }));
+                              }
                             } else {
-                              setForm(p => ({ ...p, extras: [] }));
+                              if (bookingFormScope === "form2") {
+                                const extraIds = new Set(form2ExtraRows.map((e) => String(e.id)));
+                                setForm((p) => ({ ...p, extras: p.extras.filter((id) => !extraIds.has(id)) }));
+                              } else {
+                                setForm(p => ({ ...p, extras: [] }));
+                              }
                             }
                           }}
                         />
                         <Label htmlFor="select-all-extras" className="text-sm font-medium cursor-pointer">Select All</Label>
                       </div>
-                      {extras.map((extra) => (
+                      {(bookingFormScope === "form2" ? form2ExtraRows : extras).map((extra) => (
                         <div key={extra.id} className="flex items-center gap-2">
                           <Checkbox
                             id={`extra-${extra.id}`}
@@ -1513,7 +1634,16 @@ export default function FrequencyNewPage() {
             </TabsContent>
           </Tabs>
           <div className="mt-6 flex gap-2 justify-end">
-            <Button variant="outline" onClick={() => router.push(`/admin/settings/industries/form-1/frequencies?industry=${encodeURIComponent(industry)}`)}>Cancel</Button>
+            <Button
+              variant="outline"
+              onClick={() =>
+                router.push(
+                  `/admin/settings/industries/form-1/frequencies?industry=${encodeURIComponent(industry)}${industryId ? `&industryId=${industryId}` : ""}${scopeQs}`,
+                )
+              }
+            >
+              Cancel
+            </Button>
             <Button onClick={save} className="text-white" style={{ background: "linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)" }}>{editId ? "Save" : "Create"}</Button>
           </div>
         </CardContent>

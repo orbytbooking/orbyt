@@ -99,7 +99,18 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
       const res = await fetch('/api/admin/my-businesses', { credentials: 'include' });
       if (!res.ok) {
-        const text = await res.text();
+        const text = (await res.text()).trim();
+        let detail = text;
+        if (text.startsWith('{')) {
+          try {
+            const j = JSON.parse(text) as { error?: string };
+            if (j.error) detail = j.error;
+          } catch {
+            /* keep raw */
+          }
+        } else if (text.length > 200) {
+          detail = `${text.slice(0, 200)}…`;
+        }
         if (res.status === 401 && typeof window !== 'undefined') {
           const currentPath = window.location.pathname;
           const publicPaths = ['/', '/features', '/auth/', '/pricing', '/contact'];
@@ -107,7 +118,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
             router.push('/auth/login');
           }
         }
-        throw new Error(text || `HTTP ${res.status}`);
+        throw new Error(detail || `HTTP ${res.status}`);
       }
       const payload = (await res.json()) as { businesses?: Business[]; error?: string };
       if (payload.error) {
@@ -128,20 +139,16 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
         };
       });
       await applyBusinessList(normalized);
-    } catch (error: any) {
-      // Improved error logging
-      const errorDetails = {
-        error,
-        message: error?.message || String(error) || 'Unknown error',
-        code: error?.code || 'No error code',
-        details: error?.details || 'No error details',
-        stack: error?.stack || 'No stack trace'
-      };
-      console.error('Business fetch error:', errorDetails);
-      
-      // Set user-friendly error message
-      const errorMessage = error?.message || String(error) || 'Failed to fetch businesses';
-      setError(errorMessage);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : typeof error === 'string'
+            ? error
+            : 'Failed to fetch businesses';
+      // Single string so the Next.js dev overlay shows a useful line (objects often render as {}).
+      console.error(`Business fetch error: ${message}`);
+      setError(message);
     } finally {
       setLoading(false);
     }

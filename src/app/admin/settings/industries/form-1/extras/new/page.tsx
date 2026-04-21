@@ -7,11 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ChevronDown, Info, Upload, X } from "lucide-react";
+import { ChevronDown, Info, Layers, Package, Sparkles, Upload, X } from "lucide-react";
 import { INDUSTRY_FORM_ICON_PRESETS } from "@/lib/industryExtraIcons";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import {
   Tooltip,
   TooltipContent,
@@ -26,6 +28,32 @@ import {
 import { useBusiness } from "@/contexts/BusinessContext";
 import { toast } from "sonner";
 import { useRef } from "react";
+import {
+  bookingFormScopeFromSearchParams,
+  parseListingKindParam,
+} from "@/lib/bookingFormScope";
+
+const FORM2_HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => String(i));
+const FORM2_MINUTE_OPTIONS = Array.from({ length: 60 }, (_, i) => String(i));
+
+function OrangeInfoTip({ text }: { text: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm"
+          aria-label="More info"
+        >
+          <Info className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right" className="max-w-sm text-sm leading-snug">
+        {text}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 // Helper function to get display name for variables
 const getVariableDisplayName = (param: any, category: string): string => {
@@ -66,6 +94,13 @@ export default function ExtraNewPage() {
   const industry = params.get("industry") || "Industry";
   const industryId = params.get("industryId");
   const editId = params.get("editId");
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const listingKindFilter = parseListingKindParam(params.get("listingKind"));
+  const scopeQs =
+    `&bookingFormScope=${bookingFormScope}` +
+    (listingKindFilter ? `&listingKind=${listingKindFilter}` : "");
+  const listing_kind = listingKindFilter === "addon" ? "addon" : "extra";
+  const isForm2Addon = bookingFormScope === "form2" && listingKindFilter === "addon";
   const { currentBusiness } = useBusiness();
   const [saving, setSaving] = useState(false);
   
@@ -84,6 +119,9 @@ export default function ExtraNewPage() {
     timeMinutes: "0",
     serviceCategory: "",
     price: "0",
+    priceMerchant: "",
+    hoursMerchant: "",
+    minutesMerchant: "",
     display: "frontend-backend-admin" as ExtraDisplay,
     qtyBased: false,
     exemptFromDiscount: false,
@@ -154,7 +192,9 @@ export default function ExtraNewPage() {
       if (!industryId) return;
       
       try {
-        const response = await fetch(`/api/industry-frequency?industryId=${industryId}&includeAll=true`);
+        const response = await fetch(
+          `/api/industry-frequency?industryId=${industryId}&includeAll=true${scopeQs}`,
+        );
         if (!response.ok) {
           throw new Error('Failed to fetch frequencies');
         }
@@ -175,7 +215,7 @@ export default function ExtraNewPage() {
     };
 
     fetchFrequencies();
-  }, [industryId]);
+  }, [industryId, bookingFormScope, listingKindFilter]);
 
   // Load service categories from database
   useEffect(() => {
@@ -191,7 +231,7 @@ export default function ExtraNewPage() {
       }
       
       try {
-        const apiUrl = `/api/service-categories?industryId=${industryId}`;
+        const apiUrl = `/api/service-categories?industryId=${industryId}${scopeQs}`;
         console.log('🔗 Fetching from:', apiUrl);
         
         const response = await fetch(apiUrl);
@@ -232,15 +272,17 @@ export default function ExtraNewPage() {
     };
 
     fetchServiceCategories();
-  }, [industryId]);
+  }, [industryId, bookingFormScope, listingKindFilter]);
 
   // Load variables from database
   useEffect(() => {
     const fetchVariables = async () => {
-      if (!industryId) return;
-      
+      if (!industryId || !currentBusiness?.id) return;
+
       try {
-        const response = await fetch(`/api/pricing-parameters?industryId=${industryId}`);
+        const response = await fetch(
+          `/api/pricing-parameters?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
+        );
         if (!response.ok) {
           throw new Error('Failed to fetch pricing parameters');
         }
@@ -273,7 +315,7 @@ export default function ExtraNewPage() {
     };
 
     fetchVariables();
-  }, [industryId]);
+  }, [industryId, currentBusiness?.id, bookingFormScope, listingKindFilter]);
 
   useEffect(() => {
     if (editId && editId !== 'undefined' && editId !== 'null') {
@@ -310,7 +352,7 @@ export default function ExtraNewPage() {
     console.log('✅ Frontend validation passed, making API call...');
     
     try {
-      const apiUrl = `/api/extras/${editId}`;
+      const apiUrl = `/api/extras/${editId}?industryId=${encodeURIComponent(industryId ?? "")}&businessId=${encodeURIComponent(currentBusiness?.id ?? "")}`;
       console.log('🔗 Calling API:', apiUrl);
       
       const response = await fetch(apiUrl);
@@ -338,6 +380,11 @@ export default function ExtraNewPage() {
       if (extra) {
         const hours = Math.floor((extra.time_minutes ?? 0) / 60);
         const minutes = (extra.time_minutes ?? 0) % 60;
+        const ex = extra as Record<string, unknown>;
+        const mlTmRaw = ex.time_minutes_merchant_location;
+        const mlTm = mlTmRaw != null ? Number(mlTmRaw) : null;
+        const mlHours = mlTm != null ? Math.floor(mlTm / 60) : 0;
+        const mlMinutes = mlTm != null ? mlTm % 60 : 0;
         const structure =
           extra.pricing_structure === "manual" ? "manual" : "multiply";
         const manualPricesFromDb = (
@@ -365,6 +412,10 @@ export default function ExtraNewPage() {
           timeMinutes: String(minutes),
           serviceCategory: extra.service_category || "",
           price: String(extra.price ?? 0),
+          priceMerchant:
+            ex.price_merchant_location != null ? String(ex.price_merchant_location) : "",
+          hoursMerchant: mlTm != null ? String(mlHours) : "",
+          minutesMerchant: mlTm != null ? String(mlMinutes) : "",
           display: extra.display,
           qtyBased: extra.qty_based,
           exemptFromDiscount: extra.exempt_from_discount ?? false,
@@ -453,7 +504,13 @@ export default function ExtraNewPage() {
       }
     }
 
-    const extraData = {
+    const mlHours = Number(form.hoursMerchant) || 0;
+    const mlMinutes = Number(form.minutesMerchant) || 0;
+    const timeMinutesMerchant = mlHours * 60 + mlMinutes;
+    const hasMlPrice = form.priceMerchant.trim() !== "";
+    const hasMlTime = Boolean(form.hoursMerchant.trim() || form.minutesMerchant.trim());
+
+    const extraData: Record<string, unknown> = {
       business_id: currentBusiness.id,
       industry_id: industryId,
       name: form.name.trim(),
@@ -494,7 +551,14 @@ export default function ExtraNewPage() {
       show_based_on_variables: form.showBasedOnVariables,
       variable_options: form.showBasedOnVariables ? form.variableOptions : [],
       excluded_providers: form.excludedProviders,
+      booking_form_scope: bookingFormScope,
+      listing_kind,
     };
+
+    if (isForm2Addon) {
+      extraData.price_merchant_location = hasMlPrice ? Number(form.priceMerchant) : null;
+      extraData.time_minutes_merchant_location = hasMlTime ? timeMinutesMerchant : null;
+    }
 
     try {
       setSaving(true);
@@ -529,7 +593,9 @@ export default function ExtraNewPage() {
         toast.success('Extra created successfully');
       }
 
-      router.push(`/admin/settings/industries/form-1/extras?industry=${encodeURIComponent(industry)}&industryId=${industryId}`);
+      router.push(
+        `/admin/settings/industries/form-1/extras?industry=${encodeURIComponent(industry)}&industryId=${industryId}${scopeQs}`,
+      );
     } catch (error) {
       console.error('Error saving extra:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to save extra');
@@ -542,42 +608,80 @@ export default function ExtraNewPage() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>{editId ? "Edit Extra" : "Add Extra"}</CardTitle>
+          <CardTitle>
+            {isForm2Addon
+              ? editId
+                ? "Edit add-on"
+                : "Add add-ons"
+              : editId
+                ? "Edit Extra"
+                : "Add Extra"}
+          </CardTitle>
           <CardDescription>
-            Extras can be attached to a service and a variable (things like inside fridge for a cleaning service or wax for a car wash).
-            Configure one for {industry}.
+            {isForm2Addon
+              ? `If you want to allow customers to customize their purchases you can create add-ons that can make their requests very specific. For example if you offer car washing services, you can make add-ons such as "interior", "exterior", "waxing", "tire shine", etc., and they will be able to add those to their booking. Configure these for ${industry}.`
+              : `Extras can be attached to a service and a variable (things like inside fridge for a cleaning service or wax for a car wash). Configure one for ${industry}.`}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="details" className="w-full">
-            <TabsList className="grid w-full grid-cols-3 mb-6">
-              <TabsTrigger value="details">Details</TabsTrigger>
-              <TabsTrigger value="dependencies">Dependencies</TabsTrigger>
-              <TabsTrigger value="providers">Providers</TabsTrigger>
+            <TabsList
+              className={cn(
+                "mb-6 w-full",
+                isForm2Addon
+                  ? "grid h-auto grid-cols-2 gap-0 rounded-none border-b border-border bg-transparent p-0"
+                  : "grid grid-cols-3",
+              )}
+            >
+              <TabsTrigger
+                value="details"
+                className={cn(
+                  isForm2Addon &&
+                    "rounded-none border-b-2 border-transparent pb-2 data-[state=active]:border-orange-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none",
+                )}
+              >
+                Details
+              </TabsTrigger>
+              <TabsTrigger
+                value="dependencies"
+                className={cn(
+                  isForm2Addon &&
+                    "rounded-none border-b-2 border-transparent pb-2 data-[state=active]:border-orange-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none",
+                )}
+              >
+                Dependencies
+              </TabsTrigger>
+              {!isForm2Addon ? (
+                <TabsTrigger value="providers">Providers</TabsTrigger>
+              ) : null}
             </TabsList>
 
             {/* DETAILS TAB */}
-            <TabsContent value="details" className="mt-4 space-y-5">
+            <TabsContent value="details" className={cn("mt-4 space-y-5", isForm2Addon && "space-y-8")}>
               <TooltipProvider delayDuration={200}>
               <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-2">
                   <Label htmlFor="extra-name">Name</Label>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About name">
-                        <Info className="h-4 w-4" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="max-w-xs text-sm">
-                      Internal name for this extra. Customers see the customer end name when &quot;Different on customer end&quot; is enabled.
-                    </TooltipContent>
-                  </Tooltip>
+                  {isForm2Addon ? (
+                    <OrangeInfoTip text='Internal name for this add-on. Customers see the customer end name when "Different on customer end" is enabled.' />
+                  ) : (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About name">
+                          <Info className="h-4 w-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-xs text-sm">
+                        Internal name for this extra. Customers see the customer end name when &quot;Different on customer end&quot; is enabled.
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                 </div>
                 <Input
                   id="extra-name"
                   value={form.name}
                   onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))}
-                  placeholder="Ex: Deep Cleaning"
+                  placeholder={isForm2Addon ? "Enter name" : "Ex: Deep Cleaning"}
                 />
               </div>
 
@@ -791,8 +895,237 @@ export default function ExtraNewPage() {
                   </label>
                 </RadioGroup>
               </div>
+
+              {isForm2Addon ? (
+                <>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Label>Quantity based</Label>
+                      <OrangeInfoTip text="Allow customers to choose more than one of this add-on (with an optional maximum)." />
+                    </div>
+                    <RadioGroup
+                      value={form.qtyBased ? "yes" : "no"}
+                      onValueChange={(v) => setForm(p => ({ ...p, qtyBased: v === "yes" }))}
+                      className="flex gap-4"
+                    >
+                      <label className="flex items-center gap-2 text-sm">
+                        <RadioGroupItem value="yes" /> Yes
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <RadioGroupItem value="no" /> No
+                      </label>
+                    </RadioGroup>
+                  </div>
+
+                  {form.qtyBased ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="maximum-f2-addon">Maximum</Label>
+                      <Input
+                        id="maximum-f2-addon"
+                        type="number"
+                        value={form.maximum}
+                        onChange={(e) => setForm((p) => ({ ...p, maximum: e.target.value }))}
+                        placeholder="Number"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Per-unit price and time use the S.A. / M.L. row below (multiply pricing).
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {(
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-medium">Price &amp; Time</h4>
+                        <OrangeInfoTip text="S.A. is service area (at the customer's location). M.L. is merchant location (at your store). Leave M.L. empty to use the same price and duration as S.A." />
+                      </div>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="space-y-3 rounded-lg border p-4">
+                          <div className="flex items-center gap-2 text-sm font-medium">
+                            S.A.
+                            <OrangeInfoTip text="Service area — work performed at the customer's location." />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="addon-sa-price">Pricing</Label>
+                            <div className="relative w-28">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                              <Input
+                                id="addon-sa-price"
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={form.price}
+                                onChange={(e) => setForm((p) => ({ ...p, price: e.target.value }))}
+                                placeholder="0"
+                                className="pl-7"
+                              />
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Time</Label>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Select
+                                value={form.timeHours === "" ? "0" : form.timeHours}
+                                onValueChange={(v) => setForm((p) => ({ ...p, timeHours: v }))}
+                              >
+                                <SelectTrigger className="w-[88px]">
+                                  <SelectValue placeholder="Hours" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {FORM2_HOUR_OPTIONS.map((h) => (
+                                    <SelectItem key={h} value={h}>
+                                      {h} hr
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Select
+                                value={form.timeMinutes === "" ? "0" : form.timeMinutes}
+                                onValueChange={(v) => setForm((p) => ({ ...p, timeMinutes: v }))}
+                              >
+                                <SelectTrigger className="w-[88px]">
+                                  <SelectValue placeholder="Min" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {FORM2_MINUTE_OPTIONS.map((m) => (
+                                    <SelectItem key={m} value={m}>
+                                      {m} min
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="space-y-3 rounded-lg border p-4">
+                          <div className="flex items-center gap-2 text-sm font-medium">
+                            M.L.
+                            <OrangeInfoTip text="Merchant location — work performed at your business location." />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="addon-ml-price">Pricing</Label>
+                            <div className="relative w-28">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                              <Input
+                                id="addon-ml-price"
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={form.priceMerchant}
+                                onChange={(e) => setForm((p) => ({ ...p, priceMerchant: e.target.value }))}
+                                placeholder="0"
+                                className="pl-7"
+                              />
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Time</Label>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Select
+                                value={form.hoursMerchant === "" ? "0" : form.hoursMerchant}
+                                onValueChange={(v) => setForm((p) => ({ ...p, hoursMerchant: v }))}
+                              >
+                                <SelectTrigger className="w-[88px]">
+                                  <SelectValue placeholder="Hours" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {FORM2_HOUR_OPTIONS.map((h) => (
+                                    <SelectItem key={`ml-h-${h}`} value={h}>
+                                      {h} hr
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Select
+                                value={form.minutesMerchant === "" ? "0" : form.minutesMerchant}
+                                onValueChange={(v) => setForm((p) => ({ ...p, minutesMerchant: v }))}
+                              >
+                                <SelectTrigger className="w-[88px]">
+                                  <SelectValue placeholder="Min" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {FORM2_MINUTE_OPTIONS.map((m) => (
+                                    <SelectItem key={`ml-m-${m}`} value={m}>
+                                      {m} min
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Label>Select icon</Label>
+                      <OrangeInfoTip text="Pick a preset icon or upload a square image (recommended max 300×300 px)." />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex gap-2">
+                        {(
+                          [
+                            { id: "layers", Icon: Layers },
+                            { id: "package", Icon: Package },
+                            { id: "sparkles", Icon: Sparkles },
+                          ] as const
+                        ).map(({ id, Icon }) => (
+                          <Button
+                            key={id}
+                            type="button"
+                            variant={form.icon === id ? "default" : "outline"}
+                            size="icon"
+                            className="h-11 w-11"
+                            onClick={() => {
+                              setForm((p) => ({ ...p, icon: id }));
+                              setUploadedIcon(null);
+                              setShowIconPicker(false);
+                            }}
+                            aria-label={`Icon ${id}`}
+                          >
+                            <Icon className="h-5 w-5" />
+                          </Button>
+                        ))}
+                      </div>
+                      <span className="text-sm text-muted-foreground">Or</span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          id="f2-addon-icon-upload"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onloadend = () => {
+                                const base64String = reader.result as string;
+                                setUploadedIcon(base64String);
+                                setForm((p) => ({ ...p, icon: "" }));
+                                toast.success("Icon uploaded successfully");
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          }}
+                        />
+                        <Button type="button" variant="default" className="bg-blue-600 hover:bg-blue-700" asChild>
+                          <label htmlFor="f2-addon-icon-upload" className="cursor-pointer">
+                            Browse
+                          </label>
+                        </Button>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Image size should not be more than 300px by 300px.</p>
+                  </div>
+                </>
+              ) : null}
+
               </TooltipProvider>
 
+              {!isForm2Addon ? (
+              <>
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Checkbox 
@@ -1271,6 +1604,8 @@ export default function ExtraNewPage() {
                   </label>
                 </RadioGroup>
               </div>
+              </>
+              ) : null}
 
             </TabsContent>
 
@@ -1507,6 +1842,7 @@ export default function ExtraNewPage() {
             </TabsContent>
 
             {/* PROVIDERS TAB */}
+            {!isForm2Addon ? (
             <TabsContent value="providers" className="mt-4 space-y-6">
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
@@ -1556,12 +1892,17 @@ export default function ExtraNewPage() {
                 )}
               </div>
             </TabsContent>
+            ) : null}
           </Tabs>
           
           <div className="mt-6 flex gap-2 justify-end">
             <Button 
               variant="outline" 
-              onClick={() => router.push(`/admin/settings/industries/form-1/extras?industry=${encodeURIComponent(industry)}`)}
+              onClick={() =>
+                router.push(
+                  `/admin/settings/industries/form-1/extras?industry=${encodeURIComponent(industry)}&industryId=${industryId ?? ""}${scopeQs}`,
+                )
+              }
             >
               Cancel
             </Button>

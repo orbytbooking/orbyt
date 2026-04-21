@@ -229,6 +229,7 @@ CREATE TABLE public.business_store_options (
   admin_calendar_month_display text NOT NULL DEFAULT 'names'::text CHECK (admin_calendar_month_display = ANY (ARRAY['names'::text, 'dots'::text])),
   admin_calendar_multi_booking_layout text NOT NULL DEFAULT 'side_by_side'::text CHECK (admin_calendar_multi_booking_layout = ANY (ARRAY['side_by_side'::text, 'overlapped'::text])),
   admin_calendar_hide_non_working_hours boolean NOT NULL DEFAULT false,
+  customer_booking_form_layout text NOT NULL DEFAULT 'form1'::text CHECK (customer_booking_form_layout = ANY (ARRAY['form1'::text, 'form2'::text])),
   CONSTRAINT business_store_options_pkey PRIMARY KEY (id),
   CONSTRAINT business_store_options_business_id_fkey FOREIGN KEY (business_id) REFERENCES public.businesses(id)
 );
@@ -262,6 +263,7 @@ CREATE TABLE public.businesses (
   business_image text,
   logo_url text,
   stripe_connect_account_id text,
+  default_seed_form1_template boolean DEFAULT true,
   CONSTRAINT businesses_pkey PRIMARY KEY (id),
   CONSTRAINT businesses_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES auth.users(id)
 );
@@ -398,6 +400,7 @@ CREATE TABLE public.industries (
   is_custom boolean DEFAULT false,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
+  customer_booking_form_layout text NOT NULL DEFAULT 'form1'::text CHECK (customer_booking_form_layout = ANY (ARRAY['form1'::text, 'form2'::text])),
   CONSTRAINT industries_pkey PRIMARY KEY (id),
   CONSTRAINT industries_business_id_fkey FOREIGN KEY (business_id) REFERENCES public.businesses(id)
 );
@@ -462,6 +465,8 @@ CREATE TABLE public.industry_extras (
   popup_content text,
   popup_display text NOT NULL DEFAULT 'customer_frontend_backend_admin'::text,
   apply_to_all_bookings boolean NOT NULL DEFAULT true,
+  booking_form_scope text NOT NULL DEFAULT 'form1'::text CHECK (booking_form_scope = ANY (ARRAY['form1'::text, 'form2'::text])),
+  listing_kind text NOT NULL DEFAULT 'extra'::text CHECK (listing_kind = ANY (ARRAY['extra'::text, 'addon'::text])),
   CONSTRAINT industry_extras_pkey PRIMARY KEY (id),
   CONSTRAINT industry_extras_industry_id_fkey FOREIGN KEY (industry_id) REFERENCES public.industries(id),
   CONSTRAINT industry_extras_business_id_fkey FOREIGN KEY (business_id) REFERENCES public.businesses(id)
@@ -503,6 +508,7 @@ CREATE TABLE public.industry_frequency (
   exclude_first_appointment boolean DEFAULT false,
   frequency_discount text,
   charge_one_time_price boolean DEFAULT false,
+  booking_form_scope text NOT NULL DEFAULT 'form1'::text CHECK (booking_form_scope = ANY (ARRAY['form1'::text, 'form2'::text])),
   CONSTRAINT industry_frequency_pkey PRIMARY KEY (id),
   CONSTRAINT industry_frequency_business_id_fkey FOREIGN KEY (business_id) REFERENCES public.businesses(id),
   CONSTRAINT industry_frequency_industry_id_fkey FOREIGN KEY (industry_id) REFERENCES public.industries(id)
@@ -550,6 +556,7 @@ CREATE TABLE public.industry_pricing_parameter (
   sort_order integer DEFAULT 0,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
+  booking_form_scope text NOT NULL DEFAULT 'form1'::text CHECK (booking_form_scope = ANY (ARRAY['form1'::text, 'form2'::text])),
   CONSTRAINT industry_pricing_parameter_pkey PRIMARY KEY (id),
   CONSTRAINT industry_pricing_parameter_business_id_fkey FOREIGN KEY (business_id) REFERENCES public.businesses(id),
   CONSTRAINT industry_pricing_parameter_industry_id_fkey FOREIGN KEY (industry_id) REFERENCES public.industries(id)
@@ -597,6 +604,7 @@ CREATE TABLE public.industry_service_category (
   service_length_tooltip_text_customer text,
   enable_service_length_tooltip_provider boolean NOT NULL DEFAULT false,
   service_length_tooltip_text_provider text,
+  booking_form_scope text NOT NULL DEFAULT 'form1'::text CHECK (booking_form_scope = ANY (ARRAY['form1'::text, 'form2'::text])),
   CONSTRAINT industry_service_category_pkey PRIMARY KEY (id),
   CONSTRAINT industry_service_category_business_id_fkey FOREIGN KEY (business_id) REFERENCES public.businesses(id),
   CONSTRAINT industry_service_category_industry_id_fkey FOREIGN KEY (industry_id) REFERENCES public.industries(id)

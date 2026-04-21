@@ -1,5 +1,6 @@
 import { supabase, supabaseAdmin } from '@/lib/supabaseClient';
 import { normalizeFrequencyPopupDisplay } from '@/lib/frequencyPopupDisplay';
+import type { BookingFormScope } from '@/lib/bookingFormScope';
 
 export type PricingVariableDisplay =
   | 'customer_frontend_backend_admin'
@@ -40,6 +41,12 @@ export interface PricingVariableRow {
   sort_order: number;
   created_at: string;
   updated_at: string;
+  booking_form_scope?: BookingFormScope;
+  /** After migration `126_industry_pricing_variable_dependencies`. */
+  show_based_on_frequency?: boolean;
+  frequency_options?: string[] | null;
+  show_based_on_service_category?: boolean;
+  service_category_options?: string[] | null;
 }
 
 export interface CreatePricingVariableData {
@@ -58,6 +65,11 @@ export interface CreatePricingVariableData {
   popup_display?: string;
   display?: string;
   sort_order?: number;
+  booking_form_scope?: BookingFormScope;
+  show_based_on_frequency?: boolean;
+  frequency_options?: string[];
+  show_based_on_service_category?: boolean;
+  service_category_options?: string[];
 }
 
 export interface UpdatePricingVariableData {
@@ -74,6 +86,10 @@ export interface UpdatePricingVariableData {
   popup_display?: string;
   display?: string;
   sort_order?: number;
+  show_based_on_frequency?: boolean;
+  frequency_options?: string[];
+  show_based_on_service_category?: boolean;
+  service_category_options?: string[];
 }
 
 /** Variable payload from frontend (id optional for new) */
@@ -91,6 +107,10 @@ export interface PricingVariablePayload {
   popup_content?: string | null;
   popup_display?: string;
   display?: string;
+  show_based_on_frequency?: boolean;
+  frequency_options?: string[];
+  show_based_on_service_category?: boolean;
+  service_category_options?: string[];
 }
 
 class PricingVariablesService {
@@ -100,11 +120,22 @@ class PricingVariablesService {
     this.supabase = (typeof window === 'undefined' && supabaseAdmin) ? supabaseAdmin : supabase;
   }
 
-  async getByIndustry(industryId: string): Promise<PricingVariableRow[]> {
-    const { data, error } = await this.supabase
+  async getByIndustry(
+    industryId: string,
+    bookingFormScope: BookingFormScope | null = null,
+    businessId?: string | null,
+  ): Promise<PricingVariableRow[]> {
+    let q = this.supabase
       .from('industry_pricing_variable')
       .select('*')
-      .eq('industry_id', industryId)
+      .eq('industry_id', industryId);
+    if (businessId?.trim()) {
+      q = q.eq('business_id', businessId.trim());
+    }
+    if (bookingFormScope === 'form1' || bookingFormScope === 'form2') {
+      q = q.eq('booking_form_scope', bookingFormScope);
+    }
+    const { data, error } = await q
       .order('sort_order', { ascending: true })
       .order('name', { ascending: true });
 
@@ -163,9 +194,10 @@ class PricingVariablesService {
   async saveBulk(
     industryId: string,
     businessId: string,
-    variables: PricingVariablePayload[]
+    variables: PricingVariablePayload[],
+    bookingFormScope: BookingFormScope = 'form1',
   ): Promise<PricingVariableRow[]> {
-    const existing = await this.getByIndustry(industryId);
+    const existing = await this.getByIndustry(industryId, bookingFormScope, businessId);
     const existingIds = new Set(existing.map((v) => v.id));
     const incomingIds = new Set(
       variables.filter((v) => v.id && existingIds.has(v.id)).map((v) => v.id as string)
@@ -193,6 +225,16 @@ class PricingVariablesService {
         popup_display: normalizeFrequencyPopupDisplay(v.popup_display),
         display: normalizePricingVariableDisplay(v.display),
         sort_order: i,
+        show_based_on_frequency: Boolean(v.show_based_on_frequency),
+        frequency_options:
+          v.show_based_on_frequency && Array.isArray(v.frequency_options)
+            ? v.frequency_options.map((x) => String(x).trim()).filter(Boolean)
+            : [],
+        show_based_on_service_category: Boolean(v.show_based_on_service_category),
+        service_category_options:
+          v.show_based_on_service_category && Array.isArray(v.service_category_options)
+            ? v.service_category_options.map((x) => String(x).trim()).filter(Boolean)
+            : [],
       };
       if (v.id && existingIds.has(v.id)) {
         await this.update(v.id, sharedFields);
@@ -200,6 +242,7 @@ class PricingVariablesService {
         await this.create({
           industry_id: industryId,
           business_id: businessId,
+          booking_form_scope: bookingFormScope,
           ...sharedFields,
         });
       }
@@ -211,7 +254,7 @@ class PricingVariablesService {
       }
     }
 
-    return this.getByIndustry(industryId);
+    return this.getByIndustry(industryId, bookingFormScope, businessId);
   }
 }
 

@@ -16,6 +16,7 @@ import GoogleDrawMap from "@/components/map/GoogleDrawMap";
 import { supabase } from "@/lib/supabaseClient";
 import { useToast } from "@/components/ui/use-toast";
 import { useBusiness } from "@/contexts/BusinessContext";
+import { bookingFormScopeFromSearchParams } from "@/lib/bookingFormScope";
 
 interface DrawnShape {
   id: string;
@@ -41,6 +42,8 @@ export default function AddLocationPage() {
   const industry = params.get("industry") || "Industry";
   const industryId = params.get("industryId") || "";
   const editId = params.get("editId");
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const scopeQs = `&bookingFormScope=${bookingFormScope}`;
   const { currentBusiness } = useBusiness();
   const { toast } = useToast();
 
@@ -79,7 +82,7 @@ export default function AddLocationPage() {
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
   const [excludedProviderIds, setExcludedProviderIds] = useState<string[]>([]);
 
-  const listHref = `/admin/settings/industries/form-1/locations?industry=${encodeURIComponent(industry)}${industryId ? `&industryId=${industryId}` : ""}`;
+  const listHref = `/admin/settings/industries/form-1/locations?industry=${encodeURIComponent(industry)}${industryId ? `&industryId=${industryId}` : ""}${scopeQs}`;
 
   useEffect(() => {
     const resolveBusiness = async () => {
@@ -148,11 +151,31 @@ export default function AddLocationPage() {
     (async () => {
       const [indRes, freqRes, catRes, paramRes, exclRes, extRes] = await Promise.all([
         fetch(`/api/industries?business_id=${businessId}`),
-        industryId ? fetch(`/api/industry-frequency?industryId=${industryId}&includeAll=true`) : null,
-        industryId ? fetch(`/api/service-categories?industryId=${industryId}`) : null,
-        industryId ? fetch(`/api/pricing-parameters?industryId=${industryId}`) : null,
+        industryId
+          ? fetch(
+              `/api/industry-frequency?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessId)}&includeAll=true${scopeQs}`,
+            )
+          : null,
+        industryId
+          ? fetch(
+              `/api/service-categories?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessId)}${scopeQs}`,
+            )
+          : null,
+        industryId
+          ? fetch(
+              `/api/pricing-parameters?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessId)}${scopeQs}`,
+            )
+          : null,
         industryId ? fetch(`/api/exclude-parameters?industryId=${industryId}`) : null,
-        industryId ? fetch(`/api/extras?industryId=${industryId}`) : null,
+        industryId
+          ? bookingFormScope === "form2"
+            ? fetch(
+                `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessId)}${scopeQs}`,
+              )
+            : fetch(
+                `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessId)}${scopeQs}&listingKind=extra`,
+              )
+          : null,
       ]);
       const indData = await indRes.json();
       if (indData.industries) setIndustries(indData.industries.map((i: { id: string; name: string }) => ({ id: i.id, name: i.name })));
@@ -191,7 +214,7 @@ export default function AddLocationPage() {
         setExtras((d.extras || d).map((e: { id: string; name?: string }) => ({ id: e.id, name: e.name || "" })));
       }
     })();
-  }, [businessId, industryId]);
+  }, [businessId, industryId, bookingFormScope, scopeQs]);
 
   useEffect(() => {
     if (!businessId) return;

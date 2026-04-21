@@ -1,4 +1,5 @@
 import { supabase, supabaseAdmin } from '@/lib/supabaseClient';
+import type { BookingFormScope, IndustryExtraListingKind } from '@/lib/bookingFormScope';
 
 /** Columns accepted on POST/PUT `/api/extras` — must match `industry_extras` (no `id` / timestamps). */
 export const INDUSTRY_EXTRAS_WRITABLE_KEYS = [
@@ -32,6 +33,10 @@ export const INDUSTRY_EXTRAS_WRITABLE_KEYS = [
   'popup_content',
   'popup_display',
   'apply_to_all_bookings',
+  'booking_form_scope',
+  'listing_kind',
+  'price_merchant_location',
+  'time_minutes_merchant_location',
 ] as const;
 
 /** Drop unknown keys so writes are DB-backed only (no arbitrary JSON → Supabase). */
@@ -99,6 +104,10 @@ export interface Extra {
   time_minutes: number;
   service_category?: string;
   price: number;
+  /** Form 2 add-on: M.L. price; null = same as S.A. */
+  price_merchant_location?: number | null;
+  /** Form 2 add-on: M.L. duration; null = same as S.A. */
+  time_minutes_merchant_location?: number | null;
   display: 'frontend-backend-admin' | 'backend-admin' | 'admin-only';
   qty_based: boolean;
   maximum_quantity?: number | null;
@@ -123,6 +132,8 @@ export interface Extra {
   sort_order: number;
   created_at: string;
   updated_at: string;
+  booking_form_scope?: BookingFormScope;
+  listing_kind?: IndustryExtraListingKind;
 }
 
 export interface CreateExtraData {
@@ -134,6 +145,8 @@ export interface CreateExtraData {
   time_minutes: number;
   service_category?: string;
   price: number;
+  price_merchant_location?: number | null;
+  time_minutes_merchant_location?: number | null;
   display: Extra['display'];
   qty_based: boolean;
   maximum_quantity?: number | null;
@@ -156,6 +169,8 @@ export interface CreateExtraData {
   popup_display?: string;
   apply_to_all_bookings?: boolean;
   sort_order?: number;
+  booking_form_scope?: BookingFormScope;
+  listing_kind?: IndustryExtraListingKind;
 }
 
 export interface UpdateExtraData extends Partial<CreateExtraData> {}
@@ -168,11 +183,28 @@ class ExtrasService {
     this.supabase = (typeof window === 'undefined' && supabaseAdmin) ? supabaseAdmin : supabase;
   }
 
-  async getExtrasByIndustry(industryId: string): Promise<Extra[]> {
-    const { data, error } = await this.supabase
+  async getExtrasByIndustry(
+    industryId: string,
+    opts?: {
+      businessId?: string | null;
+      bookingFormScope?: BookingFormScope | null;
+      listingKind?: IndustryExtraListingKind | null;
+    },
+  ): Promise<Extra[]> {
+    let q = this.supabase
       .from('industry_extras')
       .select('*')
-      .eq('industry_id', industryId)
+      .eq('industry_id', industryId);
+    if (opts?.businessId?.trim()) {
+      q = q.eq('business_id', opts.businessId.trim());
+    }
+    if (opts?.bookingFormScope === 'form1' || opts?.bookingFormScope === 'form2') {
+      q = q.eq('booking_form_scope', opts.bookingFormScope);
+    }
+    if (opts?.listingKind === 'extra' || opts?.listingKind === 'addon') {
+      q = q.eq('listing_kind', opts.listingKind);
+    }
+    const { data, error } = await q
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true });
 
@@ -184,12 +216,18 @@ class ExtrasService {
     return data || [];
   }
 
-  async getExtraById(id: string): Promise<Extra | null> {
-    const { data, error } = await this.supabase
-      .from('industry_extras')
-      .select('*')
-      .eq('id', id)
-      .single();
+  async getExtraById(
+    id: string,
+    scope?: { business_id: string; industry_id: string },
+  ): Promise<Extra | null> {
+    let q = this.supabase.from('industry_extras').select('*').eq('id', id);
+    if (scope?.business_id?.trim()) {
+      q = q.eq('business_id', scope.business_id.trim());
+    }
+    if (scope?.industry_id?.trim()) {
+      q = q.eq('industry_id', scope.industry_id.trim());
+    }
+    const { data, error } = await q.single();
 
     if (error) {
       console.error('Error fetching extra:', error);
@@ -218,13 +256,19 @@ class ExtrasService {
     return data;
   }
 
-  async updateExtra(id: string, updateData: UpdateExtraData): Promise<Extra> {
-    const { data, error } = await this.supabase
-      .from('industry_extras')
-      .update(updateData)
-      .eq('id', id)
-      .select()
-      .single();
+  async updateExtra(
+    id: string,
+    updateData: UpdateExtraData,
+    scope?: { business_id: string; industry_id: string },
+  ): Promise<Extra> {
+    let q = this.supabase.from('industry_extras').update(updateData).eq('id', id);
+    if (scope?.business_id?.trim()) {
+      q = q.eq('business_id', scope.business_id.trim());
+    }
+    if (scope?.industry_id?.trim()) {
+      q = q.eq('industry_id', scope.industry_id.trim());
+    }
+    const { data, error } = await q.select().single();
 
     if (error) {
       console.error('Error updating extra:', error);
@@ -234,36 +278,64 @@ class ExtrasService {
     return data;
   }
 
-  async deleteExtra(id: string): Promise<void> {
-    const { error } = await this.supabase
-      .from('industry_extras')
-      .delete()
-      .eq('id', id);
+  async deleteExtra(
+    id: string,
+    scope?: { business_id: string; industry_id: string },
+  ): Promise<{ deleted: boolean }> {
+    let q = this.supabase.from('industry_extras').delete().eq('id', id);
+    if (scope?.business_id?.trim()) {
+      q = q.eq('business_id', scope.business_id.trim());
+    }
+    if (scope?.industry_id?.trim()) {
+      q = q.eq('industry_id', scope.industry_id.trim());
+    }
+    const { data, error } = await q.select('id');
 
     if (error) {
       console.error('Error deleting extra:', error);
       throw error;
     }
+    return { deleted: Array.isArray(data) && data.length > 0 };
   }
 
-  async permanentlyDeleteExtra(id: string): Promise<void> {
-    const { error } = await this.supabase
-      .from('industry_extras')
-      .delete()
-      .eq('id', id);
+  async permanentlyDeleteExtra(
+    id: string,
+    scope?: { business_id: string; industry_id: string },
+  ): Promise<{ deleted: boolean }> {
+    let q = this.supabase.from('industry_extras').delete().eq('id', id);
+    if (scope?.business_id?.trim()) {
+      q = q.eq('business_id', scope.business_id.trim());
+    }
+    if (scope?.industry_id?.trim()) {
+      q = q.eq('industry_id', scope.industry_id.trim());
+    }
+    const { data, error } = await q.select('id');
 
     if (error) {
       console.error('Error permanently deleting extra:', error);
       throw error;
     }
+    return { deleted: Array.isArray(data) && data.length > 0 };
   }
 
-  async updateExtraOrder(updates: Array<{ id: string; sort_order: number }>): Promise<void> {
+  async updateExtraOrder(
+    updates: Array<{ id: string; sort_order: number }>,
+    scope?: { business_id: string; industry_id: string },
+  ): Promise<void> {
     const promises = updates.map(({ id, sort_order }) =>
-      this.supabase
-        .from('industry_extras')
-        .update({ sort_order })
-        .eq('id', id)
+      {
+        let q = this.supabase
+          .from('industry_extras')
+          .update({ sort_order })
+          .eq('id', id);
+        if (scope?.business_id?.trim()) {
+          q = q.eq('business_id', scope.business_id.trim());
+        }
+        if (scope?.industry_id?.trim()) {
+          q = q.eq('industry_id', scope.industry_id.trim());
+        }
+        return q;
+      }
     );
 
     const results = await Promise.all(promises);

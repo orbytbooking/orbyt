@@ -111,6 +111,7 @@ const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
   default_provider_wage: null,
   default_provider_wage_type: null,
   customer_my_drive_enabled: false,
+  customer_booking_form_layout: 'form1',
 };
 
 function storeOptionsErrorMissingDefaultWageColumn(message: string): boolean {

@@ -33,7 +33,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { CalendarIcon, Clock, Loader2, CheckCircle, CheckCircle2, ArrowRight, CreditCard, Wallet, Lock, ArrowLeft, Home, Building2 } from "lucide-react";
+import {
+  CalendarIcon,
+  Clock,
+  Loader2,
+  CheckCircle,
+  CheckCircle2,
+  ArrowRight,
+  CreditCard,
+  Wallet,
+  Lock,
+  ArrowLeft,
+  Home,
+  Building2,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  X,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -69,6 +86,10 @@ import {
   isIndustryExtraDisplayVisibleOnBookingSurface,
   isServiceCategoryVisibleOnPublicBooking,
 } from "@/lib/form1CustomerBooking";
+import {
+  buildForm1CustomerFacingPresetServiceCards,
+  isForm1PresetCatalogService,
+} from "@/lib/form1PresetCustomerCatalog";
 import { estimateBookingDurationMinutes } from "@/lib/bookingEstimatedDurationMinutes";
 import {
   minimumTimeCustomerMessage,
@@ -93,6 +114,7 @@ import {
   popupDisplayAppliesToSurface,
   type BookingPopupSurface,
 } from "@/lib/frequencyPopupDisplay";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import styles from "./BookingPage.module.css";
 import { useCustomerAccount } from "@/hooks/useCustomerAccount";
 import { getSupabaseCustomerClient } from "@/lib/supabaseCustomerClient";
@@ -123,6 +145,22 @@ function bookNowFrequencyRowsToState(rows: any[]) {
   const defaultName = defaultRow ? String(defaultRow.name || defaultRow.occurrence_time || "").trim() : "";
   return { names, metaMap, defaultName };
 }
+
+/** Placeholder carousel until business-specific reviews are wired to the booking page. */
+const FORM2_SAMPLE_REVIEWS = [
+  {
+    quote: "Easy to book online and the team showed up right on time. Highly recommend.",
+    author: "Sarah M.",
+  },
+  {
+    quote: "Fair pricing and great communication from start to finish.",
+    author: "James R.",
+  },
+  {
+    quote: "We use them every month—consistent quality every visit.",
+    author: "Priya K.",
+  },
+] as const;
 
 const optionalEmailSchema = z.union([z.string().email("Please enter a valid email"), z.literal("")]);
 const phoneE164Required = z
@@ -368,9 +406,10 @@ type RebookServiceCategoryCard = {
 async function fetchServiceCategoriesMappedForRebook(
   businessId: string,
   industryId: string,
+  bookingFormScope: "form1" | "form2" = "form1",
 ): Promise<RebookServiceCategoryCard[]> {
   const response = await fetch(
-    `/api/service-categories?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessId)}`,
+    `/api/service-categories?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessId)}&bookingFormScope=${bookingFormScope}`,
   );
   if (!response.ok) return [];
   const data = await response.json();
@@ -410,7 +449,12 @@ async function fetchServiceCategoriesMappedForRebook(
 
 async function resolveRebookServiceAcrossIndustries(
   businessId: string,
-  industryOptions: Array<{ id?: string; key: string; label: string }>,
+  industryOptions: Array<{
+    id?: string;
+    key: string;
+    label: string;
+    customer_booking_form_layout?: "form1" | "form2";
+  }>,
   serviceName: string,
 ): Promise<{ industryKey: string; service: RebookServiceCategoryCard } | null> {
   const name = String(serviceName ?? "").trim();
@@ -418,7 +462,8 @@ async function resolveRebookServiceAcrossIndustries(
   for (const ind of industryOptions) {
     const industryId = ind.id?.trim();
     if (!industryId) continue;
-    const mapped = await fetchServiceCategoriesMappedForRebook(businessId, industryId);
+    const scope = ind.customer_booking_form_layout === "form2" ? "form2" : "form1";
+    const mapped = await fetchServiceCategoriesMappedForRebook(businessId, industryId, scope);
     const hit = mapped.find((svc) => serviceLabelsMatch(svc.name, name));
     if (hit) {
       return { industryKey: ind.key, service: hit };
@@ -524,7 +569,10 @@ function BookingPageContent() {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [flippedCardId, setFlippedCardId] = useState<string | null>(null);
   const [cardCustomizations, setCardCustomizations] = useState<Record<string, ServiceCustomization>>({});
-  const [industryOptions, setIndustryOptions] = useState<{ label: string; key: string; id?: string }[]>([]);
+  const [industryOptions, setIndustryOptions] = useState<
+    { label: string; key: string; id?: string; customer_booking_form_layout?: "form1" | "form2" }[]
+  >([]);
+  const [industryListLoaded, setIndustryListLoaded] = useState(false);
   const [industries, setIndustries] = useState<Array<{ id: string; name: string }>>([]);
   const [serviceCategories, setServiceCategories] = useState<{
     id: string;
@@ -538,6 +586,13 @@ function BookingPageContent() {
     raw?: any;
   }[]>([]);
   const [serviceCategoriesLoading, setServiceCategoriesLoading] = useState(false);
+  /** True when book-now is showing the standard Form 1 seed names because the API returned no categories yet. */
+  const bookingUsesForm1PresetCatalog = useMemo(
+    () =>
+      serviceCategories.length > 0 &&
+      serviceCategories.every((s) => isForm1PresetCatalogService(s.raw)),
+    [serviceCategories],
+  );
   const [storedAddress, setStoredAddress] = useState<StoredAddress | null>(null);
   const { customerName, customerEmail, customerPhone, customerAddress, accountLoading } = useCustomerAccount(false);
   const { config } = useWebsiteConfig();
@@ -631,6 +686,126 @@ function BookingPageContent() {
 
   const businessIdFromUrl = searchParams.get("business") ?? "";
 
+  type PublicBookingStoreOptions = {
+    scheduling_type?: string;
+    specific_provider_for_customers?: boolean;
+    show_provider_score_to_customers?: boolean;
+    show_provider_completed_jobs_to_customers?: boolean;
+    show_provider_availability_to_customers?: boolean;
+    location_management?: "zip" | "name" | "none";
+    wildcard_zip_enabled?: boolean;
+  };
+
+  const [publicBookingStoreOptions, setPublicBookingStoreOptions] = useState<PublicBookingStoreOptions | null>(null);
+  const [publicBookingStoreLoaded, setPublicBookingStoreLoaded] = useState(false);
+  /** Form 2: pay on arrival vs Stripe checkout on the same page */
+  const [form2PayMode, setForm2PayMode] = useState<"cash" | "online">("online");
+   const [form2OpenFaqId, setForm2OpenFaqId] = useState<string | null>(null);
+  const [form2Faqs, setForm2Faqs] = useState<Array<{ id: string; question: string; answer: string }>>([]);
+  const [form2ReviewIdx, setForm2ReviewIdx] = useState(0);
+
+  const bookingFormLayoutQuery = (
+    searchParams.get("bookingForm") ||
+    searchParams.get("layout") ||
+    ""
+  )
+    .trim()
+    .toLowerCase();
+
+  /** Layout for the industry matching the current category step (key available before payment/details complete). */
+  const selectedIndustryFormLayout = useMemo(() => {
+    if (!selectedCategory) return null as "form1" | "form2" | null;
+    const opt = industryOptions.find((o) => o.key === selectedCategory);
+    if (!opt?.id) return null;
+    return opt.customer_booking_form_layout === "form2" ? "form2" : "form1";
+  }, [selectedCategory, industryOptions]);
+
+  const allIndustriesForm2 = useMemo(
+    () =>
+      industryListLoaded &&
+      industryOptions.length > 0 &&
+      industryOptions.every((o) => o.customer_booking_form_layout === "form2"),
+    [industryListLoaded, industryOptions],
+  );
+
+  const useForm2Layout = useMemo(
+    () =>
+      Boolean(
+        businessIdFromUrl &&
+          !bookingIdParam &&
+          !limitedEditMode &&
+          (bookingFormLayoutQuery === "form2" ||
+            (bookingFormLayoutQuery !== "form1" &&
+              industryListLoaded &&
+              (allIndustriesForm2 || selectedIndustryFormLayout === "form2"))),
+      ),
+    [
+      businessIdFromUrl,
+      bookingIdParam,
+      limitedEditMode,
+      bookingFormLayoutQuery,
+      industryListLoaded,
+      allIndustriesForm2,
+      selectedIndustryFormLayout,
+    ],
+  );
+
+  useEffect(() => {
+    if (!businessIdFromUrl) {
+      setPublicBookingStoreOptions(null);
+      setPublicBookingStoreLoaded(true);
+      return;
+    }
+    let cancelled = false;
+    setPublicBookingStoreLoaded(false);
+    fetch(`/api/public/booking-store-options?business_id=${encodeURIComponent(businessIdFromUrl)}`)
+      .then((r) => r.json())
+      .then((j: { options?: PublicBookingStoreOptions }) => {
+        if (!cancelled) {
+          setPublicBookingStoreOptions(j?.options ?? null);
+          setPublicBookingStoreLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPublicBookingStoreOptions(null);
+          setPublicBookingStoreLoaded(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [businessIdFromUrl]);
+
+  useEffect(() => {
+    if (!useForm2Layout) return;
+    if (currentStep === "category") setCurrentStep("details");
+  }, [useForm2Layout, currentStep]);
+
+  useEffect(() => {
+    if (!useForm2Layout || selectedCategory || industryOptions.length === 0) return;
+    setSelectedCategory(industryOptions[0].key);
+  }, [useForm2Layout, selectedCategory, industryOptions]);
+
+  useEffect(() => {
+    if (!useForm2Layout || !businessIdFromUrl) {
+      setForm2Faqs([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/public/faqs?business_id=${encodeURIComponent(businessIdFromUrl)}`)
+      .then((r) => r.json())
+      .then((j: { faqs?: Array<{ id: string; question: string; answer: string }> }) => {
+        if (!cancelled) setForm2Faqs(Array.isArray(j?.faqs) ? j.faqs : []);
+      })
+      .catch(() => {
+        if (!cancelled) setForm2Faqs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [useForm2Layout, businessIdFromUrl]);
+
   useEffect(() => {
     if (!businessIdFromUrl) {
       setStoreDefaultProviderWage(null);
@@ -708,6 +883,13 @@ function BookingPageContent() {
 
   const selectedIndustryLabel = selectedIndustry?.label ?? "";
   const selectedIndustryId = selectedIndustry?.id ?? "";
+  const bookingFormScopeForCatalog = useMemo(
+    (): "form1" | "form2" =>
+      selectedIndustry?.customer_booking_form_layout === "form2" ? "form2" : "form1",
+    [selectedIndustry],
+  );
+  const catalogListingKind = bookingFormScopeForCatalog === "form2" ? "addon" : "extra";
+  const catalogScopeQs = `&bookingFormScope=${bookingFormScopeForCatalog}&listingKind=${catalogListingKind}`;
 
   const selectedFrequencyTrim = serviceCustomization?.frequency?.trim() ?? "";
 
@@ -719,6 +901,7 @@ function BookingPageContent() {
     let cancelled = false;
     getFrequencyDependencies(selectedIndustryId, selectedFrequencyTrim, {
       businessId: businessIdFromUrl,
+      bookingFormScope: bookingFormScopeForCatalog,
     })
       .then((deps) => {
         if (!cancelled) setPricingFrequencyDeps(deps);
@@ -729,7 +912,7 @@ function BookingPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [selectedIndustryId, businessIdFromUrl, selectedFrequencyTrim]);
+  }, [selectedIndustryId, businessIdFromUrl, selectedFrequencyTrim, bookingFormScopeForCatalog]);
 
   const allPricingParams = useMemo(
     () =>
@@ -741,12 +924,24 @@ function BookingPageContent() {
           p.service_category != null && String(p.service_category).trim() !== ""
             ? String(p.service_category).trim()
             : null,
+        service_category2:
+          p.service_category2 != null && String(p.service_category2).trim() !== ""
+            ? String(p.service_category2).trim()
+            : null,
         frequency: String(p.frequency ?? ""),
         show_based_on_frequency: Boolean(p.show_based_on_frequency),
         show_based_on_service_category: Boolean(p.show_based_on_service_category),
+        show_based_on_service_category2: Boolean(p.show_based_on_service_category2),
       })),
     [pricingParametersFull],
   );
+
+  const selectedBedroomTierForPricing =
+    String(
+      serviceCustomization?.variableCategories?.['Bedroom'] ??
+        serviceCustomization?.bedroom ??
+        '',
+    ).trim() || null;
 
   const pricingRows = useMemo(() => {
     if (!pricingParametersFull.length || !selectedService) return [] as PricingTier[];
@@ -758,9 +953,12 @@ function BookingPageContent() {
           frequency: p.frequency,
           show_based_on_service_category: p.show_based_on_service_category,
           service_category: p.service_category,
+          show_based_on_service_category2: Boolean(p.show_based_on_service_category2),
+          service_category2: p.service_category2 ?? null,
         },
         selectedFrequencyTrim,
         svcName,
+        selectedBedroomTierForPricing,
       ),
     );
     const categoryKeys = Object.keys(
@@ -769,6 +967,7 @@ function BookingPageContent() {
         selectedService,
         selectedFrequencyTrim,
         pricingFrequencyDeps,
+        selectedBedroomTierForPricing,
       ),
     );
     const areaLikeKey = categoryKeys.find((k) => /sqft|area|square|meter|size/i.test(String(k)));
@@ -797,6 +996,7 @@ function BookingPageContent() {
     selectedFrequencyTrim,
     selectedIndustryLabel,
     pricingFrequencyDeps,
+    selectedBedroomTierForPricing,
   ]);
 
   useEffect(() => {
@@ -809,9 +1009,11 @@ function BookingPageContent() {
       if (!currentBusinessId) {
         setIndustries([]);
         setIndustryOptions([]);
+        setIndustryListLoaded(true);
         return;
       }
 
+      setIndustryListLoaded(false);
       try {
         const response = await fetch(`/api/industries?business_id=${currentBusinessId}`);
         const data = await response.json();
@@ -830,6 +1032,8 @@ function BookingPageContent() {
             label: ind.name,
             key: toIndustryKey(ind.name) || `industry-${ind.id}`,
             id: ind.id,
+            customer_booking_form_layout:
+              ind.customer_booking_form_layout === "form2" ? ("form2" as const) : ("form1" as const),
           }));
           setIndustryOptions(industryOptionsWithIds);
         } else {
@@ -840,6 +1044,8 @@ function BookingPageContent() {
         console.error("Error fetching industries:", error);
         setIndustries([]);
         setIndustryOptions([]);
+      } finally {
+        setIndustryListLoaded(true);
       }
     };
 
@@ -862,6 +1068,30 @@ function BookingPageContent() {
   const [showProviderAvailabilityToCustomers, setShowProviderAvailabilityToCustomers] = useState(true);
   const [locationManagement, setLocationManagement] = useState<"zip" | "name" | "none">("zip");
   const [wildcardZipEnabled, setWildcardZipEnabled] = useState(false);
+
+  useEffect(() => {
+    if (!publicBookingStoreOptions) return;
+    const o = publicBookingStoreOptions;
+    if (o.scheduling_type) setSchedulingType(o.scheduling_type);
+    if (typeof o.specific_provider_for_customers === "boolean") {
+      setSpecificProviderForCustomers(o.specific_provider_for_customers);
+    }
+    if (typeof o.show_provider_score_to_customers === "boolean") {
+      setShowProviderScoreToCustomers(o.show_provider_score_to_customers);
+    }
+    if (typeof o.show_provider_completed_jobs_to_customers === "boolean") {
+      setShowProviderCompletedJobsToCustomers(o.show_provider_completed_jobs_to_customers);
+    }
+    if (typeof o.show_provider_availability_to_customers === "boolean") {
+      setShowProviderAvailabilityToCustomers(o.show_provider_availability_to_customers);
+    }
+    if (o.location_management === "zip" || o.location_management === "name" || o.location_management === "none") {
+      setLocationManagement(o.location_management);
+    }
+    if (typeof o.wildcard_zip_enabled === "boolean") {
+      setWildcardZipEnabled(o.wildcard_zip_enabled);
+    }
+  }, [publicBookingStoreOptions]);
 
   useEffect(() => {
     if (!businessId) return;
@@ -950,21 +1180,26 @@ function BookingPageContent() {
     getBusinessContext();
   }, [searchParams]);
 
-  // Fetch cancellation policy when on payment step for Booking Summary disclaimer (must be before any conditional return)
+  // Fetch cancellation policy when on payment step (or Form 2 details) for Booking Summary disclaimer
   useEffect(() => {
-    if (currentStep !== "payment") return;
+    const onPaymentOrForm2Details =
+      currentStep === "payment" || (useForm2Layout && currentStep === "details");
+    if (!onPaymentOrForm2Details) return;
     const bid = searchParams.get("business");
     if (!bid) return;
     fetch(`/api/cancellation-policy?businessId=${encodeURIComponent(bid)}`)
       .then((r) => r.json())
       .then((data) => setCancellationPolicyDisclaimer(data.disclaimerText ?? null))
       .catch(() => setCancellationPolicyDisclaimer(null));
-  }, [currentStep, searchParams]);
+  }, [currentStep, searchParams, useForm2Layout]);
 
-  // Fetch payment provider (Stripe vs Authorize.net) when on payment step so we show the correct label
+  // Fetch payment provider (Stripe vs Authorize.net) when on payment step or Form 2 details
   useEffect(() => {
     const bid = searchParams.get("business");
-    if (!bid || currentStep !== "payment") return;
+    const needProvider =
+      bid &&
+      (currentStep === "payment" || (useForm2Layout && currentStep === "details"));
+    if (!needProvider) return;
     fetch(`/api/public/payment-provider?business=${encodeURIComponent(bid)}`)
       .then((r) => r.json())
       .then((data) => {
@@ -972,7 +1207,7 @@ function BookingPageContent() {
         setPaymentProvider(p === "authorize_net" ? "authorize_net" : "stripe");
       })
       .catch(() => setPaymentProvider("stripe"));
-  }, [currentStep, searchParams]);
+  }, [currentStep, searchParams, useForm2Layout]);
 
   // Only clear selection when the selected industry was actually removed (not when options are loading/empty)
   useEffect(() => {
@@ -1004,7 +1239,9 @@ function BookingPageContent() {
     const fetchExtrasAndVariables = async () => {
       try {
         // Fetch extras
-        const extrasResponse = await fetch(`/api/extras?industryId=${industryId}`);
+        const extrasResponse = await fetch(
+          `/api/extras?industryId=${industryId}&businessId=${businessIdParam}${catalogScopeQs}`,
+        );
         if (extrasResponse.ok) {
           const extrasData = await extrasResponse.json();
           if (extrasData.extras && Array.isArray(extrasData.extras)) {
@@ -1022,7 +1259,9 @@ function BookingPageContent() {
         }
 
         // Pricing parameters: store full rows; dropdowns/tiers are derived with admin-matching filters
-        const variablesResponse = await fetch(`/api/pricing-parameters?industryId=${industryId}`);
+        const variablesResponse = await fetch(
+          `/api/pricing-parameters?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessIdParam)}${catalogScopeQs}`,
+        );
         if (variablesResponse.ok) {
           const variablesData = await variablesResponse.json();
           if (variablesData.pricingParameters && Array.isArray(variablesData.pricingParameters)) {
@@ -1034,7 +1273,9 @@ function BookingPageContent() {
           setPricingParametersFull([]);
         }
 
-        const pvRes = await fetch(`/api/pricing-variables?industryId=${encodeURIComponent(industryId)}`);
+        const pvRes = await fetch(
+          `/api/pricing-variables?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessIdParam)}${catalogScopeQs}`,
+        );
         if (pvRes.ok) {
           const pvData = await pvRes.json();
           const list = Array.isArray(pvData.variables) ? pvData.variables : [];
@@ -1073,7 +1314,7 @@ function BookingPageContent() {
     };
 
     fetchExtrasAndVariables();
-  }, [selectedIndustryId, searchParams, bookingPopupSurface]);
+  }, [selectedIndustryId, searchParams, bookingPopupSurface, bookingFormScopeForCatalog]);
 
   // Initialize booking form
   const form = useForm<z.infer<typeof formSchema>>({
@@ -1168,7 +1409,7 @@ function BookingPageContent() {
     }
     let cancelled = false;
     fetch(
-      `/api/industry-frequency?industryId=${encodeURIComponent(selectedIndustryId)}&businessId=${encodeURIComponent(bid)}&includeAll=true`,
+      `/api/industry-frequency?industryId=${encodeURIComponent(selectedIndustryId)}&businessId=${encodeURIComponent(bid)}&includeAll=true${catalogScopeQs}`,
     )
       .then((r) => r.json())
       .then((data) => {
@@ -1184,7 +1425,7 @@ function BookingPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [selectedIndustryId, searchParams]);
+  }, [selectedIndustryId, searchParams, bookingFormScopeForCatalog]);
 
   useEffect(() => {
     if (!selectedIndustryId || !businessIdFromUrl) {
@@ -1386,7 +1627,7 @@ function BookingPageContent() {
       setServiceCategoriesLoading(true);
       try {
         const response = await fetch(
-          `/api/service-categories?industryId=${industryId}&businessId=${businessIdParam}`,
+          `/api/service-categories?industryId=${industryId}&businessId=${businessIdParam}${catalogScopeQs}`,
         );
         const data = await response.json();
 
@@ -1429,7 +1670,15 @@ function BookingPageContent() {
             };
           });
 
-        setServiceCategories(mapped);
+        if (mapped.length === 0) {
+          if (bookingFormScopeForCatalog === "form1") {
+            setServiceCategories(buildForm1CustomerFacingPresetServiceCards());
+          } else {
+            setServiceCategories([]);
+          }
+        } else {
+          setServiceCategories(mapped);
+        }
       } catch (error) {
         console.error("Error fetching service categories:", error);
         setServiceCategories([]);
@@ -1439,7 +1688,7 @@ function BookingPageContent() {
     };
 
     fetchServiceCategories();
-  }, [selectedIndustryId, searchParams, needsLocationBeforeServices]);
+  }, [selectedIndustryId, searchParams, needsLocationBeforeServices, bookingFormScopeForCatalog]);
 
   useEffect(() => {
     if (!selectedService || !serviceCategories.length) return;
@@ -1472,6 +1721,7 @@ function BookingPageContent() {
     const url = new URL("/api/industry-frequency", window.location.origin);
     url.searchParams.set("industryId", industryId);
     url.searchParams.set("businessId", businessIdParam);
+    url.searchParams.set("bookingFormScope", bookingFormScopeForCatalog);
     // Read zip/location from form
     const zipFromForm = String(form.getValues("zipCode") ?? "").trim().replace(/\s/g, "");
     const minLen = locationManagement === "name" ? 2 : 5;
@@ -1528,6 +1778,7 @@ function BookingPageContent() {
       const u = new URL("/api/industry-frequency", window.location.origin);
       u.searchParams.set("industryId", industryId);
       u.searchParams.set("businessId", businessIdParam);
+      u.searchParams.set("bookingFormScope", bookingFormScopeForCatalog);
       if (zip.length >= minLen) {
         u.searchParams.set("zipcode", zip);
         if (wildcardZipEnabled) u.searchParams.set("wildcard", "true");
@@ -1570,6 +1821,7 @@ function BookingPageContent() {
     locationManagement,
     wildcardZipEnabled,
     needsLocationBeforeServices,
+    bookingFormScopeForCatalog,
   ]);
 
   const refetchFrequenciesOnZipChange = useCallback(() => {
@@ -1624,6 +1876,7 @@ function BookingPageContent() {
     let cancelled = false;
     getFrequencyDependencies(selectedIndustryId, bookingFrequencyForFilters, {
       businessId: businessIdFromUrl,
+      bookingFormScope: bookingFormScopeForCatalog,
     })
       .then((deps) => {
         if (!cancelled) setServiceListFrequencyDeps(deps);
@@ -1634,7 +1887,7 @@ function BookingPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [selectedIndustryId, businessIdFromUrl, bookingFrequencyForFilters]);
+  }, [selectedIndustryId, businessIdFromUrl, bookingFrequencyForFilters, bookingFormScopeForCatalog]);
 
   /** Service cards: no frequency chosen yet → show full list; after a frequency is chosen, apply Form 1 deps. */
   const categoryServicesForForm = useMemo(() => {
@@ -1983,14 +2236,17 @@ function BookingPageContent() {
         if (!resolved) {
           const staticMatch = findServiceMatch(sourceBooking.service);
           if (staticMatch) {
-            const s = staticMatch.service;
-            resolved = {
-              industryKey: staticMatch.categoryKey,
-              service: {
-                ...s,
-                customerDisplayName: s.name,
-              } as RebookServiceCategoryCard,
-            };
+            const staticIndustry = industryOptions.find((o) => o.key === staticMatch.categoryKey);
+            if (staticIndustry?.customer_booking_form_layout !== "form2") {
+              const s = staticMatch.service;
+              resolved = {
+                industryKey: staticMatch.categoryKey,
+                service: {
+                  ...s,
+                  customerDisplayName: s.name,
+                } as RebookServiceCategoryCard,
+              };
+            }
           }
         }
 
@@ -2326,12 +2582,21 @@ function BookingPageContent() {
 
   const getEstimatedDurationMinutes = useCallback((): number | null => {
     if (!selectedService || !serviceCustomization) return null;
-    const serviceName = (bookingData?.service || selectedService.name || "").trim();
+    const serviceName = (
+      String(form.getValues("service") || "").trim() ||
+      bookingData?.service ||
+      selectedService.name ||
+      ""
+    ).trim();
     return computeEstimatedMinutesForBooking(serviceName);
-  }, [bookingData, selectedService, serviceCustomization, computeEstimatedMinutesForBooking]);
+  }, [bookingData, selectedService, serviceCustomization, computeEstimatedMinutesForBooking, form]);
 
-  const addBookingToStorage = useCallback(async (paymentMethod: "cash" | "online" = "cash") => {
-    if (!bookingData || !serviceCustomization || !selectedService) {
+  const addBookingToStorage = useCallback(async (
+    paymentMethod: "cash" | "online" = "cash",
+    bookingValuesOverride?: z.infer<typeof formSchema> | null,
+  ) => {
+    const data = bookingValuesOverride ?? bookingData;
+    if (!data || !serviceCustomization || !selectedService) {
       toast({
         title: "Missing information",
         description: "Please complete the service selection and booking form before finishing.",
@@ -2363,7 +2628,17 @@ function BookingPageContent() {
       return null;
     }
 
-    const bookingDate = bookingData.date instanceof Date ? bookingData.date : new Date(bookingData.date);
+    if (!limitedEditMode && isForm1PresetCatalogService(selectedService.raw)) {
+      toast({
+        title: "Services not live yet",
+        description:
+          "This business has not published Form 1 services yet. Contact them to book, or try again after setup is complete.",
+        variant: "destructive",
+      });
+      return null;
+    }
+
+    const bookingDate = data.date instanceof Date ? data.date : new Date(data.date);
     // Format date using local timezone to match calendar display
     let formattedDate: string;
     if (Number.isNaN(bookingDate.getTime())) {
@@ -2379,13 +2654,13 @@ function BookingPageContent() {
       provider: "",
       frequency: serviceCustomization.frequency || "One-time",
       date: formattedDate,
-      time: bookingData.time,
+      time: data.time,
       status: "scheduled",
-      address: bookingData.aptNo
-        ? `${bookingData.address}, Apt ${bookingData.aptNo}`
-        : bookingData.address,
-      contact: String(bookingData.phone), // Convert phone number to string for contact field
-      notes: bookingData.notes ?? "",
+      address: data.aptNo
+        ? `${data.address}, Apt ${data.aptNo}`
+        : data.address,
+      contact: String(data.phone), // Convert phone number to string for contact field
+      notes: data.notes ?? "",
       price: selectedService.price ?? 0,
       tipAmount: undefined,
       tipUpdatedAt: undefined,
@@ -2445,10 +2720,10 @@ function BookingPageContent() {
         const payload = {
           business_id: currentBusinessId,
           industry_id: selectedIndustryId || undefined,
-          service_area_input: String(form.getValues("zipCode") ?? bookingData.zipCode ?? "").trim(),
-          customer_name: `${bookingData.firstName ?? ""} ${bookingData.lastName ?? ""}`.trim(),
-          customer_email: bookingData.email ?? "",
-          customer_phone: String(bookingData.phone ?? ""),
+          service_area_input: String(form.getValues("zipCode") ?? data.zipCode ?? "").trim(),
+          customer_name: `${data.firstName ?? ""} ${data.lastName ?? ""}`.trim(),
+          customer_email: data.email ?? "",
+          customer_phone: String(data.phone ?? ""),
           address: newBooking.address,
           service: newBooking.service,
           frequency: selectedFreq || null,
@@ -2618,6 +2893,68 @@ function BookingPageContent() {
     }, 300);
   };
 
+  const applyForm2FrequencySelection = useCallback(
+    (freq: string) => {
+      const f = freq.trim();
+      if (!f) return;
+      setBookingFrequencyForFilters(f);
+      if (!selectedService) return;
+      const key = cardKey(selectedService.id);
+      setCardCustomizations((prev) => {
+        const prevCust = prev[key];
+        const merged: ServiceCustomization = {
+          frequency: f,
+          squareMeters: prevCust?.squareMeters ?? "",
+          bedroom: prevCust?.bedroom ?? "",
+          bathroom: prevCust?.bathroom ?? "",
+          extras: prevCust?.extras ?? [],
+          isPartialCleaning: prevCust?.isPartialCleaning ?? false,
+          excludedAreas: prevCust?.excludedAreas ?? [],
+          excludeQuantities: prevCust?.excludeQuantities ?? {},
+          variableCategories: prevCust?.variableCategories ?? {},
+          bookingHours: prevCust?.bookingHours ?? "0",
+          bookingMinutes: prevCust?.bookingMinutes ?? "0",
+        };
+        return { ...prev, [key]: merged };
+      });
+      setServiceCustomization((prev) => {
+        const base: ServiceCustomization =
+          prev ?? {
+            frequency: "",
+            squareMeters: "",
+            bedroom: "",
+            bathroom: "",
+            extras: [],
+            isPartialCleaning: false,
+            excludedAreas: [],
+            excludeQuantities: {},
+            variableCategories: {},
+            bookingHours: "0",
+            bookingMinutes: "0",
+          };
+        return { ...base, frequency: f };
+      });
+      const baseCust: ServiceCustomization =
+        serviceCustomization ?? {
+          frequency: "",
+          squareMeters: "",
+          bedroom: "",
+          bathroom: "",
+          extras: [],
+          isPartialCleaning: false,
+          excludedAreas: [],
+          excludeQuantities: {},
+          variableCategories: {},
+          bookingHours: "0",
+          bookingMinutes: "0",
+        };
+      form.setValue("customization", toFormCustomization({ ...baseCust, frequency: f }), {
+        shouldValidate: true,
+      });
+    },
+    [selectedService, serviceCustomization, form],
+  );
+
   // Handle booking form submission - move to payment step (no localStorage)
   async function onSubmit(values: z.infer<typeof formSchema>) {
     if (!limitedEditMode && locationManagement !== "none") {
@@ -2639,6 +2976,16 @@ function BookingPageContent() {
         }
         return;
       }
+    }
+
+    if (!limitedEditMode && selectedService && isForm1PresetCatalogService(selectedService.raw)) {
+      toast({
+        title: "Services not live yet",
+        description:
+          "This business has not published Form 1 services. You’re viewing the default starter layout for reference—checkout stays disabled until they configure categories in admin.",
+        variant: "destructive",
+      });
+      return;
     }
 
     if (!limitedEditMode && selectedService && serviceCustomization) {
@@ -2710,6 +3057,15 @@ function BookingPageContent() {
       }
     }
 
+    if (useForm2Layout && !limitedEditMode) {
+      if (form2PayMode === "cash") {
+        await handleCashPayment(values);
+      } else {
+        await handleOnlinePayment(undefined, values);
+      }
+      return;
+    }
+
     setCurrentStep("payment");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -2729,6 +3085,8 @@ function BookingPageContent() {
     const rawSvc = selectedService?.raw as { service_category_frequency?: boolean } | undefined;
     const useFreqVarDeps = Boolean(rawSvc?.service_category_frequency);
     const vc = serviceCustomization?.variableCategories ?? {};
+    const bedroomTierSubtotal =
+      String(vc['Bedroom'] ?? serviceCustomization?.bedroom ?? '').trim() || null;
     let sum = 0;
     let addedAreaLike = false;
     for (const [categoryKey, optionName] of Object.entries(vc)) {
@@ -2747,9 +3105,12 @@ function BookingPageContent() {
               frequency: p.frequency,
               show_based_on_service_category: p.show_based_on_service_category,
               service_category: p.service_category,
+              show_based_on_service_category2: Boolean(p.show_based_on_service_category2),
+              service_category2: p.service_category2 ?? null,
             },
             selectedFrequency,
             serviceName,
+            bedroomTierSubtotal,
           ),
       );
       if (param && typeof param.price === "number" && !Number.isNaN(param.price)) {
@@ -2780,9 +3141,12 @@ function BookingPageContent() {
               frequency: p.frequency,
               show_based_on_service_category: p.show_based_on_service_category,
               service_category: p.service_category,
+              show_based_on_service_category2: Boolean(p.show_based_on_service_category2),
+              service_category2: p.service_category2 ?? null,
             },
             selectedFrequency,
             serviceName,
+            bedroomTierSubtotal,
           ),
       );
       if (areaLikeParam && typeof areaLikeParam.price === "number" && !Number.isNaN(areaLikeParam.price)) {
@@ -3154,11 +3518,11 @@ function BookingPageContent() {
   ]);
 
   // Handle cash payment
-  const handleCashPayment = async () => {
+  const handleCashPayment = async (bookingValuesOverride?: z.infer<typeof formSchema>) => {
     setIsProcessing(true);
     try {
       await new Promise(resolve => setTimeout(resolve, 1500));
-      const saved = await addBookingToStorage();
+      const saved = await addBookingToStorage("cash", bookingValuesOverride ?? null);
       if (!saved) return;
       toast({
         title: "Booking Confirmed!",
@@ -3178,11 +3542,14 @@ function BookingPageContent() {
   };
 
   /** usePendingIntent: false when migration 093 is missing — falls back to creating the booking before Stripe. */
-  const createDraftBookingForStripe = useCallback(async (): Promise<{
+  const createDraftBookingForStripe = useCallback(async (
+    bookingValuesOverride?: z.infer<typeof formSchema> | null,
+  ): Promise<{
     id: string;
     usePendingIntent: boolean;
   } | null> => {
-    if (!bookingData || !serviceCustomization || !selectedService) return null;
+    const bd = bookingValuesOverride ?? bookingData;
+    if (!bd || !serviceCustomization || !selectedService) return null;
     if (!limitedEditMode && locationManagement !== "none" && !locationInputValidForBooking) {
       if (!locationInputMeetsMinLength) {
         toast({
@@ -3205,7 +3572,16 @@ function BookingPageContent() {
       }
       return null;
     }
-    const bookingDate = bookingData.date instanceof Date ? bookingData.date : new Date(bookingData.date);
+    if (!limitedEditMode && isForm1PresetCatalogService(selectedService.raw)) {
+      toast({
+        title: "Services not live yet",
+        description:
+          "This business has not published Form 1 services yet. Contact them to book, or try again after setup is complete.",
+        variant: "destructive",
+      });
+      return null;
+    }
+    const bookingDate = bd.date instanceof Date ? bd.date : new Date(bd.date);
     let formattedDate: string;
     if (Number.isNaN(bookingDate.getTime())) {
       const today = new Date();
@@ -3219,11 +3595,11 @@ function BookingPageContent() {
       provider: "",
       frequency: serviceCustomization.frequency || "One-time",
       date: formattedDate,
-      time: bookingData.time,
+      time: bd.time,
       status: "scheduled",
-      address: bookingData.aptNo ? `${bookingData.address}, Apt ${bookingData.aptNo}` : bookingData.address,
-      contact: String(bookingData.phone),
-      notes: bookingData.notes ?? "",
+      address: bd.aptNo ? `${bd.address}, Apt ${bd.aptNo}` : bd.address,
+      contact: String(bd.phone),
+      notes: bd.notes ?? "",
       price: selectedService.price ?? 0,
       tipAmount: undefined,
       tipUpdatedAt: undefined,
@@ -3268,10 +3644,10 @@ function BookingPageContent() {
       const payload = {
         business_id: currentBusinessId,
         industry_id: selectedIndustryId || undefined,
-        service_area_input: String(form.getValues("zipCode") ?? bookingData.zipCode ?? "").trim(),
-        customer_name: `${bookingData.firstName ?? ""} ${bookingData.lastName ?? ""}`.trim(),
-        customer_email: bookingData.email ?? "",
-        customer_phone: String(bookingData.phone ?? ""),
+        service_area_input: String(form.getValues("zipCode") ?? bd.zipCode ?? "").trim(),
+        customer_name: `${bd.firstName ?? ""} ${bd.lastName ?? ""}`.trim(),
+        customer_email: bd.email ?? "",
+        customer_phone: String(bd.phone ?? ""),
         address: newBooking.address,
         service: newBooking.service,
         frequency: selectedFreq || null,
@@ -3406,10 +3782,13 @@ function BookingPageContent() {
   ]);
 
   // Handle online payment via Stripe Checkout (redirect)
-  const handleOnlinePayment = async (_values?: z.infer<typeof paymentSchema>) => {
+  const handleOnlinePayment = async (
+    _values?: z.infer<typeof paymentSchema>,
+    bookingValuesOverride?: z.infer<typeof formSchema>,
+  ) => {
     setIsProcessing(true);
     try {
-      const draft = await createDraftBookingForStripe();
+      const draft = await createDraftBookingForStripe(bookingValuesOverride ?? null);
       if (!draft) return;
       const { subtotal, tax, total } = calculateTotal();
       const amountInCents = Math.round(total * 100);
@@ -3418,6 +3797,14 @@ function BookingPageContent() {
         return;
       }
       const businessId = searchParams.get("business") ?? "";
+      const lineDateSrc = bookingValuesOverride ?? bookingData;
+      const lineDatePart =
+        lineDateSrc?.date != null
+          ? format(
+              lineDateSrc.date instanceof Date ? lineDateSrc.date : new Date(lineDateSrc.date as string | number),
+              "PPP",
+            )
+          : "";
       const checkoutPayload =
         paymentProvider === "stripe" && draft.usePendingIntent
           ? {
@@ -3425,14 +3812,14 @@ function BookingPageContent() {
               amountInCents,
               customerEmail: undefined,
               businessId: businessId || undefined,
-              lineItemDescription: `${selectedService?.customerDisplayName?.trim() || selectedService?.name || "Booking"} – ${bookingData?.date ? format(bookingData.date instanceof Date ? bookingData.date : new Date(bookingData.date), "PPP") : ""}`,
+              lineItemDescription: `${selectedService?.customerDisplayName?.trim() || selectedService?.name || "Booking"} – ${lineDatePart}`,
             }
           : {
               bookingId: draft.id,
               amountInCents,
               customerEmail: undefined,
               businessId: businessId || undefined,
-              lineItemDescription: `${selectedService?.customerDisplayName?.trim() || selectedService?.name || "Booking"} – ${bookingData?.date ? format(bookingData.date instanceof Date ? bookingData.date : new Date(bookingData.date), "PPP") : ""}`,
+              lineItemDescription: `${selectedService?.customerDisplayName?.trim() || selectedService?.name || "Booking"} – ${lineDatePart}`,
             };
       const res = await fetch("/api/payments/create-checkout", {
         method: "POST",
@@ -3470,8 +3857,31 @@ function BookingPageContent() {
     }
   };
 
+  if (
+    businessIdFromUrl &&
+    (!publicBookingStoreLoaded || !industryListLoaded) &&
+    !bookingIdParam &&
+    !limitedEditMode
+  ) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3">
+        <Loader2 className="h-10 w-10 animate-spin text-cyan-500" />
+        <p className="text-sm text-muted-foreground">Loading booking form…</p>
+      </div>
+    );
+  }
+
+  if (useForm2Layout && currentStep === "category") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3">
+        <Loader2 className="h-10 w-10 animate-spin text-cyan-500" />
+        <p className="text-sm text-muted-foreground">Loading booking form…</p>
+      </div>
+    );
+  }
+
   // Category Selection Screen
-  if (currentStep === "category") {
+  if (currentStep === "category" && !useForm2Layout) {
     const hasBusinessParam = Boolean(searchParams.get("business"));
     const categoriesAvailable = industryOptions.length > 0;
     return (
@@ -3822,7 +4232,224 @@ function BookingPageContent() {
   if (currentStep === "details" && selectedCategory) {
     const showSummary = selectedService && serviceCustomization;
     const { subtotal, tax, total } = showSummary ? calculateTotal() : { subtotal: 0, tax: 0, total: 0 };
-    
+    const form2Totals = showSummary ? calculateTotal() : null;
+    /** Form 2: date / time / provider at the start of the main form (after packages-added on the page). */
+    const form2ScheduleAtFormStart = useForm2Layout && !limitedEditMode;
+    const form2FrequencyLabel =
+      (serviceCustomization?.frequency?.trim() || bookingFrequencyForFilters.trim() || "") || null;
+    const renderBookingScheduleFields = () => (
+      <>
+        {!limitedEditMode && (
+          <div className="col-span-full">
+            <FormField
+              control={form.control}
+              name="date"
+              render={({ field }) => (
+                <FormItem className="flex flex-col">
+                  <FormLabel className={styles.formLabel}>Select Date</FormLabel>
+                  {bookingDateWeekdayRule.allowed && bookingDateWeekdayRule.allowed.length > 0 && (
+                    <p className="text-sm text-muted-foreground mb-2">
+                      This matches your provider&apos;s <strong>Frequency repeats every</strong> setting: only{" "}
+                      {bookingCalendarWeekdayPhrase(bookingDateWeekdayRule.allowed)} are available. Other weekdays are
+                      disabled.
+                    </p>
+                  )}
+                  <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                    <PopoverTrigger asChild>
+                      <FormControl>
+                        <Button
+                          variant="outline"
+                          className={cn("pl-3 text-left font-normal h-12", !field.value && "text-muted-foreground")}
+                        >
+                          {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                        </Button>
+                      </FormControl>
+                    </PopoverTrigger>
+                    <PopoverContent className={styles.calendarWrapper} align="start">
+                      <Calendar
+                        mode="single"
+                        selected={field.value}
+                        onSelect={(date) => {
+                          field.onChange(date);
+                          setCalendarOpen(false);
+                        }}
+                        disabled={(date) => {
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          const compareDate = new Date(date);
+                          compareDate.setHours(0, 0, 0, 0);
+                          if (compareDate < today || compareDate < new Date("1900-01-01")) {
+                            return true;
+                          }
+                          const allowed = bookingDateWeekdayRule.allowed;
+                          if (allowed?.length && !allowed.includes(compareDate.getDay())) {
+                            return true;
+                          }
+                          return false;
+                        }}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        )}
+        {!limitedEditMode && isDateSelected && (
+          <div className="col-span-full">
+            <FormField
+              control={form.control}
+              name="time"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className={styles.formLabel}>Select Time Slot</FormLabel>
+                  {timeSlotsLoading ? (
+                    <div className="flex items-center gap-2 py-6 text-muted-foreground text-sm">
+                      <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                      Loading available times…
+                    </div>
+                  ) : dynamicTimeSlots.length > 0 ? (
+                    <div className={styles.timeSlots}>
+                      {dynamicTimeSlots.map((time) => (
+                        <div
+                          key={time}
+                          className={cn(styles.timeSlot, field.value === time && styles.selected)}
+                          onClick={() => field.onChange(time)}
+                        >
+                          {time}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground py-2">
+                      No time slots are available for this date. Try another day or contact the business.
+                    </p>
+                  )}
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        )}
+        {!limitedEditMode && isDateTimeSelected && showProviderStep && (
+          <div className="col-span-full">
+            <div className={styles.formGroup}>
+              <FormLabel className={styles.formLabel}>
+                Choose service provider
+                <span className="text-muted-foreground text-sm font-normal block mt-1">
+                  {providersLoading
+                    ? "Finding available providers..."
+                    : availableProviders.length > 0
+                      ? selectedProvider
+                        ? `${availableProviders.length} provider${availableProviders.length === 1 ? "" : "s"} available • ${availableProviders.find((p) => p.id === selectedProvider)?.name || "Provider"} selected`
+                        : `${availableProviders.length} provider${availableProviders.length === 1 ? "" : "s"} available`
+                      : "No providers available for the selected time"}
+                </span>
+              </FormLabel>
+              {providersLoading ? (
+                <div className="flex items-center justify-center py-8 border border-gray-200 rounded-lg">
+                  <Loader2 className="h-6 w-6 animate-spin text-cyan-500 mr-2" />
+                  <span className="text-muted-foreground">Loading providers...</span>
+                </div>
+              ) : availableProviders.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-3">
+                  {availableProviders.map((provider) => (
+                    <div
+                      key={provider.id}
+                      className={`border rounded-lg p-4 cursor-pointer transition-all ${
+                        selectedProvider === provider.id
+                          ? "border-cyan-500 bg-cyan-50 shadow-md"
+                          : "border-gray-200 hover:border-cyan-300 hover:shadow-sm"
+                      }`}
+                      onClick={() => handleProviderSelect(provider)}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div>
+                          <h4 className="font-semibold text-gray-900">{provider.name}</h4>
+                          <p className="text-sm text-gray-600">{provider.specialization || "Service Provider"}</p>
+                        </div>
+                        <div className="flex items-center">
+                          {showProviderScoreToCustomers && (
+                            <div className="flex items-center mr-2">
+                              <span className="text-yellow-400">★</span>
+                              <span className="text-sm text-gray-600 ml-1">
+                                {provider.rating ? provider.rating.toFixed(1) : "New"}
+                              </span>
+                            </div>
+                          )}
+                          {showProviderAvailabilityToCustomers && provider.isAvailable && (
+                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                          )}
+                          {selectedProvider === provider.id && (
+                            <div className="w-5 h-5 bg-cyan-500 rounded-full flex items-center justify-center ml-2">
+                              <CheckCircle className="w-3 h-3 text-white" />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="space-y-1 text-sm text-gray-600">
+                        {showProviderCompletedJobsToCustomers && (
+                          <div className="flex items-center">
+                            <span className="font-medium">Jobs:</span>
+                            <span className="ml-1">{provider.completedJobs || 0} completed</span>
+                          </div>
+                        )}
+                        {provider.services && provider.services.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {provider.services.slice(0, 2).map((service: any, index: number) => (
+                              <span
+                                key={index}
+                                className="px-2 py-1 bg-cyan-50 text-cyan-700 text-xs rounded-full"
+                              >
+                                {service.is_primary_service ? "⭐ " : ""}
+                                {service.service_name || service.service_id?.slice(0, 15)}...
+                              </span>
+                            ))}
+                            {provider.services.length > 2 && (
+                              <span className="px-2 py-1 bg-gray-50 text-gray-600 text-xs rounded-full">
+                                +{provider.services.length - 2} more
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {provider.reasons && provider.reasons.length > 0 && (
+                          <div className="mt-2 pt-2 border-t border-gray-100">
+                            <div className="text-xs text-gray-500">
+                              {provider.reasons.slice(0, 2).map((reason: string, index: number) => (
+                                <div key={index}>• {reason}</div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 border border-gray-200 rounded-lg bg-gray-50">
+                  <div className="text-gray-500 mb-2">
+                    <svg className="w-12 h-12 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                  </div>
+                  <p className="text-gray-600 font-medium">No providers available</p>
+                  <p className="text-sm text-gray-500 mt-1">Try selecting a different date or time slot</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </>
+    );
+
     return (
       <div className="min-h-screen">
         <Navigation branding={bookNowNavigationProps.branding} headerData={bookNowNavigationProps.headerData} />
@@ -3849,9 +4476,45 @@ function BookingPageContent() {
               />
             )}
 
+            <div
+              className={
+                useForm2Layout
+                  ? "grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] lg:items-start lg:gap-10"
+                  : ""
+              }
+            >
+              <div className={useForm2Layout ? "min-w-0 space-y-8 lg:col-span-1" : ""}>
+                {useForm2Layout && !limitedEditMode && industryOptions.length > 1 && (
+                  <div className="flex flex-wrap gap-2">
+                    {industryOptions.map((opt) => (
+                      <Button
+                        key={opt.key}
+                        type="button"
+                        size="sm"
+                        variant={selectedCategory === opt.key ? "default" : "outline"}
+                        onClick={() => {
+                          setSelectedCategory(opt.key);
+                          setSelectedService(null);
+                          setServiceCustomization(null);
+                          setCardCustomizations({});
+                          setFlippedCardId(null);
+                        }}
+                      >
+                        {opt.label}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+
             {/* Location input - Zip/Postal code or City/Town (based on store location settings) */}
             {!limitedEditMode && locationManagement !== "none" && (
-              <div className="mb-6">
+              <div
+                className={cn(
+                  "mb-6",
+                  useForm2Layout &&
+                    "rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-card",
+                )}
+              >
                 <Form {...form}>
                   <FormField
                     control={form.control}
@@ -3888,19 +4551,138 @@ function BookingPageContent() {
               </div>
             )}
 
+            {/* Form 2 template: frequency strip before service / package selection */}
+            {useForm2Layout &&
+              !limitedEditMode &&
+              frequencyOptions.length > 0 &&
+              !needsLocationBeforeServices && (
+                <section
+                  className={cn(
+                    styles.form2SectionCard,
+                    "mb-8 rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-card",
+                  )}
+                >
+                  <h2 className={cn(styles.form2SectionTitle, "text-slate-800 dark:text-slate-100")}>Frequency</h2>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    How often would you like this service?
+                  </p>
+                  <div
+                    className={cn(
+                      styles.form2FrequencyBar,
+                      "inline-flex max-w-full flex-wrap rounded-full border border-slate-200/90 bg-slate-50/90 p-1 dark:border-slate-600 dark:bg-slate-900/50",
+                    )}
+                    role="group"
+                    aria-label="Service frequency"
+                  >
+                    {frequencyOptions.map((freq) => {
+                      const active = form2FrequencyLabel === freq;
+                      return (
+                        <button
+                          key={freq}
+                          type="button"
+                          onClick={() => applyForm2FrequencySelection(freq)}
+                          className={cn(
+                            styles.form2FrequencyPill,
+                            "min-h-[44px] px-4 py-2 text-sm font-semibold transition-all",
+                            active
+                              ? "bg-gradient-to-r from-cyan-500 to-sky-500 text-white shadow-sm"
+                              : "text-slate-600 hover:text-cyan-700 dark:text-slate-300 dark:hover:text-cyan-300",
+                          )}
+                        >
+                          {freq}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
             {/* Service Type Selection - hidden in limited edit (details + payment only) */}
             {!limitedEditMode && (
-            <div className="mb-8">
-              <h2 className="text-2xl font-bold mb-4">Select Services</h2>
+            <div
+              id="form2-service-packages"
+              className={cn(
+                "mb-8",
+                useForm2Layout &&
+                  "rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-card",
+              )}
+            >
+              {bookingUsesForm1PresetCatalog ? (
+                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-50">
+                  <p className="font-medium">Default Form 1 layout (starter template)</p>
+                  <p className="mt-1 text-amber-900/90 dark:text-amber-100/90">
+                    These service names match the seeded Form 1 preset (same as after “Include Form 1 starter template” when adding an industry). Published categories are not set up yet—you can browse the flow, but booking stays disabled until the business saves real services in Form 1.
+                  </p>
+                </div>
+              ) : null}
+              <h2 className={cn(styles.form2SectionTitle, "text-2xl mb-1 text-slate-800 dark:text-slate-100")}>
+                {useForm2Layout ? "What needs to be done?" : "Select Services"}
+              </h2>
+              {useForm2Layout ? (
+                <p className="text-sm text-muted-foreground mb-6 max-w-2xl">
+                  Pick your item type, then add the package that fits. You can customize options on each card.
+                </p>
+              ) : null}
+              {useForm2Layout && !serviceCategoriesLoading && categoryServicesForForm.length > 0 ? (
+                <div className="mb-6">
+                  <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-3">Select item(s)</h3>
+                  <div className="flex flex-wrap gap-3">
+                    {categoryServicesForForm.map((svc) => {
+                      const sel =
+                        selectedService?.id === svc.id || selectedService?.name === svc.name;
+                      return (
+                        <button
+                          key={svc.id}
+                          type="button"
+                          onClick={() => {
+                            document.getElementById(`form2-pkg-${svc.id}`)
+                              ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                            setFlippedCardId(svc.id);
+                          }}
+                          className={cn(
+                            "flex min-w-[108px] max-w-[140px] flex-col items-center gap-2 rounded-xl border-2 p-3 text-center transition-all",
+                            sel
+                              ? "border-cyan-500 bg-cyan-50/80 shadow-sm dark:bg-cyan-950/30"
+                              : "border-slate-200 bg-white hover:border-cyan-300 dark:border-slate-600 dark:bg-card",
+                          )}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={svc.image}
+                            alt=""
+                            className="h-14 w-14 rounded-lg object-cover"
+                          />
+                          <span className="text-xs font-semibold leading-tight text-slate-800 dark:text-slate-100">
+                            {svc.customerDisplayName?.trim() || svc.name}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+              {useForm2Layout && !serviceCategoriesLoading && categoryServicesForForm.length > 0 ? (
+                <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-3">Choose packages</h3>
+              ) : null}
               {serviceCategoriesLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-8 w-8 animate-spin text-cyan-500" />
                 </div>
               ) : categoryServicesForForm.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div
+                  className={cn(
+                    useForm2Layout
+                      ? "flex flex-row flex-nowrap gap-4 overflow-x-auto pb-2 pt-1 snap-x snap-mandatory scroll-pl-1 [-webkit-overflow-scrolling:touch]"
+                      : "grid grid-cols-1 md:grid-cols-3 gap-6",
+                  )}
+                >
                   {categoryServicesForForm.map((service) => (
-                    <FrequencyAwareServiceCard
+                    <div
                       key={service.id}
+                      id={`form2-pkg-${service.id}`}
+                      className={cn(useForm2Layout && "min-w-[280px] max-w-[320px] shrink-0 snap-start scroll-mt-24")}
+                    >
+                    <FrequencyAwareServiceCard
                       service={service}
                       isSelected={selectedService?.id === service.id || selectedService?.name === service.name}
                       onSelect={handleServiceSelect}
@@ -3911,20 +4693,31 @@ function BookingPageContent() {
                       customizeLayout="expandedFlip"
                       industryId={selectedIndustryId}
                       businessId={businessIdFromUrl}
+                      bookingFormScope={bookingFormScopeForCatalog}
                       serviceCategory={service.raw}
                       availableExtras={availableExtras}
-                      availableVariables={buildCustomerAvailableVariables(
-                        pricingParametersFull,
-                        { name: service.name, raw: service.raw },
-                        getCardCustomization(service.id).frequency?.trim() ||
-                          bookingFrequencyForFilters ||
-                          "",
-                      )}
+                      availableVariables={(() => {
+                        const cust = getCardCustomization(service.id);
+                        const isThisCard =
+                          selectedService?.id === service.id ||
+                          selectedService?.name === service.name;
+                        const bedTier =
+                          String(cust.variableCategories?.['Bedroom'] ?? cust.bedroom ?? '').trim() ||
+                          null;
+                        return buildCustomerAvailableVariables(
+                          pricingParametersFull,
+                          { name: service.name, raw: service.raw },
+                          cust.frequency?.trim() || bookingFrequencyForFilters || "",
+                          isThisCard ? pricingFrequencyDeps : null,
+                          bedTier,
+                        );
+                      })()}
                       frequencyOptions={frequencyOptions}
                       frequencyMetaByName={frequencyMetaByName}
                       bookingPopupSurface={bookingPopupSurface}
                       pricingVariableDefinitions={industryPricingVariables}
                     />
+                    </div>
                   ))}
                 </div>
               ) : needsLocationBeforeServices ? (
@@ -3949,12 +4742,86 @@ function BookingPageContent() {
             </div>
             )}
 
+            {useForm2Layout && !limitedEditMode && selectedService && (
+              <section
+                className={cn(
+                  styles.form2SectionCard,
+                  "rounded-xl border border-cyan-200/60 bg-gradient-to-br from-cyan-50/90 to-white dark:border-cyan-900/50 dark:from-cyan-950/25 dark:to-card p-6 space-y-4",
+                )}
+              >
+                <h2 className={cn(styles.form2SectionTitle, "text-slate-800 dark:text-slate-100")}>Packages added</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-2 rounded-full border border-cyan-500/40 bg-white dark:bg-card px-4 py-2 text-sm font-medium shadow-sm">
+                    {selectedService.customerDisplayName?.trim() || selectedService.name}
+                    {form2FrequencyLabel ? (
+                      <span className="text-muted-foreground font-normal">· {form2FrequencyLabel}</span>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="rounded-full p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                      aria-label="Remove selection"
+                      onClick={() => {
+                        setSelectedService(null);
+                        setServiceCustomization(null);
+                        form.setValue("service", "");
+                        setFlippedCardId(null);
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  className="w-full bg-gradient-to-r from-cyan-500 to-sky-500 text-white shadow-md hover:from-cyan-600 hover:to-sky-600"
+                  onClick={() => {
+                    setSelectedService(null);
+                    setServiceCustomization(null);
+                    form.setValue("service", "");
+                    setFlippedCardId(null);
+                    document.getElementById("form2-service-packages")?.scrollIntoView({
+                      behavior: "smooth",
+                      block: "start",
+                    });
+                  }}
+                >
+                  + Add another item
+                </Button>
+              </section>
+            )}
+
             {/* Customer Information Form - visible below service cards, or only section in limited edit */}
             {(limitedEditMode || categoryServicesForForm.length > 0) && (
-              <div id="customer-form" className={styles.formContainer}>
-                <h2 className="text-2xl font-bold mb-6">Customer Information</h2>
+              <div
+                id="customer-form"
+                className={cn(styles.formContainer, useForm2Layout && styles.formContainerForm2)}
+              >
+                <h2 className="text-2xl font-bold mb-6">
+                  {useForm2Layout ? "Customer details" : "Customer Information"}
+                </h2>
                 <Form {...form}>
                   <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                    {form2ScheduleAtFormStart && (
+                      <div
+                        className={cn(
+                          styles.form2SectionCard,
+                          "rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-card space-y-6",
+                        )}
+                      >
+                        <h2 className={cn(styles.form2SectionTitle, "text-slate-800 dark:text-slate-100")}>
+                          Choose service provider
+                        </h2>
+                        <p className="text-sm text-muted-foreground -mt-2">
+                          Select a date and time. When available, pick who you&apos;d like for your appointment.
+                        </p>
+                        {renderBookingScheduleFields()}
+                        <FormField
+                          control={form.control}
+                          name="provider"
+                          render={({ field }) => <input type="hidden" {...field} />}
+                        />
+                      </div>
+                    )}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       {/* First Name Field */}
                       <FormField
@@ -4012,7 +4879,9 @@ function BookingPageContent() {
                         name="email"
                         render={({ field }) => (
                           <FormItem className={styles.formGroup}>
-                            <FormLabel className={styles.formLabel}>Email</FormLabel>
+                            <FormLabel className={styles.formLabel}>
+                              {useForm2Layout ? "Email Address" : "Email"}
+                            </FormLabel>
                             <FormControl>
                               <Input
                                 type="email"
@@ -4210,99 +5079,38 @@ function BookingPageContent() {
                         </div>
                       </div>
 
-                      {/* Date Picker - hidden in limited edit (details + payment only) */}
-                      {!limitedEditMode && (
-                      <div className="col-span-full">
-                        <FormField
-                          control={form.control}
-                          name="date"
-                          render={({ field }) => (
-                            <FormItem className="flex flex-col">
-                              <FormLabel className={styles.formLabel}>Select Date</FormLabel>
-                              {bookingDateWeekdayRule.allowed && bookingDateWeekdayRule.allowed.length > 0 && (
-                                <p className="text-sm text-muted-foreground mb-2">
-                                  This matches your provider&apos;s <strong>Frequency repeats every</strong> setting: only{" "}
-                                  {bookingCalendarWeekdayPhrase(bookingDateWeekdayRule.allowed)} are available. Other
-                                  weekdays are disabled.
-                                </p>
-                              )}
-                              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-                                <PopoverTrigger asChild>
-                                  <FormControl>
-                                    <Button
-                                      variant="outline"
-                                      className={cn("pl-3 text-left font-normal h-12", !field.value && "text-muted-foreground")}
-                                    >
-                                      {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                                      <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                    </Button>
-                                  </FormControl>
-                                </PopoverTrigger>
-                                <PopoverContent className={styles.calendarWrapper} align="start">
-                                  <Calendar
-                                    mode="single"
-                                    selected={field.value}
-                                    onSelect={(date) => {
-                                      field.onChange(date);
-                                      setCalendarOpen(false);
-                                    }}
-                                    disabled={(date) => {
-                                      // Compare dates using local timezone (ignore time component)
-                                      const today = new Date();
-                                      today.setHours(0, 0, 0, 0);
-                                      const compareDate = new Date(date);
-                                      compareDate.setHours(0, 0, 0, 0);
-                                      if (compareDate < today || compareDate < new Date("1900-01-01")) {
-                                        return true;
-                                      }
-                                      const allowed = bookingDateWeekdayRule.allowed;
-                                      if (allowed?.length && !allowed.includes(compareDate.getDay())) {
-                                        return true;
-                                      }
-                                      return false;
-                                    }}
-                                    initialFocus
-                                  />
-                                </PopoverContent>
-                              </Popover>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
+                      {!form2ScheduleAtFormStart && (
+                        <>
+                          {renderBookingScheduleFields()}
+                          <FormField
+                            control={form.control}
+                            name="provider"
+                            render={({ field }) => <input type="hidden" {...field} />}
+                          />
+                        </>
                       )}
 
-                      {/* Time Selection - Only show after date is selected (hidden in limited edit) */}
-                      {!limitedEditMode && isDateSelected && (
+                      {useForm2Layout && (
                         <div className="col-span-full">
                           <FormField
                             control={form.control}
-                            name="time"
+                            name="notes"
                             render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className={styles.formLabel}>Select Time Slot</FormLabel>
-                                {timeSlotsLoading ? (
-                                  <div className="flex items-center gap-2 py-6 text-muted-foreground text-sm">
-                                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                                    Loading available times…
-                                  </div>
-                                ) : dynamicTimeSlots.length > 0 ? (
-                                  <div className={styles.timeSlots}>
-                                    {dynamicTimeSlots.map((time) => (
-                                      <div
-                                        key={time}
-                                        className={cn(styles.timeSlot, field.value === time && styles.selected)}
-                                        onClick={() => field.onChange(time)}
-                                      >
-                                        {time}
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p className="text-sm text-muted-foreground py-2">
-                                    No time slots are available for this date. Try another day or contact the business.
-                                  </p>
-                                )}
+                              <FormItem className={styles.formGroup}>
+                                <FormLabel className={styles.formLabel}>
+                                  Special notes or instructions
+                                  <span className="text-muted-foreground text-sm font-normal block mt-1">
+                                    Would you like to add any notes?
+                                  </span>
+                                </FormLabel>
+                                <FormControl>
+                                  <textarea
+                                    className={styles.formTextarea}
+                                    placeholder="Access instructions, parking, pets, allergies, gate codes, etc."
+                                    rows={5}
+                                    {...field}
+                                  />
+                                </FormControl>
                                 <FormMessage />
                               </FormItem>
                             )}
@@ -4310,134 +5118,10 @@ function BookingPageContent() {
                         </div>
                       )}
 
-                      {/* Available Providers - hidden in limited edit */}
-                      {!limitedEditMode && isDateTimeSelected && showProviderStep && (
-                        <div className="col-span-full">
-                          <div className={styles.formGroup}>
-                            <FormLabel className={styles.formLabel}>
-                              Available Providers
-                              <span className="text-muted-foreground text-sm font-normal block mt-1">
-                                {providersLoading 
-                                  ? "Finding available providers..." 
-                                  : availableProviders.length > 0 
-                                    ? selectedProvider
-                                      ? `${availableProviders.length} provider${availableProviders.length === 1 ? '' : 's'} available • ${availableProviders.find(p => p.id === selectedProvider)?.name || 'Provider'} selected`
-                                      : `${availableProviders.length} provider${availableProviders.length === 1 ? '' : 's'} available`
-                                    : "No providers available for the selected time"
-                                }
-                              </span>
-                            </FormLabel>
-                            
-                            {providersLoading ? (
-                              <div className="flex items-center justify-center py-8 border border-gray-200 rounded-lg">
-                                <Loader2 className="h-6 w-6 animate-spin text-cyan-500 mr-2" />
-                                <span className="text-muted-foreground">Loading providers...</span>
-                              </div>
-                            ) : availableProviders.length > 0 ? (
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-3">
-                                {availableProviders.map((provider) => (
-                                  <div 
-                                    key={provider.id} 
-                                    className={`border rounded-lg p-4 cursor-pointer transition-all ${
-                                      selectedProvider === provider.id 
-                                        ? 'border-cyan-500 bg-cyan-50 shadow-md' 
-                                        : 'border-gray-200 hover:border-cyan-300 hover:shadow-sm'
-                                    }`}
-                                    onClick={() => handleProviderSelect(provider)}
-                                  >
-                                    <div className="flex items-start justify-between mb-2">
-                                      <div>
-                                        <h4 className="font-semibold text-gray-900">{provider.name}</h4>
-                                        <p className="text-sm text-gray-600">{provider.specialization || 'Service Provider'}</p>
-                                      </div>
-                                      <div className="flex items-center">
-                                        {showProviderScoreToCustomers && (
-                                          <div className="flex items-center mr-2">
-                                            <span className="text-yellow-400">★</span>
-                                            <span className="text-sm text-gray-600 ml-1">
-                                              {provider.rating ? provider.rating.toFixed(1) : 'New'}
-                                            </span>
-                                          </div>
-                                        )}
-                                        {showProviderAvailabilityToCustomers && provider.isAvailable && (
-                                          <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                                        )}
-                                        {selectedProvider === provider.id && (
-                                          <div className="w-5 h-5 bg-cyan-500 rounded-full flex items-center justify-center ml-2">
-                                            <CheckCircle className="w-3 h-3 text-white" />
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                    
-                                    <div className="space-y-1 text-sm text-gray-600">
-                                      {showProviderCompletedJobsToCustomers && (
-                                        <div className="flex items-center">
-                                          <span className="font-medium">Jobs:</span>
-                                          <span className="ml-1">{provider.completedJobs || 0} completed</span>
-                                        </div>
-                                      )}
-                                      {provider.services && provider.services.length > 0 && (
-                                        <div className="flex flex-wrap gap-1 mt-2">
-                                          {provider.services.slice(0, 2).map((service: any, index: number) => (
-                                            <span 
-                                              key={index}
-                                              className="px-2 py-1 bg-cyan-50 text-cyan-700 text-xs rounded-full"
-                                            >
-                                              {service.is_primary_service ? '⭐ ' : ''}{service.service_name || service.service_id?.slice(0, 15)}...
-                                            </span>
-                                          ))}
-                                          {provider.services.length > 2 && (
-                                            <span className="px-2 py-1 bg-gray-50 text-gray-600 text-xs rounded-full">
-                                              +{provider.services.length - 2} more
-                                            </span>
-                                          )}
-                                        </div>
-                                      )}
-                                      
-                                      {provider.reasons && provider.reasons.length > 0 && (
-                                        <div className="mt-2 pt-2 border-t border-gray-100">
-                                          <div className="text-xs text-gray-500">
-                                            {provider.reasons.slice(0, 2).map((reason: string, index: number) => (
-                                              <div key={index}>• {reason}</div>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="text-center py-8 border border-gray-200 rounded-lg bg-gray-50">
-                                <div className="text-gray-500 mb-2">
-                                  <svg className="w-12 h-12 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                  </svg>
-                                </div>
-                                <p className="text-gray-600 font-medium">No providers available</p>
-                                <p className="text-sm text-gray-500 mt-1">
-                                  Try selecting a different date or time slot
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Hidden provider field for form submission */}
-                      <FormField
-                        control={form.control}
-                        name="provider"
-                        render={({ field }) => (
-                          <input type="hidden" {...field} />
-                        )}
-                      />
-
                       {/* Key Information & Job Notes */}
                       <div className="col-span-full">
-                        <div className="border border-gray-200 rounded-lg p-6 bg-gray-50">
-                          <h3 className="text-lg font-semibold mb-4">Key Information & Job Notes</h3>
+                        <div className="border border-gray-200 rounded-lg p-6 bg-gray-50 dark:bg-slate-900/30">
+                          <h3 className="text-lg font-semibold mb-4">Key information &amp; job notes</h3>
                           
                           {/* Key Access */}
                           <div className="mb-6">
@@ -4530,7 +5214,9 @@ function BookingPageContent() {
                       {/* Coupon Code & Gift Cards */}
                       <div className="col-span-full">
                         <div className="border border-gray-200 rounded-lg p-6 bg-gray-50">
-                          <h3 className="text-lg font-semibold mb-4">Coupon Code & Gift Cards</h3>
+                          <h3 className="text-lg font-semibold mb-4">
+                            {useForm2Layout ? "Promotions" : "Coupon Code & Gift Cards"}
+                          </h3>
                           
                           {/* Tabs */}
                           <div className="flex space-x-4 mb-4 border-b border-gray-200">
@@ -4540,7 +5226,7 @@ function BookingPageContent() {
                                 setAppliedCoupon(null);
                                 form.setValue("couponCodeTab", "coupon-code");
                               }}
-                              className={`pb-2 text-base font-semibold ${form.watch("couponCodeTab") === "coupon-code" ? "text-blue-600 border-b-2 border-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+                              className={`pb-2 text-base font-semibold ${form.watch("couponCodeTab") === "coupon-code" ? (useForm2Layout ? "text-cyan-600 border-b-2 border-cyan-500" : "text-blue-600 border-b-2 border-blue-600") : "text-gray-500 hover:text-gray-700"}`}
                             >
                               Coupon Code
                             </button>
@@ -4550,7 +5236,7 @@ function BookingPageContent() {
                                 setAppliedCoupon(null);
                                 form.setValue("couponCodeTab", "gift-card");
                               }}
-                              className={`pb-2 text-base font-semibold ${form.watch("couponCodeTab") === "gift-card" ? "text-blue-600 border-b-2 border-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+                              className={`pb-2 text-base font-semibold ${form.watch("couponCodeTab") === "gift-card" ? (useForm2Layout ? "text-cyan-600 border-b-2 border-cyan-500" : "text-blue-600 border-b-2 border-blue-600") : "text-gray-500 hover:text-gray-700"}`}
                             >
                               Gift Cards
                             </button>
@@ -4595,7 +5281,11 @@ function BookingPageContent() {
                                     <Button
                                       type="button"
                                       onClick={applyCustomerCoupon}
-                                      className="bg-sky-400 hover:bg-sky-500 text-white px-6"
+                                      className={
+                                        useForm2Layout
+                                          ? "bg-gradient-to-r from-cyan-500 to-sky-500 hover:from-cyan-600 hover:to-sky-600 text-white px-6"
+                                          : "bg-sky-400 hover:bg-sky-500 text-white px-6"
+                                      }
                                     >
                                       Apply
                                     </Button>
@@ -4637,7 +5327,11 @@ function BookingPageContent() {
                                           description: `Gift card "${form.getValues("giftCardCode")}" has been applied.`,
                                         });
                                       }}
-                                      className="bg-sky-400 hover:bg-sky-500 text-white px-6"
+                                      className={
+                                        useForm2Layout
+                                          ? "bg-gradient-to-r from-cyan-500 to-sky-500 hover:from-cyan-600 hover:to-sky-600 text-white px-6"
+                                          : "bg-sky-400 hover:bg-sky-500 text-white px-6"
+                                      }
                                     >
                                       Apply
                                     </Button>
@@ -4649,32 +5343,82 @@ function BookingPageContent() {
                         </div>
                       </div>
 
-                      {/* Additional Notes */}
-                      <div className="col-span-full">
-                        <FormField
-                          control={form.control}
-                          name="notes"
-                          render={({ field }) => (
-                            <FormItem className={styles.formGroup}>
-                              <FormLabel className={styles.formLabel}>
-                                Additional Notes (Optional)
-                                <span className="text-muted-foreground text-sm font-normal block mt-1">
-                                  Any special instructions or requests?
-                                </span>
-                              </FormLabel>
-                              <FormControl>
-                                <textarea
-                                  className={styles.formTextarea}
-                                  placeholder="e.g., Please bring extra cleaning supplies, focus on kitchen, pet in the house, etc."
-                                  rows={4}
-                                  {...field}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
+                      {!useForm2Layout && (
+                        <div className="col-span-full">
+                          <FormField
+                            control={form.control}
+                            name="notes"
+                            render={({ field }) => (
+                              <FormItem className={styles.formGroup}>
+                                <FormLabel className={styles.formLabel}>
+                                  Additional Notes (Optional)
+                                  <span className="text-muted-foreground text-sm font-normal block mt-1">
+                                    Any special instructions or requests?
+                                  </span>
+                                </FormLabel>
+                                <FormControl>
+                                  <textarea
+                                    className={styles.formTextarea}
+                                    placeholder="e.g., Please bring extra cleaning supplies, focus on kitchen, pet in the house, etc."
+                                    rows={4}
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                      )}
+
+                    {useForm2Layout && !limitedEditMode && (
+                      <div className="col-span-full rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-card space-y-4">
+                        <h3 className={cn(styles.form2SectionTitle, "text-lg text-slate-800 dark:text-slate-100")}>
+                          Payment information
+                        </h3>
+                        <RadioGroup
+                          value={form2PayMode}
+                          onValueChange={(v) => setForm2PayMode(v === "cash" ? "cash" : "online")}
+                          className="flex flex-col gap-3"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="online" id="form2-pay-online" />
+                            <Label htmlFor="form2-pay-online" className="font-normal cursor-pointer">
+                              New credit card ({paymentProvider === "authorize_net" ? "Authorize.net" : "Stripe"} checkout)
+                            </Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="cash" id="form2-pay-cash" />
+                            <Label htmlFor="form2-pay-cash" className="font-normal cursor-pointer">
+                              Cash / check (pay on arrival)
+                            </Label>
+                          </div>
+                        </RadioGroup>
+                        {form2PayMode === "online" && (
+                          <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-600 dark:bg-slate-900/40">
+                            <p className="text-xs text-muted-foreground">
+                              Card details are entered on the secure checkout step after you save this booking.
+                            </p>
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                              <Input
+                                readOnly
+                                disabled
+                                className="bg-white sm:col-span-3"
+                                placeholder="Card number"
+                                aria-hidden
+                              />
+                              <Input readOnly disabled className="bg-white" placeholder="MM / YY" aria-hidden />
+                              <Input readOnly disabled className="bg-white" placeholder="CVC" aria-hidden />
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                              <span className="rounded border border-slate-200 px-1.5 py-0.5">Visa</span>
+                              <span className="rounded border border-slate-200 px-1.5 py-0.5">MC</span>
+                              <span className="rounded border border-slate-200 px-1.5 py-0.5">Amex</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
+                    )}
 
                     {/* Submit Button */}
                     <div className="col-span-full pt-4">
@@ -4683,16 +5427,19 @@ function BookingPageContent() {
                         className={`${styles.submitButton} group`}
                         disabled={
                           form.formState.isSubmitting ||
+                          isProcessing ||
                           (!limitedEditMode &&
                             locationManagement !== "none" &&
                             !locationInputValidForBooking)
                         }
                       >
-                        {form.formState.isSubmitting ? (
+                        {form.formState.isSubmitting || isProcessing ? (
                           <>
                             <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                             Processing...
                           </>
+                        ) : useForm2Layout && !limitedEditMode ? (
+                          <>Save Booking</>
                         ) : (
                           <>
                             Confirm Booking
@@ -4716,6 +5463,136 @@ function BookingPageContent() {
                 </Form>
               </div>
             )}
+              </div>
+              {useForm2Layout && (
+                <aside className="min-w-0 space-y-4 lg:sticky lg:top-24 lg:z-10 lg:max-h-[calc(100vh-6.5rem)] lg:overflow-y-auto lg:overflow-x-hidden lg:overscroll-y-contain lg:self-start">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Booking Summary</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2 text-sm">
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground">Industry</span>
+                        <span className="font-medium text-right max-w-[180px]">{selectedIndustryLabel || "—"}</span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground">Service</span>
+                        <span className="font-medium text-right max-w-[180px]">
+                          {selectedService
+                            ? selectedService.customerDisplayName?.trim() || selectedService.name
+                            : "—"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground">Frequency</span>
+                        <span className="font-medium text-right max-w-[180px]">
+                          {serviceCustomization?.frequency || "—"}
+                        </span>
+                      </div>
+                      {serviceCustomization?.bedroom != null && String(serviceCustomization.bedroom) !== "" && (
+                        <div className="flex justify-between gap-2">
+                          <span className="text-muted-foreground">Bedrooms</span>
+                          <span className="font-medium">{serviceCustomization.bedroom}</span>
+                        </div>
+                      )}
+                      {serviceCustomization?.bathroom != null && String(serviceCustomization.bathroom) !== "" && (
+                        <div className="flex justify-between gap-2">
+                          <span className="text-muted-foreground">Bathrooms</span>
+                          <span className="font-medium">{serviceCustomization.bathroom}</span>
+                        </div>
+                      )}
+                      {serviceCustomization?.squareMeters != null &&
+                        String(serviceCustomization.squareMeters).trim() !== "" && (
+                          <div className="flex justify-between gap-2">
+                            <span className="text-muted-foreground">Sq Ft</span>
+                            <span className="font-medium text-right">{serviceCustomization.squareMeters}</span>
+                          </div>
+                        )}
+                      <div className="border-t pt-2 mt-2 flex justify-between font-semibold text-base">
+                        <span>TOTAL</span>
+                        <span className="text-amber-600 dark:text-amber-400">
+                          ${(form2Totals?.total ?? 0).toFixed(2)}
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Live reviews</CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-sm text-muted-foreground space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8 shrink-0"
+                          aria-label="Previous review"
+                          onClick={() =>
+                            setForm2ReviewIdx(
+                              (i) => (i - 1 + FORM2_SAMPLE_REVIEWS.length) % FORM2_SAMPLE_REVIEWS.length,
+                            )
+                          }
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <p className="text-amber-500 text-center">★★★★★</p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8 shrink-0"
+                          aria-label="Next review"
+                          onClick={() =>
+                            setForm2ReviewIdx((i) => (i + 1) % FORM2_SAMPLE_REVIEWS.length)
+                          }
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <blockquote className="border-l-2 border-cyan-400 pl-3 text-foreground/90">
+                        &ldquo;{FORM2_SAMPLE_REVIEWS[form2ReviewIdx]?.quote}&rdquo;
+                      </blockquote>
+                      <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                        — {FORM2_SAMPLE_REVIEWS[form2ReviewIdx]?.author}
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Popular Questions</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {form2Faqs.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          No FAQs yet. Add them in your admin dashboard.
+                        </p>
+                      ) : (
+                        form2Faqs.map((faq) => (
+                          <Collapsible
+                            key={faq.id}
+                            open={form2OpenFaqId === faq.id}
+                            onOpenChange={(open) => setForm2OpenFaqId(open ? faq.id : null)}
+                          >
+                            <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 text-left text-sm font-medium py-2 border-b">
+                              <span className="pr-2">{faq.question}</span>
+                              <ChevronDown className="h-4 w-4 shrink-0 opacity-70" />
+                            </CollapsibleTrigger>
+                            <CollapsibleContent className="text-sm text-muted-foreground pb-3 pt-1">
+                              {faq.answer}
+                            </CollapsibleContent>
+                          </Collapsible>
+                        ))
+                      )}
+                    </CardContent>
+                  </Card>
+                  <div className="rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground">
+                    {cancellationPolicyDisclaimer ??
+                      "Based on our cancellation policy, a fee may apply if you cancel within the policy window."}
+                  </div>
+                </aside>
+              )}
+            </div>
           </div>
         </div>
 
