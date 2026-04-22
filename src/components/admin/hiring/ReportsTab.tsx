@@ -10,28 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { DateRange } from "react-day-picker";
-
-const APPLICANTS_KEY = "hiringApplicants";
-
-type HiringStage = "new" | "screening" | "interview" | "hired" | "rejected";
-
-type Applicant = {
-  id: string;
-  name: string;
-  email: string;
-  phone?: string;
-  role: string;
-  source: string;
-  stage: HiringStage;
-  createdAt: string;
-};
+import { useHiringProspects, type HiringProspect } from "@/hooks/useHiringProspects";
 
 export default function ReportsTab() {
-  const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const { prospects: allProspects, loading, error } = useHiringProspects();
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
     from: undefined,
     to: undefined,
@@ -40,16 +25,6 @@ export default function ReportsTab() {
   const [userName, setUserName] = useState<string>("");
   const [showDateModal, setShowDateModal] = useState(false);
   const { user } = useAuth();
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const stored = JSON.parse(localStorage.getItem(APPLICANTS_KEY) || "[]") as Applicant[];
-      if (Array.isArray(stored)) setApplicants(stored);
-    } catch {
-      // ignore
-    }
-  }, []);
 
   // Fetch user profile data to get the name
   useEffect(() => {
@@ -90,8 +65,8 @@ export default function ReportsTab() {
     }
   }, [user]);
 
-  // Filter applicants based on date range
-  const filteredApplicants = applicants.filter((applicant) => {
+  // Filter prospects based on date range
+  const filteredApplicants = allProspects.filter((applicant) => {
     if (!dateRange.from && !dateRange.to) return true;
     
     const applicantDate = parseISO(applicant.createdAt);
@@ -108,7 +83,7 @@ export default function ReportsTab() {
   });
 
   // Calculate metrics based on filtered data
-  const prospects = filteredApplicants.filter((a) => a.stage === "new" || a.stage === "screening" || a.stage === "interview").length;
+  const prospectCount = filteredApplicants.filter((a) => a.stage === "new" || a.stage === "screening" || a.stage === "interview").length;
   const rejected = filteredApplicants.filter((a) => a.stage === "rejected").length;
   const onboarded = filteredApplicants.filter((a) => a.stage === "hired").length;
 
@@ -155,21 +130,6 @@ export default function ReportsTab() {
   };
 
   // Month and year selection functions
-  const navigateToMonthYear = (month: number, year: number) => {
-    setCalendarMonth(new Date(year, month, 1));
-  };
-
-  const selectMonthYear = (month: number, year: number) => {
-    const startDate = new Date(year, month, 1);
-    const endDate = new Date(year, month + 1, 0); // Last day of the month
-    
-    setDateRange({
-      from: startDate,
-      to: endDate,
-    });
-    setCalendarMonth(new Date(year, month, 1));
-  };
-
   const clearDateRange = () => {
     setDateRange({ from: undefined, to: undefined });
     setCalendarMonth(new Date());
@@ -179,23 +139,21 @@ export default function ReportsTab() {
     setShowDateModal(false);
   };
 
-  // Generate dynamic chart data based on filtered applicants
+  // Generate dynamic chart data based on filtered prospects (bucket by calendar day, sortable key)
   const generateChartData = () => {
-    // Group applicants by date periods
     const applicantsByDate = filteredApplicants.reduce((acc, applicant) => {
-      const date = format(parseISO(applicant.createdAt), "MM/dd");
-      if (!acc[date]) {
-        acc[date] = [];
+      const dateKey = format(parseISO(applicant.createdAt), "yyyy-MM-dd");
+      if (!acc[dateKey]) {
+        acc[dateKey] = [];
       }
-      acc[date].push(applicant);
+      acc[dateKey].push(applicant);
       return acc;
-    }, {} as Record<string, Applicant[]>);
+    }, {} as Record<string, HiringProspect[]>);
 
-    // Sort dates and create chart data
     const sortedDates = Object.keys(applicantsByDate).sort();
     
-    return sortedDates.map(date => {
-      const dailyApplicants = applicantsByDate[date];
+    return sortedDates.map((dateKey) => {
+      const dailyApplicants = applicantsByDate[dateKey];
       
       const dailyProspects = dailyApplicants.filter(
         (a) => a.stage === "new" || a.stage === "screening" || a.stage === "interview"
@@ -204,7 +162,7 @@ export default function ReportsTab() {
       const dailyOnboarded = dailyApplicants.filter((a) => a.stage === "hired").length;
 
       return {
-        name: date,
+        name: format(parseISO(`${dateKey}T12:00:00`), "MMM d, yy"),
         prospects: dailyProspects,
         rejected: dailyRejected,
         onboarded: dailyOnboarded,
@@ -234,6 +192,7 @@ export default function ReportsTab() {
             {getTimeGreeting()}! {userName || "Admin"}
           </h1>
           <p className="text-sm text-muted-foreground">Here's what's happening with your hiring this week.</p>
+          {error ? <p className="text-sm text-destructive mt-1">{error}</p> : null}
         </div>
         <div className="flex items-center space-x-2">
           <Dialog open={showDateModal} onOpenChange={setShowDateModal}>
@@ -542,8 +501,8 @@ export default function ReportsTab() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Prospects</p>
-                <p className="text-3xl font-bold mt-1">{prospects}</p>
-                <Link href="#" className="text-sm text-blue-600 hover:text-blue-800 mt-2 inline-block">
+                <p className="text-3xl font-bold mt-1">{loading ? "—" : prospectCount}</p>
+                <Link href="/admin/hiring?tab=prospects" className="text-sm text-blue-600 hover:text-blue-800 mt-2 inline-block">
                   View all &gt;
                 </Link>
               </div>
@@ -575,7 +534,7 @@ export default function ReportsTab() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Onboarded</p>
-                <p className="text-3xl font-bold mt-1">{onboarded}</p>
+                <p className="text-3xl font-bold mt-1">{loading ? "—" : onboarded}</p>
               </div>
               <div className="bg-green-100 p-3 rounded-full">
                 <Clipboard className="h-6 w-6 text-green-600" />
@@ -595,6 +554,11 @@ export default function ReportsTab() {
         </CardHeader>
         <CardContent>
           <div className="h-64">
+            {loading ? (
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                Loading report data…
+              </div>
+            ) : (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" />
@@ -630,6 +594,7 @@ export default function ReportsTab() {
                 />
               </BarChart>
             </ResponsiveContainer>
+            )}
           </div>
         </CardContent>
       </Card>

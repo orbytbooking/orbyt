@@ -15,6 +15,7 @@ export default function AdminLayoutWrapper({
   const pathname = usePathname();
   const isLoginPage = pathname === '/auth/login';
   const isWebsiteBuilder = pathname === '/admin/website-builder';
+  const isHiringFormLivePreview = pathname === '/admin/hiring/forms/builder/preview';
 
   // Don't protect the login page
   if (isLoginPage) {
@@ -23,6 +24,18 @@ export default function AdminLayoutWrapper({
 
   // Website builder should be full page without AdminLayout
   if (isWebsiteBuilder) {
+    return (
+      <Providers>
+        <BusinessProvider>
+          <ProtectedRoute>
+            {children}
+          </ProtectedRoute>
+        </BusinessProvider>
+      </Providers>
+    );
+  }
+
+  if (isHiringFormLivePreview) {
     return (
       <Providers>
         <BusinessProvider>

@@ -3,17 +3,8 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import {
   Dialog,
   DialogContent,
@@ -32,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { useBusiness } from '@/contexts/BusinessContext';
 import {
   UserPlus,
   Users,
@@ -40,8 +32,6 @@ import {
   Contact,
   BarChart3,
   Settings,
-  ChevronDown,
-  ChevronRight,
   FileText,
   Bell,
   ScrollText,
@@ -55,8 +45,10 @@ import OnboardingTab from '@/components/admin/hiring/OnboardingTab';
 import ProspectsTab from '@/components/admin/hiring/ProspectsTab';
 import InterviewsTab from '@/components/admin/hiring/InterviewsTab';
 import QuizzesTab from '@/components/admin/hiring/QuizzesTab';
+import HiringFormListByKind from '@/components/admin/hiring/HiringFormListByKind';
 import ContractsTab from '@/components/admin/hiring/ContractsTab';
 import ReportsTab from '@/components/admin/hiring/ReportsTab';
+import HiringHiringTabStrip from '@/components/admin/hiring/HiringHiringTabStrip';
 
 const FORMS_CATEGORIES = [
   { id: 'prospects', label: 'Prospects', icon: LayoutGrid },
@@ -74,8 +66,10 @@ const EMPTY_MESSAGES: Record<string, string> = {
 
 function SettingsFormsContent() {
   const router = useRouter();
+  const { currentBusiness } = useBusiness();
   const [formCategory, setFormCategory] = useState<string>('prospects');
-  const [formFilter, setFormFilter] = useState<string>('Active Forms');
+  /** Default "All Forms" so drafts (saved but not published) appear alongside published forms. */
+  const [formFilter, setFormFilter] = useState<string>('All Forms');
   const [searchQuery, setSearchQuery] = useState('');
   const [createFormOpen, setCreateFormOpen] = useState(false);
   const [formName, setFormName] = useState('');
@@ -88,7 +82,43 @@ function SettingsFormsContent() {
   const handleCreateFormNext = () => {
     const name = formName.trim() || 'Untitled form';
     handleCloseCreateForm();
-    router.push(`/admin/hiring/forms/builder?name=${encodeURIComponent(name)}`);
+    const base = `/admin/hiring/forms/builder?name=${encodeURIComponent(name)}`;
+    router.push(formCategory === 'quizzes' ? `${base}&kind=quiz` : base);
+  };
+
+  const renderFormsBody = () => {
+    if (formCategory === 'contracts') {
+      return (
+        <div className="flex flex-1 min-h-[280px] items-center justify-center text-muted-foreground">
+          <p className="text-sm">{EMPTY_MESSAGES.contracts}</p>
+        </div>
+      );
+    }
+    if (formCategory === 'prospects') {
+      return (
+        <HiringFormListByKind
+          formKind="prospect"
+          searchQuery={searchQuery}
+          formFilter={formFilter}
+          emptyMessage={EMPTY_MESSAGES.prospects}
+        />
+      );
+    }
+    if (formCategory === 'quizzes') {
+      return (
+        <HiringFormListByKind
+          formKind="quiz"
+          searchQuery={searchQuery}
+          formFilter={formFilter}
+          emptyMessage={EMPTY_MESSAGES.quizzes}
+        />
+      );
+    }
+    return (
+      <div className="flex flex-1 min-h-[280px] items-center justify-center text-muted-foreground">
+        <p className="text-sm">{EMPTY_MESSAGES.prospects}</p>
+      </div>
+    );
   };
 
   return (
@@ -148,16 +178,18 @@ function SettingsFormsContent() {
                   className="pl-9"
                 />
               </div>
-              <Button className="shrink-0" onClick={() => setCreateFormOpen(true)}>
+              <Button
+                className="shrink-0"
+                disabled={formCategory === 'contracts'}
+                onClick={() => setCreateFormOpen(true)}
+              >
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/20 -ml-1 mr-1.5">
                   <Plus className="h-3.5 w-3.5" />
                 </span>
                 Create New
               </Button>
             </div>
-            <div className="flex-1 flex items-center justify-center text-muted-foreground">
-              <p className="text-sm">{EMPTY_MESSAGES[formCategory] ?? EMPTY_MESSAGES.prospects}</p>
-            </div>
+            {renderFormsBody()}
           </div>
         </div>
       </Card>
@@ -165,7 +197,9 @@ function SettingsFormsContent() {
       <Dialog open={createFormOpen} onOpenChange={setCreateFormOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-xl font-semibold text-slate-900">Create form</DialogTitle>
+            <DialogTitle className="text-xl font-semibold text-slate-900">
+              {formCategory === 'quizzes' ? 'Create quiz' : 'Create form'}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-2 py-2">
             <Label htmlFor="form-name" className="text-sm font-medium text-slate-900">
@@ -238,18 +272,21 @@ function SettingsGeneralContent() {
 export default function HiringPage() {
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState('onboarding');
-  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     const tab = searchParams.get('tab');
-    if (tab === 'settings-forms') setActiveTab('settings-forms');
+    if (!tab) return;
+    const main = ['onboarding', 'interviews', 'quizzes', 'prospects', 'contracts', 'reports'];
+    if (main.includes(tab) || tab.startsWith('settings-')) {
+      setActiveTab(tab);
+    }
   }, [searchParams]);
 
   const tabs = [
     { value: 'onboarding', label: 'Onboarding', icon: UserPlus, component: OnboardingTab },
-    { value: 'prospects', label: 'Prospects', icon: Users, component: ProspectsTab },
     { value: 'interviews', label: 'Interviews', icon: Video, component: InterviewsTab },
     { value: 'quizzes', label: 'Quizzes', icon: ClipboardList, component: QuizzesTab },
+    { value: 'prospects', label: 'Prospects', icon: Users, component: ProspectsTab },
     { value: 'contracts', label: 'Contracts', icon: FileSignature, component: ContractsTab },
     { value: 'reports', label: 'Reports', icon: BarChart3, component: ReportsTab },
   ];
@@ -264,75 +301,7 @@ export default function HiringPage() {
 
   return (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
-      <TabsList className="flex w-full flex-wrap h-auto gap-0 p-1 lg:w-auto lg:inline-flex">
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          return (
-            <TabsTrigger
-              key={tab.value}
-              value={tab.value}
-              className="flex items-center gap-2"
-            >
-              <Icon className="h-4 w-4" />
-              <span className="hidden sm:inline">{tab.label}</span>
-            </TabsTrigger>
-          );
-        })}
-        <DropdownMenu open={settingsOpen} onOpenChange={setSettingsOpen}>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              onClick={() => isSettingsActive || setSettingsOpen(true)}
-              className={`inline-flex h-9 items-center justify-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&_svg]:pointer-events-none [&_svg]:size-4 shrink-0 border-0 bg-transparent ${isSettingsActive ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'} ${settingsOpen ? 'bg-background text-foreground shadow-sm' : ''}`}
-            >
-              <Settings className="h-4 w-4" />
-              <span className="hidden sm:inline">Settings</span>
-              <ChevronDown className="h-4 w-4" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="start"
-            sideOffset={4}
-            className="min-w-[10rem] rounded-b-md rounded-t-sm border-0 bg-primary text-primary-foreground p-0 shadow-lg"
-          >
-            <DropdownMenuItem
-              className="rounded-none focus:bg-primary-foreground/20 focus:text-primary-foreground border-b border-primary-foreground/20"
-              onSelect={() => { setActiveTab('settings-forms'); setSettingsOpen(false); }}
-            >
-              Forms
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="rounded-none focus:bg-primary-foreground/20 focus:text-primary-foreground border-b border-primary-foreground/20"
-              onSelect={() => { setActiveTab('settings-notifications'); setSettingsOpen(false); }}
-            >
-              Notifications
-            </DropdownMenuItem>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="rounded-none focus:bg-primary-foreground/20 focus:text-primary-foreground border-b border-primary-foreground/20 data-[state=open]:bg-primary-foreground/20">
-                Logs
-                <ChevronRight className="ml-auto h-4 w-4" />
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent
-                alignOffset={-4}
-                className="rounded-md border-0 bg-primary text-primary-foreground min-w-[10rem]"
-              >
-                <DropdownMenuItem
-                  className="focus:bg-primary-foreground/20 focus:text-primary-foreground"
-                  onSelect={() => { setActiveTab('settings-logs'); setSettingsOpen(false); }}
-                >
-                  View logs
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuItem
-              className="rounded-none focus:bg-primary-foreground/20 focus:text-primary-foreground"
-              onSelect={() => { setActiveTab('settings-general'); setSettingsOpen(false); }}
-            >
-              Settings
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        </TabsList>
+      <HiringHiringTabStrip value={activeTab} onValueChange={setActiveTab} />
 
       {tabs.map((tab) => {
         const Component = tab.component;

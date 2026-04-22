@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useBusiness } from "@/contexts/BusinessContext";
 import { useHiringProspects, type HiringProspect, type HiringStage } from "@/hooks/useHiringProspects";
 import {
   Dialog,
@@ -242,8 +243,18 @@ function ProspectNoteEditor({
   );
 }
 
+type QuizActivityRow = {
+  submissionId: string;
+  formName: string;
+  createdAt: string;
+  scoreLabel: string;
+};
+
 export default function ProspectsTab() {
   const { prospects, loading, createProspect, updateProspect, deleteProspect } = useHiringProspects();
+  const { currentBusiness } = useBusiness();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [addOpen, setAddOpen] = useState(false);
   const [createFormOpen, setCreateFormOpen] = useState(false);
   const [newFormName, setNewFormName] = useState("");
@@ -272,6 +283,83 @@ export default function ProspectsTab() {
     note: "",
     addToFunnel: true,
   });
+
+  const [quizActivities, setQuizActivities] = useState<QuizActivityRow[]>([]);
+  const [quizActivitiesLoading, setQuizActivitiesLoading] = useState(false);
+
+  const stripProspectDeepLinkParams = useCallback(() => {
+    const u = new URLSearchParams(searchParams.toString());
+    if (!u.has("prospectId")) return;
+    u.delete("prospectId");
+    const s = u.toString();
+    router.replace(s ? `/admin/hiring?${s}` : "/admin/hiring");
+  }, [router, searchParams]);
+
+  const closeProspectView = useCallback(() => {
+    setViewOpen(false);
+    setSelectedProspect(null);
+    stripProspectDeepLinkParams();
+  }, [stripProspectDeepLinkParams]);
+
+  const handleViewOpenChange = (open: boolean) => {
+    if (!open) closeProspectView();
+    else setViewOpen(true);
+  };
+
+  const openQuizSummaryForSubmission = (submissionId: string) => {
+    if (!selectedProspect?.id) return;
+    const q = new URLSearchParams();
+    q.set("tab", "prospects");
+    q.set("prospectId", selectedProspect.id);
+    router.push(`/admin/hiring/quiz-submissions/${encodeURIComponent(submissionId)}?${q.toString()}`);
+  };
+
+  const prospectIdFromUrl = searchParams.get("prospectId");
+  useEffect(() => {
+    if (!prospectIdFromUrl || loading) return;
+    const p = prospects.find((a) => a.id === prospectIdFromUrl);
+    if (p) {
+      setSelectedProspect(p);
+      setViewOpen(true);
+    }
+  }, [prospectIdFromUrl, prospects, loading]);
+
+  useEffect(() => {
+    if (!selectedProspect?.id || !currentBusiness?.id) {
+      setQuizActivities([]);
+      return;
+    }
+    let cancelled = false;
+    setQuizActivitiesLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/hiring/prospects/${selectedProspect.id}/activities`, {
+          credentials: "include",
+          headers: { "x-business-id": currentBusiness.id },
+        });
+        const json = (await res.json().catch(() => ({}))) as { error?: string; items?: QuizActivityRow[] };
+        if (!res.ok) throw new Error(json.error || "Failed to load activities");
+        if (!cancelled) setQuizActivities(Array.isArray(json.items) ? json.items : []);
+      } catch {
+        if (!cancelled) setQuizActivities([]);
+      } finally {
+        if (!cancelled) setQuizActivitiesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProspect?.id, currentBusiness?.id]);
+
+  const activityRows = useMemo(() => {
+    return quizActivities.map((it) => {
+      const d = new Date(it.createdAt);
+      const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const dateLabel = d.toLocaleDateString(undefined, { month: "numeric", day: "numeric", year: "numeric" });
+      const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+      return { ...it, dateKey, dateLabel, time };
+    });
+  }, [quizActivities]);
 
   const setApplicantStage = async (applicantId: string, nextStage: HiringStage) => {
     const nextStepIndex = nextStage === "new" ? 0 : nextStage === "screening" ? 1 : undefined;
@@ -322,35 +410,6 @@ export default function ProspectsTab() {
     });
   }, [prospects, formsFilter, prospectsStatusFilter, dateFilter, prospectsTypeFilter, searchQuery]);
 
-  const activityItems = useMemo(() => {
-    if (!selectedProspect) return [];
-    const name = selectedProspect.name;
-    const status = statusFromStage(selectedProspect.stage);
-
-    // Demo timeline items. When backend is ready, replace with real events.
-    const base = new Date(selectedProspect.createdAt);
-    const toDateKey = (d: Date) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const toDateLabel = (d: Date) =>
-      d.toLocaleDateString(undefined, { month: "numeric", day: "numeric", year: "numeric" });
-
-    const d0 = base;
-    const d1 = new Date(d0.getTime());
-    d1.setDate(d1.getDate() - 1);
-    const d2 = new Date(d0.getTime());
-    d2.setDate(d2.getDate() - 3);
-
-    return [
-      { dateKey: toDateKey(d2), dateLabel: toDateLabel(d2), time: "10:12 am", text: `new prospect invited to apply` },
-      { dateKey: toDateKey(d2), dateLabel: toDateLabel(d2), time: "10:20 am", text: `application form sent to the prospect` },
-      { dateKey: toDateKey(d1), dateLabel: toDateLabel(d1), time: "09:05 am", text: `prospect reviewed by admin` },
-      { dateKey: toDateKey(d0), dateLabel: toDateLabel(d0), time: "02:57 am", text: `new prospect added by ${name}` },
-      { dateKey: toDateKey(d0), dateLabel: toDateLabel(d0), time: "02:58 am", text: `Status updated to ${status}` },
-      { dateKey: toDateKey(d0), dateLabel: toDateLabel(d0), time: "03:02 am", text: `Prospect note recorded` },
-      { dateKey: toDateKey(d0), dateLabel: toDateLabel(d0), time: "03:06 am", text: `Actions prepared for review` },
-    ];
-  }, [selectedProspect?.id, selectedProspect?.name, selectedProspect?.stage, selectedProspect?.createdAt]);
-
   useEffect(() => {
     // Keep selection in sync when filtering changes what rows are shown.
     const visibleIds = new Set(filteredProspects.map((p) => p.id));
@@ -384,8 +443,7 @@ export default function ProspectsTab() {
   const deleteApplicantById = async (applicantId: string) => {
     await deleteProspect(applicantId);
     setSelectedIds((prev) => prev.filter((id) => id !== applicantId));
-    setViewOpen(false);
-    setSelectedProspect(null);
+    closeProspectView();
   };
 
   const updateApplicantImageById = async (applicantId: string, dataUrl: string) => {
@@ -454,8 +512,6 @@ export default function ProspectsTab() {
     });
     setAddOpen(false);
   };
-
-  const router = useRouter();
 
   const handleCreateForm = () => {
     const name = newFormName.trim() || "Untitled form";
@@ -804,7 +860,7 @@ export default function ProspectsTab() {
         </CardContent>
       </Card>
 
-      <Dialog open={viewOpen} onOpenChange={setViewOpen}>
+      <Dialog open={viewOpen} onOpenChange={handleViewOpenChange}>
         <DialogContent className="sm:max-w-6xl p-0 rounded-xl overflow-hidden">
           <div className="bg-white">
             <div className="border-b px-6 py-4 flex items-center justify-between gap-3">
@@ -816,10 +872,7 @@ export default function ProspectsTab() {
                 type="button"
                 variant="ghost"
                 className="text-sm text-muted-foreground"
-                onClick={() => {
-                  setViewOpen(false);
-                  setSelectedProspect(null);
-                }}
+                onClick={() => closeProspectView()}
               >
                 <span className="mr-2">←</span>Back To List
               </Button>
@@ -933,9 +986,7 @@ export default function ProspectsTab() {
                           variant="secondary"
                           className="bg-emerald-600 hover:bg-emerald-700 text-white"
                           onClick={() => {
-                            setApplicantStage(selectedProspect.id, "hired");
-                            setViewOpen(false);
-                            setSelectedProspect(null);
+                            void setApplicantStage(selectedProspect.id, "hired").then(() => closeProspectView());
                           }}
                         >
                           Mark As Onboarded
@@ -944,9 +995,7 @@ export default function ProspectsTab() {
                           variant="destructive"
                           className="bg-rose-600 hover:bg-rose-700"
                           onClick={() => {
-                            setApplicantStage(selectedProspect.id, "rejected");
-                            setViewOpen(false);
-                            setSelectedProspect(null);
+                            void setApplicantStage(selectedProspect.id, "rejected").then(() => closeProspectView());
                           }}
                         >
                           Reject
@@ -967,9 +1016,7 @@ export default function ProspectsTab() {
                       <Button
                         className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
                         onClick={() => {
-                          setApplicantStage(selectedProspect.id, "new");
-                          setViewOpen(false);
-                          setSelectedProspect(null);
+                          void setApplicantStage(selectedProspect.id, "new").then(() => closeProspectView());
                         }}
                       >
                         Add To Funnel
@@ -978,9 +1025,7 @@ export default function ProspectsTab() {
                         variant="outline"
                         className="w-full mt-2"
                         onClick={() => {
-                          setApplicantStage(selectedProspect.id, "interview");
-                          setViewOpen(false);
-                          setSelectedProspect(null);
+                          void setApplicantStage(selectedProspect.id, "interview").then(() => closeProspectView());
                         }}
                       >
                         Schedule interview
@@ -989,9 +1034,7 @@ export default function ProspectsTab() {
                         variant="secondary"
                         className="w-full mt-2 bg-rose-50 hover:bg-rose-100 text-rose-700"
                         onClick={() => {
-                          setApplicantStage(selectedProspect.id, "interview");
-                          setViewOpen(false);
-                          setSelectedProspect(null);
+                          void setApplicantStage(selectedProspect.id, "interview").then(() => closeProspectView());
                         }}
                       >
                         Create Members
@@ -1049,25 +1092,45 @@ export default function ProspectsTab() {
 
                     <div className="mt-4">
                       <div className="mt-3 max-h-[175px] overflow-y-scroll pr-2 [scrollbar-gutter:stable] space-y-3">
-                        {activityItems.map((it, idx) => {
-                          const prev = activityItems[idx - 1];
-                          const showDateHeader = !prev || prev.dateKey !== it.dateKey;
-                          return (
-                            <div key={it.dateKey + it.time + it.text} className="space-y-1">
-                              {showDateHeader && (
-                                <div className="text-sm text-muted-foreground">{it.dateLabel}</div>
-                              )}
-                              <div className="flex items-start gap-3">
-                                <div className="mt-1 w-2 h-2 rounded-full bg-primary" />
-                                <div className="space-y-1">
-                                  <div className="text-sm">
-                                    <span className="text-muted-foreground">{it.time}</span> - {it.text}
+                        {quizActivitiesLoading ? (
+                          <p className="text-sm text-muted-foreground">Loading activities…</p>
+                        ) : activityRows.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">No quiz completions yet for this prospect.</p>
+                        ) : (
+                          activityRows.map((it, idx) => {
+                            const prev = activityRows[idx - 1];
+                            const showDateHeader = !prev || prev.dateKey !== it.dateKey;
+                            return (
+                              <div key={it.submissionId} className="space-y-1">
+                                {showDateHeader && (
+                                  <div className="text-sm text-muted-foreground">{it.dateLabel}</div>
+                                )}
+                                <div className="flex items-start gap-3">
+                                  <div className="mt-1 w-2 h-2 rounded-full bg-primary shrink-0" />
+                                  <div className="space-y-2 flex-1 min-w-0">
+                                    <div className="text-sm">
+                                      <span className="text-muted-foreground">{it.time}</span>
+                                      {" — "}
+                                      <span className="font-medium">Quiz:</span> {it.formName}
+                                      {it.scoreLabel !== "—" ? (
+                                        <span className="text-muted-foreground"> ({it.scoreLabel})</span>
+                                      ) : null}
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-8"
+                                      onClick={() => openQuizSummaryForSubmission(it.submissionId)}
+                                    >
+                                      View summary
+                                    </Button>
                                   </div>
                                 </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })
+                        )}
                       </div>
                     </div>
                   </div>
