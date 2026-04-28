@@ -52,11 +52,18 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+type RouteCtx = { params: Promise<{ id: string }> };
+
 /**
- * POST body: { formId: string, prospectId: string }
- * Sends the published quiz apply link to the prospect's email (Resend).
+ * POST body:
+ * {
+ *   interviewStartsAt: string (ISO),
+ *   interviewEndsAt: string (ISO),
+ *   timezone?: string,
+ *   sharedNote?: string
+ * }
  */
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest, ctx: RouteCtx) {
   try {
     const user = await getAuthenticatedUser();
     if (!user) return createUnauthorizedResponse();
@@ -66,42 +73,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Business ID required" }, { status: 400 });
     }
 
-    const body = await request.json().catch(() => ({}));
-    const formId = typeof body.formId === "string" ? body.formId.trim() : "";
-    const prospectId = typeof body.prospectId === "string" ? body.prospectId.trim() : "";
+    const { id: prospectId } = await ctx.params;
+    if (!prospectId?.trim()) {
+      return NextResponse.json({ error: "Prospect id required" }, { status: 400 });
+    }
 
-    if (!formId || !prospectId) {
-      return NextResponse.json({ error: "formId and prospectId are required" }, { status: 400 });
+    const body = await request.json().catch(() => ({}));
+    const startIso = typeof body.interviewStartsAt === "string" ? body.interviewStartsAt.trim() : "";
+    const endIso = typeof body.interviewEndsAt === "string" ? body.interviewEndsAt.trim() : "";
+    const timezone = typeof body.timezone === "string" ? body.timezone.trim() : "";
+    const sharedNote = typeof body.sharedNote === "string" ? body.sharedNote.trim() : "";
+
+    if (!startIso || !endIso) {
+      return NextResponse.json({ error: "interviewStartsAt and interviewEndsAt are required" }, { status: 400 });
+    }
+
+    const start = new Date(startIso);
+    const end = new Date(endIso);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return NextResponse.json({ error: "Invalid interview time values" }, { status: 400 });
+    }
+    if (end.getTime() <= start.getTime()) {
+      return NextResponse.json({ error: "Interview end must be after start" }, { status: 400 });
     }
 
     const supabase = getSupabaseAdmin();
     const access = await ensureBusinessAccess(supabase, businessId, user.id);
     if (!access.ok) return access.response;
-
-    const { data: formRow, error: formErr } = await supabase
-      .from("hiring_forms")
-      .select("id, name, form_kind, is_published, published_slug")
-      .eq("id", formId)
-      .eq("business_id", businessId)
-      .maybeSingle();
-
-    if (formErr) {
-      return NextResponse.json({ error: formErr.message }, { status: 500 });
-    }
-    if (!formRow) {
-      return NextResponse.json({ error: "Form not found" }, { status: 404 });
-    }
-
-    const fk = (formRow as { form_kind?: string }).form_kind;
-    if (fk !== "quiz") {
-      return NextResponse.json({ error: "Only quiz forms can be sent this way" }, { status: 400 });
-    }
-
-    const published = (formRow as { is_published?: boolean }).is_published === true;
-    const slug = (formRow as { published_slug?: string | null }).published_slug?.trim() ?? "";
-    if (!published || !slug) {
-      return NextResponse.json({ error: "Quiz must be published before you can email a link" }, { status: 400 });
-    }
 
     const { data: prospect, error: pErr } = await supabase
       .from("hiring_prospects")
@@ -124,10 +122,19 @@ export async function POST(request: NextRequest) {
     }
 
     const firstName = String((prospect as { first_name?: string }).first_name ?? "").trim() || "there";
-    const formName = String((formRow as { name?: string }).name ?? "Quiz").trim() || "Quiz";
+    const businessName = (access.business.name ?? "Our team").trim() || "Our team";
+    const replyTo = (access.business.business_email ?? "").trim();
 
-    const appOrigin = (process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin).replace(/\/$/, "");
-    const quizUrl = `${appOrigin}/apply/hiring/${encodeURIComponent(slug)}?prospectId=${encodeURIComponent(prospectId)}`;
+    const startText = start.toLocaleString("en-US", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      ...(timezone ? { timeZone: timezone } : {}),
+    });
+    const endText = end.toLocaleString("en-US", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      ...(timezone ? { timeZone: timezone } : {}),
+    });
 
     const resendKey = process.env.RESEND_API_KEY;
     const fromEmail = process.env.RESEND_FROM_EMAIL;
@@ -138,23 +145,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const businessName = (access.business.name ?? "Our team").trim();
-    const replyTo = (access.business.business_email ?? "").trim();
     const safeFirst = escapeHtml(firstName);
-    const safeForm = escapeHtml(formName);
-    const safeUrl = escapeHtml(quizUrl);
+    const safeBusiness = escapeHtml(businessName);
+    const safeStart = escapeHtml(startText);
+    const safeEnd = escapeHtml(endText);
+    const safeTz = escapeHtml(timezone || "your local time");
+    const safeSharedNote = sharedNote ? escapeHtml(sharedNote) : "";
 
     const html = `<!DOCTYPE html>
 <html>
 <body style="font-family:system-ui,-apple-system,sans-serif;line-height:1.5;color:#1e293b;">
   <p>Hi ${safeFirst},</p>
-  <p>You have been invited to complete a quiz: <strong>${safeForm}</strong>.</p>
-  <p style="margin:24px 0;">
-    <a href="${safeUrl}" style="display:inline-block;background:#0d9488;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600;">Open the quiz</a>
-  </p>
-  <p style="font-size:14px;color:#64748b;">If the button does not work, copy and paste this link into your browser:<br/>
-  <a href="${safeUrl}" style="color:#0d9488;word-break:break-all;">${safeUrl}</a></p>
-  <p style="font-size:14px;color:#64748b;margin-top:32px;">— ${escapeHtml(businessName)}</p>
+  <p>Your interview has been scheduled.</p>
+  <p><strong>Start:</strong> ${safeStart}<br/>
+  <strong>End:</strong> ${safeEnd}<br/>
+  <strong>Timezone:</strong> ${safeTz}</p>
+  ${
+    safeSharedNote
+      ? `<p><strong>Note from our team:</strong><br/>${safeSharedNote.replace(/\n/g, "<br/>")}</p>`
+      : ""
+  }
+  <p style="font-size:14px;color:#64748b;margin-top:32px;">— ${safeBusiness}</p>
 </body>
 </html>`;
 
@@ -162,28 +173,19 @@ export async function POST(request: NextRequest) {
     const { error: sendErr } = await resend.emails.send({
       from: fromEmail,
       to: [toEmail],
-      subject: `Quiz: ${formName}`,
+      subject: `Interview scheduled with ${businessName}`,
       html,
       replyTo: replyTo.includes("@") ? replyTo : undefined,
     });
 
     if (sendErr) {
-      console.error("send-quiz-email Resend error:", sendErr);
+      console.error("send-interview-email Resend error:", sendErr);
       return NextResponse.json({ error: sendErr.message || "Failed to send email" }, { status: 500 });
-    }
-
-    const { error: logErr } = await supabase.from("hiring_quiz_email_sends").insert({
-      business_id: businessId,
-      form_id: formId,
-      prospect_id: prospectId,
-    });
-    if (logErr) {
-      console.error("send-quiz-email log insert error:", logErr);
     }
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("send-quiz-email error:", error);
+    console.error("send-interview-email error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

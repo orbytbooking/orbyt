@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedUser, createForbiddenResponse, createUnauthorizedResponse } from "@/lib/auth-helpers";
+import { resolveProspectActivityActorName } from "@/lib/auth-user-display-name";
+import { applyStaleProspectAutoReject, fetchHiringGeneralSettings } from "@/lib/hiring-general-settings";
 
 const ALLOWED_STAGES = new Set(["new", "screening", "interview", "hired", "rejected"]);
 
@@ -48,6 +50,9 @@ export async function GET(request: NextRequest) {
     const access = await ensureBusinessAccess(supabase, businessId, user.id);
     if (!access.ok) return access.response;
 
+    const hiringSettings = await fetchHiringGeneralSettings(supabase, businessId);
+    await applyStaleProspectAutoReject(supabase, businessId, hiringSettings.autoRejectStaleDays);
+
     const { data, error } = await supabase
       .from("hiring_prospects")
       .select("*")
@@ -94,6 +99,14 @@ export async function POST(request: NextRequest) {
     const name = `${firstName}${lastName ? ` ${lastName}` : ""}`;
     const stepIndex = Number.isInteger(body.stepIndex) ? Math.max(0, Number(body.stepIndex)) : 0;
 
+    let funnelId: string | null = null;
+    if (body.funnelId !== undefined && body.funnelId !== null) {
+      if (typeof body.funnelId === "string") {
+        const t = body.funnelId.trim();
+        if (t && t !== "default" && t.length <= 200) funnelId = t;
+      }
+    }
+
     const payload = {
       business_id: businessId,
       first_name: firstName,
@@ -107,11 +120,26 @@ export async function POST(request: NextRequest) {
       note: typeof body.note === "string" && body.note.trim() ? body.note : null,
       image: typeof body.image === "string" && body.image.trim() ? body.image : null,
       step_index: stepIndex,
+      funnel_id: funnelId,
+      funnel_step_statuses: {},
     };
 
     const { data, error } = await supabase.from("hiring_prospects").insert(payload).select("*").single();
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    const prospect = data as { id: string };
+    const actorName = await resolveProspectActivityActorName(supabase, user);
+    const { error: actErr } = await supabase.from("hiring_prospect_activities").insert({
+      business_id: businessId,
+      prospect_id: prospect.id,
+      kind: "prospect_created",
+      summary: `Prospect added by ${actorName}`,
+      metadata: { actorUserId: user.id, actorName },
+    });
+    if (actErr) {
+      console.error("hiring_prospect_activities insert (create):", actErr.message);
     }
 
     return NextResponse.json({ prospect: data }, { status: 201 });

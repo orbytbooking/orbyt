@@ -34,7 +34,17 @@ async function ensureBusinessAccess(supabase: ReturnType<typeof getSupabaseAdmin
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
-/** Quiz completions linked to a prospect (for Activities timeline). */
+type ProspectActivityItem = {
+  id: string;
+  createdAt: string;
+  variant: "system" | "quiz" | "application" | "contract";
+  headline: string;
+  detail?: string | null;
+  submissionId?: string | null;
+  showSubmissionLink?: boolean;
+};
+
+/** Prospect timeline: profile/system events, applications, and quiz completions. */
 export async function GET(request: NextRequest, ctx: RouteCtx) {
   try {
     const user = await getAuthenticatedUser();
@@ -68,7 +78,33 @@ export async function GET(request: NextRequest, ctx: RouteCtx) {
       return NextResponse.json({ error: "Prospect not found" }, { status: 404 });
     }
 
-    const { data: rows, error: sErr } = await supabase
+    const items: ProspectActivityItem[] = [];
+
+    const { data: logRows, error: logErr } = await supabase
+      .from("hiring_prospect_activities")
+      .select("id, summary, created_at")
+      .eq("prospect_id", prospectId)
+      .eq("business_id", businessId)
+      .order("created_at", { ascending: false });
+
+    if (logErr) {
+      return NextResponse.json({ error: logErr.message }, { status: 500 });
+    }
+
+    for (const raw of logRows ?? []) {
+      const r = raw as { id: string; summary: string; created_at: string };
+      items.push({
+        id: `log:${r.id}`,
+        createdAt: r.created_at,
+        variant: "system",
+        headline: r.summary,
+        detail: null,
+        submissionId: null,
+        showSubmissionLink: false,
+      });
+    }
+
+    const { data: subRows, error: sErr } = await supabase
       .from("hiring_form_submissions")
       .select("id, created_at, answers, form_id")
       .eq("prospect_id", prospectId)
@@ -79,10 +115,10 @@ export async function GET(request: NextRequest, ctx: RouteCtx) {
       return NextResponse.json({ error: sErr.message }, { status: 500 });
     }
 
-    const submissions = rows ?? [];
+    const submissions = subRows ?? [];
     const formIds = [...new Set(submissions.map((r) => (r as { form_id: string }).form_id).filter(Boolean))];
 
-    const quizNameByFormId = new Map<string, string>();
+    const formMetaById = new Map<string, { name: string; form_kind: string }>();
     if (formIds.length > 0) {
       const { data: formRows, error: fErr } = await supabase
         .from("hiring_forms")
@@ -96,32 +132,61 @@ export async function GET(request: NextRequest, ctx: RouteCtx) {
 
       for (const f of formRows ?? []) {
         const row = f as { id: string; name?: string; form_kind?: string };
-        if (row.form_kind === "quiz") {
-          quizNameByFormId.set(row.id, String(row.name ?? "Quiz"));
-        }
+        formMetaById.set(row.id, {
+          name: String(row.name ?? "Form"),
+          form_kind: String(row.form_kind ?? "prospect"),
+        });
       }
     }
 
-    const items = submissions
-      .filter((raw) => quizNameByFormId.has((raw as { form_id: string }).form_id))
-      .map((raw) => {
-        const r = raw as {
-          id: string;
-          created_at: string;
-          answers: Record<string, unknown> | null;
-          form_id: string;
-        };
+    for (const raw of submissions) {
+      const r = raw as {
+        id: string;
+        created_at: string;
+        answers: Record<string, unknown> | null;
+        form_id: string;
+      };
+      const meta = formMetaById.get(r.form_id);
+      if (!meta) continue;
+
+      if (meta.form_kind === "quiz") {
         const answers = (r.answers ?? {}) as Record<string, unknown>;
         const g = answers._grading as { scorePercent?: number | null } | undefined;
-        const score =
-          typeof g?.scorePercent === "number" && !Number.isNaN(g.scorePercent) ? `${g.scorePercent}%` : "—";
-        return {
-          submissionId: r.id,
-          formName: quizNameByFormId.get(r.form_id) ?? "Quiz",
+        const scorePct =
+          typeof g?.scorePercent === "number" && !Number.isNaN(g.scorePercent) ? `${g.scorePercent}%` : null;
+        items.push({
+          id: `quiz:${r.id}`,
           createdAt: r.created_at,
-          scoreLabel: score,
-        };
-      });
+          variant: "quiz",
+          headline: `Quiz completed: ${meta.name}`,
+          detail: scorePct,
+          submissionId: r.id,
+          showSubmissionLink: true,
+        });
+      } else if (meta.form_kind === "contract") {
+        items.push({
+          id: `contract:${r.id}`,
+          createdAt: r.created_at,
+          variant: "contract",
+          headline: `Contract submitted: ${meta.name}`,
+          detail: null,
+          submissionId: r.id,
+          showSubmissionLink: true,
+        });
+      } else {
+        items.push({
+          id: `form:${r.id}`,
+          createdAt: r.created_at,
+          variant: "application",
+          headline: `Application submitted: ${meta.name}`,
+          detail: null,
+          submissionId: r.id,
+          showSubmissionLink: true,
+        });
+      }
+    }
+
+    items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
     return NextResponse.json({ items });
   } catch (e) {

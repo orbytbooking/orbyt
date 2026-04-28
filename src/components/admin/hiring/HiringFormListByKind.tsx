@@ -36,7 +36,7 @@ export type HiringFormListRow = {
 };
 
 type Props = {
-  formKind: 'prospect' | 'quiz';
+  formKind: 'prospect' | 'quiz' | 'contract';
   searchQuery: string;
   formFilter: string;
   emptyMessage: string;
@@ -111,7 +111,9 @@ export default function HiringFormListByKind({
 
   const editHref = (f: HiringFormListRow) => {
     const base = `/admin/hiring/forms/builder?id=${f.id}&name=${encodeURIComponent(f.name)}`;
-    return formKind === 'quiz' ? `${base}&kind=quiz` : base;
+    if (formKind === 'quiz') return `${base}&kind=quiz`;
+    if (formKind === 'contract') return `${base}&kind=contract`;
+    return base;
   };
 
   const handleConfirmDelete = async () => {

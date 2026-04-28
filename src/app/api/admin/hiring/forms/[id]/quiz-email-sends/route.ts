@@ -32,8 +32,9 @@ async function ensureBusinessAccess(supabase: ReturnType<typeof getSupabaseAdmin
   return { ok: true as const };
 }
 
-type RouteCtx = { params: Promise<{ id: string; submissionId: string }> };
+type RouteCtx = { params: Promise<{ id: string }> };
 
+/** Remove logged quiz invite emails for a prospect on this form (pending "Email sent" rows). */
 export async function DELETE(request: NextRequest, ctx: RouteCtx) {
   try {
     const user = await getAuthenticatedUser();
@@ -44,9 +45,14 @@ export async function DELETE(request: NextRequest, ctx: RouteCtx) {
       return NextResponse.json({ error: "Business ID required" }, { status: 400 });
     }
 
-    const { id: formId, submissionId } = await ctx.params;
-    if (!formId?.trim() || !submissionId?.trim()) {
-      return NextResponse.json({ error: "Form id and submission id required" }, { status: 400 });
+    const prospectId = request.nextUrl.searchParams.get("prospectId")?.trim() ?? "";
+    if (!prospectId) {
+      return NextResponse.json({ error: "prospectId query parameter required" }, { status: 400 });
+    }
+
+    const { id: formId } = await ctx.params;
+    if (!formId?.trim()) {
+      return NextResponse.json({ error: "Form id required" }, { status: 400 });
     }
 
     const supabase = getSupabaseAdmin();
@@ -55,7 +61,7 @@ export async function DELETE(request: NextRequest, ctx: RouteCtx) {
 
     const { data: formRow, error: formErr } = await supabase
       .from("hiring_forms")
-      .select("id")
+      .select("id, form_kind")
       .eq("id", formId)
       .eq("business_id", businessId)
       .maybeSingle();
@@ -66,59 +72,24 @@ export async function DELETE(request: NextRequest, ctx: RouteCtx) {
     if (!formRow) {
       return NextResponse.json({ error: "Form not found" }, { status: 404 });
     }
-
-    const { data: existing, error: fetchErr } = await supabase
-      .from("hiring_form_submissions")
-      .select("id, prospect_id")
-      .eq("id", submissionId)
-      .eq("form_id", formId)
-      .eq("business_id", businessId)
-      .maybeSingle();
-
-    if (fetchErr) {
-      return NextResponse.json({ error: fetchErr.message }, { status: 500 });
+    if ((formRow as { form_kind?: string }).form_kind !== "quiz") {
+      return NextResponse.json({ error: "Only quiz forms support invite log removal" }, { status: 400 });
     }
-    if (!existing) {
-      return NextResponse.json({ error: "Submission not found" }, { status: 404 });
-    }
-
-    const prospectId = (existing as { prospect_id?: string | null }).prospect_id ?? null;
 
     const { error: delErr } = await supabase
-      .from("hiring_form_submissions")
+      .from("hiring_quiz_email_sends")
       .delete()
-      .eq("id", submissionId)
       .eq("form_id", formId)
-      .eq("business_id", businessId);
+      .eq("business_id", businessId)
+      .eq("prospect_id", prospectId);
 
     if (delErr) {
       return NextResponse.json({ error: delErr.message }, { status: 500 });
     }
 
-    if (prospectId) {
-      const { count, error: cntErr } = await supabase
-        .from("hiring_form_submissions")
-        .select("id", { count: "exact", head: true })
-        .eq("form_id", formId)
-        .eq("business_id", businessId)
-        .eq("prospect_id", prospectId);
-
-      if (!cntErr && (count ?? 0) === 0) {
-        const { error: inviteDelErr } = await supabase
-          .from("hiring_quiz_email_sends")
-          .delete()
-          .eq("form_id", formId)
-          .eq("business_id", businessId)
-          .eq("prospect_id", prospectId);
-        if (inviteDelErr) {
-          console.error("hiring_quiz_email_sends cleanup after submission delete:", inviteDelErr);
-        }
-      }
-    }
-
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("Hiring form submission DELETE error:", error);
+    console.error("quiz-email-sends DELETE error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

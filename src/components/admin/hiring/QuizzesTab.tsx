@@ -34,6 +34,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -50,6 +51,9 @@ import { toast } from 'sonner';
 
 const EMPTY_QUIZ = 'There is no quiz form added yet.';
 
+/** Filter value: list submissions across every quiz form for this business. */
+const ALL_QUIZZES = '__all_quizzes__';
+
 type QuizFormRow = {
   id: string;
   name: string;
@@ -59,6 +63,10 @@ type QuizFormRow = {
 
 type QuizSubmissionRow = {
   id: string;
+  /** Source form when rows are merged from “All quizzes”. */
+  formId?: string;
+  quizName?: string;
+  status?: 'completed' | 'sent';
   prospectId: string | null;
   createdAt: string;
   name: string;
@@ -68,6 +76,10 @@ type QuizSubmissionRow = {
   scoreLabel: string;
   answers: Record<string, unknown>;
 };
+
+type QuizzesRemoveDialog =
+  | { mode: 'submission'; row: QuizSubmissionRow }
+  | { mode: 'invite'; prospectId: string; name: string; formId: string };
 
 type HiringProspectRow = {
   id: string;
@@ -91,7 +103,7 @@ export default function QuizzesTab() {
   const [quizForms, setQuizForms] = useState<QuizFormRow[]>([]);
   const [quizFormsLoading, setQuizFormsLoading] = useState(false);
 
-  const [submissionsFormId, setSubmissionsFormId] = useState<string>('');
+  const [submissionsFormId, setSubmissionsFormId] = useState<string>(ALL_QUIZZES);
   const [submissions, setSubmissions] = useState<QuizSubmissionRow[]>([]);
   const [submissionsLoading, setSubmissionsLoading] = useState(false);
   const [submissionsError, setSubmissionsError] = useState<string | null>(null);
@@ -104,8 +116,14 @@ export default function QuizzesTab() {
   const [sendProspectId, setSendProspectId] = useState<string>('');
   const [sendEmailBusy, setSendEmailBusy] = useState(false);
 
-  const [deleteTarget, setDeleteTarget] = useState<QuizSubmissionRow | null>(null);
-  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [removeDialog, setRemoveDialog] = useState<QuizzesRemoveDialog | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+
+  const [rejectDialog, setRejectDialog] = useState<{ prospectId: string; name: string } | null>(null);
+  const [rejectBusy, setRejectBusy] = useState(false);
+
+  const [resendRowId, setResendRowId] = useState<string | null>(null);
+  const [downloadRowId, setDownloadRowId] = useState<string | null>(null);
 
   const fetchQuizForms = useCallback(async () => {
     if (!currentBusiness?.id) {
@@ -127,8 +145,9 @@ export default function QuizzesTab() {
       const list = Array.isArray(json.forms) ? json.forms : [];
       setQuizForms(list);
       setSubmissionsFormId((prev) => {
+        if (prev === ALL_QUIZZES) return ALL_QUIZZES;
         if (prev && list.some((f) => f.id === prev)) return prev;
-        return list[0]?.id ?? '';
+        return list.length > 0 ? ALL_QUIZZES : '';
       });
     } catch {
       setQuizForms([]);
@@ -138,10 +157,70 @@ export default function QuizzesTab() {
   }, [currentBusiness?.id]);
 
   const fetchSubmissions = useCallback(async () => {
-    if (!currentBusiness?.id || !submissionsFormId) {
+    if (!currentBusiness?.id) {
       setSubmissions([]);
       return;
     }
+    if (!submissionsFormId) {
+      setSubmissions([]);
+      return;
+    }
+
+    if (submissionsFormId === ALL_QUIZZES) {
+      if (quizForms.length === 0) {
+        setSubmissions([]);
+        return;
+      }
+      setSubmissionsLoading(true);
+      setSubmissionsError(null);
+      try {
+        const settled = await Promise.allSettled(
+          quizForms.map(async (f) => {
+            const res = await fetch(`/api/admin/hiring/forms/${f.id}/submissions`, {
+              credentials: 'include',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-business-id': currentBusiness.id!,
+              },
+            });
+            const json = (await res.json()) as {
+              error?: string;
+              formName?: string;
+              submissions?: QuizSubmissionRow[];
+            };
+            if (!res.ok) throw new Error(json.error || 'Failed to load submissions');
+            const list = Array.isArray(json.submissions) ? json.submissions : [];
+            const quizName = json.formName?.trim() || f.name;
+            return list.map((row) => ({
+              ...row,
+              formId: f.id,
+              quizName,
+            }));
+          })
+        );
+        const errors: string[] = [];
+        const merged: QuizSubmissionRow[] = [];
+        for (const s of settled) {
+          if (s.status === 'fulfilled') {
+            merged.push(...s.value);
+          } else {
+            errors.push(s.reason instanceof Error ? s.reason.message : 'Request failed');
+          }
+        }
+        if (errors.length === settled.length) {
+          throw new Error(errors[0] || 'Failed to load submissions');
+        }
+        merged.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+        setSubmissions(merged);
+      } catch (e) {
+        setSubmissions([]);
+        setSubmissionsError(e instanceof Error ? e.message : 'Failed to load submissions');
+      } finally {
+        setSubmissionsLoading(false);
+      }
+      return;
+    }
+
     setSubmissionsLoading(true);
     setSubmissionsError(null);
     try {
@@ -164,7 +243,7 @@ export default function QuizzesTab() {
     } finally {
       setSubmissionsLoading(false);
     }
-  }, [currentBusiness?.id, submissionsFormId]);
+  }, [currentBusiness?.id, submissionsFormId, quizForms]);
 
   const fetchProspectsForSend = useCallback(async () => {
     if (!currentBusiness?.id) {
@@ -217,7 +296,9 @@ export default function QuizzesTab() {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return submissions;
     return submissions.filter((row) => {
-      const hay = `${row.name} ${row.email} ${row.phone}`.toLowerCase();
+      const st = row.status === 'sent' ? 'email sent' : '';
+      const quiz = row.quizName ?? '';
+      const hay = `${row.name} ${row.email} ${row.phone} ${quiz} ${st}`.toLowerCase();
       return hay.includes(q);
     });
   }, [submissions, searchQuery]);
@@ -287,6 +368,7 @@ export default function QuizzesTab() {
       if (!res.ok) throw new Error(json.error || 'Failed to send email');
       toast.success('Quiz link sent by email');
       setSendOpen(false);
+      await fetchSubmissions();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to send email');
     } finally {
@@ -294,27 +376,169 @@ export default function QuizzesTab() {
     }
   };
 
-  const handleConfirmDelete = async () => {
-    if (!deleteTarget || !currentBusiness?.id || !submissionsFormId) return;
-    setDeleteBusy(true);
+  const handleConfirmReject = async () => {
+    if (!rejectDialog || !currentBusiness?.id) return;
+    setRejectBusy(true);
     try {
-      const res = await fetch(
-        `/api/admin/hiring/forms/${submissionsFormId}/submissions/${deleteTarget.id}`,
-        {
-          method: 'DELETE',
-          credentials: 'include',
-          headers: { 'x-business-id': currentBusiness.id },
-        }
-      );
+      const res = await fetch(`/api/admin/hiring/prospects/${rejectDialog.prospectId}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-business-id': currentBusiness.id,
+        },
+        body: JSON.stringify({ stage: 'rejected' }),
+      });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(json.error || 'Delete failed');
-      setDeleteTarget(null);
-      toast.success('Submission removed');
+      if (!res.ok) throw new Error(json.error || 'Could not update prospect');
+      setRejectDialog(null);
+      toast.success('Prospect marked as rejected');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Reject failed');
+    } finally {
+      setRejectBusy(false);
+    }
+  };
+
+  const handleResendQuiz = async (row: QuizSubmissionRow) => {
+    const formId = row.formId ?? submissionsFormId;
+    if (!currentBusiness?.id || !formId || !row.prospectId) {
+      toast.error('A linked prospect is required to re-send.');
+      return;
+    }
+    const published = publishedQuizzes.some((f) => f.id === formId);
+    if (!published) {
+      toast.error('Publish this quiz before re-sending the email.');
+      return;
+    }
+    setResendRowId(row.id);
+    try {
+      const res = await fetch('/api/admin/hiring/forms/send-quiz-email', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-business-id': currentBusiness.id,
+        },
+        body: JSON.stringify({ formId, prospectId: row.prospectId }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(json.error || 'Failed to send email');
+      toast.success('Quiz email sent again');
       await fetchSubmissions();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Delete failed');
+      toast.error(e instanceof Error ? e.message : 'Re-send failed');
     } finally {
-      setDeleteBusy(false);
+      setResendRowId(null);
+    }
+  };
+
+  const safeFileSlug = (s: string) =>
+    s
+      .trim()
+      .replace(/[^\w\-]+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '')
+      .slice(0, 72) || 'quiz';
+
+  const triggerDownloadJson = (filename: string, data: unknown) => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename.endsWith('.json') ? filename : `${filename}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadQuiz = async (row: QuizSubmissionRow) => {
+    const formId = row.formId ?? submissionsFormId;
+    if (!currentBusiness?.id || !formId) return;
+    setDownloadRowId(row.id);
+    try {
+      if (row.status === 'sent') {
+        const res = await fetch(`/api/admin/hiring/forms/${formId}`, {
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-business-id': currentBusiness.id,
+          },
+        });
+        const json = (await res.json()) as { error?: string; form?: Record<string, unknown> };
+        if (!res.ok) throw new Error(json.error || 'Failed to load quiz');
+        const form = json.form;
+        if (!form) throw new Error('Quiz not found');
+        const name = String(form.name ?? 'quiz');
+        triggerDownloadJson(`${safeFileSlug(name)}-quiz-template.json`, {
+          exportedAt: new Date().toISOString(),
+          exportKind: 'quiz_template',
+          quizName: name,
+          formKind: form.form_kind,
+          definition: form.definition,
+        });
+        toast.success('Quiz template downloaded');
+      } else {
+        const res = await fetch(`/api/admin/hiring/form-submissions/${encodeURIComponent(row.id)}`, {
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-business-id': currentBusiness.id,
+          },
+        });
+        const data = (await res.json()) as { error?: string };
+        if (!res.ok) throw new Error((data as { error?: string }).error || 'Failed to load submission');
+        const fn = `${safeFileSlug((data as { formName?: string }).formName ?? 'quiz')}-${safeFileSlug(row.name)}-response.json`;
+        triggerDownloadJson(fn, data);
+        toast.success('Quiz response downloaded');
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Download failed');
+    } finally {
+      setDownloadRowId(null);
+    }
+  };
+
+  const handleConfirmRemove = async () => {
+    if (!removeDialog || !currentBusiness?.id) return;
+    const formIdForRemove =
+      removeDialog.mode === 'submission'
+        ? removeDialog.row.formId ?? submissionsFormId
+        : removeDialog.formId;
+    if (!formIdForRemove) return;
+    setRemoveBusy(true);
+    try {
+      if (removeDialog.mode === 'submission') {
+        const res = await fetch(
+          `/api/admin/hiring/forms/${formIdForRemove}/submissions/${removeDialog.row.id}`,
+          {
+            method: 'DELETE',
+            credentials: 'include',
+            headers: { 'x-business-id': currentBusiness.id },
+          }
+        );
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) throw new Error(json.error || 'Delete failed');
+        toast.success('Submission removed');
+      } else {
+        const qs = new URLSearchParams({ prospectId: removeDialog.prospectId });
+        const res = await fetch(
+          `/api/admin/hiring/forms/${formIdForRemove}/quiz-email-sends?${qs}`,
+          {
+            method: 'DELETE',
+            credentials: 'include',
+            headers: { 'x-business-id': currentBusiness.id },
+          }
+        );
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) throw new Error(json.error || 'Delete failed');
+        toast.success('Invite deleted');
+      }
+      setRemoveDialog(null);
+      await fetchSubmissions();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Request failed');
+    } finally {
+      setRemoveBusy(false);
     }
   };
 
@@ -329,14 +553,35 @@ export default function QuizzesTab() {
     }
   };
 
-  const selectedQuizName = quizForms.find((f) => f.id === submissionsFormId)?.name ?? '';
+  const selectedQuizName =
+    submissionsFormId === ALL_QUIZZES
+      ? ''
+      : quizForms.find((f) => f.id === submissionsFormId)?.name ?? '';
 
-  const goViewSubmissionDetails = (row: QuizSubmissionRow) => {
+  const emptySubmissionsMessage =
+    submissionsFormId === ALL_QUIZZES
+      ? 'No invites or submissions yet for any quiz.'
+      : `No invites or submissions yet for "${selectedQuizName}".`;
+
+  const handleView = (row: QuizSubmissionRow) => {
+    if (row.status === 'sent') {
+      if (row.prospectId) {
+        router.push(
+          `/admin/hiring?tab=prospects&prospectId=${encodeURIComponent(row.prospectId)}`
+        );
+        return;
+      }
+      toast.error('No prospect linked to open.');
+      return;
+    }
     const q = new URLSearchParams();
     q.set('tab', row.prospectId ? 'prospects' : 'quizzes');
     if (row.prospectId) q.set('prospectId', row.prospectId);
     router.push(`/admin/hiring/quiz-submissions/${encodeURIComponent(row.id)}?${q.toString()}`);
   };
+
+  const rowStatus = (row: QuizSubmissionRow): 'completed' | 'sent' =>
+    row.status === 'sent' ? 'sent' : 'completed';
 
   return (
     <div className="space-y-6">
@@ -359,6 +604,7 @@ export default function QuizzesTab() {
                   <SelectValue placeholder={quizFormsLoading ? 'Loading…' : 'Select a quiz'} />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value={ALL_QUIZZES}>All quizzes</SelectItem>
                   {quizForms.map((f) => (
                     <SelectItem key={f.id} value={f.id}>
                       {f.name}
@@ -402,16 +648,16 @@ export default function QuizzesTab() {
 
           {!currentBusiness?.id ? (
             <p className="text-sm text-muted-foreground">Select a business workspace.</p>
-          ) : !submissionsFormId ? (
+          ) : quizFormsLoading ? (
+            <p className="text-sm text-muted-foreground">Loading quizzes…</p>
+          ) : quizForms.length === 0 ? (
             <p className="text-sm text-muted-foreground">{EMPTY_QUIZ}</p>
           ) : submissionsLoading ? (
             <p className="text-sm text-muted-foreground">Loading submissions…</p>
           ) : submissionsError ? (
             <p className="text-sm text-destructive">{submissionsError}</p>
           ) : submissions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No submissions yet for &quot;{selectedQuizName}&quot;.
-            </p>
+            <p className="text-sm text-muted-foreground">{emptySubmissionsMessage}</p>
           ) : filteredSubmissions.length === 0 ? (
             <p className="text-sm text-muted-foreground">No respondents match your search.</p>
           ) : (
@@ -419,23 +665,42 @@ export default function QuizzesTab() {
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent bg-muted/40">
+                    {submissionsFormId === ALL_QUIZZES ? (
+                      <TableHead className="min-w-[120px]">Quiz</TableHead>
+                    ) : null}
                     <TableHead className="min-w-[160px]">Name</TableHead>
                     <TableHead className="min-w-[200px]">Email</TableHead>
                     <TableHead className="min-w-[120px]">Phone number</TableHead>
                     <TableHead className="w-[90px]">Graded</TableHead>
                     <TableHead className="w-[90px]">Score</TableHead>
-                    <TableHead className="min-w-[160px]">Date submitted</TableHead>
-                    <TableHead className="w-[120px] text-right">Actions</TableHead>
+                    <TableHead className="min-w-[160px]">Submitted / sent</TableHead>
+                    <TableHead className="min-w-[130px] w-[130px] text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredSubmissions.map((row) => (
-                    <TableRow key={row.id}>
+                  {filteredSubmissions.map((row) => {
+                    const st = rowStatus(row);
+                    const rowKey = `${row.formId ?? submissionsFormId}:${row.id}`;
+                    return (
+                    <TableRow key={rowKey}>
+                      {submissionsFormId === ALL_QUIZZES ? (
+                        <TableCell className="text-sm text-slate-700 max-w-[200px]">
+                          <span className="line-clamp-2" title={row.quizName ?? ''}>
+                            {row.quizName ?? '—'}
+                          </span>
+                        </TableCell>
+                      ) : null}
                       <TableCell>
                         <div className="font-semibold text-slate-900">{row.name}</div>
-                        <Badge className="mt-1.5 bg-emerald-600 hover:bg-emerald-600 text-xs font-medium">
-                          Completed
-                        </Badge>
+                        {st === 'completed' ? (
+                          <Badge className="mt-1.5 bg-emerald-600 hover:bg-emerald-600 text-xs font-medium">
+                            Completed
+                          </Badge>
+                        ) : (
+                          <Badge className="mt-1.5 bg-amber-600 hover:bg-amber-600 text-xs font-medium">
+                            Email sent
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell className="text-sm text-slate-700">{row.email}</TableCell>
                       <TableCell className="text-sm text-slate-700">{row.phone}</TableCell>
@@ -445,26 +710,78 @@ export default function QuizzesTab() {
                         {formatSubmittedAt(row.createdAt)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button type="button" variant="outline" size="sm" className="gap-1">
-                              Options
-                              <ChevronDown className="h-3.5 w-3.5 opacity-70" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-44">
-                            <DropdownMenuItem onClick={() => goViewSubmissionDetails(row)}>View details</DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={() => setDeleteTarget(row)}
-                            >
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        {st === 'completed' || (st === 'sent' && row.prospectId) ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="gap-1"
+                                disabled={resendRowId === row.id || downloadRowId === row.id}
+                              >
+                                Options
+                                <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-52">
+                              <DropdownMenuItem onClick={() => handleView(row)}>View</DropdownMenuItem>
+                              <DropdownMenuItem
+                                disabled={!row.prospectId}
+                                onClick={() =>
+                                  row.prospectId &&
+                                  setRejectDialog({ prospectId: row.prospectId, name: row.name })
+                                }
+                              >
+                                Reject
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                disabled={
+                                  !row.prospectId ||
+                                  !publishedQuizzes.some(
+                                    (f) => f.id === (row.formId ?? submissionsFormId)
+                                  ) ||
+                                  resendRowId === row.id
+                                }
+                                onClick={() => void handleResendQuiz(row)}
+                              >
+                                {resendRowId === row.id ? 'Sending…' : 'Re-send'}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                disabled={downloadRowId === row.id}
+                                onClick={() => void handleDownloadQuiz(row)}
+                              >
+                                {downloadRowId === row.id ? 'Downloading…' : 'Download quiz'}
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={() => {
+                                  if (st === 'completed') {
+                                    setRemoveDialog({ mode: 'submission', row });
+                                  } else if (row.prospectId) {
+                                    const fid = row.formId ?? submissionsFormId;
+                                    if (!fid) return;
+                                    setRemoveDialog({
+                                      mode: 'invite',
+                                      prospectId: row.prospectId,
+                                      name: row.name,
+                                      formId: fid,
+                                    });
+                                  }
+                                }}
+                              >
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">—</span>
+                        )}
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -598,23 +915,63 @@ export default function QuizzesTab() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && !deleteBusy && setDeleteTarget(null)}>
+      <AlertDialog
+        open={!!removeDialog}
+        onOpenChange={(open) => !open && !removeBusy && setRemoveDialog(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this submission?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {removeDialog?.mode === 'invite' ? 'Delete pending invite?' : 'Delete this submission?'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the response for {deleteTarget?.name ?? 'this respondent'}. This cannot be undone.
+              {removeDialog?.mode === 'invite' ? (
+                <>
+                  This deletes the &quot;Email sent&quot; row for {removeDialog.name}. Their old link may still work
+                  until you send a new invite; this only removes the list entry.
+                </>
+              ) : removeDialog?.mode === 'submission' ? (
+                <>
+                  This removes the response for {removeDialog.row.name}. This cannot be undone.
+                </>
+              ) : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={removeBusy}>Cancel</AlertDialogCancel>
             <Button
               type="button"
               variant="destructive"
-              disabled={deleteBusy}
-              onClick={() => void handleConfirmDelete()}
+              disabled={removeBusy}
+              onClick={() => void handleConfirmRemove()}
             >
-              {deleteBusy ? 'Deleting…' : 'Delete'}
+              {removeBusy ? 'Deleting…' : 'Delete'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={!!rejectDialog}
+        onOpenChange={(open) => !open && !rejectBusy && setRejectDialog(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reject this prospect?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This sets their hiring stage to <span className="font-medium">Rejected</span> for{' '}
+              {rejectDialog?.name ?? 'this person'}. You can change their stage later from Prospects.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={rejectBusy}>Cancel</AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={rejectBusy}
+              onClick={() => void handleConfirmReject()}
+            >
+              {rejectBusy ? 'Saving…' : 'Reject'}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

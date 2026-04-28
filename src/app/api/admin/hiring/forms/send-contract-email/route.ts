@@ -54,7 +54,7 @@ function escapeHtml(s: string): string {
 
 /**
  * POST body: { formId: string, prospectId: string }
- * Sends the published quiz apply link to the prospect's email (Resend).
+ * Sends the published contract apply link to the prospect's email (Resend).
  */
 export async function POST(request: NextRequest) {
   try {
@@ -93,14 +93,14 @@ export async function POST(request: NextRequest) {
     }
 
     const fk = (formRow as { form_kind?: string }).form_kind;
-    if (fk !== "quiz") {
-      return NextResponse.json({ error: "Only quiz forms can be sent this way" }, { status: 400 });
+    if (fk !== "contract") {
+      return NextResponse.json({ error: "Only contract forms can be sent this way" }, { status: 400 });
     }
 
     const published = (formRow as { is_published?: boolean }).is_published === true;
     const slug = (formRow as { published_slug?: string | null }).published_slug?.trim() ?? "";
     if (!published || !slug) {
-      return NextResponse.json({ error: "Quiz must be published before you can email a link" }, { status: 400 });
+      return NextResponse.json({ error: "Contract form must be published before you can email a link" }, { status: 400 });
     }
 
     const { data: prospect, error: pErr } = await supabase
@@ -124,10 +124,10 @@ export async function POST(request: NextRequest) {
     }
 
     const firstName = String((prospect as { first_name?: string }).first_name ?? "").trim() || "there";
-    const formName = String((formRow as { name?: string }).name ?? "Quiz").trim() || "Quiz";
+    const formName = String((formRow as { name?: string }).name ?? "Contract").trim() || "Contract";
 
     const appOrigin = (process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin).replace(/\/$/, "");
-    const quizUrl = `${appOrigin}/apply/hiring/${encodeURIComponent(slug)}?prospectId=${encodeURIComponent(prospectId)}`;
+    const contractUrl = `${appOrigin}/apply/hiring/${encodeURIComponent(slug)}?prospectId=${encodeURIComponent(prospectId)}`;
 
     const resendKey = process.env.RESEND_API_KEY;
     const fromEmail = process.env.RESEND_FROM_EMAIL;
@@ -142,15 +142,15 @@ export async function POST(request: NextRequest) {
     const replyTo = (access.business.business_email ?? "").trim();
     const safeFirst = escapeHtml(firstName);
     const safeForm = escapeHtml(formName);
-    const safeUrl = escapeHtml(quizUrl);
+    const safeUrl = escapeHtml(contractUrl);
 
     const html = `<!DOCTYPE html>
 <html>
 <body style="font-family:system-ui,-apple-system,sans-serif;line-height:1.5;color:#1e293b;">
   <p>Hi ${safeFirst},</p>
-  <p>You have been invited to complete a quiz: <strong>${safeForm}</strong>.</p>
+  <p>You have been invited to review and complete: <strong>${safeForm}</strong>.</p>
   <p style="margin:24px 0;">
-    <a href="${safeUrl}" style="display:inline-block;background:#0d9488;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600;">Open the quiz</a>
+    <a href="${safeUrl}" style="display:inline-block;background:#0d9488;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600;">Open the contract</a>
   </p>
   <p style="font-size:14px;color:#64748b;">If the button does not work, copy and paste this link into your browser:<br/>
   <a href="${safeUrl}" style="color:#0d9488;word-break:break-all;">${safeUrl}</a></p>
@@ -162,28 +162,28 @@ export async function POST(request: NextRequest) {
     const { error: sendErr } = await resend.emails.send({
       from: fromEmail,
       to: [toEmail],
-      subject: `Quiz: ${formName}`,
+      subject: `Contract: ${formName}`,
       html,
       replyTo: replyTo.includes("@") ? replyTo : undefined,
     });
 
     if (sendErr) {
-      console.error("send-quiz-email Resend error:", sendErr);
+      console.error("send-contract-email Resend error:", sendErr);
       return NextResponse.json({ error: sendErr.message || "Failed to send email" }, { status: 500 });
     }
 
-    const { error: logErr } = await supabase.from("hiring_quiz_email_sends").insert({
+    const { error: logErr } = await supabase.from("hiring_contract_email_sends").insert({
       business_id: businessId,
       form_id: formId,
       prospect_id: prospectId,
     });
     if (logErr) {
-      console.error("send-quiz-email log insert error:", logErr);
+      console.error("send-contract-email log insert error:", logErr);
     }
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("send-quiz-email error:", error);
+    console.error("send-contract-email error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

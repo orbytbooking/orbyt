@@ -30,10 +30,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { cn } from '@/lib/utils';
 import { useBusiness } from '@/contexts/BusinessContext';
 import { validateHiringFormFields } from '@/lib/hiring-form-validation';
 import { RichTextEditor } from '@/components/admin/hiring/RichTextEditor';
+import {
+  type HiringDedicatedThankYouPage,
+  type HiringFormSubmissionSettings,
+  type HiringThankYouMode,
+  DEFAULT_HIRING_FORM_SUBMISSION_SETTINGS,
+  normalizeHiringFormSubmissionSettings,
+  resolveDefaultThankYouPage,
+} from '@/app/admin/hiring/forms/builder/hiring-form-submission-settings';
+import { ThankYouPagesSettingsPanel } from '@/app/admin/hiring/forms/builder/ThankYouPagesSettingsPanel';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   ArrowLeft,
@@ -70,6 +80,10 @@ import {
   Smartphone,
   Copy,
   Trash2,
+  Settings,
+  GitBranch,
+  CircleCheck,
+  Plus,
 } from 'lucide-react';
 
 const DRAG_TYPE = 'application/x-form-builder-element';
@@ -80,6 +94,58 @@ function getDefaultFormFields(): FormField[] {
     { id: makeId('name'), type: 'name' },
     { id: makeId('email'), type: 'email' },
     { id: makeId('phone'), type: 'phone' },
+  ];
+}
+
+/** Default canvas for new contract forms (`kind=contract`, no saved `id`). Fully editable. */
+function getDefaultContractFormFields(): FormField[] {
+  return [
+    {
+      id: makeId('header'),
+      type: 'header',
+      headerConfig: {
+        header: '<p>Contract of Employment</p>',
+        subHeader: '',
+        hidden: false,
+      },
+    },
+    {
+      id: makeId('paragraph'),
+      type: 'paragraph',
+      label: 'Please read and sign the contract below.',
+    },
+    { id: makeId('divider'), type: 'divider' },
+    {
+      id: makeId('date'),
+      type: 'date',
+      label: 'This contract, dated on',
+      fieldConfig: { required: true },
+    },
+    {
+      id: makeId('label'),
+      type: 'label',
+      label: 'This contract is made between [Company Name], and',
+    },
+    {
+      id: makeId('name'),
+      type: 'name',
+      label: '',
+      nameConfig: { horizontal: true, columns: 2, middleName: false },
+    },
+    {
+      id: makeId('label'),
+      type: 'label',
+      label: 'of',
+    },
+    {
+      id: makeId('address'),
+      type: 'address',
+      label: 'Address',
+      fieldConfig: {
+        required: true,
+        placeholder: 'Street, City, ZIP',
+      },
+    },
   ];
 }
 
@@ -587,6 +653,8 @@ function FormFieldBlock({
   formTooltipIconStyle,
   variant = 'builder',
   stackForPreview = false,
+  /** When set with `variant="preview"`, shows submitted values read-only (admin submission / contract view). */
+  frozenAnswers,
 }: {
   field: FormField;
   isSelected: boolean;
@@ -615,8 +683,19 @@ function FormFieldBlock({
   variant?: 'builder' | 'preview';
   /** When true (mobile preview), stack multi-column layouts regardless of viewport width. */
   stackForPreview?: boolean;
+  frozenAnswers?: Record<string, unknown>;
 }) {
   const isPreview = variant === 'preview';
+  const frozenRead = Boolean(isPreview && frozenAnswers);
+  const fa = frozenAnswers ?? {};
+  const fv = (key: string): string => {
+    const v = fa[key];
+    if (v == null) return '';
+    if (typeof v === 'string') return v;
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+    if (Array.isArray(v)) return v.map((x) => String(x)).join(', ');
+    return '';
+  };
   const inputErrorClass = errorMessage ? 'border-destructive focus-visible:ring-destructive' : '';
   const showErrorBlock = !!errorMessage;
   const displayLabel = field.label ?? getDefaultLabel(field.type);
@@ -846,8 +925,10 @@ function FormFieldBlock({
           />
           <Input
             name={field.id}
-            placeholder={commonConfig.placeholder || 'Enter text'}
-            className={cn(HIRING_FORM_STYLED_INPUT_CLASS, inputErrorClass)}
+            readOnly={frozenRead}
+            defaultValue={frozenRead ? fv(field.id) : undefined}
+            placeholder={frozenRead ? undefined : commonConfig.placeholder || 'Enter text'}
+            className={cn(HIRING_FORM_STYLED_INPUT_CLASS, inputErrorClass, frozenRead && 'cursor-default bg-muted/40')}
           />
           {commonConfig.subLabel && renderSubLabel(commonConfig.subLabel)}
           {showErrorBlock && (
@@ -874,10 +955,10 @@ function FormFieldBlock({
               name={field.id}
               type="number"
               min={0}
-              placeholder={commonConfig.placeholder || '0'}
-              readOnly={commonConfig.readOnly ?? false}
-              defaultValue={commonConfig.defaultValue}
-              className={cn(HIRING_FORM_STYLED_INPUT_CLASS, inputErrorClass)}
+              placeholder={frozenRead ? undefined : commonConfig.placeholder || '0'}
+              readOnly={frozenRead || (commonConfig.readOnly ?? false)}
+              defaultValue={frozenRead ? (fv(field.id) || undefined) : commonConfig.defaultValue}
+              className={cn(HIRING_FORM_STYLED_INPUT_CLASS, inputErrorClass, frozenRead && 'cursor-default bg-muted/40')}
             />
             {commonConfig.subLabel && renderSubLabel(commonConfig.subLabel)}
             {showErrorBlock && (
@@ -901,13 +982,37 @@ function FormFieldBlock({
               tooltipContentStyle={formTooltipContentStyle}
               tooltipIconStyle={formTooltipIconStyle}
             />
-            <div style={{ minHeight: multilineConfig.height ?? 150 }}>
-              <RichTextEditor
-                placeholder={commonConfig.placeholder || multilineConfig.placeholder || 'Enter text...'}
-                className="w-full"
-                defaultFontSize="14px"
+            {frozenRead ? (
+              <div
+                style={{ minHeight: multilineConfig.height ?? 150 }}
+                className={cn(
+                  HIRING_FORM_STYLED_INPUT_CLASS,
+                  'w-full overflow-auto px-3 py-2 text-sm [&_p]:mb-1 [&_p:last-child]:mb-0',
+                  'cursor-default bg-muted/40'
+                )}
+                dangerouslySetInnerHTML={{
+                  __html: (() => {
+                    const t = fv(field.id).trim();
+                    if (!t) return '<p class="text-muted-foreground">—</p>';
+                    if (t.includes('<')) return t;
+                    const esc = t
+                      .replace(/&/g, '&amp;')
+                      .replace(/</g, '&lt;')
+                      .replace(/>/g, '&gt;')
+                      .replace(/\n/g, '<br/>');
+                    return `<p>${esc}</p>`;
+                  })(),
+                }}
               />
-            </div>
+            ) : (
+              <div style={{ minHeight: multilineConfig.height ?? 150 }}>
+                <RichTextEditor
+                  placeholder={commonConfig.placeholder || multilineConfig.placeholder || 'Enter text...'}
+                  className="w-full"
+                  defaultFontSize="14px"
+                />
+              </div>
+            )}
             {commonConfig.subLabel && renderSubLabel(commonConfig.subLabel)}
           </div>
         ) : (
@@ -921,25 +1026,30 @@ function FormFieldBlock({
             />
             <Textarea
               name={field.id}
-              className={cn(HIRING_FORM_STYLED_INPUT_CLASS, 'resize-y', inputErrorClass)}
+              className={cn(HIRING_FORM_STYLED_INPUT_CLASS, 'resize-y', inputErrorClass, frozenRead && 'cursor-default bg-muted/40')}
               style={{ minHeight: multilineConfig.height ?? 150 }}
-              placeholder={commonConfig.placeholder || multilineConfig.placeholder || 'Enter text...'}
-              readOnly={multilineConfig.readOnly ?? false}
-              onInput={(e) => {
-                const target = e.target as HTMLTextAreaElement;
-                const validated = applyMultilineValidation(
-                  target.value,
-                  multilineConfig.validation ?? 'none'
-                );
-                if (validated !== target.value) {
-                  target.value = validated;
-                }
-                if (multilineConfig.charLimitEnabled && typeof multilineConfig.charLimit === 'number') {
-                  if (validated.length > multilineConfig.charLimit) {
-                    target.value = validated.slice(0, multilineConfig.charLimit);
-                  }
-                }
-              }}
+              placeholder={frozenRead ? undefined : commonConfig.placeholder || multilineConfig.placeholder || 'Enter text...'}
+              readOnly={frozenRead || (multilineConfig.readOnly ?? false)}
+              defaultValue={frozenRead ? fv(field.id) : undefined}
+              onInput={
+                frozenRead
+                  ? undefined
+                  : (e) => {
+                      const target = e.target as HTMLTextAreaElement;
+                      const validated = applyMultilineValidation(
+                        target.value,
+                        multilineConfig.validation ?? 'none'
+                      );
+                      if (validated !== target.value) {
+                        target.value = validated;
+                      }
+                      if (multilineConfig.charLimitEnabled && typeof multilineConfig.charLimit === 'number') {
+                        if (validated.length > multilineConfig.charLimit) {
+                          target.value = validated.slice(0, multilineConfig.charLimit);
+                        }
+                      }
+                    }
+              }
             />
             {commonConfig.subLabel && renderSubLabel(commonConfig.subLabel)}
             {showErrorBlock && (
@@ -1006,6 +1116,7 @@ function FormFieldBlock({
           { id: '2', label: 'Option 2' },
         ];
         const defaultId = radioConfig.defaultOptionId ?? opts[0]?.id;
+        const frozenRadioVal = frozenRead ? fv(field.id) : '';
         const layoutClass = radioConfig.horizontal
           ? stackForPreview
             ? 'flex flex-col gap-3'
@@ -1027,8 +1138,8 @@ function FormFieldBlock({
                     type="radio"
                     name={field.id}
                     value={opt.id}
-                    defaultChecked={opt.id === defaultId}
-                    disabled={radioConfig.readOnly ?? false}
+                    defaultChecked={frozenRead ? frozenRadioVal === opt.id : opt.id === defaultId}
+                    disabled={frozenRead || (radioConfig.readOnly ?? false)}
                   />{' '}
                   {opt.label}
                 </label>
@@ -1053,6 +1164,12 @@ function FormFieldBlock({
           { id: '2', label: 'Option 2' },
         ];
         const defaultIds = multipleConfig.defaultOptionIds ?? [];
+        const frozenMultiSel = (() => {
+          if (!frozenRead) return null as Set<string> | null;
+          const raw = fa[field.id];
+          if (Array.isArray(raw)) return new Set(raw.map((x) => String(x)));
+          return new Set<string>();
+        })();
         const layoutClass = multipleConfig.horizontal
           ? stackForPreview
             ? 'flex flex-col gap-3'
@@ -1073,8 +1190,10 @@ function FormFieldBlock({
                   <input
                     type="checkbox"
                     name={field.id}
-                    defaultChecked={defaultIds.includes(opt.id)}
-                    disabled={multipleConfig.readOnly ?? false}
+                    defaultChecked={
+                      frozenRead ? !!frozenMultiSel?.has(opt.id) : defaultIds.includes(opt.id)
+                    }
+                    disabled={frozenRead || (multipleConfig.readOnly ?? false)}
                     value={opt.id}
                   />{' '}
                   {opt.label}
@@ -1131,10 +1250,13 @@ function FormFieldBlock({
                 />
                 <Input
                   name={`${field.id}_first`}
-                  placeholder={first.placeholder}
+                  readOnly={frozenRead}
+                  defaultValue={frozenRead ? fv(`${field.id}_first`) : undefined}
+                  placeholder={frozenRead ? undefined : first.placeholder}
                   className={cn(
                     HIRING_FORM_STYLED_INPUT_CLASS,
-                    showNameError && first.required ? 'border-destructive focus-visible:ring-destructive' : ''
+                    showNameError && first.required ? 'border-destructive focus-visible:ring-destructive' : '',
+                    frozenRead && 'cursor-default bg-muted/40'
                   )}
                 />
                 {first.subLabel && renderSubLabel(first.subLabel)}
@@ -1156,10 +1278,13 @@ function FormFieldBlock({
                   />
                   <Input
                     name={`${field.id}_middle`}
-                    placeholder={middle.placeholder}
+                    readOnly={frozenRead}
+                    defaultValue={frozenRead ? fv(`${field.id}_middle`) : undefined}
+                    placeholder={frozenRead ? undefined : middle.placeholder}
                     className={cn(
                       HIRING_FORM_STYLED_INPUT_CLASS,
-                      showNameError && middle.required ? 'border-destructive focus-visible:ring-destructive' : ''
+                      showNameError && middle.required ? 'border-destructive focus-visible:ring-destructive' : '',
+                      frozenRead && 'cursor-default bg-muted/40'
                     )}
                   />
                   {middle.subLabel && renderSubLabel(middle.subLabel)}
@@ -1181,10 +1306,13 @@ function FormFieldBlock({
                 />
                 <Input
                   name={`${field.id}_last`}
-                  placeholder={last.placeholder}
+                  readOnly={frozenRead}
+                  defaultValue={frozenRead ? fv(`${field.id}_last`) : undefined}
+                  placeholder={frozenRead ? undefined : last.placeholder}
                   className={cn(
                     HIRING_FORM_STYLED_INPUT_CLASS,
-                    showNameError && last.required ? 'border-destructive focus-visible:ring-destructive' : ''
+                    showNameError && last.required ? 'border-destructive focus-visible:ring-destructive' : '',
+                    frozenRead && 'cursor-default bg-muted/40'
                   )}
                 />
                 {last.subLabel && renderSubLabel(last.subLabel)}
@@ -1219,8 +1347,10 @@ function FormFieldBlock({
             <Input
               name={field.id}
               type="email"
-              placeholder={emailConfig.placeholder}
-              className={cn(HIRING_FORM_STYLED_INPUT_CLASS, inputErrorClass)}
+              readOnly={frozenRead}
+              defaultValue={frozenRead ? fv(field.id) : undefined}
+              placeholder={frozenRead ? undefined : emailConfig.placeholder}
+              className={cn(HIRING_FORM_STYLED_INPUT_CLASS, inputErrorClass, frozenRead && 'cursor-default bg-muted/40')}
             />
             {emailConfig.subLabel && renderSubLabel(emailConfig.subLabel)}
             {showErrorBlock && (
@@ -1269,8 +1399,10 @@ function FormFieldBlock({
           />
           <Input
             name={field.id}
-            placeholder={commonConfig.placeholder || 'Street, City, ZIP'}
-            className={cn(HIRING_FORM_STYLED_INPUT_CLASS, inputErrorClass)}
+            readOnly={frozenRead}
+            defaultValue={frozenRead ? fv(field.id) : undefined}
+            placeholder={frozenRead ? undefined : commonConfig.placeholder || 'Street, City, ZIP'}
+            className={cn(HIRING_FORM_STYLED_INPUT_CLASS, inputErrorClass, frozenRead && 'cursor-default bg-muted/40')}
           />
           {commonConfig.subLabel && renderSubLabel(commonConfig.subLabel)}
           {showErrorBlock && (
@@ -1294,7 +1426,25 @@ function FormFieldBlock({
             tooltipContentStyle={formTooltipContentStyle}
             tooltipIconStyle={formTooltipIconStyle}
           />
-          {disableFileInputs ? (
+          {frozenRead ? (
+            <div
+              className={cn(
+                HIRING_FORM_STYLED_INPUT_CLASS,
+                'flex min-h-[40px] items-center px-3 py-2 text-sm cursor-default bg-muted/40',
+                showErrorBlock && 'border-destructive'
+              )}
+            >
+              {(() => {
+                const raw = fa[field.id];
+                if (raw && typeof raw === 'object' && '_type' in (raw as object)) {
+                  const t = (raw as { _type?: string; name?: string })._type;
+                  if (t === 'file') return (raw as { name?: string }).name?.trim() || '—';
+                }
+                if (typeof raw === 'string' && raw.trim()) return raw.trim();
+                return '—';
+              })()}
+            </div>
+          ) : disableFileInputs ? (
             <div
               className={cn(
                 'flex items-center justify-center rounded-md border border-dashed border-input px-4 py-6 text-sm text-muted-foreground',
@@ -1341,8 +1491,10 @@ function FormFieldBlock({
           <Input
             name={field.id}
             type="date"
-            placeholder={commonConfig.placeholder}
-            className={cn(HIRING_FORM_STYLED_INPUT_CLASS, inputErrorClass)}
+            readOnly={frozenRead}
+            defaultValue={frozenRead ? fv(field.id) : undefined}
+            placeholder={frozenRead ? undefined : commonConfig.placeholder}
+            className={cn(HIRING_FORM_STYLED_INPUT_CLASS, inputErrorClass, frozenRead && 'cursor-default bg-muted/40')}
           />
           {commonConfig.subLabel && renderSubLabel(commonConfig.subLabel)}
           {showErrorBlock && (
@@ -1390,11 +1542,18 @@ function FormFieldBlock({
             tooltipContentStyle={formTooltipContentStyle}
             tooltipIconStyle={formTooltipIconStyle}
           />
-          <input type="hidden" name={field.id} value="0" id={`${field.id}-rating`} />
+          {!frozenRead ? (
+            <input type="hidden" name={field.id} value="0" id={`${field.id}-rating`} />
+          ) : null}
           <div className="flex gap-1 text-amber-500">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <Star key={i} className="h-6 w-6 fill-current" />
-            ))}
+            {frozenRead
+              ? (() => {
+                  const n = Math.min(5, Math.max(0, Number.parseInt(fv(field.id), 10) || 0));
+                  return [1, 2, 3, 4, 5].map((i) => (
+                    <Star key={i} className={cn('h-6 w-6 fill-current', i > n && 'opacity-25')} />
+                  ));
+                })()
+              : [1, 2, 3, 4, 5].map((i) => <Star key={i} className="h-6 w-6 fill-current" />)}
           </div>
           {commonConfig.subLabel && renderSubLabel(commonConfig.subLabel)}
           {showErrorBlock && (
@@ -1417,7 +1576,49 @@ function FormFieldBlock({
             tooltipContentStyle={formTooltipContentStyle}
             tooltipIconStyle={formTooltipIconStyle}
           />
-          {disableFileInputs ? (
+          {frozenRead ? (
+            <div className="space-y-2">
+              {(() => {
+                const raw = fa[field.id];
+                const url =
+                  typeof raw === 'string' && raw.trim().startsWith('data:')
+                    ? raw.trim()
+                    : typeof raw === 'string' && /^https?:\/\//i.test(raw.trim())
+                      ? raw.trim()
+                      : '';
+                if (url) {
+                  return (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={url} alt="" className="max-h-48 w-auto max-w-full rounded-md border border-input" />
+                  );
+                }
+                if (raw && typeof raw === 'object' && '_type' in (raw as object)) {
+                  const t = (raw as { _type?: string; name?: string })._type;
+                  if (t === 'file')
+                    return (
+                      <div
+                        className={cn(
+                          HIRING_FORM_STYLED_INPUT_CLASS,
+                          'flex min-h-[40px] items-center px-3 py-2 text-sm cursor-default bg-muted/40'
+                        )}
+                      >
+                        {(raw as { name?: string }).name?.trim() || '—'}
+                      </div>
+                    );
+                }
+                return (
+                  <div
+                    className={cn(
+                      HIRING_FORM_STYLED_INPUT_CLASS,
+                      'flex min-h-[40px] items-center px-3 py-2 text-sm cursor-default bg-muted/40'
+                    )}
+                  >
+                    —
+                  </div>
+                );
+              })()}
+            </div>
+          ) : disableFileInputs ? (
             <div
               className={cn(
                 'flex items-center justify-center rounded-md border border-dashed border-input px-4 py-8 text-sm text-muted-foreground',
@@ -1464,13 +1665,35 @@ function FormFieldBlock({
             tooltipContentStyle={formTooltipContentStyle}
             tooltipIconStyle={formTooltipIconStyle}
           />
-          <input type="hidden" name={field.id} value="" />
+          {!frozenRead ? <input type="hidden" name={field.id} value="" /> : null}
+          {frozenRead ? (
+            (() => {
+              const sig = fv(field.id).trim();
+              if (sig.startsWith('data:image')) {
+                return (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={sig} alt="Signature" className="max-h-40 w-full max-w-md rounded-md border border-input bg-white object-contain" />
+                );
+              }
+              return (
+                <div
+                  className={cn(
+                    'rounded-md border border-input bg-muted/40 px-4 py-6 text-center text-sm text-muted-foreground cursor-default',
+                    showErrorBlock && 'border-destructive'
+                  )}
+                >
+                  {sig || '—'}
+                </div>
+              );
+            })()
+          ) : (
           <div className={cn(
             'rounded-md border border-input bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground',
             showErrorBlock && 'border-destructive'
           )}>
             Signature pad
           </div>
+          )}
           {commonConfig.subLabel && renderSubLabel(commonConfig.subLabel)}
           {showErrorBlock && (
             <p className={cn('text-xs flex items-center gap-1 mt-1', HIRING_FORM_FIELD_ERROR_CLASS)}>
@@ -1492,6 +1715,17 @@ function FormFieldBlock({
             tooltipContentStyle={formTooltipContentStyle}
             tooltipIconStyle={formTooltipIconStyle}
           />
+          {frozenRead ? (
+            <div
+              className={cn(
+                HIRING_FORM_STYLED_INPUT_CLASS,
+                'flex h-9 items-center px-3 text-sm tabular-nums cursor-default bg-muted/40',
+                inputErrorClass
+              )}
+            >
+              {fv(field.id).trim() || '50'}
+            </div>
+          ) : (
           <input
             name={field.id}
             type="range"
@@ -1500,6 +1734,7 @@ function FormFieldBlock({
             defaultValue={50}
             className={cn(HIRING_FORM_STYLED_INPUT_CLASS, 'w-full accent-primary', inputErrorClass)}
           />
+          )}
           {commonConfig.subLabel && renderSubLabel(commonConfig.subLabel)}
           {showErrorBlock && (
             <p className={cn('text-xs flex items-center gap-1 mt-1', HIRING_FORM_FIELD_ERROR_CLASS)}>
@@ -1989,6 +2224,8 @@ export type HiringFormPreviewPayload = {
   formSubHeaderStyle: FormSubHeaderStyle;
   formSubLabelStyle: FormSubLabelStyle;
   formTooltipStyle: FormTooltipStyle;
+  /** Post-submit behavior, tracking snippets, funnel label (optional). */
+  submissionSettings?: HiringFormSubmissionSettings;
 };
 
 const COLOR_SCHEMES = [
@@ -2259,26 +2496,37 @@ export function HiringFormPreviewView({
   linkedProspectId,
   /** `preview` = builder preview chrome (back link, device toggle). `live` = public apply page, design only. */
   appearance = 'preview',
+  /** When set, fields show these answers read-only (no submit). Builder header hidden. */
+  frozenSubmissionAnswers,
 }: {
   payload: HiringFormPreviewPayload;
   /** When set, Submit validates and POSTs multipart to the public hiring form API. */
   publicSubmitSlug?: string;
   linkedProspectId?: string;
   appearance?: 'preview' | 'live';
+  frozenSubmissionAnswers?: Record<string, unknown> | null;
 }) {
   const isLive = appearance === 'live';
+  const isFrozen = frozenSubmissionAnswers != null;
   const [viewport, setViewport] = useState<'desktop' | 'mobile'>('desktop');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'sending' | 'done' | 'error'>('idle');
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
+  const [thankYouRichHtml, setThankYouRichHtml] = useState<string | null>(null);
   const styles = useMemo(() => deriveHiringFormPreviewStyles(payload), [payload]);
   const builderHref = `/admin/hiring/forms/builder?name=${encodeURIComponent(payload.formName)}`;
 
   const layoutMobile = !isLive && viewport === 'mobile';
+  /** Live apply: successful submit — show only configured thank-you (not the form fields). */
+  const liveSuccess =
+    isLive &&
+    !!publicSubmitSlug &&
+    submitStatus === 'done' &&
+    (Boolean(thankYouRichHtml?.trim()) || Boolean(submitMessage?.trim()));
 
   return (
     <div className={cn('flex min-h-screen flex-col', isLive && 'min-h-dvh')}>
-      {!isLive ? (
+      {!isLive && !isFrozen ? (
         <header className="flex h-12 shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 shadow-sm sm:h-14 sm:px-6">
           <Button
             type="button"
@@ -2352,6 +2600,56 @@ export function HiringFormPreviewView({
               )}
             >
               <style dangerouslySetInnerHTML={{ __html: styles.previewFormChromeCss }} />
+              {isFrozen ? (
+                <div
+                  id="preview-form"
+                  className="block min-h-[200px] space-y-1 px-4 py-5 sm:px-6 sm:py-6"
+                >
+                  {payload.formFields.map((field) => (
+                    <FormFieldBlock
+                      key={field.id}
+                      variant="preview"
+                      stackForPreview={layoutMobile}
+                      field={field}
+                      isSelected={false}
+                      onSelect={() => {}}
+                      onRemove={() => {}}
+                      onDragStart={(_e: React.DragEvent) => {}}
+                      onDuplicate={() => {}}
+                      errorMessage={undefined}
+                      disableFileInputs={false}
+                      frozenAnswers={frozenSubmissionAnswers ?? undefined}
+                      headerHeadingStyle={styles.formHeaderHeadingStyle}
+                      formLabelChromeStyle={styles.formLabelChromeStyle}
+                      formParagraphChromeStyle={styles.formParagraphChromeStyle}
+                      formSubHeaderChromeStyle={styles.formSubHeaderChromeStyle}
+                      formSubLabelChromeStyle={styles.formSubLabelChromeStyle}
+                      formTooltipContentStyle={styles.formTooltipContentStyle}
+                      formTooltipIconStyle={styles.formTooltipIconStyle}
+                    />
+                  ))}
+                  <div className="flex flex-col items-center border-t border-slate-200/60 pt-6 pb-2">
+                    <div className="flex items-center gap-3 sm:gap-4">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- static public brand asset */}
+                      <img
+                        src="/images/orbit.png"
+                        alt=""
+                        className="h-10 w-10 shrink-0 object-contain sm:h-11 sm:w-11"
+                        width={44}
+                        height={44}
+                      />
+                      <div className="min-w-0 text-left leading-none">
+                        <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-[10px]">
+                          Powered by
+                        </p>
+                        <p className="mt-1 bg-gradient-to-r from-blue-600 via-indigo-500 to-purple-600 bg-clip-text text-2xl font-bold tracking-tight text-transparent sm:text-3xl">
+                          Orbyt
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
               <form
                 id="preview-form"
                 className="block min-h-[200px] space-y-1 px-4 py-5 sm:px-6 sm:py-6"
@@ -2366,6 +2664,7 @@ export function HiringFormPreviewView({
                   if (Object.keys(errors).length > 0) return;
                   setSubmitStatus('sending');
                   setSubmitMessage(null);
+                  setThankYouRichHtml(null);
                   void fetch(`/api/public/hiring-forms/${encodeURIComponent(publicSubmitSlug)}/submit`, {
                     method: 'POST',
                     body: data,
@@ -2381,10 +2680,54 @@ export function HiringFormPreviewView({
                         }
                         throw new Error(body.error || 'Submission failed');
                       }
+                      const ss = normalizeHiringFormSubmissionSettings(payload.submissionSettings);
+                      const mode = ss.thankYouMode ?? 'custom';
+                      if (mode === 'external') {
+                        const u = ss.thankYouExternalUrl?.trim() ?? '';
+                        if (/^https?:\/\//i.test(u)) {
+                          window.location.replace(u);
+                          return;
+                        }
+                      }
+
+                      if (mode === 'thank_you_page' && publicSubmitSlug) {
+                        const dedicated = resolveDefaultThankYouPage(ss);
+                        const pageSlug = dedicated?.slug?.trim();
+                        if (dedicated && pageSlug) {
+                          const origin =
+                            typeof window !== 'undefined' ? window.location.origin : '';
+                          window.location.replace(
+                            `${origin}/apply/hiring/${encodeURIComponent(publicSubmitSlug)}/thank-you/${encodeURIComponent(pageSlug)}`
+                          );
+                          return;
+                        }
+                      }
+
                       setSubmitStatus('done');
-                      setSubmitMessage('Thank you — your application was received.');
                       form.reset();
                       setFieldErrors({});
+
+                      if (mode === 'thank_you_page') {
+                        const dedicated = resolveDefaultThankYouPage(ss);
+                        const html = (dedicated?.bodyHtml ?? '').trim();
+                        if (html && html !== '<p></p>') {
+                          setThankYouRichHtml(html);
+                          setSubmitMessage(null);
+                          return;
+                        }
+                      }
+
+                      if (mode === 'custom') {
+                        const html = (ss.thankYouCustomHtml ?? '').trim();
+                        if (html && html !== '<p></p>') {
+                          setThankYouRichHtml(html);
+                          setSubmitMessage(null);
+                          return;
+                        }
+                      }
+
+                      setThankYouRichHtml(null);
+                      setSubmitMessage('Thank you — your application was received.');
                     })
                     .catch((err: unknown) => {
                       setSubmitStatus('error');
@@ -2392,63 +2735,73 @@ export function HiringFormPreviewView({
                     });
                 }}
               >
-                {publicSubmitSlug && linkedProspectId ? (
+                {publicSubmitSlug && linkedProspectId && !liveSuccess ? (
                   <input type="hidden" name="hiring_prospect_id" value={linkedProspectId} />
                 ) : null}
-                {payload.formFields.map((field) => (
-                  <FormFieldBlock
-                    key={field.id}
-                    variant="preview"
-                    stackForPreview={layoutMobile}
-                    field={field}
-                    isSelected={false}
-                    onSelect={() => {}}
-                    onRemove={() => {}}
-                    onDragStart={(_e: React.DragEvent) => {}}
-                    onDuplicate={() => {}}
-                    errorMessage={fieldErrors[field.id]}
-                    disableFileInputs={!publicSubmitSlug}
-                    headerHeadingStyle={styles.formHeaderHeadingStyle}
-                    formLabelChromeStyle={styles.formLabelChromeStyle}
-                    formParagraphChromeStyle={styles.formParagraphChromeStyle}
-                    formSubHeaderChromeStyle={styles.formSubHeaderChromeStyle}
-                    formSubLabelChromeStyle={styles.formSubLabelChromeStyle}
-                    formTooltipContentStyle={styles.formTooltipContentStyle}
-                    formTooltipIconStyle={styles.formTooltipIconStyle}
-                  />
-                ))}
+                {!liveSuccess
+                  ? payload.formFields.map((field) => (
+                      <FormFieldBlock
+                        key={field.id}
+                        variant="preview"
+                        stackForPreview={layoutMobile}
+                        field={field}
+                        isSelected={false}
+                        onSelect={() => {}}
+                        onRemove={() => {}}
+                        onDragStart={(_e: React.DragEvent) => {}}
+                        onDuplicate={() => {}}
+                        errorMessage={fieldErrors[field.id]}
+                        disableFileInputs={!publicSubmitSlug}
+                        headerHeadingStyle={styles.formHeaderHeadingStyle}
+                        formLabelChromeStyle={styles.formLabelChromeStyle}
+                        formParagraphChromeStyle={styles.formParagraphChromeStyle}
+                        formSubHeaderChromeStyle={styles.formSubHeaderChromeStyle}
+                        formSubLabelChromeStyle={styles.formSubLabelChromeStyle}
+                        formTooltipContentStyle={styles.formTooltipContentStyle}
+                        formTooltipIconStyle={styles.formTooltipIconStyle}
+                      />
+                    ))
+                  : null}
                 {payload.formFields.length > 0 && (
                   <>
-                    <div
-                      className={cn(
-                        'pt-4',
-                        payload.submitButtonStyle.widthMode === 'full'
-                          ? 'w-full'
-                          : 'flex w-full justify-center'
-                      )}
-                    >
-                      <button
-                        type="submit"
-                        disabled={!!publicSubmitSlug && submitStatus === 'sending'}
-                        style={styles.submitButtonInlineStyle}
+                    {!liveSuccess ? (
+                      <div
                         className={cn(
-                          'font-sans transition-opacity hover:opacity-95 active:opacity-90',
-                          payload.submitButtonStyle.widthMode === 'default' ? 'inline-block' : 'block',
-                          publicSubmitSlug && submitStatus === 'sending' ? 'opacity-60 pointer-events-none' : ''
+                          'pt-4',
+                          payload.submitButtonStyle.widthMode === 'full'
+                            ? 'w-full'
+                            : 'flex w-full justify-center'
                         )}
                       >
-                        {publicSubmitSlug && submitStatus === 'sending' ? 'Sending…' : 'Submit'}
-                      </button>
-                    </div>
-                    {publicSubmitSlug && submitMessage ? (
-                      <p
-                        className={cn(
-                          'text-center text-sm mt-2',
-                          submitStatus === 'done' ? 'text-emerald-700' : 'text-destructive'
-                        )}
-                      >
-                        {submitMessage}
-                      </p>
+                        <button
+                          type="submit"
+                          disabled={!!publicSubmitSlug && submitStatus === 'sending'}
+                          style={styles.submitButtonInlineStyle}
+                          className={cn(
+                            'font-sans transition-opacity hover:opacity-95 active:opacity-90',
+                            payload.submitButtonStyle.widthMode === 'default' ? 'inline-block' : 'block',
+                            publicSubmitSlug && submitStatus === 'sending' ? 'opacity-60 pointer-events-none' : ''
+                          )}
+                        >
+                          {publicSubmitSlug && submitStatus === 'sending' ? 'Sending…' : 'Submit'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="px-1 py-6 sm:px-2">
+                        {thankYouRichHtml?.trim() ? (
+                          <div
+                            className="prose prose-sm prose-slate mx-auto max-w-none text-center text-foreground"
+                            dangerouslySetInnerHTML={{ __html: thankYouRichHtml }}
+                          />
+                        ) : submitMessage ? (
+                          <p className="text-center text-base font-medium leading-relaxed text-emerald-800">
+                            {submitMessage}
+                          </p>
+                        ) : null}
+                      </div>
+                    )}
+                    {publicSubmitSlug && !liveSuccess && submitStatus === 'error' && submitMessage ? (
+                      <p className="mt-2 text-center text-sm text-destructive">{submitMessage}</p>
                     ) : null}
                     <div className="flex flex-col items-center border-t border-slate-200/60 pt-6 pb-2">
                       <div className="flex items-center gap-3 sm:gap-4">
@@ -2473,6 +2826,7 @@ export function HiringFormPreviewView({
                   </>
                 )}
               </form>
+              )}
             </div>
           </div>
         </div>
@@ -2481,19 +2835,39 @@ export function HiringFormPreviewView({
   );
 }
 
+const HIRING_FORM_FUNNEL_OPTIONS = [
+  { value: 'hiring_default', label: 'Hiring pipeline (default)' },
+  { value: 'recruiting', label: 'Recruiting / talent pool' },
+  { value: 'marketing', label: 'Marketing leads' },
+  { value: 'referrals', label: 'Referrals' },
+] as const;
+
 export default function FormBuilderPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { currentBusiness } = useBusiness();
   const serverFormId = searchParams.get('id')?.trim() ?? '';
   const urlKindQuiz = searchParams.get('kind') === 'quiz';
-  const [formName, setFormName] = useState(() => searchParams.get('name')?.trim() || 'Untitled form');
+  const urlKindContract = searchParams.get('kind') === 'contract';
+  const [formName, setFormName] = useState(() => {
+    const fromUrl = searchParams.get('name')?.trim();
+    if (fromUrl) return fromUrl;
+    if (searchParams.get('kind') === 'contract') return 'Contract of Employment';
+    return 'Untitled form';
+  });
   const [formLoadError, setFormLoadError] = useState<string | null>(null);
   /** Loaded from DB (`hiring_forms.form_kind`); null when no `id` or still loading. */
-  const [serverFormKind, setServerFormKind] = useState<'prospect' | 'quiz' | null>(null);
+  const [serverFormKind, setServerFormKind] = useState<'prospect' | 'quiz' | 'contract' | null>(null);
   const [saveBusy, setSaveBusy] = useState(false);
 
   const [builderTab, setBuilderTab] = useState<'builder' | 'settings'>('builder');
+  const [formSettingsNav, setFormSettingsNav] = useState<'form' | 'conditions' | 'thankyou'>('form');
+  const [formIsPublished, setFormIsPublished] = useState(false);
+  const [publishedSlugInput, setPublishedSlugInput] = useState('');
+  const [submissionSettings, setSubmissionSettings] = useState<HiringFormSubmissionSettings>(() => ({
+    ...DEFAULT_HIRING_FORM_SUBMISSION_SETTINGS,
+  }));
+  const [siteOrigin, setSiteOrigin] = useState('');
   const [elementsSidebarOpen, setElementsSidebarOpen] = useState(true);
   const [customizerSidebarOpen, setCustomizerSidebarOpen] = useState(true);
   const [basicExpanded, setBasicExpanded] = useState(true);
@@ -2540,7 +2914,11 @@ export default function FormBuilderPage() {
   );
   const containerBgFileInputRef = useRef<HTMLInputElement>(null);
   const pageBgFileInputRef = useRef<HTMLInputElement>(null);
-  const [formFields, setFormFields] = useState<FormField[]>(getDefaultFormFields);
+  const [formFields, setFormFields] = useState<FormField[]>(() =>
+    !serverFormId && searchParams.get('kind') === 'contract'
+      ? getDefaultContractFormFields()
+      : getDefaultFormFields()
+  );
   const [dragOver, setDragOver] = useState(false);
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
@@ -2554,10 +2932,22 @@ export default function FormBuilderPage() {
     return urlKindQuiz;
   }, [serverFormId, serverFormKind, urlKindQuiz]);
 
+  const isContractForm = useMemo(() => {
+    if (serverFormId) return serverFormKind === 'contract';
+    return urlKindContract;
+  }, [serverFormId, serverFormKind, urlKindContract]);
+
+  useEffect(() => {
+    setSiteOrigin(typeof window !== 'undefined' ? window.location.origin : '');
+  }, []);
+
   useEffect(() => {
     if (!serverFormId || !currentBusiness?.id) {
       setFormLoadError(null);
       setServerFormKind(null);
+      setFormIsPublished(false);
+      setPublishedSlugInput('');
+      setSubmissionSettings({ ...DEFAULT_HIRING_FORM_SUBMISSION_SETTINGS });
       return;
     }
     const ac = new AbortController();
@@ -2577,7 +2967,12 @@ export default function FormBuilderPage() {
         const row = json.form;
         if (!row || ac.signal.aborted) return;
         const fk = (row as { form_kind?: string }).form_kind;
-        setServerFormKind(fk === 'quiz' ? 'quiz' : 'prospect');
+        setServerFormKind(
+          fk === 'quiz' ? 'quiz' : fk === 'contract' ? 'contract' : 'prospect'
+        );
+        setFormIsPublished(!!(row as { is_published?: boolean }).is_published);
+        const pubSlug = (row as { published_slug?: string | null }).published_slug;
+        setPublishedSlugInput(typeof pubSlug === 'string' && pubSlug.trim() ? pubSlug.trim() : '');
         if (typeof row.name === 'string' && row.name.trim()) {
           setFormName(row.name.trim());
         }
@@ -2622,6 +3017,12 @@ export default function FormBuilderPage() {
             setFormTooltipStyle({ ...DEFAULT_FORM_TOOLTIP_STYLE, ...p.formTooltipStyle });
           }
         }
+        const rawDef = row.definition;
+        const submissionFromDef =
+          rawDef && typeof rawDef === 'object' && rawDef !== null
+            ? (rawDef as HiringFormPreviewPayload).submissionSettings
+            : undefined;
+        setSubmissionSettings(normalizeHiringFormSubmissionSettings(submissionFromDef));
       } catch (e) {
         if (ac.signal.aborted) return;
         setFormLoadError(e instanceof Error ? e.message : 'Failed to load form');
@@ -2653,6 +3054,7 @@ export default function FormBuilderPage() {
       formSubHeaderStyle,
       formSubLabelStyle,
       formTooltipStyle,
+      submissionSettings: normalizeHiringFormSubmissionSettings(submissionSettings),
     };
   }, [
     currentBusiness?.id,
@@ -2673,6 +3075,7 @@ export default function FormBuilderPage() {
     formSubHeaderStyle,
     formSubLabelStyle,
     formTooltipStyle,
+    submissionSettings,
   ]);
 
   const persistForm = useCallback(
@@ -2697,7 +3100,7 @@ export default function FormBuilderPage() {
             body: JSON.stringify({
               name: formName,
               definition,
-              formKind: isQuizForm ? 'quiz' : 'prospect',
+              formKind: isQuizForm ? 'quiz' : isContractForm ? 'contract' : 'prospect',
             }),
           });
           const json = (await res.json()) as { error?: string; form?: { id: string; published_slug?: string | null } };
@@ -2705,6 +3108,8 @@ export default function FormBuilderPage() {
           activeId = json.form?.id ?? '';
           if (!activeId) throw new Error('Save failed');
         } else {
+          const wantPublish = alsoPublish ? true : formIsPublished;
+          const slugTrim = publishedSlugInput.trim();
           const res = await fetch(`/api/admin/hiring/forms/${activeId}`, {
             method: 'PATCH',
             credentials: 'include',
@@ -2712,44 +3117,69 @@ export default function FormBuilderPage() {
             body: JSON.stringify({
               name: formName,
               definition,
-              ...(alsoPublish ? { isPublished: true } : {}),
+              isPublished: wantPublish,
+              ...(slugTrim ? { publishedSlug: slugTrim } : {}),
             }),
           });
           const json = (await res.json()) as { error?: string; form?: { published_slug?: string | null } };
           if (!res.ok) throw new Error(json.error || 'Save failed');
-          if (alsoPublish) {
-            const slug = json.form?.published_slug;
-            if (slug) {
-              window.alert(
-                `Form published.\nApplicants can use:\n${window.location.origin}/apply/hiring/${slug}`
-              );
-            }
+          const returnedSlug = json.form?.published_slug;
+          if (typeof returnedSlug === 'string' && returnedSlug.trim()) {
+            setPublishedSlugInput(returnedSlug.trim());
+          }
+          if (alsoPublish && returnedSlug) {
+            window.alert(
+              `Form published.\nApplicants can use:\n${window.location.origin}/apply/hiring/${returnedSlug}`
+            );
           }
         }
-        if (alsoPublish && activeId && wasNew) {
+        if ((alsoPublish || formIsPublished) && activeId && wasNew) {
+          const slugTrim = publishedSlugInput.trim();
           const res2 = await fetch(`/api/admin/hiring/forms/${activeId}`, {
             method: 'PATCH',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json', 'x-business-id': bid },
-            body: JSON.stringify({ isPublished: true }),
+            body: JSON.stringify({
+              isPublished: true,
+              ...(slugTrim ? { publishedSlug: slugTrim } : {}),
+            }),
           });
           const j2 = (await res2.json()) as { error?: string; form?: { published_slug?: string | null } };
           if (!res2.ok) throw new Error(j2.error || 'Publish failed');
           const slug = j2.form?.published_slug;
-          if (slug) {
+          if (typeof slug === 'string' && slug.trim()) {
+            setPublishedSlugInput(slug.trim());
+          }
+          if (alsoPublish && slug) {
             window.alert(
               `Form published.\nApplicants can use:\n${window.location.origin}/apply/hiring/${slug}`
             );
           }
         }
-        router.push(isQuizForm ? '/admin/hiring?tab=quizzes' : '/admin/hiring?tab=settings-forms');
+        if (isQuizForm) {
+          router.push('/admin/hiring?tab=quizzes');
+        } else if (isContractForm) {
+          router.push('/admin/hiring?tab=settings-forms&formsCategory=contracts');
+        } else {
+          router.push('/admin/hiring?tab=settings-forms');
+        }
       } catch (e) {
         window.alert(e instanceof Error ? e.message : 'Save failed');
       } finally {
         setSaveBusy(false);
       }
     },
-    [buildPreviewPayload, currentBusiness?.id, formName, router, serverFormId, isQuizForm]
+    [
+      buildPreviewPayload,
+      currentBusiness?.id,
+      formName,
+      router,
+      serverFormId,
+      isQuizForm,
+      isContractForm,
+      formIsPublished,
+      publishedSlugInput,
+    ]
   );
 
   const submitButtonInlineStyle = useMemo((): CSSProperties => {
@@ -3437,19 +3867,30 @@ export default function FormBuilderPage() {
 
         {/* Center - Form canvas */}
         <main className="flex-1 overflow-auto" style={pageMainStyle}>
-          <div className="mx-auto w-full max-w-2xl px-3 sm:px-4">
-            <div className="flex items-center justify-end gap-2 mb-4">
-              <Button variant="outline" size="sm">Manage Translation</Button>
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-9 w-9"
-                title="Form customizer"
-                onClick={() => setCustomizerSidebarOpen((prev) => !prev)}
-              >
-                <Palette className="h-4 w-4" />
-              </Button>
-            </div>
+          <div
+            className={cn(
+              'mx-auto w-full px-3 sm:px-4',
+              builderTab === 'settings' ? 'max-w-5xl' : 'max-w-2xl'
+            )}
+          >
+            {builderTab === 'builder' ? (
+              <div className="flex items-center justify-end gap-2 mb-4">
+                <Button variant="outline" size="sm">
+                  Manage Translation
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9"
+                  title="Form customizer"
+                  onClick={() => setCustomizerSidebarOpen((prev) => !prev)}
+                >
+                  <Palette className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <div className="mb-4 h-9" aria-hidden />
+            )}
             {builderTab === 'builder' ? (
               <div style={formPanelDisplayStyle} className="shadow-sm">
                 <style dangerouslySetInnerHTML={{ __html: formBuilderChromeCss }} />
@@ -3549,11 +3990,384 @@ export default function FormBuilderPage() {
                 </form>
               </div>
             ) : (
-              <Card className="p-6 bg-background shadow-sm">
-                <div className="py-8 text-center text-muted-foreground text-sm">
-                  Form settings will appear here.
+              <div className="flex flex-col gap-6 pb-10 lg:flex-row lg:items-start">
+                <nav className="flex shrink-0 gap-1 rounded-lg border bg-muted/30 p-1 lg:w-56 lg:flex-col lg:gap-0">
+                  {(
+                    [
+                      {
+                        id: 'form' as const,
+                        label: 'Form settings',
+                        hint: 'Manage form settings',
+                        Icon: Settings,
+                      },
+                      {
+                        id: 'conditions' as const,
+                        label: 'Conditions',
+                        hint: 'Manage conditional statements',
+                        Icon: GitBranch,
+                      },
+                      {
+                        id: 'thankyou' as const,
+                        label: 'Thank you page',
+                        hint: 'Manage thank you page settings',
+                        Icon: CircleCheck,
+                      },
+                    ] as const
+                  ).map((item) => {
+                    const NavIcon = item.Icon;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setFormSettingsNav(item.id)}
+                        className={cn(
+                          'rounded-md px-3 py-2.5 text-left transition-colors',
+                          formSettingsNav === item.id
+                            ? 'bg-primary/10 text-primary shadow-sm'
+                            : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'
+                        )}
+                      >
+                        <span className="flex items-start gap-2.5">
+                          <NavIcon className="mt-0.5 h-4 w-4 shrink-0" />
+                          <span className="min-w-0">
+                            <span className="block text-sm font-medium leading-tight">{item.label}</span>
+                            <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
+                              {item.hint}
+                            </span>
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </nav>
+                <div className="min-w-0 flex-1 space-y-6">
+                  {formSettingsNav === 'conditions' ? (
+                    <Card className="border bg-background p-6 shadow-sm">
+                      <p className="text-sm text-muted-foreground">
+                        Conditional field logic is not available yet. Rules will be configurable here in a
+                        future update.
+                      </p>
+                    </Card>
+                  ) : formSettingsNav === 'thankyou' ? (
+                    <ThankYouPagesSettingsPanel
+                      key={serverFormId || 'new-form'}
+                      submissionSettings={submissionSettings}
+                      setSubmissionSettings={setSubmissionSettings}
+                      siteOrigin={siteOrigin}
+                      publishedSlugInput={publishedSlugInput}
+                    />
+                  ) : (
+                    <Card className="border bg-background p-6 shadow-sm">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <h2 className="text-lg font-semibold tracking-tight">Form settings</h2>
+                          <p className="text-sm text-muted-foreground">
+                            Choose the action after submission and how this form is exposed.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0 gap-1.5"
+                          disabled={!formIsPublished || !publishedSlugInput.trim()}
+                          onClick={() => {
+                            const slug = publishedSlugInput.trim();
+                            if (!slug) return;
+                            const src = `${siteOrigin || ''}/apply/hiring/${slug}`;
+                            const snippet = `<iframe src="${src}" width="100%" height="720" style="border:0;" loading="lazy" title="${formName.replace(/"/g, '&quot;')}"></iframe>`;
+                            void navigator.clipboard.writeText(snippet).then(
+                              () => window.alert('Embed code copied to the clipboard.'),
+                              () => window.alert('Could not copy. Select and copy manually:\n\n' + snippet)
+                            );
+                          }}
+                        >
+                          <Copy className="h-4 w-4" />
+                          Embed code
+                        </Button>
+                      </div>
+                      <div className="mt-6 space-y-6">
+                        <div className="space-y-2">
+                          <Label htmlFor="hiring-form-settings-name">Form name</Label>
+                          <Input
+                            id="hiring-form-settings-name"
+                            value={formName}
+                            onChange={(e) => setFormName(e.target.value)}
+                            placeholder="Form name"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Form page URL</Label>
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+                            <div className="flex min-w-0 flex-1 rounded-md border border-input bg-muted/40">
+                              <span className="flex items-center border-r border-input px-3 text-xs text-muted-foreground sm:text-sm">
+                                {siteOrigin || '…'}
+                                /apply/hiring/
+                              </span>
+                              <Input
+                                className="border-0 bg-transparent shadow-none focus-visible:ring-0"
+                                value={publishedSlugInput}
+                                onChange={(e) => setPublishedSlugInput(e.target.value)}
+                                placeholder="your-form-slug"
+                                spellCheck={false}
+                              />
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="shrink-0 gap-1.5 sm:w-auto"
+                              disabled={!publishedSlugInput.trim()}
+                              onClick={() => {
+                                const slug = publishedSlugInput.trim();
+                                if (!slug) return;
+                                const url = `${siteOrigin || window.location.origin}/apply/hiring/${slug}`;
+                                void navigator.clipboard.writeText(url).then(
+                                  () => {},
+                                  () => window.alert(url)
+                                );
+                              }}
+                            >
+                              <Copy className="h-4 w-4" />
+                              Copy URL
+                            </Button>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Set a short, unique slug before publishing. It becomes the public link for this
+                            form.
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>What funnel will all information be collected in?</Label>
+                          <Select
+                            value={submissionSettings.funnelKey ?? 'hiring_default'}
+                            onValueChange={(value) =>
+                              setSubmissionSettings((prev) => ({ ...prev, funnelKey: value }))
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select funnel" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {HIRING_FORM_FUNNEL_OPTIONS.map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Form status</Label>
+                          <Select
+                            value={formIsPublished ? 'published' : 'draft'}
+                            onValueChange={(v) => setFormIsPublished(v === 'published')}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="draft">Draft (unpublished)</SelectItem>
+                              <SelectItem value="published">Published (live)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="hiring-form-tracking-head">Form tracking code</Label>
+                          <Textarea
+                            id="hiring-form-tracking-head"
+                            rows={5}
+                            placeholder="Enter your event tracking code"
+                            className="font-mono text-xs sm:text-sm"
+                            value={submissionSettings.formPageTrackingCode ?? ''}
+                            onChange={(e) =>
+                              setSubmissionSettings((prev) => ({
+                                ...prev,
+                                formPageTrackingCode: e.target.value,
+                              }))
+                            }
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Optional snippets (for example analytics) associated with this form. Stored with
+                            the form definition for use on the public page.
+                          </p>
+                        </div>
+                        <div className="space-y-3">
+                          <Label>Default thank you message</Label>
+                          <RadioGroup
+                            value={(submissionSettings.thankYouMode ?? 'custom') as HiringThankYouMode}
+                            onValueChange={(value) => {
+                              const mode = value as HiringThankYouMode;
+                              setSubmissionSettings((prev) => {
+                                const next: HiringFormSubmissionSettings = {
+                                  ...prev,
+                                  thankYouMode: mode,
+                                };
+                                if (mode === 'thank_you_page') {
+                                  const list = prev.dedicatedThankYouPages ?? [];
+                                  if (
+                                    list.length > 0 &&
+                                    (!prev.defaultThankYouPageId ||
+                                      !list.some((p) => p.id === prev.defaultThankYouPageId))
+                                  ) {
+                                    next.defaultThankYouPageId = list[0].id;
+                                  }
+                                }
+                                return next;
+                              });
+                            }}
+                            className="flex flex-wrap gap-4"
+                          >
+                            <div className="flex items-center gap-2">
+                              <RadioGroupItem value="custom" id="ty-custom" />
+                              <Label htmlFor="ty-custom" className="cursor-pointer font-normal">
+                                Custom
+                              </Label>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <RadioGroupItem value="external" id="ty-external" />
+                              <Label htmlFor="ty-external" className="cursor-pointer font-normal">
+                                External link
+                              </Label>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <RadioGroupItem value="thank_you_page" id="ty-page" />
+                              <Label htmlFor="ty-page" className="cursor-pointer font-normal">
+                                Thank you page
+                              </Label>
+                            </div>
+                          </RadioGroup>
+                          {(submissionSettings.thankYouMode ?? 'custom') === 'custom' ? (
+                            <RichTextEditor
+                              value={submissionSettings.thankYouCustomHtml ?? ''}
+                              onChange={(html) =>
+                                setSubmissionSettings((prev) => ({ ...prev, thankYouCustomHtml: html }))
+                              }
+                              placeholder="Thank you! Your form has been submitted."
+                              className="mt-1"
+                              defaultFontSize="14px"
+                            />
+                          ) : null}
+                          {(submissionSettings.thankYouMode ?? 'custom') === 'thank_you_page' ? (
+                            <div className="mt-3 space-y-3">
+                              {(() => {
+                                const tyPages = submissionSettings.dedicatedThankYouPages ?? [];
+                                if (tyPages.length === 0) {
+                                  return (
+                                    <p className="text-sm text-muted-foreground">
+                                      No thank you pages yet. Open the{' '}
+                                      <button
+                                        type="button"
+                                        className="font-medium text-primary underline underline-offset-2 hover:text-primary/90"
+                                        onClick={() => setFormSettingsNav('thankyou')}
+                                      >
+                                        Thank you page
+                                      </button>{' '}
+                                      section and use <span className="font-medium">Add</span> to create one.
+                                    </p>
+                                  );
+                                }
+                                const selectedId =
+                                  submissionSettings.defaultThankYouPageId &&
+                                  tyPages.some((p) => p.id === submissionSettings.defaultThankYouPageId)
+                                    ? submissionSettings.defaultThankYouPageId
+                                    : tyPages[0].id;
+                                const selected = tyPages.find((p) => p.id === selectedId) ?? tyPages[0];
+                                const labelFor = (p: (typeof tyPages)[0]) =>
+                                  p.name.trim() || 'Untitled thank you page';
+                                const previewHtml = (selected?.bodyHtml ?? '').trim();
+                                const hasPreviewBody =
+                                  previewHtml.length > 0 && previewHtml !== '<p></p>';
+                                return (
+                                  <>
+                                    <div className="space-y-2">
+                                      <Label>Which thank you page?</Label>
+                                      <Select
+                                        value={selectedId}
+                                        onValueChange={(id) =>
+                                          setSubmissionSettings((prev) => ({
+                                            ...prev,
+                                            defaultThankYouPageId: id,
+                                          }))
+                                        }
+                                      >
+                                        <SelectTrigger>
+                                          <SelectValue placeholder="Select a page" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {tyPages.map((p) => (
+                                            <SelectItem key={p.id} value={p.id}>
+                                              {labelFor(p)}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                      <p className="text-xs text-muted-foreground">
+                                        These entries are managed under Settings → Thank you page.
+                                      </p>
+                                    </div>
+                                    {hasPreviewBody ? (
+                                      <div className="space-y-1.5">
+                                        <Label className="text-muted-foreground">Preview</Label>
+                                        <div className="max-h-52 overflow-y-auto rounded-md border border-input bg-muted/20 p-3">
+                                          <div
+                                            className="prose prose-sm max-w-none text-foreground"
+                                            dangerouslySetInnerHTML={{ __html: previewHtml }}
+                                          />
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <p className="text-xs text-muted-foreground">
+                                        This page has no body content yet. Edit it under Thank you page.
+                                      </p>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </div>
+                          ) : null}
+                          {(submissionSettings.thankYouMode ?? 'custom') === 'external' ? (
+                            <div className="space-y-2">
+                              <Label htmlFor="ty-url">Redirect URL</Label>
+                              <Input
+                                id="ty-url"
+                                type="url"
+                                placeholder="https://example.com/thank-you"
+                                value={submissionSettings.thankYouExternalUrl ?? ''}
+                                onChange={(e) =>
+                                  setSubmissionSettings((prev) => ({
+                                    ...prev,
+                                    thankYouExternalUrl: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="hiring-form-tracking-submit">Tracking code</Label>
+                          <Textarea
+                            id="hiring-form-tracking-submit"
+                            rows={5}
+                            placeholder="Enter your event tracking code"
+                            className="font-mono text-xs sm:text-sm"
+                            value={submissionSettings.submitTrackingCode ?? ''}
+                            onChange={(e) =>
+                              setSubmissionSettings((prev) => ({
+                                ...prev,
+                                submitTrackingCode: e.target.value,
+                              }))
+                            }
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Optional code run after a successful submission (for example conversion
+                            tracking).
+                          </p>
+                        </div>
+                      </div>
+                    </Card>
+                  )}
                 </div>
-              </Card>
+              </div>
             )}
           </div>
         </main>

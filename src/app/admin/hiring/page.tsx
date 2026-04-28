@@ -23,7 +23,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { useBusiness } from '@/contexts/BusinessContext';
 import {
   UserPlus,
   Users,
@@ -31,7 +30,6 @@ import {
   ClipboardList,
   Contact,
   BarChart3,
-  Settings,
   FileText,
   Bell,
   ScrollText,
@@ -49,6 +47,8 @@ import HiringFormListByKind from '@/components/admin/hiring/HiringFormListByKind
 import ContractsTab from '@/components/admin/hiring/ContractsTab';
 import ReportsTab from '@/components/admin/hiring/ReportsTab';
 import HiringHiringTabStrip from '@/components/admin/hiring/HiringHiringTabStrip';
+import HiringGeneralSettingsTab from '@/components/admin/hiring/HiringGeneralSettingsTab';
+import HiringLogsTab from '@/components/admin/hiring/HiringLogsTab';
 
 const FORMS_CATEGORIES = [
   { id: 'prospects', label: 'Prospects', icon: LayoutGrid },
@@ -66,8 +66,12 @@ const EMPTY_MESSAGES: Record<string, string> = {
 
 function SettingsFormsContent() {
   const router = useRouter();
-  const { currentBusiness } = useBusiness();
-  const [formCategory, setFormCategory] = useState<string>('prospects');
+  const hiringSearchParams = useSearchParams();
+  const [formCategory, setFormCategory] = useState<string>(() => {
+    const fc = hiringSearchParams.get('formsCategory');
+    if (fc === 'contracts' || fc === 'quizzes' || fc === 'prospects') return fc;
+    return 'prospects';
+  });
   /** Default "All Forms" so drafts (saved but not published) appear alongside published forms. */
   const [formFilter, setFormFilter] = useState<string>('All Forms');
   const [searchQuery, setSearchQuery] = useState('');
@@ -83,15 +87,20 @@ function SettingsFormsContent() {
     const name = formName.trim() || 'Untitled form';
     handleCloseCreateForm();
     const base = `/admin/hiring/forms/builder?name=${encodeURIComponent(name)}`;
-    router.push(formCategory === 'quizzes' ? `${base}&kind=quiz` : base);
+    if (formCategory === 'quizzes') router.push(`${base}&kind=quiz`);
+    else if (formCategory === 'contracts') router.push(`${base}&kind=contract`);
+    else router.push(base);
   };
 
   const renderFormsBody = () => {
     if (formCategory === 'contracts') {
       return (
-        <div className="flex flex-1 min-h-[280px] items-center justify-center text-muted-foreground">
-          <p className="text-sm">{EMPTY_MESSAGES.contracts}</p>
-        </div>
+        <HiringFormListByKind
+          formKind="contract"
+          searchQuery={searchQuery}
+          formFilter={formFilter}
+          emptyMessage={EMPTY_MESSAGES.contracts}
+        />
       );
     }
     if (formCategory === 'prospects') {
@@ -178,11 +187,7 @@ function SettingsFormsContent() {
                   className="pl-9"
                 />
               </div>
-              <Button
-                className="shrink-0"
-                disabled={formCategory === 'contracts'}
-                onClick={() => setCreateFormOpen(true)}
-              >
+              <Button className="shrink-0" onClick={() => setCreateFormOpen(true)}>
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/20 -ml-1 mr-1.5">
                   <Plus className="h-3.5 w-3.5" />
                 </span>
@@ -198,7 +203,11 @@ function SettingsFormsContent() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-xl font-semibold text-slate-900">
-              {formCategory === 'quizzes' ? 'Create quiz' : 'Create form'}
+              {formCategory === 'quizzes'
+                ? 'Create quiz'
+                : formCategory === 'contracts'
+                  ? 'Create contract form'
+                  : 'Create form'}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-2 py-2">
@@ -242,31 +251,7 @@ function SettingsNotificationsContent() {
 }
 
 function SettingsLogsContent() {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2"><ScrollText className="h-5 w-5" /> Logs</CardTitle>
-        <CardDescription>View activity and audit logs for your hiring pipeline.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Link href="/admin/settings" className="text-primary hover:underline">Open logs &amp; settings →</Link>
-      </CardContent>
-    </Card>
-  );
-}
-
-function SettingsGeneralContent() {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5" /> Settings</CardTitle>
-        <CardDescription>General hiring and workspace settings.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Link href="/admin/settings/general" className="text-primary hover:underline">Open general settings →</Link>
-      </CardContent>
-    </Card>
-  );
+  return <HiringLogsTab />;
 }
 
 export default function HiringPage() {
@@ -291,12 +276,11 @@ export default function HiringPage() {
     { value: 'reports', label: 'Reports', icon: BarChart3, component: ReportsTab },
   ];
 
-  const isSettingsActive = activeTab.startsWith('settings-');
   const settingsContent: Record<string, () => JSX.Element> = {
     'settings-forms': SettingsFormsContent,
     'settings-notifications': SettingsNotificationsContent,
     'settings-logs': SettingsLogsContent,
-    'settings-general': SettingsGeneralContent,
+    'settings-general': HiringGeneralSettingsTab,
   };
 
   return (

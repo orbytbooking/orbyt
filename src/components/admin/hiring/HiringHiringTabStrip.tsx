@@ -139,11 +139,29 @@ export default function HiringHiringTabStrip({
               <DropdownMenuItem
                 className="focus:bg-primary-foreground/20 focus:text-primary-foreground"
                 onSelect={() => {
-                  goHiringTab('settings-logs');
+                  router.push('/admin/hiring?tab=settings-logs&logsView=system');
                   setSettingsOpen(false);
                 }}
               >
-                View logs
+                System logs
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="focus:bg-primary-foreground/20 focus:text-primary-foreground"
+                onSelect={() => {
+                  router.push('/admin/hiring?tab=settings-logs&logsView=email');
+                  setSettingsOpen(false);
+                }}
+              >
+                Email logs
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="focus:bg-primary-foreground/20 focus:text-primary-foreground"
+                onSelect={() => {
+                  router.push('/admin/hiring?tab=settings-logs&logsView=sms');
+                  setSettingsOpen(false);
+                }}
+              >
+                SMS logs
               </DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
@@ -154,7 +172,7 @@ export default function HiringHiringTabStrip({
               setSettingsOpen(false);
             }}
           >
-            Settings
+            General
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

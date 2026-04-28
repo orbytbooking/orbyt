@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { validateHiringFormFields, formDataToHiringAnswers } from "@/lib/hiring-form-validation";
 import { extractProspectFromAnswers } from "@/lib/hiring-form-prospect-from-answers";
 import { computeHiringFormGrading } from "@/lib/hiring-form-grading";
+import { fetchHiringGeneralSettings } from "@/lib/hiring-general-settings";
 
 const getSupabaseAdmin = () => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -67,16 +68,53 @@ export async function POST(request: NextRequest, ctx: RouteCtx) {
       grading != null ? { ...answers, _grading: grading } : answers;
     const prospectData = extractProspectFromAnswers(formFields, answersWithGrading);
 
+    const hiringSettings = await fetchHiringGeneralSettings(supabase, formRow.business_id);
+
     let linkedProspectId: string | null = null;
     if (linkedProspectCandidate) {
       const { data: prow } = await supabase
         .from("hiring_prospects")
-        .select("id")
+        .select("id, stage")
         .eq("id", linkedProspectCandidate)
         .eq("business_id", formRow.business_id)
         .maybeSingle();
       if (prow && (prow as { id?: string }).id) {
         linkedProspectId = (prow as { id: string }).id;
+        if (
+          hiringSettings.rejectIfPreviouslyRejected &&
+          (prow as { stage?: string }).stage === "rejected"
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                "This link is no longer valid because this candidate was rejected. Please contact the employer if you believe this is a mistake.",
+            },
+            { status: 403 },
+          );
+        }
+      }
+    }
+
+    if (hiringSettings.rejectIfPreviouslyRejected && prospectData?.email) {
+      const em = prospectData.email.trim();
+      if (em) {
+        const { data: rejectedMatch } = await supabase
+          .from("hiring_prospects")
+          .select("id")
+          .eq("business_id", formRow.business_id)
+          .eq("stage", "rejected")
+          .ilike("email", em)
+          .limit(1)
+          .maybeSingle();
+        if (rejectedMatch && (rejectedMatch as { id?: string }).id) {
+          return NextResponse.json(
+            {
+              error:
+                "We cannot accept this application because this email was previously rejected for this employer.",
+            },
+            { status: 403 },
+          );
+        }
       }
     }
 
@@ -120,6 +158,20 @@ export async function POST(request: NextRequest, ctx: RouteCtx) {
         prospectId = prospect.id;
         await supabase.from("hiring_form_submissions").update({ prospect_id: prospectId }).eq("id", submission.id);
       }
+    }
+
+    if (
+      prospectId &&
+      isQuizForm &&
+      hiringSettings.autoRejectByQuizScore &&
+      grading?.scorePercent != null &&
+      grading.scorePercent < hiringSettings.quizMinimumScorePercent
+    ) {
+      await supabase
+        .from("hiring_prospects")
+        .update({ stage: "rejected", updated_at: new Date().toISOString() })
+        .eq("id", prospectId)
+        .eq("business_id", formRow.business_id);
     }
 
     return NextResponse.json({ ok: true, submissionId: submission.id, prospectId });

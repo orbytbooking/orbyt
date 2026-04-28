@@ -43,7 +43,7 @@ function optionLabel(opts: { id: string; label: string }[] | undefined, id: stri
   return opts?.find((o) => o.id === id)?.label ?? id;
 }
 
-function formatAnswerForField(f: FormField, answers: Record<string, unknown>): string {
+export function formatAnswerForField(f: FormField, answers: Record<string, unknown>): string {
   if (f.hidden) return '';
   const t = f.type;
   if (t === 'name') {

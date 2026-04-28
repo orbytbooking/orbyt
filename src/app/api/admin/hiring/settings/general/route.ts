@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedUser, createForbiddenResponse, createUnauthorizedResponse } from "@/lib/auth-helpers";
+import {
+  fetchHiringGeneralSettings,
+  parseHiringGeneralSettingsPatch,
+  upsertHiringGeneralSettings,
+} from "@/lib/hiring-general-settings";
 
 const getSupabaseAdmin = () => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -46,28 +51,15 @@ export async function GET(request: NextRequest) {
     const access = await ensureBusinessAccess(supabase, businessId, user.id);
     if (!access.ok) return access.response;
 
-    const formKind = request.nextUrl.searchParams.get("formKind")?.trim();
-    let query = supabase
-      .from("hiring_forms")
-      .select("id, name, is_published, published_slug, form_kind, created_at, updated_at")
-      .eq("business_id", businessId);
-    if (formKind === "prospect" || formKind === "quiz" || formKind === "contract") {
-      query = query.eq("form_kind", formKind);
-    }
-    const { data, error } = await query.order("updated_at", { ascending: false });
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ forms: data ?? [] });
+    const settings = await fetchHiringGeneralSettings(supabase, businessId);
+    return NextResponse.json({ settings });
   } catch (error) {
-    console.error("Hiring forms GET error:", error);
+    console.error("Hiring general settings GET:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
-export async function POST(request: NextRequest) {
+export async function PATCH(request: NextRequest) {
   try {
     const user = await getAuthenticatedUser();
     if (!user) return createUnauthorizedResponse();
@@ -81,34 +73,25 @@ export async function POST(request: NextRequest) {
     const access = await ensureBusinessAccess(supabase, businessId, user.id);
     if (!access.ok) return access.response;
 
-    const body = await request.json().catch(() => ({}));
-    const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : "Untitled form";
-    const definition = body.definition != null && typeof body.definition === "object" ? body.definition : {};
-    const rawKind = body.formKind ?? body.form_kind;
-    const formKind =
-      rawKind === "quiz" || rawKind === "prospect" || rawKind === "contract"
-        ? rawKind
-        : "prospect";
-
-    const { data, error } = await supabase
-      .from("hiring_forms")
-      .insert({
-        business_id: businessId,
-        name,
-        definition,
-        form_kind: formKind,
-        is_published: false,
-      })
-      .select("*")
-      .single();
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    return NextResponse.json({ form: data }, { status: 201 });
+    const current = await fetchHiringGeneralSettings(supabase, businessId);
+    const parsed = parseHiringGeneralSettingsPatch(body, current);
+    if ("error" in parsed) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
+    }
+
+    const saved = await upsertHiringGeneralSettings(supabase, businessId, parsed);
+    if (!saved.ok) {
+      return NextResponse.json({ error: saved.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ settings: parsed });
   } catch (error) {
-    console.error("Hiring forms POST error:", error);
+    console.error("Hiring general settings PATCH:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

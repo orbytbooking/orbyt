@@ -35,6 +35,12 @@ async function ensureBusinessAccess(supabase: ReturnType<typeof getSupabaseAdmin
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
+function isValidHiringFormPublishedSlug(s: string): boolean {
+  const t = s.trim();
+  if (t.length < 2 || t.length > 80) return false;
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(t);
+}
+
 export async function GET(request: NextRequest, ctx: RouteCtx) {
   try {
     const user = await getAuthenticatedUser();
@@ -119,12 +125,41 @@ export async function PATCH(request: NextRequest, ctx: RouteCtx) {
     }
     if (typeof body.isPublished === "boolean") {
       patch.is_published = body.isPublished;
-      if (body.isPublished === true) {
-        const row = existing as { published_slug?: string | null };
-        if (!row.published_slug) {
-          patch.published_slug = randomUUID();
+    }
+
+    if (typeof body.publishedSlug === "string") {
+      const candidate = body.publishedSlug.trim();
+      if (candidate.length > 0) {
+        if (!isValidHiringFormPublishedSlug(candidate)) {
+          return NextResponse.json(
+            { error: "URL slug must be 2–80 characters and use letters, numbers, and single hyphens between words." },
+            { status: 400 }
+          );
         }
+        const normalized = candidate.toLowerCase();
+        const { data: clash, error: clashErr } = await supabase
+          .from("hiring_forms")
+          .select("id")
+          .eq("published_slug", normalized)
+          .neq("id", id)
+          .maybeSingle();
+        if (clashErr) {
+          return NextResponse.json({ error: clashErr.message }, { status: 500 });
+        }
+        if (clash) {
+          return NextResponse.json({ error: "That URL slug is already in use. Choose another." }, { status: 409 });
+        }
+        patch.published_slug = normalized;
       }
+    }
+
+    const row = existing as { published_slug?: string | null };
+    const mergedSlug =
+      typeof patch.published_slug === "string" && patch.published_slug.trim().length > 0
+        ? String(patch.published_slug)
+        : row.published_slug ?? null;
+    if (body.isPublished === true && !mergedSlug) {
+      patch.published_slug = randomUUID();
     }
 
     const { data, error } = await supabase.from("hiring_forms").update(patch).eq("id", id).select("*").single();

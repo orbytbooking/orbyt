@@ -5,6 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { useHiringProspects, type HiringProspect, type HiringStage } from "@/hooks/useHiringProspects";
 import {
+  AddHiringProspectDialog,
+  ProspectNoteEditor,
+} from "@/components/admin/hiring/AddHiringProspectDialog";
+import { useHiringGeneralSettings } from "@/hooks/useHiringGeneralSettings";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -33,20 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  UserPlus,
-  Plus,
-  Bold,
-  Italic,
-  Underline,
-  AlignLeft,
-  AlignCenter,
-  AlignRight,
-  List,
-  Link as LinkIcon,
-  ChevronDown,
-  Search,
-} from "lucide-react";
+import { UserPlus, Plus, ChevronDown, Search } from "lucide-react";
 
 type Applicant = HiringProspect;
 
@@ -65,6 +57,14 @@ const statusBadgeClass = (stage: HiringStage) => {
   // Active (new/screening) - match screenshot pill look
   return "bg-emerald-100 text-emerald-700";
 };
+
+function prospectShowsNewBadge(a: HiringProspect, badgeDays: number): boolean {
+  if (a.stage !== "new") return false;
+  const created = new Date(a.createdAt).getTime();
+  if (Number.isNaN(created)) return false;
+  const windowMs = Math.max(1, badgeDays) * 24 * 60 * 60 * 1000;
+  return Date.now() - created <= windowMs;
+}
 
 const formatSubmittedAt = (iso: string) => {
   const d = new Date(iso);
@@ -110,148 +110,19 @@ const parseUserDate = (input: string): Date | null => {
   return Number.isNaN(d.getTime()) ? null : d;
 };
 
-function ProspectNoteEditor({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  const editorRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (editorRef.current && editorRef.current.innerHTML !== value) {
-      editorRef.current.innerHTML = value || "";
-    }
-  }, [value]);
-
-  const exec = (command: string, arg?: string) => {
-    if (typeof document === "undefined") return;
-    document.execCommand(command, false, arg);
-    editorRef.current?.focus();
-    if (editorRef.current) onChange(editorRef.current.innerHTML);
-  };
-
-  const handleInput = () => {
-    if (editorRef.current) onChange(editorRef.current.innerHTML);
-  };
-
-  return (
-    <div className="border rounded-lg overflow-hidden bg-white">
-      <div className="border-b bg-muted/40 px-3 py-1.5 flex items-center gap-1.5 flex-wrap">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8 w-8 p-0"
-          title="Bold"
-          onClick={() => exec("bold")}
-        >
-          <Bold className="h-4 w-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8 w-8 p-0"
-          title="Italic"
-          onClick={() => exec("italic")}
-        >
-          <Italic className="h-4 w-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8 w-8 p-0"
-          title="Underline"
-          onClick={() => exec("underline")}
-        >
-          <Underline className="h-4 w-4" />
-        </Button>
-        <span className="w-px h-6 bg-border mx-1" />
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8 w-8 p-0"
-          title="Align left"
-          onClick={() => exec("justifyLeft")}
-        >
-          <AlignLeft className="h-4 w-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8 w-8 p-0"
-          title="Align center"
-          onClick={() => exec("justifyCenter")}
-        >
-          <AlignCenter className="h-4 w-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8 w-8 p-0"
-          title="Align right"
-          onClick={() => exec("justifyRight")}
-        >
-          <AlignRight className="h-4 w-4" />
-        </Button>
-        <span className="w-px h-6 bg-border mx-1" />
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8 w-8 p-0"
-          title="Bullet list"
-          onClick={() => exec("insertUnorderedList")}
-        >
-          <List className="h-4 w-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8 w-8 p-0"
-          title="Insert link"
-          onClick={() => {
-            const url = window.prompt("URL:");
-            if (url) exec("createLink", url);
-          }}
-        >
-          <LinkIcon className="h-4 w-4" />
-        </Button>
-      </div>
-      <div
-        ref={editorRef}
-        contentEditable
-        onInput={handleInput}
-        data-placeholder="Add a note..."
-        className="min-h-[140px] px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20 prose prose-sm max-w-none [&:empty:before]:text-muted-foreground [&:empty:before]:content-[attr(data-placeholder)]"
-        style={{ whiteSpace: "pre-wrap" }}
-      />
-      <div className="flex justify-end px-3 py-1 text-[11px] text-muted-foreground bg-slate-50 border-t">
-        {/* Simple word counter */}
-        {value
-          ? `${value.replace(/<[^>]*>/g, "").trim().split(/\s+/).filter(Boolean).length} word(s)`
-          : "0 word(s)"}
-      </div>
-    </div>
-  );
-}
-
-type QuizActivityRow = {
-  submissionId: string;
-  formName: string;
+type ProspectActivityRow = {
+  id: string;
   createdAt: string;
-  scoreLabel: string;
+  variant: "system" | "quiz" | "application" | "contract";
+  headline: string;
+  detail?: string | null;
+  submissionId?: string | null;
+  showSubmissionLink?: boolean;
 };
 
 export default function ProspectsTab() {
   const { prospects, loading, createProspect, updateProspect, deleteProspect } = useHiringProspects();
+  const { settings: hiringGeneralSettings } = useHiringGeneralSettings();
   const { currentBusiness } = useBusiness();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -275,17 +146,9 @@ export default function ProspectsTab() {
   const [prospectsTypeFilter, setProspectsTypeFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const imageInputRef = useRef<HTMLInputElement | null>(null);
-  const [form, setForm] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    note: "",
-    addToFunnel: true,
-  });
-
-  const [quizActivities, setQuizActivities] = useState<QuizActivityRow[]>([]);
-  const [quizActivitiesLoading, setQuizActivitiesLoading] = useState(false);
+  const [prospectActivities, setProspectActivities] = useState<ProspectActivityRow[]>([]);
+  const [prospectActivitiesLoading, setProspectActivitiesLoading] = useState(false);
+  const [activitiesNonce, setActivitiesNonce] = useState(0);
 
   const stripProspectDeepLinkParams = useCallback(() => {
     const u = new URLSearchParams(searchParams.toString());
@@ -306,15 +169,16 @@ export default function ProspectsTab() {
     else setViewOpen(true);
   };
 
-  const openQuizSummaryForSubmission = (submissionId: string) => {
+  const openHiringSubmissionPage = (submissionId: string, activityVariant?: ProspectActivityRow["variant"]) => {
     if (!selectedProspect?.id) return;
     const q = new URLSearchParams();
-    q.set("tab", "prospects");
+    q.set("tab", activityVariant === "contract" ? "contracts" : "prospects");
     q.set("prospectId", selectedProspect.id);
     router.push(`/admin/hiring/quiz-submissions/${encodeURIComponent(submissionId)}?${q.toString()}`);
   };
 
   const prospectIdFromUrl = searchParams.get("prospectId");
+
   useEffect(() => {
     if (!prospectIdFromUrl || loading) return;
     const p = prospects.find((a) => a.id === prospectIdFromUrl);
@@ -326,40 +190,40 @@ export default function ProspectsTab() {
 
   useEffect(() => {
     if (!selectedProspect?.id || !currentBusiness?.id) {
-      setQuizActivities([]);
+      setProspectActivities([]);
       return;
     }
     let cancelled = false;
-    setQuizActivitiesLoading(true);
+    setProspectActivitiesLoading(true);
     void (async () => {
       try {
         const res = await fetch(`/api/admin/hiring/prospects/${selectedProspect.id}/activities`, {
           credentials: "include",
           headers: { "x-business-id": currentBusiness.id },
         });
-        const json = (await res.json().catch(() => ({}))) as { error?: string; items?: QuizActivityRow[] };
+        const json = (await res.json().catch(() => ({}))) as { error?: string; items?: ProspectActivityRow[] };
         if (!res.ok) throw new Error(json.error || "Failed to load activities");
-        if (!cancelled) setQuizActivities(Array.isArray(json.items) ? json.items : []);
+        if (!cancelled) setProspectActivities(Array.isArray(json.items) ? json.items : []);
       } catch {
-        if (!cancelled) setQuizActivities([]);
+        if (!cancelled) setProspectActivities([]);
       } finally {
-        if (!cancelled) setQuizActivitiesLoading(false);
+        if (!cancelled) setProspectActivitiesLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [selectedProspect?.id, currentBusiness?.id]);
+  }, [selectedProspect?.id, currentBusiness?.id, activitiesNonce]);
 
   const activityRows = useMemo(() => {
-    return quizActivities.map((it) => {
+    return prospectActivities.map((it) => {
       const d = new Date(it.createdAt);
       const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       const dateLabel = d.toLocaleDateString(undefined, { month: "numeric", day: "numeric", year: "numeric" });
       const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
       return { ...it, dateKey, dateLabel, time };
     });
-  }, [quizActivities]);
+  }, [prospectActivities]);
 
   const setApplicantStage = async (applicantId: string, nextStage: HiringStage) => {
     const nextStepIndex = nextStage === "new" ? 0 : nextStage === "screening" ? 1 : undefined;
@@ -368,6 +232,7 @@ export default function ProspectsTab() {
       ...(typeof nextStepIndex === "number" ? { stepIndex: nextStepIndex } : {}),
     });
     setSelectedProspect((prev) => (prev?.id === applicantId ? updated : prev));
+    setActivitiesNonce((n) => n + 1);
   };
 
   const hasSelection = selectedIds.length > 0;
@@ -449,11 +314,13 @@ export default function ProspectsTab() {
   const updateApplicantImageById = async (applicantId: string, dataUrl: string) => {
     const updated = await updateProspect(applicantId, { image: dataUrl });
     setSelectedProspect((prev) => (prev?.id === applicantId ? updated : prev));
+    setActivitiesNonce((n) => n + 1);
   };
 
   const updateApplicantById = async (applicantId: string, updates: Partial<Applicant>) => {
     const updated = await updateProspect(applicantId, updates);
     setSelectedProspect((prev) => (prev?.id === applicantId ? updated : prev));
+    setActivitiesNonce((n) => n + 1);
   };
 
   const openEditModal = () => {
@@ -486,31 +353,6 @@ export default function ProspectsTab() {
       note: editForm.note || undefined,
     });
     setEditOpen(false);
-  };
-
-  const handleAddProspect = async () => {
-    if (!form.firstName.trim() || !form.email.trim()) return;
-    await createProspect({
-      firstName: form.firstName.trim(),
-      lastName: form.lastName.trim() || undefined,
-      email: form.email.trim(),
-      phone: form.phone.trim() || undefined,
-      role: "Prospect",
-      source: "Manual",
-      stage: "new",
-      stepIndex: form.addToFunnel ? 0 : undefined,
-      note: form.note || undefined,
-    });
-
-    setForm({
-      firstName: "",
-      lastName: "",
-      email: "",
-      phone: "",
-      note: "",
-      addToFunnel: true,
-    });
-    setAddOpen(false);
   };
 
   const handleCreateForm = () => {
@@ -597,8 +439,12 @@ export default function ProspectsTab() {
             </CardDescription>
           </div>
           <div className="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap justify-end">
-          <Dialog open={addOpen} onOpenChange={setAddOpen}>
-            <DialogTrigger asChild>
+          <AddHiringProspectDialog
+            open={addOpen}
+            onOpenChange={setAddOpen}
+            createProspect={createProspect}
+            businessId={currentBusiness?.id}
+            trigger={
               <Button
                 variant="outline"
                 className="border-sky-200 bg-white text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-300"
@@ -606,79 +452,12 @@ export default function ProspectsTab() {
                 <UserPlus className="h-4 w-4" />
                 Add Prospect
               </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-3xl p-0">
-              <div className="border-b bg-slate-50 px-6 py-4">
-                <DialogTitle className="text-xl font-semibold text-slate-900">Add prospect</DialogTitle>
-              </div>
-              <div className="px-6 py-4 space-y-6">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-medium text-slate-700">First name</label>
-                    <Input
-                      placeholder="First name"
-                      value={form.firstName}
-                      onChange={(e) => setForm((p) => ({ ...p, firstName: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-medium text-slate-700">Last name</label>
-                    <Input
-                      placeholder="Last name"
-                      value={form.lastName}
-                      onChange={(e) => setForm((p) => ({ ...p, lastName: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-medium text-slate-700">Email</label>
-                    <Input
-                      type="email"
-                      placeholder="Email"
-                      value={form.email}
-                      onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
-                    />
-                  </div>
-                  <PhoneField
-                    label="Phone number"
-                    placeholder="Phone number"
-                    value={form.phone}
-                    onChange={(v) => setForm((p) => ({ ...p, phone: v }))}
-                    labelClassName="text-sm font-medium text-slate-700"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-700">Add a note</label>
-                  <ProspectNoteEditor
-                    value={form.note}
-                    onChange={(value) => setForm((p) => ({ ...p, note: value }))}
-                  />
-                </div>
-                <div className="flex items-center gap-2 pt-1">
-                  <Checkbox
-                    id="add-to-funnel"
-                    checked={form.addToFunnel}
-                    onCheckedChange={(v) => setForm((p) => ({ ...p, addToFunnel: !!v }))}
-                  />
-                  <label
-                    htmlFor="add-to-funnel"
-                    className="text-sm text-slate-700 leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                  >
-                    Do you want to add the prospect to the funnels?
-                  </label>
-                </div>
-              </div>
-              <DialogFooter className="border-t bg-slate-50 px-6 py-4">
-                <Button variant="outline" onClick={() => setAddOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleAddProspect}>Add</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+            }
+          />
           <Dialog open={createFormOpen} onOpenChange={setCreateFormOpen}>
             <DialogTrigger asChild>
-              <Button className="bg-teal-600 text-white hover:bg-teal-700">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/20">
+              <Button className="gap-1.5">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/20 -ml-1 mr-1.5">
                   <Plus className="h-3.5 w-3.5" />
                 </span>
                 Create New Form
@@ -784,7 +563,14 @@ export default function ProspectsTab() {
                       />
                     </TableCell>
                     <TableCell>
-                      <div className="font-medium">{a.name}</div>
+                      <div className="font-medium flex items-center gap-2 flex-wrap">
+                        <span>{a.name}</span>
+                        {prospectShowsNewBadge(a, hiringGeneralSettings.prospectNewBadgeDays) ? (
+                          <Badge className="bg-sky-100 text-sky-800 border-sky-200/80" variant="outline">
+                            New
+                          </Badge>
+                        ) : null}
+                      </div>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{a.email}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{a.phone || "—"}</TableCell>
@@ -827,7 +613,12 @@ export default function ProspectsTab() {
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             disabled={a.stage !== "new"}
-                            onSelect={() => setApplicantStage(a.id, "interview")}
+                            onSelect={() =>
+                              void setApplicantStage(
+                                a.id,
+                                hiringGeneralSettings.autoOnboardWhenCreateMember ? "hired" : "interview",
+                              )
+                            }
                           >
                             Create Member
                           </DropdownMenuItem>
@@ -1092,16 +883,16 @@ export default function ProspectsTab() {
 
                     <div className="mt-4">
                       <div className="mt-3 max-h-[175px] overflow-y-scroll pr-2 [scrollbar-gutter:stable] space-y-3">
-                        {quizActivitiesLoading ? (
+                        {prospectActivitiesLoading ? (
                           <p className="text-sm text-muted-foreground">Loading activities…</p>
                         ) : activityRows.length === 0 ? (
-                          <p className="text-sm text-muted-foreground">No quiz completions yet for this prospect.</p>
+                          <p className="text-sm text-muted-foreground">No activities yet for this prospect.</p>
                         ) : (
                           activityRows.map((it, idx) => {
                             const prev = activityRows[idx - 1];
                             const showDateHeader = !prev || prev.dateKey !== it.dateKey;
                             return (
-                              <div key={it.submissionId} className="space-y-1">
+                              <div key={it.id} className="space-y-1">
                                 {showDateHeader && (
                                   <div className="text-sm text-muted-foreground">{it.dateLabel}</div>
                                 )}
@@ -1111,20 +902,24 @@ export default function ProspectsTab() {
                                     <div className="text-sm">
                                       <span className="text-muted-foreground">{it.time}</span>
                                       {" — "}
-                                      <span className="font-medium">Quiz:</span> {it.formName}
-                                      {it.scoreLabel !== "—" ? (
-                                        <span className="text-muted-foreground"> ({it.scoreLabel})</span>
+                                      <span className="font-medium">{it.headline}</span>
+                                      {it.detail ? (
+                                        <span className="text-muted-foreground"> ({it.detail})</span>
                                       ) : null}
                                     </div>
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-8"
-                                      onClick={() => openQuizSummaryForSubmission(it.submissionId)}
-                                    >
-                                      View summary
-                                    </Button>
+                                    {it.showSubmissionLink && it.submissionId ? (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8"
+                                        onClick={() =>
+                                          openHiringSubmissionPage(it.submissionId ?? "", it.variant)
+                                        }
+                                      >
+                                        {it.variant === "quiz" ? "View summary" : "View submission"}
+                                      </Button>
+                                    ) : null}
                                   </div>
                                 </div>
                               </div>

@@ -150,6 +150,10 @@ export async function GET(request: NextRequest, ctx: RouteCtx) {
       questions,
       gradedRows,
       manualGrading,
+      /** Raw field answers (no `_grading` / manual grading). Used to render frozen form preview for contracts. */
+      submissionAnswers: cleanAnswers,
+      /** Stored form definition (`hiring_forms.definition`) for preview UI. */
+      previewDefinition: (formRow as { definition?: unknown }).definition ?? null,
     });
   } catch (e) {
     console.error("form-submissions GET error:", e);
