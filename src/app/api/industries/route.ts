@@ -4,6 +4,10 @@ import { seedForm1IndustryTemplate } from '@/lib/seedForm1IndustryTemplate';
 import { seedForm2DefaultFrequenciesIfEmpty } from '@/lib/seedForm2DefaultFrequencies';
 import { seedForm2DefaultServiceCategoriesIfEmpty } from '@/lib/seedForm2DefaultServiceCategories';
 import { seedForm2DefaultPricingVariablesIfEmpty } from '@/lib/seedForm2DefaultPricingVariables';
+import {
+  seedForm2DefaultPackagesIfEmpty,
+  seedForm2MissingPackagesPerVariable,
+} from '@/lib/seedForm2DefaultPackages';
 import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
 import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
 
@@ -187,6 +191,8 @@ export async function POST(request: NextRequest) {
     let form2_frequencies: { applied: boolean; skipped?: boolean; error?: string } | undefined;
     let form2_service_categories: { applied: boolean; skipped?: boolean; error?: string } | undefined;
     let form2_pricing_variables: { applied: boolean; skipped?: boolean; error?: string } | undefined;
+    let form2_packages: { applied: boolean; skipped?: boolean; error?: string } | undefined;
+    let form2_package_gaps: { applied: boolean; skipped?: boolean; inserted?: number; error?: string } | undefined;
     if (customer_booking_form_layout === 'form2' && industry?.id) {
       form2_frequencies = await seedForm2DefaultFrequenciesIfEmpty(supabase, business_id, industry.id);
       if (form2_frequencies.error) {
@@ -208,6 +214,14 @@ export async function POST(request: NextRequest) {
       if (form2_pricing_variables.error) {
         console.error('Form 2 default items (pricing variables) seed error:', form2_pricing_variables.error);
       }
+      form2_packages = await seedForm2DefaultPackagesIfEmpty(supabase, business_id, industry.id);
+      if (form2_packages.error) {
+        console.error('Form 2 default packages seed error:', form2_packages.error);
+      }
+      form2_package_gaps = await seedForm2MissingPackagesPerVariable(supabase, business_id, industry.id);
+      if (form2_package_gaps.error) {
+        console.error('Form 2 package gap fill error:', form2_package_gaps.error);
+      }
     }
 
     return NextResponse.json(
@@ -217,6 +231,8 @@ export async function POST(request: NextRequest) {
         form2_frequencies,
         form2_service_categories,
         form2_pricing_variables,
+        form2_packages,
+        form2_package_gaps,
       },
       { status: 201 },
     );
@@ -298,6 +314,8 @@ export async function PATCH(request: NextRequest) {
     let form2_frequencies: { applied: boolean; skipped?: boolean; error?: string } | undefined;
     let form2_service_categories: { applied: boolean; skipped?: boolean; error?: string } | undefined;
     let form2_pricing_variables: { applied: boolean; skipped?: boolean; error?: string } | undefined;
+    let form2_packages: { applied: boolean; skipped?: boolean; error?: string } | undefined;
+    let form2_package_gaps: { applied: boolean; skipped?: boolean; inserted?: number; error?: string } | undefined;
     if (body.customer_booking_form_layout === 'form2' && industry?.id && industryRow.business_id) {
       const bid = industryRow.business_id as string;
       const iid = industry.id as string;
@@ -313,6 +331,14 @@ export async function PATCH(request: NextRequest) {
       if (form2_pricing_variables.error) {
         console.error('Form 2 default items (pricing variables) seed error:', form2_pricing_variables.error);
       }
+      form2_packages = await seedForm2DefaultPackagesIfEmpty(supabase, bid, iid);
+      if (form2_packages.error) {
+        console.error('Form 2 default packages seed error:', form2_packages.error);
+      }
+      form2_package_gaps = await seedForm2MissingPackagesPerVariable(supabase, bid, iid);
+      if (form2_package_gaps.error) {
+        console.error('Form 2 package gap fill error:', form2_package_gaps.error);
+      }
     }
 
     return NextResponse.json({
@@ -320,6 +346,8 @@ export async function PATCH(request: NextRequest) {
       form2_frequencies,
       form2_service_categories,
       form2_pricing_variables,
+      form2_packages,
+      form2_package_gaps,
     });
   } catch (error) {
     console.error('Unexpected error:', error);

@@ -70,6 +70,11 @@ export type PricingParamRow = {
   price?: number;
   time_minutes?: number;
   sort_order?: number;
+  /** Form 2: package row belongs to this pricing variable (item). */
+  pricing_variable_id?: string | null;
+  booking_form_scope?: string | null;
+  description?: string | null;
+  icon?: string | null;
 };
 
 /**

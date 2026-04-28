@@ -59,6 +59,11 @@ import { industryExtraPassesBookingDependencyRules } from "@/lib/industryExtraDe
 import { normalizeTimeToHHmm } from "@/lib/schedulingFilters";
 import { FORM1_SEEDED_SERVICE_CATEGORIES } from "@/lib/form1DefaultServiceCategoryConfig";
 import { FORM2_STANDALONE_PACKAGE_CATEGORY } from "@/lib/bookingFormScope";
+import {
+  Form2ItemPickerGrid,
+  Form2PackageCardStrip,
+  type Form2PackageRow,
+} from "@/components/form2/Form2BookingCatalog";
 
 /** `YYYY-MM-DD` for `<input type="date" />` (handles ISO strings from API). */
 function normalizeBookingDateInput(raw: unknown): string {
@@ -173,12 +178,14 @@ type PricingParameter = {
   excluded_extras: string[];
   excluded_services: string[];
   sort_order: number;
+  pricing_variable_id?: string | null;
 };
 
 type PricingVariable = {
   id: string;
   name: string;
   category?: string | null;
+  sort_order?: number | null;
 };
 
 type Customer = {
@@ -362,7 +369,8 @@ export function AddBookingForm({
   const isForm2Catalog = bookingFormScopeForCatalog === "form2";
   const extrasListingKindForCatalog = bookingFormScopeForCatalog === "form2" ? "addon" : "extra";
   const [pricingVariables, setPricingVariables] = useState<PricingVariable[]>([]);
-  const [selectedForm2Item, setSelectedForm2Item] = useState<string>("");
+  /** Form 2: selected catalog item (`industry_pricing_variable.id`). */
+  const [selectedForm2VariableId, setSelectedForm2VariableId] = useState<string>("");
   const [hasLocationBasedFrequencies, setHasLocationBasedFrequencies] = useState(false);
   const [cancellationFeeDisplay, setCancellationFeeDisplay] = useState<{ enabled: boolean; amount: number; currency: string } | null>(null);
   const [specificProviderForAdmin, setSpecificProviderForAdmin] = useState(true);
@@ -790,7 +798,7 @@ export function AddBookingForm({
   useEffect(() => {
     if (!isForm2Catalog || !selectedIndustryId || !currentBusiness?.id) {
       setPricingVariables([]);
-      setSelectedForm2Item("");
+      setSelectedForm2VariableId("");
       return;
     }
     const load = async () => {
@@ -802,18 +810,18 @@ export function AddBookingForm({
         if (res.ok && Array.isArray(data.variables)) {
           const rows = data.variables as PricingVariable[];
           setPricingVariables(rows);
-          setSelectedForm2Item((prev) => {
-            if (prev && rows.some((r) => (r.category || r.name) === prev)) return prev;
-            return rows[0]?.category || rows[0]?.name || "";
+          setSelectedForm2VariableId((prev) => {
+            if (prev && rows.some((r) => r.id === prev)) return prev;
+            return rows[0]?.id ?? "";
           });
         } else {
           setPricingVariables([]);
-          setSelectedForm2Item("");
+          setSelectedForm2VariableId("");
         }
       } catch (e) {
         console.error("Error loading pricing variables:", e);
         setPricingVariables([]);
-        setSelectedForm2Item("");
+        setSelectedForm2VariableId("");
       }
     };
     load();
@@ -1161,48 +1169,53 @@ export function AddBookingForm({
     setSelectedProvider((prev) => (prev?.id === id ? prev : p));
   }, [editingBookingId, newBooking.serviceProvider, allProviders]);
 
-  // Handle query parameters for pre-filling customer information (e.g. from customer profile)
+  // Deep-link prefill from customer profile: depend on string values, not `searchParams` (new object each render in App Router).
+  const qpCustomerId = searchParams.get("customerId") ?? "";
+  const qpCustomerName = searchParams.get("customerName") ?? "";
+  const qpCustomerEmail = searchParams.get("customerEmail") ?? "";
+  const qpCustomerAddress = searchParams.get("customerAddress") ?? "";
+
   useEffect(() => {
-    if (editingBookingId) return; // prefer edit mode data
-    const customerId = searchParams.get('customerId');
-    const customerName = searchParams.get('customerName');
-    const customerEmail = searchParams.get('customerEmail');
-    const customerAddress = searchParams.get('customerAddress');
-    
-    if (customerId && customerName && customerEmail) {
-      const nameParts = customerName.split(' ');
-      setNewBooking(prev => ({
-        ...prev,
-        customerType: 'existing',
-        customerId,
-        firstName: nameParts[0] || '',
-        lastName: nameParts.slice(1).join(' ') || '',
-        email: customerEmail,
-        address: customerAddress || prev.address,
-      }));
-      setCustomerSearch(customerName);
-      // Fetch full customer to get phone and address if not passed
-      const fetchCustomer = async () => {
-        try {
-          const res = await fetch(`/api/admin/customers/${customerId}`, {
-            headers: adminCustomerApiHeaders(currentBusiness?.id),
-          });
-          const data = await res.json();
-          if (res.ok && data?.customer) {
-            const c = data.customer;
-            setNewBooking(prev => ({
-              ...prev,
-              phone: c.phone || prev.phone,
-              address: prev.address || c.address || '',
-            }));
-          }
-        } catch {
-          // Ignore - we have name/email from URL
-        }
-      };
-      fetchCustomer();
-    }
-  }, [searchParams, editingBookingId, currentBusiness?.id]);
+    if (editingBookingId) return;
+    if (!qpCustomerId || !qpCustomerName || !qpCustomerEmail) return;
+    const nameParts = qpCustomerName.split(/\s+/);
+    setNewBooking((prev) => ({
+      ...prev,
+      customerType: "existing",
+      customerId: qpCustomerId,
+      firstName: nameParts[0] || "",
+      lastName: nameParts.slice(1).join(" ") || "",
+      email: qpCustomerEmail,
+      address: qpCustomerAddress || prev.address,
+    }));
+    setCustomerSearch(qpCustomerName);
+  }, [editingBookingId, qpCustomerId, qpCustomerName, qpCustomerEmail, qpCustomerAddress]);
+
+  useEffect(() => {
+    if (editingBookingId) return;
+    if (!qpCustomerId || !currentBusiness?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/admin/customers/${qpCustomerId}`, {
+          headers: adminCustomerApiHeaders(currentBusiness.id),
+        });
+        const data = await res.json();
+        if (cancelled || !res.ok || !data?.customer) return;
+        const c = data.customer;
+        setNewBooking((prev) => ({
+          ...prev,
+          phone: c.phone || prev.phone,
+          address: prev.address || c.address || "",
+        }));
+      } catch {
+        /* keep URL prefill */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editingBookingId, qpCustomerId, currentBusiness?.id]);
 
   // Handle customer search
   const handleCustomerSearch = (search: string) => {
@@ -2510,6 +2523,39 @@ const handleAddBooking = async (status: string = 'pending') => {
     });
   };
 
+  const form2PackageStripRows = useMemo((): Form2PackageRow[] => {
+    if (!isForm2Catalog) return [];
+    if (pricingVariables.length > 0 && !selectedForm2VariableId) return [];
+    return pricingParameters
+      .filter((p) => {
+        const categoryKey = String(p.variable_category || "").trim();
+        if (!categoryKey) return false;
+        return true;
+      })
+      .filter((p) => {
+        const d = String(p.display || "");
+        return d.includes("Customer") || d.includes("Frontend") || !d;
+      })
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name))
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        variable_category: p.variable_category,
+        description: p.description || null,
+        price: Number(p.price) || 0,
+        time_minutes: p.time_minutes ?? null,
+        icon: (p as { icon?: string | null }).icon ?? null,
+      }));
+  }, [isForm2Catalog, selectedForm2VariableId, pricingParameters, pricingVariables.length]);
+
+  const selectedForm2PackageHighlight = useMemo(() => {
+    const v = pricingVariables.find((r) => r.id === selectedForm2VariableId);
+    const cat = String(v?.category ?? "").trim();
+    if (!cat) return null;
+    const n = categoryValues[cat];
+    return n && String(n).trim() ? String(n).trim() : null;
+  }, [pricingVariables, selectedForm2VariableId, categoryValues]);
+
   const showBookingForm = !bookingLoadError && !(editingBookingId && loadingBooking);
 
   const bookingEditorGrid = showBookingForm ? (
@@ -2529,7 +2575,7 @@ const handleAddBooking = async (status: string = 'pending') => {
               <div className="flex justify-between items-center gap-2">
                 <span className="text-muted-foreground">Industry</span>
                 {industries.length > 1 ? (
-                  <Select value={selectedIndustryId} onValueChange={(v) => { setSelectedIndustryId(v); setSelectedForm2Item(""); setNewBooking(prev => ({ ...prev, service: "", frequency: "", duration: "", selectedExtras: [], extraQuantities: {}, excludeQuantities: {}, categoryValues: {} })); setCategoryValues({}); }}>
+                  <Select value={selectedIndustryId} onValueChange={(v) => { setSelectedIndustryId(v); setSelectedForm2VariableId(""); setNewBooking(prev => ({ ...prev, service: "", frequency: "", duration: "", selectedExtras: [], extraQuantities: {}, excludeQuantities: {}, categoryValues: {} })); setCategoryValues({}); }}>
                     <SelectTrigger className="w-[180px] h-8">
                       <SelectValue placeholder="Select industry" />
                     </SelectTrigger>
@@ -3484,68 +3530,55 @@ const handleAddBooking = async (status: string = 'pending') => {
               );
             })()}
             
-            {/* Form 2: item + package selector (instead of Form 1 variable dropdowns) */}
+            {/* Form 2: item grid + horizontal package cards (matches customer book-now) */}
             {isForm2Catalog && (
-              <div className="space-y-4">
+              <div className="space-y-6 rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-card">
                 <div>
-                  <Label className="text-sm font-medium mb-2 block">Items</Label>
-                  <Select value={selectedForm2Item} onValueChange={setSelectedForm2Item}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select item" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {pricingVariables.length > 0 ? (
-                        pricingVariables.map((row) => {
-                          const categoryKey = (row.category || row.name || "").trim();
-                          return (
-                            <SelectItem key={row.id} value={categoryKey}>
-                              {row.name}
-                            </SelectItem>
-                          );
-                        })
-                      ) : (
-                        <SelectItem value="no-items" disabled>
-                          No items configured
-                        </SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">What Needs To Be Done?</h3>
+                  <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+                    Select an item, then choose a package. Use Add to apply that tier to this booking.
+                  </p>
                 </div>
-                <div>
-                  <Label className="text-sm font-medium mb-2 block">Packages</Label>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {pricingParameters
-                      .filter((p) => {
-                        const categoryKey = String(p.variable_category || "").trim();
-                        if (!categoryKey) return false;
-                        if (categoryKey === FORM2_STANDALONE_PACKAGE_CATEGORY) return true;
-                        return selectedForm2Item ? categoryKey === selectedForm2Item : false;
-                      })
-                      .map((p) => {
-                        const categoryKey = String(p.variable_category || "").trim();
-                        const selectedName = categoryValues[categoryKey] || "";
-                        const selected = selectedName === p.name;
-                        return (
-                          <button
-                            key={p.id}
-                            type="button"
-                            className={cn(
-                              "rounded-md border p-3 text-left transition-colors",
-                              selected ? "border-cyan-500 bg-cyan-50" : "border-border hover:bg-muted/40",
-                            )}
-                            onClick={() => {
-                              setCategoryValues((prev) => ({ ...prev, [categoryKey]: p.name }));
-                            }}
-                          >
-                            <p className="font-medium text-sm">{p.name}</p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              ${Number(p.price || 0).toFixed(2)} · {Math.max(0, Number(p.time_minutes || 0))} min
-                            </p>
-                          </button>
-                        );
-                      })}
-                  </div>
-                </div>
+                {pricingVariables.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No items configured for this industry yet.</p>
+                ) : (
+                  <>
+                    <Form2ItemPickerGrid
+                      items={[...pricingVariables]
+                        .sort(
+                          (a, b) =>
+                            (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name),
+                        )
+                        .map((v) => ({
+                          id: v.id,
+                          name: v.name,
+                          category: v.category,
+                        }))}
+                      selectedId={selectedForm2VariableId || null}
+                      onSelect={setSelectedForm2VariableId}
+                      uiVariant="admin"
+                    />
+                    {form2PackageStripRows.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-6 text-center rounded-lg border border-dashed">
+                        {selectedForm2VariableId
+                          ? "No packages for this item yet. Add packages in Industries → Form 2 → Packages."
+                          : "Select an item to see packages."}
+                      </p>
+                    ) : (
+                      <Form2PackageCardStrip
+                        packages={form2PackageStripRows}
+                        selectedPackageName={selectedForm2PackageHighlight}
+                        uiVariant="admin"
+                        onAdd={(pkg) => {
+                          setCategoryValues((prev) => ({
+                            ...prev,
+                            [pkg.variable_category]: pkg.name,
+                          }));
+                        }}
+                      />
+                    )}
+                  </>
+                )}
               </div>
             )}
 

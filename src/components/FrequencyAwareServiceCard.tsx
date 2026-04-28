@@ -381,6 +381,7 @@ export default function FrequencyAwareServiceCard({
     let cancelled = false;
     getFrequencyDependencies(industryId, customization.frequency, {
       businessId: businessId?.trim() || undefined,
+      bookingFormScope,
     })
       .then((deps) => {
         if (!cancelled) setFrequencyDependencies(deps);

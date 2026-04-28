@@ -1,10 +1,25 @@
   "use client";
 
-import { useEffect, useMemo, useState, useCallback, useRef, Suspense } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  useCallback,
+  useRef,
+  Suspense,
+} from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Form,
   FormControl,
@@ -59,6 +74,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Navigation from "@/components/Navigation";
 import FrequencyAwareServiceCard, { ServiceCustomization } from "@/components/FrequencyAwareServiceCard";
+import {
+  Form2ItemPickerGrid,
+  Form2PackageCardStrip,
+  type Form2PackageRow,
+} from "@/components/form2/Form2BookingCatalog";
 import { Booking, fetchBookingById } from "@/lib/customer-bookings";
 import {
   formatFrequencyRepeatsForDisplay,
@@ -91,6 +111,7 @@ import {
   isForm1PresetCatalogService,
 } from "@/lib/form1PresetCustomerCatalog";
 import { estimateBookingDurationMinutes } from "@/lib/bookingEstimatedDurationMinutes";
+import { FORM2_STANDALONE_PACKAGE_CATEGORY } from "@/lib/bookingFormScope";
 import {
   minimumTimeCustomerMessage,
   minimumTimeRequiredMinutes,
@@ -568,6 +589,13 @@ function BookingPageContent() {
   const [successFlowGuest, setSuccessFlowGuest] = useState<boolean | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [flippedCardId, setFlippedCardId] = useState<string | null>(null);
+  /** Form 2: active item — either `industry_pricing_variable.id` (preset catalog) or legacy service category id. */
+  const [form2ActiveItemId, setForm2ActiveItemId] = useState<string | null>(null);
+  /** Form 2 items from admin (same source as admin booking form). */
+  const [form2CatalogItems, setForm2CatalogItems] = useState<
+    { id: string; name: string; category: string | null }[]
+  >([]);
+  const form2PackagesScrollRef = useRef<HTMLDivElement>(null);
   const [cardCustomizations, setCardCustomizations] = useState<Record<string, ServiceCustomization>>({});
   const [industryOptions, setIndustryOptions] = useState<
     { label: string; key: string; id?: string; customer_booking_form_layout?: "form1" | "form2" }[]
@@ -712,6 +740,16 @@ function BookingPageContent() {
     .trim()
     .toLowerCase();
 
+  /** Stable primitives for payment-return / redirect query handling (never put `searchParams` in effect deps — new ref each render). */
+  const qpAnetSb = searchParams.get("anet_sb")?.trim() ?? "";
+  const qpBookingIdReturn = searchParams.get("booking_id")?.trim() ?? "";
+  const qpAuthorizeNet = searchParams.get("authorize_net")?.trim() ?? "";
+  const qpAnetSuccess = searchParams.get("anet_success")?.trim() ?? "";
+  const qpStripe = searchParams.get("stripe")?.trim() ?? "";
+  const qpSessionId = searchParams.get("session_id")?.trim() ?? "";
+  /** Full query string (primitive) — safe in effect deps; object identity of `searchParams` is not. */
+  const searchParamsSnapshot = searchParams.toString();
+
   /** Layout for the industry matching the current category step (key available before payment/details complete). */
   const selectedIndustryFormLayout = useMemo(() => {
     if (!selectedCategory) return null as "form1" | "form2" | null;
@@ -750,6 +788,11 @@ function BookingPageContent() {
     ],
   );
 
+  const form2UsesVariableCatalog = useMemo(
+    () => Boolean(useForm2Layout && form2CatalogItems.length > 0),
+    [useForm2Layout, form2CatalogItems],
+  );
+
   useEffect(() => {
     if (!businessIdFromUrl) {
       setPublicBookingStoreOptions(null);
@@ -777,15 +820,20 @@ function BookingPageContent() {
     };
   }, [businessIdFromUrl]);
 
-  useEffect(() => {
+  // Form 2: skip category step before paint (avoids full-page spinner flash) and auto-pick first industry when none selected.
+  useLayoutEffect(() => {
     if (!useForm2Layout) return;
-    if (currentStep === "category") setCurrentStep("details");
-  }, [useForm2Layout, currentStep]);
+    if (!selectedCategory && industryOptions.length > 0) {
+      setSelectedCategory(industryOptions[0].key);
+    }
+    if (currentStep === "category") {
+      setCurrentStep("details");
+    }
+  }, [useForm2Layout, selectedCategory, industryOptions, currentStep]);
 
   useEffect(() => {
-    if (!useForm2Layout || selectedCategory || industryOptions.length === 0) return;
-    setSelectedCategory(industryOptions[0].key);
-  }, [useForm2Layout, selectedCategory, industryOptions]);
+    setForm2ActiveItemId(null);
+  }, [selectedCategory]);
 
   useEffect(() => {
     if (!useForm2Layout || !businessIdFromUrl) {
@@ -1000,22 +1048,21 @@ function BookingPageContent() {
   ]);
 
   useEffect(() => {
-    const fetchIndustries = async () => {
+    const fetchIndustries = async (opts?: { silent?: boolean }) => {
       if (typeof window === "undefined") return;
 
       // Use business ID from URL param only (no localStorage)
-      const currentBusinessId = searchParams.get("business");
-
-      if (!currentBusinessId) {
+      if (!businessIdFromUrl) {
         setIndustries([]);
         setIndustryOptions([]);
         setIndustryListLoaded(true);
         return;
       }
 
-      setIndustryListLoaded(false);
+      // Only blank the page on initial load — not on 5s poll / industryChanged (avoids "reload" flicker).
+      if (!opts?.silent) setIndustryListLoaded(false);
       try {
-        const response = await fetch(`/api/industries?business_id=${currentBusinessId}`);
+        const response = await fetch(`/api/industries?business_id=${businessIdFromUrl}`);
         const data = await response.json();
 
         if (!response.ok) {
@@ -1049,17 +1096,17 @@ function BookingPageContent() {
       }
     };
 
-    fetchIndustries();
+    void fetchIndustries();
 
-    const handleIndustryChange = () => fetchIndustries();
+    const handleIndustryChange = () => void fetchIndustries({ silent: true });
     window.addEventListener("industryChanged", handleIndustryChange);
-    const interval = window.setInterval(fetchIndustries, 5000);
+    const interval = window.setInterval(() => void fetchIndustries({ silent: true }), 5000);
 
     return () => {
       window.removeEventListener("industryChanged", handleIndustryChange);
       window.clearInterval(interval);
     };
-  }, [searchParams]);
+  }, [businessIdFromUrl]);
 
   // Fetch scheduling type and provider visibility when businessId is set
   const [specificProviderForCustomers, setSpecificProviderForCustomers] = useState(true);
@@ -1119,14 +1166,12 @@ function BookingPageContent() {
   // Get business context from URL params only (no localStorage - backend/scoped by link)
   useEffect(() => {
     const getBusinessContext = async () => {
-      const currentBusinessId = searchParams.get('business');
-      
-      if (currentBusinessId) {
-        setBusinessId(currentBusinessId);
+      if (businessIdFromUrl) {
+        setBusinessId(businessIdFromUrl);
         
         try {
           // Try to get business name + logo from businesses API first (public lookup; includes logo_url)
-          const response = await fetch(`/api/businesses?business_id=${currentBusinessId}`);
+          const response = await fetch(`/api/businesses?business_id=${businessIdFromUrl}`);
           if (response.ok) {
             const data = await response.json();
             if (data.businesses && data.businesses.length > 0) {
@@ -1147,7 +1192,7 @@ function BookingPageContent() {
           setBusinessLogoUrl("");
           
           // Fallback to industries API with multiple field name attempts
-          const industriesResponse = await fetch(`/api/industries?business_id=${currentBusinessId}`);
+          const industriesResponse = await fetch(`/api/industries?business_id=${businessIdFromUrl}`);
           if (industriesResponse.ok) {
             const industriesData = await industriesResponse.json();
             if (industriesData.industries && industriesData.industries.length > 0) {
@@ -1178,36 +1223,34 @@ function BookingPageContent() {
     };
 
     getBusinessContext();
-  }, [searchParams]);
+  }, [businessIdFromUrl]);
 
   // Fetch cancellation policy when on payment step (or Form 2 details) for Booking Summary disclaimer
   useEffect(() => {
     const onPaymentOrForm2Details =
       currentStep === "payment" || (useForm2Layout && currentStep === "details");
     if (!onPaymentOrForm2Details) return;
-    const bid = searchParams.get("business");
-    if (!bid) return;
-    fetch(`/api/cancellation-policy?businessId=${encodeURIComponent(bid)}`)
+    if (!businessIdFromUrl) return;
+    fetch(`/api/cancellation-policy?businessId=${encodeURIComponent(businessIdFromUrl)}`)
       .then((r) => r.json())
       .then((data) => setCancellationPolicyDisclaimer(data.disclaimerText ?? null))
       .catch(() => setCancellationPolicyDisclaimer(null));
-  }, [currentStep, searchParams, useForm2Layout]);
+  }, [currentStep, businessIdFromUrl, useForm2Layout]);
 
   // Fetch payment provider (Stripe vs Authorize.net) when on payment step or Form 2 details
   useEffect(() => {
-    const bid = searchParams.get("business");
     const needProvider =
-      bid &&
+      businessIdFromUrl &&
       (currentStep === "payment" || (useForm2Layout && currentStep === "details"));
     if (!needProvider) return;
-    fetch(`/api/public/payment-provider?business=${encodeURIComponent(bid)}`)
+    fetch(`/api/public/payment-provider?business=${encodeURIComponent(businessIdFromUrl)}`)
       .then((r) => r.json())
       .then((data) => {
         const p = data.provider;
         setPaymentProvider(p === "authorize_net" ? "authorize_net" : "stripe");
       })
       .catch(() => setPaymentProvider("stripe"));
-  }, [currentStep, searchParams, useForm2Layout]);
+  }, [currentStep, businessIdFromUrl, useForm2Layout]);
 
   // Only clear selection when the selected industry was actually removed (not when options are loading/empty)
   useEffect(() => {
@@ -1227,12 +1270,13 @@ function BookingPageContent() {
   // Fetch extras and variables from admin portal
   useEffect(() => {
     const industryId = selectedIndustryId;
-    const businessIdParam = searchParams.get("business");
+    const businessIdParam = businessIdFromUrl;
 
     if (!industryId || !businessIdParam) {
       setAvailableExtras([]);
       setPricingParametersFull([]);
       setIndustryPricingVariables([]);
+      setForm2CatalogItems([]);
       return;
     }
 
@@ -1301,8 +1345,25 @@ function BookingPageContent() {
               }))
               .filter((v: { category: string }) => v.category.length > 0),
           );
+          if (bookingFormScopeForCatalog === "form2") {
+            setForm2CatalogItems(
+              list
+                .map((v: Record<string, unknown>) => ({
+                  id: String(v.id ?? ""),
+                  name: String(v.name ?? "").trim(),
+                  category:
+                    v.category != null && String(v.category).trim() !== ""
+                      ? String(v.category).trim()
+                      : null,
+                }))
+                .filter((x: { id: string; name: string }) => Boolean(x.id) && Boolean(x.name)),
+            );
+          } else {
+            setForm2CatalogItems([]);
+          }
         } else {
           setIndustryPricingVariables([]);
+          setForm2CatalogItems([]);
         }
 
       } catch (error) {
@@ -1310,11 +1371,12 @@ function BookingPageContent() {
         setAvailableExtras([]);
         setPricingParametersFull([]);
         setIndustryPricingVariables([]);
+        setForm2CatalogItems([]);
       }
     };
 
     fetchExtrasAndVariables();
-  }, [selectedIndustryId, searchParams, bookingPopupSurface, bookingFormScopeForCatalog]);
+  }, [selectedIndustryId, businessIdFromUrl, bookingPopupSurface, bookingFormScopeForCatalog]);
 
   // Initialize booking form
   const form = useForm<z.infer<typeof formSchema>>({
@@ -1402,14 +1464,13 @@ function BookingPageContent() {
       setHasLocationBasedFrequencies(false);
       return;
     }
-    const bid = searchParams.get("business");
-    if (!bid) {
+    if (!businessIdFromUrl) {
       setHasLocationBasedFrequencies(false);
       return;
     }
     let cancelled = false;
     fetch(
-      `/api/industry-frequency?industryId=${encodeURIComponent(selectedIndustryId)}&businessId=${encodeURIComponent(bid)}&includeAll=true${catalogScopeQs}`,
+      `/api/industry-frequency?industryId=${encodeURIComponent(selectedIndustryId)}&businessId=${encodeURIComponent(businessIdFromUrl)}&includeAll=true${catalogScopeQs}`,
     )
       .then((r) => r.json())
       .then((data) => {
@@ -1425,7 +1486,7 @@ function BookingPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [selectedIndustryId, searchParams, bookingFormScopeForCatalog]);
+  }, [selectedIndustryId, businessIdFromUrl, bookingFormScopeForCatalog]);
 
   useEffect(() => {
     if (!selectedIndustryId || !businessIdFromUrl) {
@@ -1610,7 +1671,7 @@ function BookingPageContent() {
   // Service categories: same location gate as admin AddBookingForm
   useEffect(() => {
     const industryId = selectedIndustryId;
-    const businessIdParam = searchParams.get("business");
+    const businessIdParam = businessIdFromUrl;
 
     if (!industryId || !businessIdParam) {
       setServiceCategories([]);
@@ -1688,7 +1749,7 @@ function BookingPageContent() {
     };
 
     fetchServiceCategories();
-  }, [selectedIndustryId, searchParams, needsLocationBeforeServices, bookingFormScopeForCatalog]);
+  }, [selectedIndustryId, businessIdFromUrl, needsLocationBeforeServices, bookingFormScopeForCatalog]);
 
   useEffect(() => {
     if (!selectedService || !serviceCategories.length) return;
@@ -1705,7 +1766,7 @@ function BookingPageContent() {
   const fetchFrequenciesRef = useRef<() => void>(() => {});
   useEffect(() => {
     const industryId = selectedIndustryId;
-    const businessIdParam = searchParams.get("business");
+    const businessIdParam = businessIdFromUrl;
     if (!industryId || !businessIdParam) {
       setFrequencyOptions([]);
       setFrequencyMetaByName({});
@@ -1816,7 +1877,7 @@ function BookingPageContent() {
     doFetch();
   }, [
     selectedIndustryId,
-    searchParams,
+    businessIdFromUrl,
     zipCode,
     locationManagement,
     wildcardZipEnabled,
@@ -1902,6 +1963,91 @@ function BookingPageContent() {
     });
   }, [limitedEditMode, serviceCategories, serviceListFrequencyDeps, bookingFrequencyForFilters]);
 
+  const form2PackagesForActiveItem = useMemo((): Form2PackageRow[] => {
+    if (!useForm2Layout || !form2ActiveItemId || form2CatalogItems.length === 0) return [];
+    return pricingParametersFull
+      .filter((p) => String(p.variable_category ?? "").trim() !== "")
+      .filter((p) => {
+        const d = String(p.display ?? "").trim();
+        if (d === "Admin Only") return false;
+        return (
+          d.includes("Customer") ||
+          d.includes("Frontend") ||
+          d.includes("customer") ||
+          d.includes("frontend") ||
+          !d
+        );
+      })
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name))
+      .map((p) => {
+        const id = String(p.id ?? "").trim();
+        if (!id) return null;
+        return {
+          id,
+          name: p.name,
+          variable_category: p.variable_category,
+          description: (p as { description?: string | null }).description ?? null,
+          price: typeof p.price === "number" ? p.price : Number(p.price) || 0,
+          time_minutes:
+            (p as { time_minutes?: number | null }).time_minutes != null
+              ? Number((p as { time_minutes?: number | null }).time_minutes)
+              : null,
+          icon: (p as { icon?: string | null }).icon ?? null,
+        };
+      })
+      .filter((x): x is Form2PackageRow => x != null);
+  }, [useForm2Layout, form2ActiveItemId, form2CatalogItems.length, pricingParametersFull]);
+
+  const form2StandalonePackages = useMemo((): Form2PackageRow[] => {
+    if (!useForm2Layout) return [];
+    return pricingParametersFull
+      .filter((p) => String(p.variable_category ?? "").trim() === FORM2_STANDALONE_PACKAGE_CATEGORY)
+      .filter((p) => {
+        const d = String(p.display ?? "").trim();
+        if (d === "Admin Only") return false;
+        return (
+          d.includes("Customer") ||
+          d.includes("Frontend") ||
+          d.includes("customer") ||
+          d.includes("frontend") ||
+          !d
+        );
+      })
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name))
+      .map((p) => {
+        const id = String(p.id ?? "").trim();
+        if (!id) return null;
+        return {
+          id,
+          name: p.name,
+          variable_category: p.variable_category,
+          description: (p as { description?: string | null }).description ?? null,
+          price: typeof p.price === "number" ? p.price : Number(p.price) || 0,
+          time_minutes:
+            (p as { time_minutes?: number | null }).time_minutes != null
+              ? Number((p as { time_minutes?: number | null }).time_minutes)
+              : null,
+          icon: (p as { icon?: string | null }).icon ?? null,
+        };
+      })
+      .filter((x): x is Form2PackageRow => x != null);
+  }, [useForm2Layout, pricingParametersFull]);
+
+  const form2PackagesForDisplay = useMemo((): Form2PackageRow[] => {
+    if (form2CatalogItems.length > 0 && !form2ActiveItemId) return [];
+    if (form2ActiveItemId) return [...form2PackagesForActiveItem, ...form2StandalonePackages];
+    return form2StandalonePackages;
+  }, [form2CatalogItems.length, form2ActiveItemId, form2PackagesForActiveItem, form2StandalonePackages]);
+
+  const form2SelectedPackageHighlight = useMemo(() => {
+    if (!form2UsesVariableCatalog || !form2ActiveItemId || !serviceCustomization?.variableCategories) return null;
+    const item = form2CatalogItems.find((v) => v.id === form2ActiveItemId);
+    const cat = item?.category?.trim();
+    if (!cat) return null;
+    const v = serviceCustomization.variableCategories[cat];
+    return v && String(v).trim() ? String(v).trim() : null;
+  }, [form2UsesVariableCatalog, form2ActiveItemId, serviceCustomization?.variableCategories, form2CatalogItems]);
+
   // If frequency filter hides the selected service, clear selection (admin would not list it)
   useEffect(() => {
     if (limitedEditMode) return;
@@ -1915,6 +2061,31 @@ function BookingPageContent() {
       form.setValue("service", "");
     }
   }, [categoryServicesForForm, selectedService, limitedEditMode, form]);
+
+  useEffect(() => {
+    if (!form2ActiveItemId) return;
+    if (form2CatalogItems.length > 0) {
+      if (!form2CatalogItems.some((v) => v.id === form2ActiveItemId)) {
+        setForm2ActiveItemId(null);
+      }
+    } else if (!categoryServicesForForm.some((s) => String(s.id) === form2ActiveItemId)) {
+      setForm2ActiveItemId(null);
+    }
+  }, [categoryServicesForForm, form2ActiveItemId, form2CatalogItems]);
+
+  useEffect(() => {
+    if (!useForm2Layout || limitedEditMode) return;
+    if (form2CatalogItems.length === 1) {
+      setForm2ActiveItemId(form2CatalogItems[0].id);
+      return;
+    }
+    if (form2CatalogItems.length === 0 && categoryServicesForForm.length === 1) {
+      const only = categoryServicesForForm[0];
+      const idStr = String(only.id);
+      setForm2ActiveItemId(idStr);
+      handleCardFlip(only.id);
+    }
+  }, [useForm2Layout, limitedEditMode, categoryServicesForForm, form2CatalogItems]);
 
   // Handle provider selection
   const handleProviderSelect = (provider: any) => {
@@ -1980,13 +2151,19 @@ function BookingPageContent() {
     },
   });
 
-  // Fetch time slots from /api/time-slots (store options, provider availability, Reserve Maximum fallback, capacity, holidays)
+  // Get current form values for validation
+  const selectedDate = form.watch("date");
+  const selectedTime = form.watch("time");
+  const selectedServiceName = form.watch("service");
+  const isDateSelected = Boolean(selectedDate);
+  const isTimeSelected = Boolean(selectedTime);
+  const isDateTimeSelected = isDateSelected && isTimeSelected;
+
+  // Fetch time slots from /api/time-slots (deps: stable `businessIdFromUrl` + watched date — not `searchParams`)
   useEffect(() => {
     const fetchTimeSlots = async () => {
-      const selectedDate = form.getValues("date");
-      const businessIdParam = searchParams.get("business");
-      
-      if (!businessIdParam || !selectedDate) {
+      const dateVal = form.getValues("date");
+      if (!businessIdFromUrl || !dateVal) {
         setDynamicTimeSlots([]);
         setTimeSlotsLoading(false);
         return;
@@ -1995,34 +2172,26 @@ function BookingPageContent() {
       setTimeSlotsLoading(true);
       try {
         const response = await fetch(
-          `/api/time-slots?business_id=${businessIdParam}&date=${format(selectedDate, 'yyyy-MM-dd')}`
+          `/api/time-slots?business_id=${businessIdFromUrl}&date=${format(dateVal, "yyyy-MM-dd")}`,
         );
-        
+
         if (response.ok) {
           const data = await response.json();
           setDynamicTimeSlots(Array.isArray(data.timeSlots) ? data.timeSlots : []);
         } else {
-          console.error('Failed to fetch time slots');
+          console.error("Failed to fetch time slots");
           setDynamicTimeSlots([]);
         }
       } catch (error) {
-        console.error('Error fetching time slots:', error);
+        console.error("Error fetching time slots:", error);
         setDynamicTimeSlots([]);
       } finally {
         setTimeSlotsLoading(false);
       }
     };
 
-    fetchTimeSlots();
-  }, [form.watch("date"), searchParams]);
-
-  // Get current form values for validation
-  const selectedDate = form.watch("date");
-  const selectedTime = form.watch("time");
-  const selectedServiceName = form.watch("service");
-  const isDateSelected = Boolean(selectedDate);
-  const isTimeSelected = Boolean(selectedTime);
-  const isDateTimeSelected = isDateSelected && isTimeSelected;
+    void fetchTimeSlots();
+  }, [selectedDate, businessIdFromUrl, form]);
 
   // When Accept or Decline: skip provider step. Also skip when specific_provider_for_customers is disabled.
   const showProviderStep = schedulingType !== "accept_or_decline" && specificProviderForCustomers;
@@ -2099,9 +2268,23 @@ function BookingPageContent() {
     setServiceCustomization(null);
     setCardCustomizations({});
     setFlippedCardId(null);
+    setForm2ActiveItemId(null);
     setCurrentStep("details");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  const scrollForm2PackageRow = useCallback((dir: -1 | 1) => {
+    const el = form2PackagesScrollRef.current;
+    if (!el) return;
+    const delta = Math.min(360, Math.floor(el.clientWidth * 0.88));
+    el.scrollBy({ left: dir * delta, behavior: "smooth" });
+  }, []);
+
+  const scrollForm2PackagesViewAll = useCallback(() => {
+    const el = form2PackagesScrollRef.current;
+    if (!el) return;
+    el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
+  }, []);
 
   const cardKey = (id: string | number) => String(id);
 
@@ -2166,6 +2349,37 @@ function BookingPageContent() {
     };
   };
 
+  /** Stable customization + variables per service card — avoids new object refs every parent render (Form 2 mounts many cards). */
+  const frequencyAwareCardPropsByServiceId = useMemo(() => {
+    type Vars = ReturnType<typeof buildCustomerAvailableVariables>;
+    const custom: Record<string, ServiceCustomization> = {};
+    const vars: Record<string, Vars> = {};
+    for (const service of categoryServicesForForm) {
+      const id = String(service.id);
+      const c = getCardCustomization(service.id);
+      custom[id] = c;
+      const isThisCard =
+        selectedService?.id === service.id || selectedService?.name === service.name;
+      const bedTier = String(c.variableCategories?.["Bedroom"] ?? c.bedroom ?? "").trim() || null;
+      vars[id] = buildCustomerAvailableVariables(
+        pricingParametersFull,
+        { name: service.name, raw: service.raw },
+        c.frequency?.trim() || bookingFrequencyForFilters || "",
+        isThisCard ? pricingFrequencyDeps : null,
+        bedTier,
+      );
+    }
+    return { custom, vars };
+  }, [
+    categoryServicesForForm,
+    cardCustomizations,
+    bookingFrequencyForFilters,
+    selectedService?.id,
+    selectedService?.name,
+    pricingParametersFull,
+    pricingFrequencyDeps,
+  ]);
+
   useEffect(() => {
     setPrefilledBookingId(null);
     setRebookSourceBooking(null);
@@ -2177,7 +2391,7 @@ function BookingPageContent() {
   useEffect(() => {
     if (!bookingIdParam || prefilledBookingId === bookingIdParam) return;
 
-    const currentBusinessId = searchParams.get("business")?.trim() || null;
+    const currentBusinessId = businessIdFromUrl.trim() || null;
     if (!currentBusinessId) return;
 
     type BookingCustomization = {
@@ -2427,24 +2641,23 @@ function BookingPageContent() {
     serviceCategoriesLoading,
     pricingRows,
     pricingParametersFull,
-    searchParams,
+    businessIdFromUrl,
     form,
     toast,
   ]);
 
   useEffect(() => {
     if (!limitedEditMode) return;
-    const bid = searchParams.get("business");
-    if (!bid) return;
-    fetch(`/api/customer/reschedule-settings?businessId=${encodeURIComponent(bid)}`)
+    if (!businessIdFromUrl) return;
+    fetch(`/api/customer/reschedule-settings?businessId=${encodeURIComponent(businessIdFromUrl)}`)
       .then((r) => r.json())
       .then((data) => setRescheduleMessageLimitedEdit(data.reschedule_message ?? null))
       .catch(() => setRescheduleMessageLimitedEdit(null));
-  }, [limitedEditMode, searchParams]);
+  }, [limitedEditMode, businessIdFromUrl]);
 
   // When returning from Authorize.net success: mark booking paid and send receipt (like Stripe webhook)
   useEffect(() => {
-    const anetSb = searchParams.get("anet_sb")?.trim();
+    const anetSb = qpAnetSb;
     let bookingIdFromAnet: string | null = null;
     let businessFromAnet: string | null = null;
     if (anetSb) {
@@ -2457,16 +2670,16 @@ function BookingPageContent() {
       }
     }
     const bookingId =
-      searchParams.get("booking_id")?.trim() || bookingIdFromAnet || searchParams.get("anet_success")?.trim() || null;
+      qpBookingIdReturn || bookingIdFromAnet || qpAnetSuccess || null;
     const authorizeNetSuccess =
-      searchParams.get("authorize_net") === "success" ||
+      qpAuthorizeNet === "success" ||
       Boolean(anetSb) ||
-      Boolean(searchParams.get("anet_success")?.trim());
-    const businessId = searchParams.get("business")?.trim() || businessFromAnet || null;
+      Boolean(qpAnetSuccess);
+    const businessId = businessIdFromUrl.trim() || businessFromAnet || null;
     const endpoint = authorizeNetSuccess && bookingId ? "/api/authorize-net/confirm-return" : null;
     if (!endpoint || !bookingId || paymentConfirmSentRef.current) return;
     paymentConfirmSentRef.current = true;
-    const transId = extractAuthorizeNetTransIdFromSearchParams(new URLSearchParams(searchParams.toString()));
+    const transId = extractAuthorizeNetTransIdFromSearchParams(new URLSearchParams(searchParamsSnapshot));
     fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2476,21 +2689,21 @@ function BookingPageContent() {
         ...(transId ? { trans_id: transId } : {}),
       }),
     }).catch(() => {});
-  }, [searchParams]);
+  }, [qpAnetSb, qpBookingIdReturn, qpAuthorizeNet, qpAnetSuccess, businessIdFromUrl, searchParamsSnapshot]);
 
   // When returning from payment (Stripe or Authorize.net) success, confirm then show success step.
   useEffect(() => {
-    const stripeSuccess = searchParams.get("stripe") === "success";
-    const sessionId = searchParams.get("session_id");
-    const anetSb = searchParams.get("anet_sb")?.trim();
+    const stripeSuccess = qpStripe === "success";
+    const sessionId = qpSessionId;
+    const anetSb = qpAnetSb;
     const bookingIdAnet =
-      searchParams.get("anet_success")?.trim() ||
+      qpAnetSuccess ||
       (anetSb && anetSb.includes(".") ? anetSb.slice(0, anetSb.indexOf(".")).trim() : anetSb) ||
       null;
     const authorizeNetSuccess =
-      (searchParams.get("authorize_net") === "success" && searchParams.get("booking_id")) ||
+      (qpAuthorizeNet === "success" && qpBookingIdReturn) ||
       Boolean(bookingIdAnet);
-    const businessId = searchParams.get("business");
+    const businessId = businessIdFromUrl;
 
     if (authorizeNetSuccess) {
       setCurrentStep("success");
@@ -2510,7 +2723,15 @@ function BookingPageContent() {
       .finally(() => {
         setCurrentStep("success");
       });
-  }, [searchParams]);
+  }, [
+    qpStripe,
+    qpSessionId,
+    qpAnetSb,
+    qpAnetSuccess,
+    qpAuthorizeNet,
+    qpBookingIdReturn,
+    businessIdFromUrl,
+  ]);
 
   useEffect(() => {
     if (currentStep !== "success") {
@@ -2523,8 +2744,8 @@ function BookingPageContent() {
       if (cancelled) return;
       if (session?.access_token) {
         setSuccessFlowGuest(false);
-        const anetSb = searchParams.get("anet_sb")?.trim();
-        let bid = searchParams.get("business")?.trim() || null;
+        const anetSb = qpAnetSb;
+        let bid = businessIdFromUrl.trim() || null;
         if (!bid && anetSb?.includes(".")) {
           bid = anetSb.slice(anetSb.indexOf(".") + 1).trim() || null;
         }
@@ -2536,7 +2757,7 @@ function BookingPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [currentStep, router, searchParams]);
+  }, [currentStep, router, businessIdFromUrl, qpAnetSb]);
 
   /** Estimated job length: hourly custom time → card hours/min; else pricing-parameter sum (+extras, −partial) or duration label. */
   const computeEstimatedMinutesForBooking = useCallback(
@@ -2679,7 +2900,7 @@ function BookingPageContent() {
       },
     };
 
-    const currentBusinessId = searchParams.get("business") ?? null;
+    const currentBusinessId = businessIdFromUrl.trim() || null;
 
     // Same pattern as admin add-booking: single POST with x-business-id and snake_case body
     try {
@@ -2841,7 +3062,7 @@ function BookingPageContent() {
     serviceCustomization,
     selectedService,
     toast,
-    searchParams,
+    businessIdFromUrl,
     form,
     availableProviders,
     showProviderStep,
@@ -2856,7 +3077,6 @@ function BookingPageContent() {
     locationManagement,
     locationInputValidForBooking,
     locationInputMeetsMinLength,
-    form,
   ]);
 
   // Handle service selection (persist to card customizations so selection survives re-renders)
@@ -2891,6 +3111,50 @@ function BookingPageContent() {
         formElement.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     }, 300);
+  };
+
+  const handleForm2PackageAdd = (pkg: Form2PackageRow) => {
+    if (!selectedCategory) return;
+    const paramRow = pricingParametersFull.find((p) => String(p.id) === pkg.id) as
+      | (PricingParamRow & { service_category?: string | null })
+      | undefined;
+    const csv = String(paramRow?.service_category ?? "").trim();
+    const pickService = () => {
+      if (csv && categoryServicesForForm.length) {
+        const names = csv.split(",").map((s) => s.trim()).filter(Boolean);
+        for (const n of names) {
+          const hit = categoryServicesForForm.find(
+            (s) => s.name === n || (s.customerDisplayName?.trim() || "") === n,
+          );
+          if (hit) return hit;
+        }
+      }
+      return categoryServicesForForm[0] ?? null;
+    };
+    const svc = pickService();
+    if (!svc) {
+      toast({
+        title: "No service available",
+        description: "This business has no published service line for this package yet.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const custom = getCardCustomization(svc.id);
+    const freq =
+      custom.frequency?.trim() ||
+      bookingFrequencyForFilters ||
+      frequencyOptions[0] ||
+      "";
+    const next: ServiceCustomization = {
+      ...custom,
+      frequency: freq,
+      variableCategories: {
+        ...(custom.variableCategories || {}),
+        [pkg.variable_category]: pkg.name,
+      },
+    };
+    handleServiceSelect(svc.name, next);
   };
 
   const applyForm2FrequencySelection = useCallback(
@@ -3021,7 +3285,7 @@ function BookingPageContent() {
     setBookingData(values);
 
     if (limitedEditMode && bookingIdParam) {
-      const currentBusinessId = searchParams.get("business");
+      const currentBusinessId = businessIdFromUrl.trim() || null;
       try {
         const supabase = getSupabaseCustomerClient();
         const { data: { session } } = await supabase.auth.getSession();
@@ -3309,7 +3573,7 @@ function BookingPageContent() {
 
   const applyCustomerCoupon = useCallback(async () => {
     const codeRaw = (form.getValues("couponCode") || "").trim();
-    const currentBusinessId = searchParams.get("business") ?? null;
+    const currentBusinessId = businessIdFromUrl.trim() || null;
     if (!currentBusinessId) {
       toast({ title: "Business required", description: "Missing business context.", variant: "destructive" });
       return;
@@ -3500,7 +3764,7 @@ function BookingPageContent() {
     });
   }, [
     form,
-    searchParams,
+    businessIdFromUrl,
     toast,
     customerEmail,
     bookingData,
@@ -3617,7 +3881,7 @@ function BookingPageContent() {
         bookingMinutes: serviceCustomization.bookingMinutes ?? "0",
       },
     };
-    const currentBusinessId = searchParams.get("business") ?? null;
+    const currentBusinessId = businessIdFromUrl.trim() || null;
     if (!currentBusinessId) return null;
     try {
       const supabase = getSupabaseCustomerClient();
@@ -3761,7 +4025,7 @@ function BookingPageContent() {
     bookingData,
     serviceCustomization,
     selectedService,
-    searchParams,
+    businessIdFromUrl,
     form,
     availableProviders,
     showProviderStep,
@@ -3796,7 +4060,7 @@ function BookingPageContent() {
         toast({ title: "Invalid amount", description: "Minimum charge is $0.50.", variant: "destructive" });
         return;
       }
-      const businessId = searchParams.get("business") ?? "";
+      const businessId = businessIdFromUrl;
       const lineDateSrc = bookingValuesOverride ?? bookingData;
       const lineDatePart =
         lineDateSrc?.date != null
@@ -3871,18 +4135,9 @@ function BookingPageContent() {
     );
   }
 
-  if (useForm2Layout && currentStep === "category") {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-3">
-        <Loader2 className="h-10 w-10 animate-spin text-cyan-500" />
-        <p className="text-sm text-muted-foreground">Loading booking form…</p>
-      </div>
-    );
-  }
-
   // Category Selection Screen
   if (currentStep === "category" && !useForm2Layout) {
-    const hasBusinessParam = Boolean(searchParams.get("business"));
+    const hasBusinessParam = Boolean(businessIdFromUrl);
     const categoriesAvailable = industryOptions.length > 0;
     return (
       <div className="min-h-screen">
@@ -3944,7 +4199,7 @@ function BookingPageContent() {
 
   // Success Screen
   if (currentStep === "success") {
-    const successBid = searchParams.get("business")?.trim() || null;
+    const successBid = businessIdFromUrl.trim() || null;
     return (
       <div className="min-h-screen">
         <Navigation branding={bookNowNavigationProps.branding} headerData={bookNowNavigationProps.headerData} />
@@ -4002,7 +4257,7 @@ function BookingPageContent() {
       total,
     } = calculateTotal();
     summaryTotalRef.current = total;
-    const bid = searchParams.get("business");
+    const bid = businessIdFromUrl;
     const paymentFreqLabel = serviceCustomization.frequency?.trim() || "";
     const paymentFreqMeta = paymentFreqLabel ? frequencyMetaByName[paymentFreqLabel] : undefined;
     const paymentIsRecurring = paymentFreqMeta?.occurrence_time === "recurring";
@@ -4484,25 +4739,39 @@ function BookingPageContent() {
               }
             >
               <div className={useForm2Layout ? "min-w-0 space-y-8 lg:col-span-1" : ""}>
-                {useForm2Layout && !limitedEditMode && industryOptions.length > 1 && (
-                  <div className="flex flex-wrap gap-2">
-                    {industryOptions.map((opt) => (
-                      <Button
-                        key={opt.key}
-                        type="button"
-                        size="sm"
-                        variant={selectedCategory === opt.key ? "default" : "outline"}
-                        onClick={() => {
-                          setSelectedCategory(opt.key);
-                          setSelectedService(null);
-                          setServiceCustomization(null);
-                          setCardCustomizations({});
-                          setFlippedCardId(null);
-                        }}
-                      >
-                        {opt.label}
-                      </Button>
-                    ))}
+                {useForm2Layout && !limitedEditMode && industryOptions.length > 0 && (
+                  <div
+                    className={cn(
+                      "rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-card",
+                    )}
+                  >
+                    <Label className="text-base font-semibold text-slate-800 dark:text-slate-100">Services</Label>
+                    <p className="text-sm text-muted-foreground mt-1 mb-3">
+                      Choose the service line you want to book. Items and packages update for this selection.
+                    </p>
+                    <Select
+                      value={(selectedCategory || industryOptions[0]?.key) ?? ""}
+                      onValueChange={(key) => {
+                        if (!key || key === selectedCategory) return;
+                        setSelectedCategory(key as ServiceCategory);
+                        setSelectedService(null);
+                        setServiceCustomization(null);
+                        setCardCustomizations({});
+                        setFlippedCardId(null);
+                        setForm2ActiveItemId(null);
+                      }}
+                    >
+                      <SelectTrigger className="h-12 w-full text-base">
+                        <SelectValue placeholder="Select a service" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {industryOptions.map((opt) => (
+                          <SelectItem key={opt.key} value={opt.key} className="text-base">
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 )}
 
@@ -4568,8 +4837,12 @@ function BookingPageContent() {
                   </p>
                   <div
                     className={cn(
-                      styles.form2FrequencyBar,
-                      "inline-flex max-w-full flex-wrap rounded-full border border-slate-200/90 bg-slate-50/90 p-1 dark:border-slate-600 dark:bg-slate-900/50",
+                      useForm2Layout
+                        ? "grid max-w-4xl grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4"
+                        : cn(
+                            styles.form2FrequencyBar,
+                            "inline-flex max-w-full flex-wrap rounded-full border border-slate-200/90 bg-slate-50/90 p-1 dark:border-slate-600 dark:bg-slate-900/50",
+                          ),
                     )}
                     role="group"
                     aria-label="Service frequency"
@@ -4582,11 +4855,17 @@ function BookingPageContent() {
                           type="button"
                           onClick={() => applyForm2FrequencySelection(freq)}
                           className={cn(
-                            styles.form2FrequencyPill,
-                            "min-h-[44px] px-4 py-2 text-sm font-semibold transition-all",
-                            active
-                              ? "bg-gradient-to-r from-cyan-500 to-sky-500 text-white shadow-sm"
-                              : "text-slate-600 hover:text-cyan-700 dark:text-slate-300 dark:hover:text-cyan-300",
+                            "min-h-[48px] px-3 py-2 text-sm font-semibold transition-all",
+                            useForm2Layout
+                              ? active
+                                ? "rounded-lg border-2 border-cyan-500 bg-gradient-to-r from-cyan-500 to-sky-500 text-white shadow-md"
+                                : "rounded-lg border border-slate-200 bg-white text-slate-700 hover:border-cyan-400 dark:border-slate-600 dark:bg-card dark:text-slate-200"
+                              : cn(
+                                  styles.form2FrequencyPill,
+                                  active
+                                    ? "bg-gradient-to-r from-cyan-500 to-sky-500 text-white shadow-sm"
+                                    : "text-slate-600 hover:text-cyan-700 dark:text-slate-300 dark:hover:text-cyan-300",
+                                ),
                           )}
                         >
                           {freq}
@@ -4616,34 +4895,58 @@ function BookingPageContent() {
                 </div>
               ) : null}
               <h2 className={cn(styles.form2SectionTitle, "text-2xl mb-1 text-slate-800 dark:text-slate-100")}>
-                {useForm2Layout ? "What needs to be done?" : "Select Services"}
+                {useForm2Layout ? "What Needs To Be Done?" : "Select Services"}
               </h2>
               {useForm2Layout ? (
                 <p className="text-sm text-muted-foreground mb-6 max-w-2xl">
-                  Pick your item type, then add the package that fits. You can customize options on each card.
+                  {form2UsesVariableCatalog
+                    ? "Select an item (for example bedroom range or square footage), then choose a package and tap Add to include it in your booking."
+                    : "Select a service line below, then customize your package on the card. Add extras from the card when needed."}
                 </p>
               ) : null}
-              {useForm2Layout && !serviceCategoriesLoading && categoryServicesForForm.length > 0 ? (
+              {useForm2Layout && !serviceCategoriesLoading && form2UsesVariableCatalog ? (
+                <Form2ItemPickerGrid
+                  items={form2CatalogItems}
+                  selectedId={form2ActiveItemId}
+                  onSelect={(id) => {
+                    setForm2ActiveItemId(id);
+                    requestAnimationFrame(() => {
+                      document
+                        .getElementById("form2-packages-row")
+                        ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                    });
+                  }}
+                  className="mb-2"
+                />
+              ) : useForm2Layout && !serviceCategoriesLoading && categoryServicesForForm.length > 0 ? (
                 <div className="mb-6">
                   <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-3">Select item(s)</h3>
                   <div className="flex flex-wrap gap-3">
                     {categoryServicesForForm.map((svc) => {
-                      const sel =
+                      const idStr = String(svc.id);
+                      const isActiveRow = form2ActiveItemId === idStr;
+                      const isConfirmed =
                         selectedService?.id === svc.id || selectedService?.name === svc.name;
                       return (
                         <button
                           key={svc.id}
                           type="button"
                           onClick={() => {
-                            document.getElementById(`form2-pkg-${svc.id}`)
-                              ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-                            setFlippedCardId(svc.id);
+                            setForm2ActiveItemId(idStr);
+                            handleCardFlip(svc.id);
+                            requestAnimationFrame(() => {
+                              document
+                                .getElementById("form2-packages-row")
+                                ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                            });
                           }}
                           className={cn(
-                            "flex min-w-[108px] max-w-[140px] flex-col items-center gap-2 rounded-xl border-2 p-3 text-center transition-all",
-                            sel
-                              ? "border-cyan-500 bg-cyan-50/80 shadow-sm dark:bg-cyan-950/30"
-                              : "border-slate-200 bg-white hover:border-cyan-300 dark:border-slate-600 dark:bg-card",
+                            "flex min-w-[108px] max-w-[160px] flex-col items-center gap-2 rounded-xl border-2 p-3 text-center transition-all",
+                            isActiveRow &&
+                              "border-slate-400 bg-slate-200/90 shadow-inner dark:border-slate-500 dark:bg-slate-700/90",
+                            isConfirmed && "ring-2 ring-cyan-500 ring-offset-2 ring-offset-white dark:ring-offset-card",
+                            !isActiveRow &&
+                              "border-slate-200 bg-white hover:border-cyan-300 dark:border-slate-600 dark:bg-card",
                           )}
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -4661,26 +4964,176 @@ function BookingPageContent() {
                   </div>
                 </div>
               ) : null}
-              {useForm2Layout && !serviceCategoriesLoading && categoryServicesForForm.length > 0 ? (
-                <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-3">Choose packages</h3>
-              ) : null}
               {serviceCategoriesLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-8 w-8 animate-spin text-cyan-500" />
                 </div>
-              ) : categoryServicesForForm.length > 0 ? (
+              ) : categoryServicesForForm.length > 0 || form2UsesVariableCatalog || form2StandalonePackages.length > 0 ? (
+                useForm2Layout ? (
+                  form2UsesVariableCatalog ? (
+                    <>
+                      <div id="form2-packages-row" className="space-y-3">
+                        {!form2ActiveItemId && form2CatalogItems.length > 0 ? (
+                          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm text-muted-foreground dark:border-slate-600 dark:bg-slate-900/40">
+                            Select an item above to see packages for that category.
+                          </div>
+                        ) : form2PackagesForDisplay.length === 0 ? (
+                          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm text-muted-foreground dark:border-slate-600 dark:bg-slate-900/40">
+                            No packages for this item yet. Add packages in Admin → Industries → Form 2 → Packages.
+                          </div>
+                        ) : (
+                          <Form2PackageCardStrip
+                            packages={form2PackagesForDisplay}
+                            scrollRef={form2PackagesScrollRef}
+                            selectedPackageName={form2SelectedPackageHighlight}
+                            onAdd={handleForm2PackageAdd}
+                          />
+                        )}
+                      </div>
+                      {selectedService &&
+                        categoryServicesForForm.some(
+                          (s) => String(s.id) === String(selectedService.id),
+                        ) &&
+                        (() => {
+                          const svcRow = categoryServicesForForm.find(
+                            (s) => String(s.id) === String(selectedService.id),
+                          );
+                          if (!svcRow) return null;
+                          return (
+                            <div className="mt-8 rounded-xl border border-slate-200/80 bg-slate-50/60 p-4 dark:border-slate-700 dark:bg-slate-900/30">
+                              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">
+                                Optional add-ons & options
+                              </h3>
+                              <p className="text-xs text-muted-foreground mb-3 max-w-xl">
+                                Your package is chosen above. Open the card to add extras or adjust options for this
+                                visit.
+                              </p>
+                              <div className="max-w-sm mx-auto sm:mx-0">
+                                <FrequencyAwareServiceCard
+                                  service={svcRow}
+                                  isSelected
+                                  onSelect={handleServiceSelect}
+                                  flippedCardId={flippedCardId}
+                                  onFlip={handleCardFlip}
+                                  customization={
+                                    frequencyAwareCardPropsByServiceId.custom[String(svcRow.id)] ??
+                                    getCardCustomization(svcRow.id)
+                                  }
+                                  onCustomizationChange={handleCustomizationChange}
+                                  customizeLayout="expandedFlip"
+                                  industryId={selectedIndustryId}
+                                  businessId={businessIdFromUrl}
+                                  bookingFormScope={bookingFormScopeForCatalog}
+                                  serviceCategory={svcRow.raw}
+                                  availableExtras={availableExtras}
+                                  availableVariables={
+                                    frequencyAwareCardPropsByServiceId.vars[String(svcRow.id)] ?? {}
+                                  }
+                                  frequencyOptions={frequencyOptions}
+                                  frequencyMetaByName={frequencyMetaByName}
+                                  bookingPopupSurface={bookingPopupSurface}
+                                  pricingVariableDefinitions={industryPricingVariables}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })()}
+                    </>
+                  ) : (
+                  <div id="form2-packages-row" className="space-y-3">
+                    {!form2ActiveItemId ? (
+                      <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm text-muted-foreground dark:border-slate-600 dark:bg-slate-900/40">
+                        Select an item above to see packages for that category.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+                            Choose packages
+                          </h3>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-card dark:hover:bg-slate-800"
+                              aria-label="Scroll packages left"
+                              onClick={() => scrollForm2PackageRow(-1)}
+                            >
+                              <ChevronLeft className="h-5 w-5" />
+                            </button>
+                            <button
+                              type="button"
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-card dark:hover:bg-slate-800"
+                              aria-label="Scroll packages right"
+                              onClick={() => scrollForm2PackageRow(1)}
+                            >
+                              <ChevronRight className="h-5 w-5" />
+                            </button>
+                            <button
+                              type="button"
+                              className="text-sm font-semibold text-orange-600 hover:text-orange-700 dark:text-orange-400"
+                              onClick={scrollForm2PackagesViewAll}
+                            >
+                              ( View all )
+                            </button>
+                          </div>
+                        </div>
+                        <div
+                          ref={form2PackagesScrollRef}
+                          className="flex flex-row flex-nowrap gap-4 overflow-x-auto pb-2 pt-1 snap-x snap-mandatory scroll-pl-1 [-webkit-overflow-scrolling:touch]"
+                        >
+                          {categoryServicesForForm
+                            .filter((service) => String(service.id) === form2ActiveItemId)
+                            .map((service) => (
+                              <div
+                                key={service.id}
+                                id={`form2-pkg-${service.id}`}
+                                className="min-w-[280px] max-w-[320px] shrink-0 snap-start scroll-mt-24"
+                              >
+                                <FrequencyAwareServiceCard
+                                  service={service}
+                                  isSelected={
+                                    selectedService?.id === service.id ||
+                                    selectedService?.name === service.name
+                                  }
+                                  onSelect={handleServiceSelect}
+                                  flippedCardId={flippedCardId}
+                                  onFlip={handleCardFlip}
+                                  customization={
+                                    frequencyAwareCardPropsByServiceId.custom[String(service.id)] ??
+                                    getCardCustomization(service.id)
+                                  }
+                                  onCustomizationChange={handleCustomizationChange}
+                                  customizeLayout="expandedFlip"
+                                  industryId={selectedIndustryId}
+                                  businessId={businessIdFromUrl}
+                                  bookingFormScope={bookingFormScopeForCatalog}
+                                  serviceCategory={service.raw}
+                                  availableExtras={availableExtras}
+                                  availableVariables={
+                                    frequencyAwareCardPropsByServiceId.vars[String(service.id)] ?? {}
+                                  }
+                                  frequencyOptions={frequencyOptions}
+                                  frequencyMetaByName={frequencyMetaByName}
+                                  bookingPopupSurface={bookingPopupSurface}
+                                  pricingVariableDefinitions={industryPricingVariables}
+                                />
+                              </div>
+                            ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  )
+                ) : (
                 <div
                   className={cn(
-                    useForm2Layout
-                      ? "flex flex-row flex-nowrap gap-4 overflow-x-auto pb-2 pt-1 snap-x snap-mandatory scroll-pl-1 [-webkit-overflow-scrolling:touch]"
-                      : "grid grid-cols-1 md:grid-cols-3 gap-6",
+                    "grid grid-cols-1 md:grid-cols-3 gap-6",
                   )}
                 >
                   {categoryServicesForForm.map((service) => (
                     <div
                       key={service.id}
                       id={`form2-pkg-${service.id}`}
-                      className={cn(useForm2Layout && "min-w-[280px] max-w-[320px] shrink-0 snap-start scroll-mt-24")}
                     >
                     <FrequencyAwareServiceCard
                       service={service}
@@ -4688,7 +5141,10 @@ function BookingPageContent() {
                       onSelect={handleServiceSelect}
                       flippedCardId={flippedCardId}
                       onFlip={handleCardFlip}
-                      customization={getCardCustomization(service.id)}
+                      customization={
+                        frequencyAwareCardPropsByServiceId.custom[String(service.id)] ??
+                        getCardCustomization(service.id)
+                      }
                       onCustomizationChange={handleCustomizationChange}
                       customizeLayout="expandedFlip"
                       industryId={selectedIndustryId}
@@ -4696,22 +5152,9 @@ function BookingPageContent() {
                       bookingFormScope={bookingFormScopeForCatalog}
                       serviceCategory={service.raw}
                       availableExtras={availableExtras}
-                      availableVariables={(() => {
-                        const cust = getCardCustomization(service.id);
-                        const isThisCard =
-                          selectedService?.id === service.id ||
-                          selectedService?.name === service.name;
-                        const bedTier =
-                          String(cust.variableCategories?.['Bedroom'] ?? cust.bedroom ?? '').trim() ||
-                          null;
-                        return buildCustomerAvailableVariables(
-                          pricingParametersFull,
-                          { name: service.name, raw: service.raw },
-                          cust.frequency?.trim() || bookingFrequencyForFilters || "",
-                          isThisCard ? pricingFrequencyDeps : null,
-                          bedTier,
-                        );
-                      })()}
+                      availableVariables={
+                        frequencyAwareCardPropsByServiceId.vars[String(service.id)] ?? {}
+                      }
                       frequencyOptions={frequencyOptions}
                       frequencyMetaByName={frequencyMetaByName}
                       bookingPopupSurface={bookingPopupSurface}
@@ -4720,6 +5163,7 @@ function BookingPageContent() {
                     </div>
                   ))}
                 </div>
+                )
               ) : needsLocationBeforeServices ? (
                 <div className="flex flex-col gap-1 rounded-md border border-input bg-muted/50 px-3 py-4 text-sm text-muted-foreground">
                   <span>

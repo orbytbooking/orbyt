@@ -369,12 +369,11 @@ const Customers = () => {
     }
   };
 
-  // Open modal if query parameter is present
+  // Open modal if query parameter is present (avoid `[searchParams]` — unstable reference in App Router)
+  const openAddFromQuery = searchParams.get("add") === "true";
   useEffect(() => {
-    if (searchParams.get('add') === 'true') {
-      setShowAddCustomer(true);
-    }
-  }, [searchParams]);
+    if (openAddFromQuery) setShowAddCustomer(true);
+  }, [openAddFromQuery]);
 
   useEffect(() => {
     setPage(1);
