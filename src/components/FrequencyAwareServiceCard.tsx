@@ -91,7 +91,7 @@ interface ServiceCardProps {
   /** Business that owns Form 1; required for correct industry_frequency dependency rows. */
   businessId?: string;
   /** When set, limits dependency fetch to booking form-specific frequency rows. */
-  bookingFormScope?: "form1" | "form2" | "form3" | "form4";
+  bookingFormScope?: "form1" | "form2" | "form3" | "form4" | "form5";
   serviceCategory?: any; // Add service category prop
   availableExtras?: any[]; // Add available extras prop
   availableVariables?: { [key: string]: any[] }; // Add available variables prop
@@ -183,6 +183,7 @@ export default function FrequencyAwareServiceCard({
   customizeLayout = "inline",
 }: ServiceCardProps) {
   const isForm4Card = bookingFormScope === "form4";
+  const isForm5Card = bookingFormScope === "form5";
   const serviceDisplayName = service.customerDisplayName?.trim() || service.name;
 
   const variableCategoryLabel = useCallback(
@@ -190,23 +191,6 @@ export default function FrequencyAwareServiceCard({
       getPricingVariableCategoryCustomerLabel(categoryKey, pricingVariableDefinitions),
     [pricingVariableDefinitions],
   );
-
-  const form4CategoryOptions = useMemo(
-    () =>
-      variableCategoryEntries.map(([categoryName]) => ({
-        value: categoryName,
-        label: variableCategoryLabel(categoryName),
-      })),
-    [variableCategoryEntries, variableCategoryLabel],
-  );
-
-  const selectedForm4Category = useMemo(() => {
-    const selected =
-      String(customization.variableCategories?.__form4SelectedCategory ?? "").trim();
-    if (!selected) return "";
-    const exists = form4CategoryOptions.some((opt) => opt.value === selected);
-    return exists ? selected : "";
-  }, [customization.variableCategories, form4CategoryOptions]);
 
   const cardFrequencyOptions = useMemo(
     () => filterFrequencyOptionsForServiceCategory(frequencyOptions, serviceCategory),
@@ -296,6 +280,23 @@ export default function FrequencyAwareServiceCard({
     serviceCategory?.service_category_frequency,
     frequencyDependencies,
   ]);
+
+  const form4CategoryOptions = useMemo(
+    () =>
+      variableCategoryEntries.map(([categoryName]) => ({
+        value: categoryName,
+        label: variableCategoryLabel(categoryName),
+      })),
+    [variableCategoryEntries, variableCategoryLabel],
+  );
+
+  const selectedForm4Category = useMemo(() => {
+    const selected =
+      String(customization.variableCategories?.__form4SelectedCategory ?? "").trim();
+    if (!selected) return "";
+    const exists = form4CategoryOptions.some((opt) => opt.value === selected);
+    return exists ? selected : "";
+  }, [customization.variableCategories, form4CategoryOptions]);
 
   // Helper to get current value for a variable category (default to "None" when skipped/empty)
   const getVariableCategoryValue = (categoryName: string): string => {
@@ -650,7 +651,7 @@ export default function FrequencyAwareServiceCard({
       if (form4CategoryOptions.length > 0 && !selectedForm4Category) {
         visibleFields.push("pricing parameter");
       }
-    } else {
+    } else if (!isForm5Card) {
       // Only require variable categories that have at least one option (don't block when dropdown is empty)
       variableCategoryEntries.forEach(([categoryName, vars]) => {
         const options = (vars || []).map((v: any) => v?.name).filter(Boolean);
@@ -865,7 +866,7 @@ export default function FrequencyAwareServiceCard({
               )}
 
               {/* Variable categories — grid matches admin AddBookingForm */}
-              {!isForm4Card && variableCategoryEntries.length > 0 && (
+              {!isForm4Card && !isForm5Card && variableCategoryEntries.length > 0 && (
                 <div
                   className={cn(
                     "grid gap-4",

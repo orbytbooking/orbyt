@@ -36,6 +36,13 @@ export function scopedIndustryTable(
     // Form 4 has extras but no add-on split table.
     return "industry_form4_extras";
   }
+  if (scope === "form5") {
+    if (baseTable === "industry_frequency") return "industry_form5_frequencies";
+    if (baseTable === "industry_service_category") return "industry_form5_service_categories";
+    if (baseTable === "industry_pricing_variable") return "industry_form5_variables";
+    if (baseTable === "industry_pricing_parameter") return "industry_form5_pricing_parameters";
+    return "industry_form5_extras";
+  }
   return baseTable;
 }
 

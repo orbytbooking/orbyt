@@ -40,6 +40,9 @@ function configureCatalogHref(industry: Industry): string {
   const q = encodeURIComponent(industry.name);
   const id = encodeURIComponent(industry.id);
   const layout = industry.customer_booking_form_layout;
+  if (layout === "form5") {
+    return `/admin/settings/industries/form-5/locations?industry=${q}&industryId=${id}&bookingFormScope=form5`;
+  }
   if (layout === "form4") {
     return `/admin/settings/industries/form-4/locations?industry=${q}&industryId=${id}&bookingFormScope=form4`;
   }

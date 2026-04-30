@@ -36,7 +36,13 @@ async function findFrequencyById(
   supabase: ReturnType<typeof createSupabaseServiceClient>,
   id: string,
 ): Promise<FrequencyLookup | null> {
-  const tables = ['industry_frequency', 'industry_form2_frequencies', 'industry_form3_frequencies', 'industry_form4_frequencies'];
+  const tables = [
+    'industry_frequency',
+    'industry_form2_frequencies',
+    'industry_form3_frequencies',
+    'industry_form4_frequencies',
+    'industry_form5_frequencies',
+  ];
   for (const table of tables) {
     const { data, error } = await supabase
       .from(table)
@@ -491,8 +497,7 @@ export async function PUT(request: NextRequest) {
     if (updateData.exclude_parameters !== undefined) cleanedData.exclude_parameters = updateData.exclude_parameters;
     if (updateData.extras !== undefined) cleanedData.extras = updateData.extras;
     if (updateData.booking_form_scope !== undefined) {
-      cleanedData.booking_form_scope =
-        updateData.booking_form_scope === 'form2' ? 'form2' : 'form1';
+      cleanedData.booking_form_scope = normalizeScope(updateData.booking_form_scope);
     }
 
     if (cleanedData.is_default === true) {

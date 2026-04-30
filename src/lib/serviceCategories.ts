@@ -215,7 +215,7 @@ class ServiceCategoriesService {
       .single();
 
     if (error?.code === 'PGRST116') {
-      for (const table of ['industry_form2_service_categories', 'industry_form4_service_categories']) {
+      for (const table of ['industry_form2_service_categories', 'industry_form3_service_categories', 'industry_form4_service_categories', 'industry_form5_service_categories']) {
         const fallback = await this.supabase.from(table).select('*').eq('id', id).single();
         if (!fallback.error) return fallback.data;
       }
@@ -264,7 +264,7 @@ class ServiceCategoriesService {
     const scope = (updateData as { booking_form_scope?: BookingFormScope | null }).booking_form_scope ?? null;
     const preferredTable = scopedIndustryTable('industry_service_category', scope);
     const candidateTables = Array.from(
-      new Set([preferredTable, 'industry_service_category', 'industry_form2_service_categories', 'industry_form4_service_categories']),
+      new Set([preferredTable, 'industry_service_category', 'industry_form2_service_categories', 'industry_form3_service_categories', 'industry_form4_service_categories', 'industry_form5_service_categories']),
     );
 
     let data: ServiceCategory | null = null;
@@ -313,7 +313,7 @@ class ServiceCategoriesService {
       throw error;
     }
     if ((data?.length ?? 0) > 0) return;
-    for (const table of ['industry_form2_service_categories', 'industry_form4_service_categories']) {
+    for (const table of ['industry_form2_service_categories', 'industry_form3_service_categories', 'industry_form4_service_categories', 'industry_form5_service_categories']) {
       const r2 = await this.supabase
         .from(table)
         .delete()
@@ -333,7 +333,7 @@ class ServiceCategoriesService {
         .select('id');
       if (r1.error) throw r1.error;
       if ((r1.data?.length ?? 0) > 0) continue;
-      for (const table of ['industry_form2_service_categories', 'industry_form4_service_categories']) {
+      for (const table of ['industry_form2_service_categories', 'industry_form3_service_categories', 'industry_form4_service_categories', 'industry_form5_service_categories']) {
         const r2 = await this.supabase
           .from(table)
           .update({ sort_order })

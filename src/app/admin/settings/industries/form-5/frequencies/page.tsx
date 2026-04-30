@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -11,17 +11,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { ChevronDown } from "lucide-react";
 import { useBusiness } from "@/contexts/BusinessContext";
-import { bookingFormScopeFromSearchParams } from "@/lib/bookingFormScope";
 
 export default function IndustryFormFrequenciesPage() {
   const params = useSearchParams();
-  const pathname = usePathname();
   const router = useRouter();
   const { toast } = useToast();
   const { currentBusiness } = useBusiness();
   const industry = params.get("industry") || "Industry";
-  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
-  const formSegment = pathname.includes("/industries/form-5") ? "form-5" : "form-4";
+  const bookingFormScope = "form5" as const;
+  const formSegment = "form-5";
   const scopeQs = `&bookingFormScope=${bookingFormScope}`;
   type Row = {
     id: string;

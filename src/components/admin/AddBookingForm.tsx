@@ -234,7 +234,7 @@ type CustomerSavedCardOption = {
 type Industry = {
   id: string;
   name: string;
-  customer_booking_form_layout?: "form1" | "form2" | "form3" | "form4";
+  customer_booking_form_layout?: "form1" | "form2" | "form3" | "form4" | "form5";
 };
 
 const createEmptyBookingForm = () => ({
@@ -396,19 +396,38 @@ export function AddBookingForm({
     const layout = selectedIndustry?.customer_booking_form_layout;
     if (layout === "form2") return "form2";
     if (layout === "form3") return "form3";
+    if (layout === "form5") return "form5";
     if (layout === "form4") return "form4";
     return "form1";
   }, [selectedIndustry?.customer_booking_form_layout]);
   const isForm2Catalog = bookingFormScopeForCatalog === "form2";
   const isForm3Catalog = bookingFormScopeForCatalog === "form3";
   const isForm4Catalog = bookingFormScopeForCatalog === "form4";
+  const isForm5Catalog = bookingFormScopeForCatalog === "form5";
   const isForm2Or3Catalog = isForm2Catalog || isForm3Catalog;
+  const form5DurationParts = useMemo(() => {
+    const raw = parseFloat(newBooking.duration || "0");
+    if (!Number.isFinite(raw) || raw <= 0) return { hours: "00", minutes: "" };
+    const totalMinutes =
+      newBooking.durationUnit === "Minutes" ? Math.round(raw) : Math.round(raw * 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return {
+      hours: String(Math.max(0, Math.min(23, hours))).padStart(2, "0"),
+      minutes:
+        minutes <= 0
+          ? ""
+          : String(Math.max(0, Math.min(59, minutes))).padStart(2, "0"),
+    };
+  }, [newBooking.duration, newBooking.durationUnit]);
   const extrasListingKindForCatalog =
     bookingFormScopeForCatalog === "form2" || bookingFormScopeForCatalog === "form3" ? "addon" : "extra";
   const [pricingVariables, setPricingVariables] = useState<PricingVariable[]>([]);
   /** Form 2: selected catalog item (`industry_pricing_variable.id`). */
   const [selectedForm2VariableId, setSelectedForm2VariableId] = useState<string>("");
   const [hasLocationBasedFrequencies, setHasLocationBasedFrequencies] = useState(false);
+  const [resolvedIndustryLocationLabels, setResolvedIndustryLocationLabels] = useState<string[]>([]);
+  const [industryHasLinkedLocations, setIndustryHasLinkedLocations] = useState(false);
   const [cancellationFeeDisplay, setCancellationFeeDisplay] = useState<{ enabled: boolean; amount: number; currency: string } | null>(null);
   const [specificProviderForAdmin, setSpecificProviderForAdmin] = useState(true);
   const [priceAdjustmentNoteEnabled, setPriceAdjustmentNoteEnabled] = useState(false);
@@ -578,6 +597,37 @@ export function AddBookingForm({
     fetchFrequencies();
   }, [currentBusiness, selectedIndustryId, newBooking.zipCode, hasLocationBasedFrequencies, bookingFormScopeForCatalog, isForm2Or3Catalog]);
 
+  // Resolve customer zip into matched industry location labels (used by Form 5 service-category location dependency)
+  useEffect(() => {
+    if (!currentBusiness?.id || !selectedIndustryId || bookingFormScopeForCatalog !== "form5") {
+      setResolvedIndustryLocationLabels([]);
+      setIndustryHasLinkedLocations(false);
+      return;
+    }
+    const zipInput = String(newBooking.zipCode || "").trim().replace(/\s/g, "");
+    if (zipInput.length < 5) {
+      setResolvedIndustryLocationLabels([]);
+      setIndustryHasLinkedLocations(false);
+      return;
+    }
+    const params = new URLSearchParams({
+      business_id: currentBusiness.id,
+      industry_id: selectedIndustryId,
+      input: zipInput,
+      mode: "zip",
+    });
+    fetch(`/api/guest/resolve-industry-locations-for-zip?${params.toString()}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        setResolvedIndustryLocationLabels(Array.isArray(j?.labels) ? j.labels.map((x: unknown) => String(x)) : []);
+        setIndustryHasLinkedLocations(Boolean(j?.hasLinkedLocations));
+      })
+      .catch(() => {
+        setResolvedIndustryLocationLabels([]);
+        setIndustryHasLinkedLocations(false);
+      });
+  }, [currentBusiness?.id, selectedIndustryId, bookingFormScopeForCatalog, newBooking.zipCode]);
+
   // Load frequency dependencies when frequency changes
   useEffect(() => {
     if (!selectedIndustryId || !newBooking.frequency) {
@@ -586,7 +636,7 @@ export function AddBookingForm({
     }
     getFrequencyDependencies(selectedIndustryId, newBooking.frequency, {
       businessId: currentBusiness?.id,
-      bookingFormScope: bookingFormScopeForCatalog,
+      bookingFormScope: bookingFormScopeForCatalog as any,
     })
       .then(setFrequencyDependencies)
       .catch(() => setFrequencyDependencies(null));
@@ -615,6 +665,8 @@ export function AddBookingForm({
   // Load extras from API (uses selected industry)
   useEffect(() => {
     if (!selectedIndustryId || !currentBusiness?.id) return;
+    setAllExtras([]);
+    setExtras([]);
     const baseQs = `industryId=${selectedIndustryId}&businessId=${currentBusiness.id}&bookingFormScope=${bookingFormScopeForCatalog}`;
     const urls =
       bookingFormScopeForCatalog === "form2" || bookingFormScopeForCatalog === "form3"
@@ -675,9 +727,32 @@ export function AddBookingForm({
   useEffect(() => {
     if (!selectedIndustryId) return;
     serviceCategoriesService.getServiceCategoriesByIndustry(selectedIndustryId, bookingFormScopeForCatalog).then((categories) => {
-      setServiceCategories(categories);
+      if (bookingFormScopeForCatalog !== "form5") {
+        setServiceCategories(categories);
+        return;
+      }
+      const resolvedSet = new Set(
+        resolvedIndustryLocationLabels.map((x) => x.trim().toLowerCase()).filter((x) => x.length > 0),
+      );
+      const filtered = categories.filter((cat) => {
+        const dep = (cat.extras_config as any)?.form5LocationDependency;
+        if (!dep?.enabled) return true;
+        const allowedNamesRaw = Array.isArray(dep.locationNames) ? dep.locationNames : [];
+        const allowed = allowedNamesRaw
+          .map((x: unknown) => String(x).trim().toLowerCase())
+          .filter((x: string) => x.length > 0);
+        // Only enforce location dependency when this industry has linked locations.
+        // If not linked yet, avoid hiding all configured services.
+        if (!industryHasLinkedLocations) return true;
+        // Backward compatibility: older rows may only have locationIds (no names yet).
+        // In that case, fail open so configured services still show.
+        if (allowed.length === 0) return true;
+        if (resolvedSet.size === 0) return false;
+        return allowed.some((name: string) => resolvedSet.has(name));
+      });
+      setServiceCategories(filtered);
     }).catch(() => setServiceCategories([]));
-  }, [selectedIndustryId, bookingFormScopeForCatalog]);
+  }, [selectedIndustryId, bookingFormScopeForCatalog, resolvedIndustryLocationLabels, industryHasLinkedLocations]);
 
   // Pre-fill provider wage from service category override when service is selected
   useEffect(() => {
@@ -690,6 +765,21 @@ export function AddBookingForm({
       setProviderWageType(payType === 'fixed' ? 'fixed' : 'hourly');
     }
   }, [newBooking.service, serviceCategories]);
+
+  useEffect(() => {
+    if (!newBooking.service) return;
+    const stillVisible = serviceCategories.some((cat) => cat.name === newBooking.service);
+    if (stillVisible) return;
+    setNewBooking((prev) => ({
+      ...prev,
+      service: "",
+      frequency: "",
+      selectedExtras: [],
+      extraQuantities: {},
+      excludeQuantities: {},
+      categoryValues: {},
+    }));
+  }, [serviceCategories, newBooking.service]);
 
   // Filter extras: service category list + Form 1 frequency allow-list (only for frequency-scoped extras) + per-extra dependency toggles
   useEffect(() => {
@@ -3612,36 +3702,107 @@ const handleAddBooking = async (status: string = 'pending') => {
               const cat = serviceCategories.find((c) => c.name === newBooking.service);
               const hs = cat?.hourly_service;
               const show =
+                isForm5Catalog ||
                 Boolean(hs?.enabled) && (hs?.priceCalculationType ?? "customTime") === "customTime";
               return show;
             })() && (
               <div>
                 <Label className="text-sm font-medium mb-2 block">Select Time Duration</Label>
                 <div className="flex gap-3">
-                  <Select value={newBooking.duration} onValueChange={(value) => setNewBooking({ ...newBooking, duration: value })}>
-                    <SelectTrigger className="w-20">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="01">01</SelectItem>
-                      <SelectItem value="02">02</SelectItem>
-                      <SelectItem value="03">03</SelectItem>
-                      <SelectItem value="04">04</SelectItem>
-                      <SelectItem value="05">05</SelectItem>
-                      <SelectItem value="06">06</SelectItem>
-                      <SelectItem value="07">07</SelectItem>
-                      <SelectItem value="08">08</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select value={newBooking.durationUnit} onValueChange={(value) => setNewBooking({ ...newBooking, durationUnit: value })}>
-                    <SelectTrigger className="w-32">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Hours">Hours</SelectItem>
-                      <SelectItem value="Minutes">Minutes</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  {isForm5Catalog ? (
+                    <>
+                      <Select
+                        value={form5DurationParts.hours}
+                        onValueChange={(hoursValue) => {
+                          const h = parseInt(hoursValue, 10) || 0;
+                          const m = parseInt(form5DurationParts.minutes, 10) || 0;
+                          const totalMinutes = h * 60 + m;
+                          const hoursDecimal = totalMinutes / 60;
+                          const normalized =
+                            totalMinutes <= 0
+                              ? ""
+                              : Number.isInteger(hoursDecimal)
+                                ? String(hoursDecimal)
+                                : hoursDecimal.toFixed(2).replace(/\.?0+$/, "");
+                          setNewBooking({
+                            ...newBooking,
+                            duration: normalized,
+                            durationUnit: "Hours",
+                          });
+                        }}
+                      >
+                        <SelectTrigger className="w-20">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Array.from({ length: 24 }, (_, i) => i).map((n) => (
+                            <SelectItem key={n} value={String(n).padStart(2, "0")}>
+                              {String(n).padStart(2, "0")}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={form5DurationParts.minutes}
+                        onValueChange={(minutesValue) => {
+                          const h = parseInt(form5DurationParts.hours, 10) || 0;
+                          const m = parseInt(minutesValue, 10) || 0;
+                          const totalMinutes = h * 60 + m;
+                          const hoursDecimal = totalMinutes / 60;
+                          const normalized =
+                            totalMinutes <= 0
+                              ? ""
+                              : Number.isInteger(hoursDecimal)
+                                ? String(hoursDecimal)
+                                : hoursDecimal.toFixed(2).replace(/\.?0+$/, "");
+                          setNewBooking({
+                            ...newBooking,
+                            duration: normalized,
+                            durationUnit: "Hours",
+                          });
+                        }}
+                      >
+                        <SelectTrigger className="w-32">
+                          <SelectValue placeholder="Minutes" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="00">00</SelectItem>
+                          {Array.from({ length: 59 }, (_, i) => i + 1).map((n) => (
+                            <SelectItem key={n} value={String(n).padStart(2, "0")}>
+                              {String(n).padStart(2, "0")}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </>
+                  ) : (
+                    <>
+                      <Select value={newBooking.duration} onValueChange={(value) => setNewBooking({ ...newBooking, duration: value })}>
+                        <SelectTrigger className="w-20">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="01">01</SelectItem>
+                          <SelectItem value="02">02</SelectItem>
+                          <SelectItem value="03">03</SelectItem>
+                          <SelectItem value="04">04</SelectItem>
+                          <SelectItem value="05">05</SelectItem>
+                          <SelectItem value="06">06</SelectItem>
+                          <SelectItem value="07">07</SelectItem>
+                          <SelectItem value="08">08</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Select value={newBooking.durationUnit} onValueChange={(value) => setNewBooking({ ...newBooking, durationUnit: value })}>
+                        <SelectTrigger className="w-32">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Hours">Hours</SelectItem>
+                          <SelectItem value="Minutes">Minutes</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </>
+                  )}
                 </div>
                 <div className="flex items-center space-x-2 mt-3">
                   <Checkbox
@@ -4169,7 +4330,7 @@ const handleAddBooking = async (status: string = 'pending') => {
             )}
 
             {/* Form 1: dynamic variable categories from pricing parameters */}
-            {!isForm2Or3Catalog && !isForm4Catalog && variableCategories.length > 0 && (
+            {!isForm2Or3Catalog && !isForm4Catalog && !isForm5Catalog && variableCategories.length > 0 && (
               <div className={`grid gap-4 ${variableCategories.length === 1 ? 'md:grid-cols-1' : variableCategories.length === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
                 {variableCategories.map((category) => {
                   const categoryOptions = pricingParameters.filter(p => p.variable_category === category);
@@ -4337,7 +4498,7 @@ const handleAddBooking = async (status: string = 'pending') => {
             )}
 
             {/* Form 1 only: Partial Cleaning + Exclude Parameters */}
-            {!isForm2Or3Catalog && !isForm4Catalog && (
+            {!isForm2Or3Catalog && !isForm4Catalog && !isForm5Catalog && (
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id="partial-cleaning"
@@ -4349,7 +4510,7 @@ const handleAddBooking = async (status: string = 'pending') => {
             )}
 
             {/* Exclude Parameters - Show when partial cleaning is checked */}
-            {!isForm2Or3Catalog && !isForm4Catalog && isPartialCleaning && (() => {
+            {!isForm2Or3Catalog && !isForm4Catalog && !isForm5Catalog && isPartialCleaning && (() => {
               // Apply filtering based on service category configuration
               let filteredExcludeParams = excludeParameters;
               

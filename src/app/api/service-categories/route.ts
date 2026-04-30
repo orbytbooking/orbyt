@@ -32,6 +32,7 @@ async function findServiceCategoryById(
     'industry_form2_service_categories',
     'industry_form3_service_categories',
     'industry_form4_service_categories',
+    'industry_form5_service_categories',
   ];
   for (const table of tables) {
     const { data, error } = await supabase
@@ -163,7 +164,15 @@ export async function POST(request: NextRequest) {
     } = body;
 
     const booking_form_scope: BookingFormScope =
-      booking_form_scope_raw === 'form2' ? 'form2' : 'form1';
+      booking_form_scope_raw === 'form5'
+        ? 'form5'
+        : booking_form_scope_raw === 'form4'
+          ? 'form4'
+          : booking_form_scope_raw === 'form3'
+            ? 'form3'
+            : booking_form_scope_raw === 'form2'
+              ? 'form2'
+              : 'form1';
     const categoryTable = scopedIndustryTable('industry_service_category', booking_form_scope);
 
     if (!business_id || !industry_id || !name) {
@@ -381,7 +390,15 @@ export async function PUT(request: NextRequest) {
     if (updateData.sort_order !== undefined) cleanedData.sort_order = updateData.sort_order;
     if (updateData.booking_form_scope !== undefined) {
       cleanedData.booking_form_scope =
-        updateData.booking_form_scope === 'form2' ? 'form2' : 'form1';
+        updateData.booking_form_scope === 'form5'
+          ? 'form5'
+          : updateData.booking_form_scope === 'form4'
+            ? 'form4'
+            : updateData.booking_form_scope === 'form3'
+              ? 'form3'
+              : updateData.booking_form_scope === 'form2'
+                ? 'form2'
+                : 'form1';
     }
 
     const { data: category, error } = await supabase

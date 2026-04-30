@@ -74,10 +74,16 @@ interface Industry {
   customer_booking_form_layout?: string | null;
 }
 
-function industryFormNavEntry(industry: Industry): { label: "Form 1" | "Form 2" | "Form 3" | "Form 4"; path: string } {
+function industryFormNavEntry(industry: Industry): { label: "Form 1" | "Form 2" | "Form 3" | "Form 4" | "Form 5"; path: string } {
   const q = encodeURIComponent(industry.name);
   const id = encodeURIComponent(industry.id);
   const layout = industry.customer_booking_form_layout;
+  if (layout === "form5") {
+    return {
+      label: "Form 5",
+      path: `/admin/settings/industries/form-5/locations?industry=${q}&industryId=${id}&bookingFormScope=form5`,
+    };
+  }
   if (layout === "form4") {
     return {
       label: "Form 4",
@@ -113,7 +119,8 @@ function isIndustryFormNavLinkActive(menuPath: string, pathname: string, searchP
     base === "/admin/settings/industries/form-1" ||
     base === "/admin/settings/industries/form-2" ||
     base === "/admin/settings/industries/form-3" ||
-    base === "/admin/settings/industries/form-4"
+    base === "/admin/settings/industries/form-4" ||
+    base === "/admin/settings/industries/form-5"
   ) {
     return (
       searchParams.get("industry") === qs.get("industry") &&
@@ -174,7 +181,7 @@ function industryForm2AdminLinks(industry: Industry): Array<{ label: string; pat
 function industryForm4AdminLinks(industry: Industry): Array<{ label: string; path: string }> {
   const q = encodeURIComponent(industry.name);
   const id = encodeURIComponent(industry.id);
-  const scope = "bookingFormScope=form4";
+  const scope = "bookingFormScope=form5";
   const base = "form-4";
   return [
     { label: "Locations", path: `/admin/settings/industries/${base}/locations?industry=${q}&industryId=${id}&${scope}` },
@@ -184,6 +191,24 @@ function industryForm4AdminLinks(industry: Industry): Array<{ label: string; pat
       label: "Pricing Parameter",
       path: `/admin/settings/industries/${base}/pricing-parameter?industry=${q}&industryId=${id}&${scope}`,
     },
+    {
+      label: "Extras",
+      path: `/admin/settings/industries/${base}/extras?industry=${q}&industryId=${id}&${scope}&listingKind=extra`,
+    },
+    { label: "Custom Sections", path: `/admin/settings/design` },
+  ];
+}
+
+/** Form 5 sidebar: hourly category flow (no pricing-parameter tab). */
+function industryForm5AdminLinks(industry: Industry): Array<{ label: string; path: string }> {
+  const q = encodeURIComponent(industry.name);
+  const id = encodeURIComponent(industry.id);
+  const scope = "bookingFormScope=form4";
+  const base = "form-5";
+  return [
+    { label: "Locations", path: `/admin/settings/industries/${base}/locations?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Frequencies", path: `/admin/settings/industries/${base}/frequencies?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Service Category", path: `/admin/settings/industries/${base}/service-category?industry=${q}&industryId=${id}&${scope}` },
     {
       label: "Extras",
       path: `/admin/settings/industries/${base}/extras?industry=${q}&industryId=${id}&${scope}&listingKind=extra`,
@@ -691,10 +716,13 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
             ...(industries || []).map((industry) => {
               const formEntry = industryFormNavEntry(industry);
               const layout = industry.customer_booking_form_layout;
+              const isForm5Layout = layout === "form5";
               const isForm4Layout = layout === "form4";
               const isForm3Layout = layout === "form3";
               const isForm2Layout = layout === "form2";
-              const formSetupKind = isForm4Layout
+              const formSetupKind = isForm5Layout
+                ? ("form5" as const)
+                : isForm4Layout
                 ? ("form4" as const)
                 : isForm3Layout
                   ? ("form3" as const)
@@ -710,7 +738,9 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                     path: formEntry.path,
                     /** Click chevron to expand Form 1 / 2 / 3 / 4 setup links */
                     formSetupKind,
-                    children: isForm4Layout
+                    children: isForm5Layout
+                      ? industryForm5AdminLinks(industry)
+                      : isForm4Layout
                       ? industryForm4AdminLinks(industry)
                       : isForm3Layout
                         ? industryForm3AdminLinks(industry)
@@ -1103,7 +1133,9 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                                                       {formSetupOpen && (
                                                         <div className="mt-1 space-y-0.5 border-l border-cyan-400/40 py-1 pl-3 ml-[3.25rem]">
                                                           <p className="px-0.5 pb-1 text-[10px] font-medium uppercase tracking-wide text-gray-500">
-                                                            {ggc.formSetupKind === "form4"
+                                                            {ggc.formSetupKind === "form5"
+                                                              ? "Form 5 setup"
+                                                              : ggc.formSetupKind === "form4"
                                                               ? "Form 4 setup"
                                                               : ggc.formSetupKind === "form3"
                                                                 ? "Form 3 setup"

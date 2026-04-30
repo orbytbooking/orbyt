@@ -88,7 +88,8 @@ export async function POST(request: NextRequest) {
     if (
       extraData.booking_form_scope !== 'form2' &&
       extraData.booking_form_scope !== 'form3' &&
-      extraData.booking_form_scope !== 'form4'
+      extraData.booking_form_scope !== 'form4' &&
+      extraData.booking_form_scope !== 'form5'
     ) {
       extraData.booking_form_scope = 'form1';
     }

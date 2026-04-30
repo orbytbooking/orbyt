@@ -81,6 +81,7 @@ export async function GET(request: NextRequest) {
       if (layout === 'form2') bookingFormScope = 'form2';
       else if (layout === 'form3') bookingFormScope = 'form3';
       else if (layout === 'form4') bookingFormScope = 'form4';
+      else if (layout === 'form5') bookingFormScope = 'form5';
       else bookingFormScope = 'form1';
     }
 

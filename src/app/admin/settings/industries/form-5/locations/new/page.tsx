@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +16,6 @@ import GoogleDrawMap from "@/components/map/GoogleDrawMap";
 import { supabase } from "@/lib/supabaseClient";
 import { useToast } from "@/components/ui/use-toast";
 import { useBusiness } from "@/contexts/BusinessContext";
-import { bookingFormScopeFromSearchParams } from "@/lib/bookingFormScope";
 
 interface DrawnShape {
   id: string;
@@ -38,12 +37,11 @@ function normalizeShapeForApi(s: DrawnShape): { type: string; coordinates: unkno
 
 export default function AddLocationPage() {
   const params = useSearchParams();
-  const pathname = usePathname();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
   const industryId = params.get("industryId") || "";
   const editId = params.get("editId");
-  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
+  const bookingFormScope = "form5" as const;
   const scopeQs = `&bookingFormScope=${bookingFormScope}`;
   const { currentBusiness } = useBusiness();
   const { toast } = useToast();
@@ -83,7 +81,7 @@ export default function AddLocationPage() {
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
   const [excludedProviderIds, setExcludedProviderIds] = useState<string[]>([]);
 
-  const formSeg = pathname.includes("/industries/form-5") ? "form-5" : "form-4";
+  const formSeg = "form-5";
   const listHref = `/admin/settings/industries/${formSeg}/locations?industry=${encodeURIComponent(industry)}${industryId ? `&industryId=${industryId}` : ""}${scopeQs}`;
 
   useEffect(() => {
@@ -573,7 +571,7 @@ export default function AddLocationPage() {
               )}
 
               <div className="space-y-4">
-                <h4 className="font-medium">{industry} – Form 4</h4>
+                <h4 className="font-medium">{industry} – Form 5</h4>
                 <div className="space-y-4">
                   {frequencies.length > 0 && (
                     <div>

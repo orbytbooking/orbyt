@@ -22,14 +22,14 @@ type IndustryRow = {
   customer_booking_form_layout?: string;
 };
 
-type LayoutKey = "form1" | "form2" | "form3" | "form4";
+type LayoutKey = "form1" | "form2" | "form3" | "form4" | "form5";
 
-const FORM_TABS: { id: LayoutKey | "form5"; label: string; enabled: boolean }[] = [
+const FORM_TABS: { id: LayoutKey; label: string; enabled: boolean }[] = [
   { id: "form1", label: "Form 1", enabled: true },
   { id: "form2", label: "Form 2", enabled: true },
   { id: "form3", label: "Form 3", enabled: true },
   { id: "form4", label: "Form 4", enabled: true },
-  { id: "form5", label: "Form 5", enabled: false },
+  { id: "form5", label: "Form 5", enabled: true },
 ];
 
 const DESCRIPTIONS: Record<LayoutKey, { headline: string; paragraphs: string[] }> = {
@@ -63,6 +63,14 @@ const DESCRIPTIONS: Record<LayoutKey, { headline: string; paragraphs: string[] }
       "Form 4 uses a unit structure in pricing parameters: you set a price and duration for one unit of measure (for example per square foot). The customer enters how many units apply; the total cost and job length are that number multiplied by your per-unit price and time.",
       "This matches how many home-service businesses quote from total area, length, or another measurable quantity. Setup order: Locations, Frequencies, Service category, Pricing parameters, Extras, then Custom sections — as in BookingKoala’s Form 4 guide.",
       "Best when tiered “small / medium / large” packages are not what you want, and a single rate × customer-supplied quantity is clearer.",
+    ],
+  },
+  form5: {
+    headline: "Hourly pricing with service categories",
+    paragraphs: [
+      "Form 5 uses service categories with hourly rates. Customers choose the service category first, then select how long they want the booking.",
+      "The quote is calculated as hourly rate multiplied by selected duration, matching BookingKoala's Form 5 structure for hourly-based services.",
+      "Recommended setup order: Locations, Frequencies, Service Category, Extras, then Custom Sections.",
     ],
   },
 };
@@ -99,6 +107,39 @@ function Form4PreviewMock({ industryName }: { industryName: string }) {
       <div className="mt-auto flex justify-end text-[9px] text-muted-foreground">
         Example subtotal: <span className="ml-1 font-semibold text-foreground">$180.00</span>
         <span className="ml-1 text-[8px]">@ $0.18 / sq ft × 1000</span>
+      </div>
+    </div>
+  );
+}
+
+function Form5PreviewMock({ industryName }: { industryName: string }) {
+  return (
+    <div className="flex h-full min-h-[320px] flex-col gap-3 rounded-lg border border-border/80 bg-muted/40 p-3 shadow-inner sm:min-h-[380px] sm:p-4">
+      <div className="flex items-center justify-between gap-2 border-b border-border/60 pb-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs">
+          Form 5 · hourly pricing
+        </span>
+        <span className="truncate text-[10px] text-primary sm:text-xs">{industryName}</span>
+      </div>
+      <p className="text-[10px] font-semibold sm:text-xs">Services</p>
+      <div className="h-8 rounded border bg-background px-2 text-[9px] leading-8 text-muted-foreground sm:text-[10px]">
+        Commercial
+      </div>
+      <p className="text-[10px] font-semibold sm:text-xs">Select Time Duration</p>
+      <div className="flex gap-2">
+        <div className="h-8 w-24 rounded border bg-background px-2 text-[9px] leading-8 text-muted-foreground sm:text-[10px]">
+          02
+        </div>
+        <div className="h-8 w-24 rounded border bg-background px-2 text-[9px] leading-8 text-muted-foreground sm:text-[10px]">
+          Hours
+        </div>
+      </div>
+      <p className="text-[8px] text-muted-foreground sm:text-[9px]">
+        Quote = hourly rate for selected service category multiplied by booking duration.
+      </p>
+      <div className="mt-auto flex justify-end text-[9px] text-muted-foreground">
+        Example subtotal: <span className="ml-1 font-semibold text-foreground">$80.00</span>
+        <span className="ml-1 text-[8px]">@ $40/hr × 2 hours</span>
       </div>
     </div>
   );
@@ -292,7 +333,8 @@ export default function IndustryBookingTemplatePage() {
       const list = Array.isArray(data.industries) ? data.industries : [];
       const row = list.find((i: IndustryRow) => i.id === industryId) ?? null;
       setIndustry(row);
-      if (row?.customer_booking_form_layout === "form4") setLayout("form4");
+      if (row?.customer_booking_form_layout === "form5") setLayout("form5");
+      else if (row?.customer_booking_form_layout === "form4") setLayout("form4");
       else if (row?.customer_booking_form_layout === "form3") setLayout("form3");
       else if (row?.customer_booking_form_layout === "form2") setLayout("form2");
       else setLayout("form1");
@@ -328,21 +370,25 @@ export default function IndustryBookingTemplatePage() {
       const encName = encodeURIComponent((data.industry as IndustryRow | undefined)?.name ?? industry.name);
       const encId = encodeURIComponent(industryId);
       const scope =
-        layout === "form4"
-          ? "form4"
-          : layout === "form3"
-            ? "form3"
-            : layout === "form2"
-              ? "form2"
-              : "form1";
+        layout === "form5"
+          ? "form5"
+          : layout === "form4"
+            ? "form4"
+            : layout === "form3"
+              ? "form3"
+              : layout === "form2"
+                ? "form2"
+                : "form1";
       const formPath =
-        layout === "form4"
-          ? "form-4"
-          : layout === "form3"
-            ? "form-3"
-            : layout === "form2"
-              ? "form-2"
-              : "form-1";
+        layout === "form5"
+          ? "form-5"
+          : layout === "form4"
+            ? "form-4"
+            : layout === "form3"
+              ? "form-3"
+              : layout === "form2"
+                ? "form-2"
+                : "form-1";
       router.push(
         `/admin/settings/industries/${formPath}/locations?industry=${encName}&industryId=${encId}&bookingFormScope=${scope}`,
       );
@@ -467,6 +513,8 @@ export default function IndustryBookingTemplatePage() {
           <div className="h-full rounded-xl border bg-muted/30 p-3 sm:p-4">
             {layout === "form1" ? (
               <Form1PreviewMock industryName={industry.name} />
+            ) : layout === "form5" ? (
+              <Form5PreviewMock industryName={industry.name} />
             ) : layout === "form4" ? (
               <Form4PreviewMock industryName={industry.name} />
             ) : (

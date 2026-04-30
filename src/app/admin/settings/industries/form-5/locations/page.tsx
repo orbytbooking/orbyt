@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -30,7 +30,6 @@ const DEFAULT_LOCATION_STORAGE_KEY = "default_location_id";
 
 export default function IndustryFormLocationsPage() {
   const params = useSearchParams();
-  const pathname = usePathname();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
   const { toast } = useToast();
@@ -137,7 +136,7 @@ export default function IndustryFormLocationsPage() {
     }
   };
 
-  const formSegment = pathname.includes("/industries/form-5") ? "form-5" : "form-4";
+  const formSegment = "form-5";
   const listHref = `/admin/settings/industries/${formSegment}/locations?industry=${encodeURIComponent(industry)}${industryId ? `&industryId=${industryId}` : ""}`;
   const newHref = `/admin/settings/industries/${formSegment}/locations/new?industry=${encodeURIComponent(industry)}${industryId ? `&industryId=${industryId}` : ""}`;
   const editHref = (id: string) => `${newHref}&editId=${id}`;
@@ -150,7 +149,7 @@ export default function IndustryFormLocationsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>{industry} – {formSegment === "form-5" ? "Form 5" : "Form 4"} / Locations</CardTitle>
+          <CardTitle>{industry} – Form 5 / Locations</CardTitle>
           <CardDescription>
             Service areas for {industry}. Add locations and configure details, dependencies, and providers per location.
           </CardDescription>

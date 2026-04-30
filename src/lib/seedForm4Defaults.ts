@@ -122,18 +122,22 @@ export async function seedForm4DefaultsIfEmpty(
   supabase: SupabaseClient,
   businessId: string,
   industryId: string,
+  opts?: { bookingFormScope?: "form4" | "form5"; seedExtras?: boolean },
 ): Promise<{ applied: boolean; skipped?: boolean; error?: string }> {
   try {
+    const bookingFormScope = opts?.bookingFormScope === "form5" ? "form5" : "form4";
+    const shouldSeedExtras = opts?.seedExtras ?? true;
+    const isForm5Scope = bookingFormScope === "form5";
     const tenant = await requireIndustryBelongsToBusiness(supabase, businessId, industryId);
     if (!tenant.ok) {
       return { applied: false, error: "error" in tenant ? tenant.error : "Industry tenant check failed" };
     }
 
-    const frequencyTable = scopedIndustryTable("industry_frequency", "form4");
-    const serviceCategoryTable = scopedIndustryTable("industry_service_category", "form4");
-    const variableTable = scopedIndustryTable("industry_pricing_variable", "form4");
-    const pricingParameterTable = scopedIndustryTable("industry_pricing_parameter", "form4");
-    const extrasTable = scopedIndustryTable("industry_extras", "form4");
+    const frequencyTable = scopedIndustryTable("industry_frequency", bookingFormScope);
+    const serviceCategoryTable = scopedIndustryTable("industry_service_category", bookingFormScope);
+    const variableTable = scopedIndustryTable("industry_pricing_variable", bookingFormScope);
+    const pricingParameterTable = scopedIndustryTable("industry_pricing_parameter", bookingFormScope);
+    const extrasTable = scopedIndustryTable("industry_extras", bookingFormScope);
 
     const { data: industryRow } = await supabase
       .from("industries")
@@ -148,7 +152,7 @@ export async function seedForm4DefaultsIfEmpty(
       .select("*", { count: "exact", head: true })
       .eq("business_id", businessId)
       .eq("industry_id", industryId)
-      .eq("booking_form_scope", "form4");
+      .eq("booking_form_scope", bookingFormScope);
 
     if (cErr) {
       return { applied: false, error: cErr.message };
@@ -158,7 +162,7 @@ export async function seedForm4DefaultsIfEmpty(
       .select("*", { count: "exact", head: true })
       .eq("business_id", businessId)
       .eq("industry_id", industryId)
-      .eq("booking_form_scope", "form4");
+      .eq("booking_form_scope", bookingFormScope);
     if (scCountErr) {
       return { applied: false, error: scCountErr.message };
     }
@@ -168,13 +172,13 @@ export async function seedForm4DefaultsIfEmpty(
       .select("*", { count: "exact", head: true })
       .eq("business_id", businessId)
       .eq("industry_id", industryId)
-      .eq("booking_form_scope", "form4");
+      .eq("booking_form_scope", bookingFormScope);
     const { count: variableCount, error: varCountErr } = await supabase
       .from(variableTable)
       .select("*", { count: "exact", head: true })
       .eq("business_id", businessId)
       .eq("industry_id", industryId)
-      .eq("booking_form_scope", "form4");
+      .eq("booking_form_scope", bookingFormScope);
     if (varCountErr) {
       return { applied: false, error: varCountErr.message };
     }
@@ -188,16 +192,16 @@ export async function seedForm4DefaultsIfEmpty(
       .select("*", { count: "exact", head: true })
       .eq("business_id", businessId)
       .eq("industry_id", industryId)
-      .eq("booking_form_scope", "form4");
+      .eq("booking_form_scope", bookingFormScope);
     if (exCountErr) {
       return { applied: false, error: exCountErr.message };
     }
 
     const needFrequencies = (freqCount ?? 0) === 0;
     const needServiceCategory = (serviceCatCount ?? 0) === 0;
-    const needVariable = (variableCount ?? 0) === 0;
-    const needPricingParameter = (pricingCount ?? 0) === 0;
-    const needExtras = (extraCount ?? 0) === 0;
+    const needVariable = !isForm5Scope && (variableCount ?? 0) === 0;
+    const needPricingParameter = !isForm5Scope && (pricingCount ?? 0) === 0;
+    const needExtras = shouldSeedExtras && (extraCount ?? 0) === 0;
     const anythingMissing =
       needFrequencies || needServiceCategory || needVariable || needPricingParameter || needExtras;
     if (!anythingMissing) {
@@ -207,7 +211,7 @@ export async function seedForm4DefaultsIfEmpty(
     const freqRows = FORM4_DEFAULT_FREQUENCY_ROWS.map((fr) => ({
       business_id: businessId,
       industry_id: industryId,
-      booking_form_scope: "form4",
+      booking_form_scope: bookingFormScope,
       name: fr.name,
       display: "Both",
       occurrence_time: fr.occurrence_time,
@@ -244,12 +248,19 @@ export async function seedForm4DefaultsIfEmpty(
       const { error: catErr } = await supabase.from(serviceCategoryTable).insert({
         business_id: businessId,
         industry_id: industryId,
-        booking_form_scope: "form4",
+        booking_form_scope: bookingFormScope,
         name: defaults.serviceCategoryName,
         display: "customer_frontend_backend_admin",
         service_category_frequency: true,
         selected_frequencies: selectedFreq,
         variables: {} as Record<string, string[]>,
+        hourly_service: {
+          enabled: isForm5Scope,
+          price: String(defaults.price),
+          currency: "$",
+          priceCalculationType: "customTime",
+          countExtrasSeparately: true,
+        },
         sort_order: 0,
       });
       if (catErr) {
@@ -261,7 +272,7 @@ export async function seedForm4DefaultsIfEmpty(
       const { error: varErr } = await supabase.from(variableTable).insert({
         business_id: businessId,
         industry_id: industryId,
-        booking_form_scope: "form4",
+        booking_form_scope: bookingFormScope,
         name: defaults.variableCategory,
         category: defaults.variableCategory,
         description: "Form 4 variable preset for unit-based pricing.",
@@ -278,7 +289,7 @@ export async function seedForm4DefaultsIfEmpty(
       const { error: ppErr } = await supabase.from(pricingParameterTable).insert({
         business_id: businessId,
         industry_id: industryId,
-        booking_form_scope: "form4",
+        booking_form_scope: bookingFormScope,
         name: defaults.pricingParameterName,
         description:
           "Form 4 unit pricing: total price = this rate × quantity entered by the customer; duration uses time_minutes × quantity.",
@@ -311,7 +322,7 @@ export async function seedForm4DefaultsIfEmpty(
       const extraRows = defaults.extras.map((ex, idx) => ({
         business_id: businessId,
         industry_id: industryId,
-        booking_form_scope: "form4",
+        booking_form_scope: bookingFormScope,
         listing_kind: "extra",
         name: ex.name,
         description: null,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,7 +29,6 @@ import { useBusiness } from "@/contexts/BusinessContext";
 import { toast } from "sonner";
 import { useRef } from "react";
 import {
-  bookingFormScopeFromSearchParams,
   parseListingKindParam,
 } from "@/lib/bookingFormScope";
 
@@ -90,13 +89,12 @@ type ExtraDisplay =
 
 export default function ExtraNewPage() {
   const params = useSearchParams();
-  const pathname = usePathname();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
   const industryId = params.get("industryId");
   const editId = params.get("editId");
-  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
-  const formSegment = pathname.includes("/industries/form-5") ? "form-5" : "form-4";
+  const bookingFormScope = "form5" as const;
+  const formSegment = "form-5";
   const listingKindFilter = parseListingKindParam(params.get("listingKind"));
   const scopeQs =
     `&bookingFormScope=${bookingFormScope}` +

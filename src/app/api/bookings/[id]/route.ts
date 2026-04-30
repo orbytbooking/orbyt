@@ -477,6 +477,10 @@ export async function PUT(
           frequencyScope = 'form2';
         } else if (addBookingFormUpdate.booking_form_scope === 'form3') {
           frequencyScope = 'form3';
+        } else if (addBookingFormUpdate.booking_form_scope === 'form4') {
+          frequencyScope = 'form4';
+        } else if (addBookingFormUpdate.booking_form_scope === 'form5') {
+          frequencyScope = 'form5';
         } else {
           const { data: ind } = await supabase
             .from('industries')
@@ -487,6 +491,8 @@ export async function PUT(
           const layout = (ind as { customer_booking_form_layout?: string } | null)?.customer_booking_form_layout;
           if (layout === 'form2') frequencyScope = 'form2';
           else if (layout === 'form3') frequencyScope = 'form3';
+          else if (layout === 'form4') frequencyScope = 'form4';
+          else if (layout === 'form5') frequencyScope = 'form5';
         }
         const frequencyTable = scopedIndustryTable('industry_frequency', frequencyScope);
         const { data: freq } = await supabase

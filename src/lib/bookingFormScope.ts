@@ -1,4 +1,4 @@
-export type BookingFormScope = 'form1' | 'form2' | 'form3' | 'form4';
+export type BookingFormScope = 'form1' | 'form2' | 'form3' | 'form4' | 'form5';
 
 export type IndustryExtraListingKind = 'extra' | 'addon';
 
@@ -8,13 +8,14 @@ export function parseBookingFormScopeParam(
   if (raw === 'form2') return 'form2';
   if (raw === 'form3') return 'form3';
   if (raw === 'form4') return 'form4';
+  if (raw === 'form5') return 'form5';
   if (raw === 'form1') return 'form1';
   return null;
 }
 
-/** Rows in industry_* tables are scoped by this column for form1–form4. */
+/** Rows in industry_* tables are scoped by this column for form1–form5. */
 export function hasBookingFormScopeColumnFilter(scope: BookingFormScope | null | undefined): boolean {
-  return scope === 'form1' || scope === 'form2' || scope === 'form3' || scope === 'form4';
+  return scope === 'form1' || scope === 'form2' || scope === 'form3' || scope === 'form4' || scope === 'form5';
 }
 
 /**
@@ -30,6 +31,7 @@ export function bookingFormScopeFromSearchParams(
   const parsed = parseBookingFormScopeParam(raw ?? null);
   if (parsed) return parsed;
   if (pathname) {
+    if (pathname.includes('/industries/form-5')) return 'form5';
     if (pathname.includes('/industries/form-4')) return 'form4';
     if (pathname.includes('/industries/form-3')) return 'form3';
     if (pathname.includes('/industries/form-2')) return 'form2';

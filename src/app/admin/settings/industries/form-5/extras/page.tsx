@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -12,7 +12,6 @@ import { ChevronDown, Loader2 } from "lucide-react";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { toast } from "sonner";
 import {
-  bookingFormScopeFromSearchParams,
   parseListingKindParam,
 } from "@/lib/bookingFormScope";
 
@@ -44,17 +43,16 @@ type Extra = {
 
 export default function IndustryFormExtrasPage() {
   const params = useSearchParams();
-  const pathname = usePathname();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
   const industryIdFromUrl = params.get("industryId");
-  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
+  const bookingFormScope = "form5" as const;
   const listingKindFilter = parseListingKindParam(params.get("listingKind"));
   const scopeQs =
     `&bookingFormScope=${bookingFormScope}` +
     (listingKindFilter ? `&listingKind=${listingKindFilter}` : "");
   const extrasSectionLabel = listingKindFilter === "addon" ? "Add-ons" : "Extras";
-  const formSegment = pathname.includes("/industries/form-5") ? "form-5" : "form-4";
+  const formSegment = "form-5";
   const isSinglePageCatalog = bookingFormScope === "form2" || bookingFormScope === "form3";
   const sectionBasePath =
     isSinglePageCatalog && listingKindFilter === "addon"

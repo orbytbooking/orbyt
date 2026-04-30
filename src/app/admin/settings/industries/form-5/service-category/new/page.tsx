@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,7 +42,6 @@ import {
   type FrequencyPopupDisplay,
 } from "@/lib/frequencyPopupDisplay";
 import { FORM1_NEW_CATEGORY_FORM_DEFAULTS } from "@/lib/form1DefaultServiceCategoryConfig";
-import { bookingFormScopeFromSearchParams } from "@/lib/bookingFormScope";
 
 type ServiceCategoryDisplay =
   | "customer_frontend_backend_admin"
@@ -100,16 +99,16 @@ function RichTextEditor({ value, onChange }: { value: string; onChange: (value: 
 
 export default function ServiceCategoryNewPage() {
   const params = useSearchParams();
-  const pathname = usePathname();
   const router = useRouter();
   const { toast } = useToast();
   const { currentBusiness } = useBusiness();
   const industry = params.get("industry") || "Industry";
   const industryIdFromUrl = params.get("industryId");
   const editId = params.get("editId") || null;
-  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
-  const formSegment = pathname.includes("/industries/form-5") ? "form-5" : "form-4";
+  const bookingFormScope = "form5" as const;
+  const formSegment = "form-5";
   const isForm2 = bookingFormScope === "form2";
+  const isForm5 = bookingFormScope === "form5";
   const scopeQs = `&bookingFormScope=${bookingFormScope}`;
 
   const [loading, setLoading] = useState(false);
@@ -128,6 +127,8 @@ export default function ServiceCategoryNewPage() {
     excludedProviders: [] as string[],
     serviceCategoryFrequency: FORM1_NEW_CATEGORY_FORM_DEFAULTS.serviceCategoryFrequency,
     selectedFrequencies: [...FORM1_NEW_CATEGORY_FORM_DEFAULTS.selectedFrequencies],
+    showBasedOnLocation: false,
+    locationIds: [] as string[],
     variables: {} as { [key: string]: string[] },
     excludeParameters: {
       pets: false,
@@ -235,6 +236,7 @@ export default function ServiceCategoryNewPage() {
   const [form2Packages, setForm2Packages] = useState<Array<{ id: string; name: string }>>([]);
   const [excludeParameters, setExcludeParameters] = useState<any[]>([]);
   const [frequencies, setFrequencies] = useState<string[]>([]);
+  const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
 
   const [providers, setProviders] = useState<Array<{ id: string; name: string }>>([]);
 
@@ -423,6 +425,17 @@ export default function ServiceCategoryNewPage() {
           excludedProviders: category.excluded_providers || [],
           serviceCategoryFrequency: category.service_category_frequency || false,
           selectedFrequencies: category.selected_frequencies || [],
+          showBasedOnLocation: Boolean((category.extras_config as any)?.form5LocationDependency?.enabled),
+          locationIds: (() => {
+            const dep = (category.extras_config as any)?.form5LocationDependency;
+            if (Array.isArray(dep?.locationIds)) {
+              return dep.locationIds.map((id: unknown) => String(id));
+            }
+            if (Array.isArray(dep?.locationNames)) {
+              return dep.locationNames.map((name: unknown) => String(name));
+            }
+            return [];
+          })(),
           variables: category.variables || {},
           excludeParameters: category.exclude_parameters || {
             pets: false,
@@ -761,6 +774,33 @@ export default function ServiceCategoryNewPage() {
     }
   }, [industryId, bookingFormScope]);
 
+  // Load locations from database
+  useEffect(() => {
+    const fetchLocations = async () => {
+      if (!currentBusiness?.id) {
+        setLocations([]);
+        return;
+      }
+      try {
+        const response = await fetch(`/api/locations?business_id=${encodeURIComponent(currentBusiness.id)}`);
+        const data = await response.json();
+        if (response.ok && Array.isArray(data.locations)) {
+          setLocations(
+            data.locations
+              .map((loc: any) => ({ id: String(loc.id), name: String(loc.name || "") }))
+              .filter((loc: { id: string; name: string }) => loc.id.length > 0 && loc.name.length > 0),
+          );
+        } else {
+          setLocations([]);
+        }
+      } catch (error) {
+        console.error("Error fetching locations:", error);
+        setLocations([]);
+      }
+    };
+    fetchLocations();
+  }, [currentBusiness?.id]);
+
   // Load exclude parameters from database
   useEffect(() => {
     if (isForm2) {
@@ -1059,6 +1099,10 @@ export default function ServiceCategoryNewPage() {
         throw new Error('Industry ID is required');
       }
 
+      const selectedLocationNames = locations
+        .filter((loc) => form.locationIds.includes(loc.id) || form.locationIds.includes(loc.name))
+        .map((loc) => loc.name);
+
       const categoryData = {
         business_id: business.id,
         industry_id: industryId,
@@ -1083,13 +1127,20 @@ export default function ServiceCategoryNewPage() {
         service_fee_enabled: form.serviceFeeEnabled,
         service_category_frequency: form.serviceCategoryFrequency,
         selected_frequencies: form.selectedFrequencies,
-        variables: form.variables,
-        exclude_parameters: isForm2
+        variables: isForm5 ? {} : form.variables,
+        exclude_parameters: isForm2 || isForm5
           ? { pets: false, smoking: false, deepCleaning: false }
           : form.excludeParameters,
-        selected_exclude_parameters: isForm2 ? [] : form.selectedExcludeParameters,
+        selected_exclude_parameters: isForm2 || isForm5 ? [] : form.selectedExcludeParameters,
         extras: form.extras,
-        extras_config: form.extrasConfig,
+        extras_config: {
+          ...form.extrasConfig,
+          form5LocationDependency: {
+            enabled: form.showBasedOnLocation,
+            locationIds: form.showBasedOnLocation ? form.locationIds : [],
+            locationNames: form.showBasedOnLocation ? selectedLocationNames : [],
+          },
+        },
         expedited_charge: (() => {
           const ec = form.expeditedCharge;
           return { enabled: ec.enabled, amount: ec.amount, displayText: ec.displayText, currency: ec.currency || "$" };
@@ -1127,7 +1178,7 @@ export default function ServiceCategoryNewPage() {
         ...categoryData,
         // Ensure arrays are properly formatted
         selected_frequencies: Array.isArray(form.selectedFrequencies) ? form.selectedFrequencies.filter(f => typeof f === 'string' && f.trim()) : [],
-        selected_exclude_parameters: isForm2
+        selected_exclude_parameters: isForm2 || isForm5
           ? []
           : Array.isArray(form.selectedExcludeParameters)
             ? form.selectedExcludeParameters.filter(p => typeof p === 'string' && p.trim())
@@ -1136,8 +1187,12 @@ export default function ServiceCategoryNewPage() {
           ? form.extras.map((e) => String(e).trim()).filter((id) => id.length > 0)
           : [],
         // Ensure objects are properly structured
-        variables: typeof form.variables === 'object' && form.variables !== null ? form.variables : {},
-        exclude_parameters: isForm2
+        variables: isForm5
+          ? {}
+          : typeof form.variables === 'object' && form.variables !== null
+            ? form.variables
+            : {},
+        exclude_parameters: isForm2 || isForm5
           ? { pets: false, smoking: false, deepCleaning: false }
           : typeof form.excludeParameters === 'object' && form.excludeParameters !== null
             ? {
@@ -1151,9 +1206,16 @@ export default function ServiceCategoryNewPage() {
                 deepCleaning: false
               },
         // Ensure other complex objects are properly structured
-        extras_config: form.extrasConfig || {
-          tip: { enabled: false, saveTo: 'all', display: 'customer_frontend_backend_admin' },
-          parking: { enabled: false, saveTo: 'all', display: 'customer_frontend_backend_admin' }
+        extras_config: {
+          ...(form.extrasConfig || {
+            tip: { enabled: false, saveTo: 'all', display: 'customer_frontend_backend_admin' },
+            parking: { enabled: false, saveTo: 'all', display: 'customer_frontend_backend_admin' }
+          }),
+          form5LocationDependency: {
+            enabled: form.showBasedOnLocation,
+            locationIds: form.showBasedOnLocation ? form.locationIds : [],
+            locationNames: form.showBasedOnLocation ? selectedLocationNames : [],
+          },
         },
         expedited_charge: (() => {
           const ec = form.expeditedCharge || { enabled: false, amount: "", displayText: "", currency: "$" };
@@ -3086,6 +3148,65 @@ export default function ServiceCategoryNewPage() {
                   </div>
                 )}
 
+                {isForm5 && (
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-medium">Should the service category show based on the location?</h4>
+                    <RadioGroup
+                      value={form.showBasedOnLocation ? "yes" : "no"}
+                      onValueChange={(value) => setForm((p) => ({ ...p, showBasedOnLocation: value === "yes" }))}
+                      className="grid gap-2"
+                    >
+                      <label className="flex items-center gap-2 text-sm">
+                        <RadioGroupItem value="yes" /> Yes
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <RadioGroupItem value="no" /> No
+                      </label>
+                    </RadioGroup>
+                    {form.showBasedOnLocation && (
+                      <div className="space-y-2 p-4 border rounded-lg bg-white">
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            id="select-all-service-locations"
+                            checked={locations.length > 0 && form.locationIds.length === locations.length}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setForm((p) => ({ ...p, locationIds: locations.map((l) => l.id) }));
+                              } else {
+                                setForm((p) => ({ ...p, locationIds: [] }));
+                              }
+                            }}
+                          />
+                          <Label htmlFor="select-all-service-locations" className="text-sm font-medium cursor-pointer">Select All</Label>
+                        </div>
+                        {locations.map((location) => (
+                          <div key={location.id} className="flex items-center gap-2 ml-6">
+                            <Checkbox
+                              id={`service-location-${location.id}`}
+                              checked={form.locationIds.includes(location.id)}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setForm((p) => ({ ...p, locationIds: [...p.locationIds, location.id] }));
+                                } else {
+                                  setForm((p) => ({ ...p, locationIds: p.locationIds.filter((id) => id !== location.id) }));
+                                }
+                              }}
+                            />
+                            <Label htmlFor={`service-location-${location.id}`} className="text-sm font-normal cursor-pointer">
+                              {location.name}
+                            </Label>
+                          </div>
+                        ))}
+                        {locations.length === 0 && (
+                          <p className="text-sm text-muted-foreground italic">
+                            No locations added yet. Add locations from the Locations section.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {isForm2 ? (
                   <>
                     <div className="space-y-3">
@@ -3186,7 +3307,7 @@ export default function ServiceCategoryNewPage() {
                       )}
                     </div>
                   </>
-                ) : (
+                ) : !isForm5 ? (
                   <div className="space-y-4">
                     <div>
                       <h4 className="text-sm font-medium">Variables</h4>
@@ -3272,10 +3393,10 @@ export default function ServiceCategoryNewPage() {
                       </div>
                     )}
                   </div>
-                )}
+                ) : null}
 
                 {/* Exclude Parameters (Form 1 only) */}
-                {!isForm2 && (
+                {!isForm2 && !isForm5 && (
                 <div className="space-y-3">
                   <h4 className="text-sm font-medium">Exclude Parameters</h4>
                   {excludeParameters.length === 0 ? (

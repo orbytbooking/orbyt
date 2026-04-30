@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -10,18 +10,16 @@ import { useToast } from "@/components/ui/use-toast";
 import { ChevronDown } from "lucide-react";
 import { serviceCategoriesService, ServiceCategory } from "@/lib/serviceCategories";
 import { useBusiness } from "@/contexts/BusinessContext";
-import { bookingFormScopeFromSearchParams } from "@/lib/bookingFormScope";
 
 export default function IndustryFormServiceCategoryPage() {
   const params = useSearchParams();
-  const pathname = usePathname();
   const router = useRouter();
   const { toast } = useToast();
   const { currentBusiness } = useBusiness();
   const industry = params.get("industry") || "Industry";
   const industryIdFromUrl = params.get("industryId");
-  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
-  const formSegment = pathname.includes("/industries/form-5") ? "form-5" : "form-4";
+  const bookingFormScope = "form5" as const;
+  const formSegment = "form-5";
   const scopeQs = `&bookingFormScope=${bookingFormScope}`;
   
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
@@ -168,7 +166,7 @@ export default function IndustryFormServiceCategoryPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>{industry} - {formSegment === "form-5" ? "Form 5" : "Form 4"} / Service Category</CardTitle>
+          <CardTitle>{industry} - Form 5 / Service Category</CardTitle>
           <CardDescription>Organize categories used in the booking form.</CardDescription>
         </CardHeader>
         <CardContent>

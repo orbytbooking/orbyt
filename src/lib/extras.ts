@@ -46,6 +46,7 @@ function scopeFromExtraPayload(row: Record<string, unknown>): BookingFormScope {
   if (raw === "form2") return "form2";
   if (raw === "form3") return "form3";
   if (raw === "form4") return "form4";
+  if (raw === "form5") return "form5";
   return "form1";
 }
 
@@ -250,7 +251,7 @@ class ExtrasService {
     const { data, error } = await q.single();
 
     if (error?.code === 'PGRST116') {
-      const fallbackTables = ['industry_form2_extras', 'industry_form2_addons', 'industry_form4_extras'];
+      const fallbackTables = ['industry_form2_extras', 'industry_form2_addons', 'industry_form4_extras', 'industry_form5_extras'];
       for (const table of fallbackTables) {
         let q2 = this.supabase.from(table).select('*').eq('id', id);
         if (scope?.business_id?.trim()) {
@@ -305,7 +306,7 @@ class ExtrasService {
     }
     let { data, error } = await q.select().single();
     if (error?.code === 'PGRST116') {
-      const fallbackTables = ['industry_form2_extras', 'industry_form2_addons', 'industry_form4_extras'];
+      const fallbackTables = ['industry_form2_extras', 'industry_form2_addons', 'industry_form4_extras', 'industry_form5_extras'];
       for (const table of fallbackTables) {
         let q2 = this.supabase.from(table).update(updateData).eq('id', id);
         if (scope?.business_id?.trim()) {
@@ -347,7 +348,7 @@ class ExtrasService {
       throw error;
     }
     if (Array.isArray(data) && data.length > 0) return { deleted: true };
-    const fallbackTables = ['industry_form2_extras', 'industry_form2_addons', 'industry_form4_extras'];
+    const fallbackTables = ['industry_form2_extras', 'industry_form2_addons', 'industry_form4_extras', 'industry_form5_extras'];
     for (const table of fallbackTables) {
       let q2 = this.supabase.from(table).delete().eq('id', id);
       if (scope?.business_id?.trim()) {
@@ -399,7 +400,7 @@ class ExtrasService {
       const r1 = await q.select('id');
       if (r1.error) throw r1.error;
       if ((r1.data?.length ?? 0) > 0) continue;
-      const fallbackTables = ['industry_form2_extras', 'industry_form2_addons', 'industry_form4_extras'];
+      const fallbackTables = ['industry_form2_extras', 'industry_form2_addons', 'industry_form4_extras', 'industry_form5_extras'];
       for (const table of fallbackTables) {
         let q2 = this.supabase
           .from(table)

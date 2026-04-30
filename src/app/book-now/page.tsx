@@ -474,7 +474,7 @@ async function resolveRebookServiceAcrossIndustries(
     id?: string;
     key: string;
     label: string;
-    customer_booking_form_layout?: "form1" | "form2" | "form3" | "form4";
+    customer_booking_form_layout?: "form1" | "form2" | "form3" | "form4" | "form5";
   }>,
   serviceName: string,
 ): Promise<{ industryKey: string; service: RebookServiceCategoryCard } | null> {
@@ -484,7 +484,9 @@ async function resolveRebookServiceAcrossIndustries(
     const industryId = ind.id?.trim();
     if (!industryId) continue;
     const scope =
-      ind.customer_booking_form_layout === "form4"
+      ind.customer_booking_form_layout === "form5"
+        ? "form5"
+        : ind.customer_booking_form_layout === "form4"
         ? "form4"
         : ind.customer_booking_form_layout === "form3"
           ? "form3"
@@ -605,7 +607,7 @@ function BookingPageContent() {
   const form2PackagesScrollRef = useRef<HTMLDivElement>(null);
   const [cardCustomizations, setCardCustomizations] = useState<Record<string, ServiceCustomization>>({});
   const [industryOptions, setIndustryOptions] = useState<
-    { label: string; key: string; id?: string; customer_booking_form_layout?: "form1" | "form2" | "form3" | "form4" }[]
+    { label: string; key: string; id?: string; customer_booking_form_layout?: "form1" | "form2" | "form3" | "form4" | "form5" }[]
   >([]);
   const [industryListLoaded, setIndustryListLoaded] = useState(false);
   const [industries, setIndustries] = useState<Array<{ id: string; name: string }>>([]);
@@ -759,9 +761,10 @@ function BookingPageContent() {
 
   /** Layout for the industry matching the current category step (key available before payment/details complete). */
   const selectedIndustryFormLayout = useMemo(() => {
-    if (!selectedCategory) return null as "form1" | "form2" | "form3" | "form4" | null;
+    if (!selectedCategory) return null as "form1" | "form2" | "form3" | "form4" | "form5" | null;
     const opt = industryOptions.find((o) => o.key === selectedCategory);
     if (!opt?.id) return null;
+    if (opt.customer_booking_form_layout === "form5") return "form5";
     if (opt.customer_booking_form_layout === "form4") return "form4";
     if (opt.customer_booking_form_layout === "form3") return "form3";
     return opt.customer_booking_form_layout === "form2" ? "form2" : "form1";
@@ -957,7 +960,8 @@ function BookingPageContent() {
 
   const selectedIndustryLabel = selectedIndustry?.label ?? "";
   const selectedIndustryId = selectedIndustry?.id ?? "";
-  const bookingFormScopeForCatalog = useMemo((): "form1" | "form2" | "form3" | "form4" => {
+  const bookingFormScopeForCatalog = useMemo((): "form1" | "form2" | "form3" | "form4" | "form5" => {
+    if (selectedIndustry?.customer_booking_form_layout === "form5") return "form5";
     if (selectedIndustry?.customer_booking_form_layout === "form4") return "form4";
     if (selectedIndustry?.customer_booking_form_layout === "form3") return "form3";
     if (selectedIndustry?.customer_booking_form_layout === "form2") return "form2";
@@ -1093,24 +1097,40 @@ function BookingPageContent() {
       if (!opts?.silent) setIndustryListLoaded(false);
       try {
         const response = await fetch(`/api/industries?business_id=${businessIdFromUrl}`);
-        const data = await response.json();
+        const rawText = await response.text();
+        let data: any = null;
+        try {
+          data = rawText ? JSON.parse(rawText) : null;
+        } catch {
+          data = null;
+        }
 
         if (!response.ok) {
-          console.error("Failed to fetch industries:", data.error);
-          setIndustries([]);
-          setIndustryOptions([]);
+          const contentType = response.headers.get("content-type") || "";
+          const isHtml = contentType.includes("text/html") || rawText.trimStart().startsWith("<!DOCTYPE");
+          const errorSummary = isHtml
+            ? "Received HTML error page from upstream while loading industries."
+            : data?.error || `HTTP ${response.status}`;
+          // In dev, console.error triggers Next runtime overlay; keep this non-fatal and quiet.
+          console.warn("Failed to fetch industries:", errorSummary);
+          if (!opts?.silent) {
+            setIndustries([]);
+            setIndustryOptions([]);
+          }
           return;
         }
 
         // Display industries added in Admin > Settings > Industries (e.g. Home Cleaning)
-        if (data.industries && Array.isArray(data.industries) && data.industries.length > 0) {
+        if (data?.industries && Array.isArray(data.industries) && data.industries.length > 0) {
           setIndustries(data.industries);
           const industryOptionsWithIds = data.industries.map((ind: any) => ({
             label: ind.name,
             key: toIndustryKey(ind.name) || `industry-${ind.id}`,
             id: ind.id,
             customer_booking_form_layout:
-              ind.customer_booking_form_layout === "form4"
+              ind.customer_booking_form_layout === "form5"
+                ? ("form5" as const)
+                : ind.customer_booking_form_layout === "form4"
                 ? ("form4" as const)
                 : ind.customer_booking_form_layout === "form3"
                   ? ("form3" as const)
@@ -1124,9 +1144,12 @@ function BookingPageContent() {
           setIndustryOptions([]);
         }
       } catch (error) {
-        console.error("Error fetching industries:", error);
-        setIndustries([]);
-        setIndustryOptions([]);
+        // Non-fatal network/API hiccup; preserve current state on background refresh.
+        console.warn("Error fetching industries:", error);
+        if (!opts?.silent) {
+          setIndustries([]);
+          setIndustryOptions([]);
+        }
       } finally {
         setIndustryListLoaded(true);
       }
@@ -1775,14 +1798,38 @@ function BookingPageContent() {
             };
           });
 
-        if (mapped.length === 0) {
+        const filteredMapped =
+          bookingFormScopeForCatalog === "form5"
+            ? mapped.filter((svc) => {
+                const dep = (svc.raw as any)?.extras_config?.form5LocationDependency;
+                if (!dep?.enabled) return true;
+                const allowedNamesRaw = Array.isArray(dep.locationNames) ? dep.locationNames : [];
+                const allowed = allowedNamesRaw
+                  .map((x: unknown) => String(x).trim().toLowerCase())
+                  .filter((x: string) => x.length > 0);
+                const resolved = locationResolve.labels
+                  .map((x) => String(x).trim().toLowerCase())
+                  .filter((x) => x.length > 0);
+                // Only enforce location dependency when this industry has linked locations.
+                // If not linked yet, avoid hiding all configured services.
+                if (!locationResolve.hasLinkedLocations) return true;
+                // Backward compatibility: older rows may only have locationIds (no names yet).
+                // In that case, fail open so configured services still show.
+                if (allowed.length === 0) return true;
+                if (resolved.length === 0) return false;
+                const resolvedSet = new Set(resolved);
+                return allowed.some((name: string) => resolvedSet.has(name));
+              })
+            : mapped;
+
+        if (filteredMapped.length === 0) {
           if (bookingFormScopeForCatalog === "form1") {
             setServiceCategories(buildForm1CustomerFacingPresetServiceCards());
           } else {
             setServiceCategories([]);
           }
         } else {
-          setServiceCategories(mapped);
+          setServiceCategories(filteredMapped);
         }
       } catch (error) {
         console.error("Error fetching service categories:", error);
@@ -1793,7 +1840,15 @@ function BookingPageContent() {
     };
 
     fetchServiceCategories();
-  }, [selectedIndustryId, businessIdFromUrl, needsLocationBeforeServices, bookingFormScopeForCatalog]);
+  }, [
+    selectedIndustryId,
+    businessIdFromUrl,
+    needsLocationBeforeServices,
+    bookingFormScopeForCatalog,
+    locationResolve.inputKey,
+    locationResolve.loading,
+    locationResolve.labels,
+  ]);
 
   useEffect(() => {
     if (!selectedService || !serviceCategories.length) return;
