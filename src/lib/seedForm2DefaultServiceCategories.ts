@@ -20,11 +20,11 @@ export async function seedForm2DefaultServiceCategoriesIfEmpty(
   try {
     const tenant = await requireIndustryBelongsToBusiness(supabase, businessId, industryId);
     if (!tenant.ok) {
-      return { applied: false, error: tenant.error };
+      return { applied: false, error: "error" in tenant ? tenant.error : "Industry tenant check failed" };
     }
 
     const { count, error: cErr } = await supabase
-      .from('industry_service_category')
+      .from('industry_form2_service_categories')
       .select('*', { count: 'exact', head: true })
       .eq('business_id', businessId)
       .eq('industry_id', industryId)
@@ -41,7 +41,7 @@ export async function seedForm2DefaultServiceCategoriesIfEmpty(
     const variables: Record<string, string[]> = {};
 
     for (const row of FORM2_DEFAULT_SERVICE_CATEGORIES) {
-      const { error: insErr } = await supabase.from('industry_service_category').insert({
+      const { error: insErr } = await supabase.from('industry_form2_service_categories').insert({
         business_id: businessId,
         industry_id: industryId,
         booking_form_scope: 'form2',

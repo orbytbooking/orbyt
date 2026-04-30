@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +43,11 @@ import {
 } from "@/lib/frequencyPopupDisplay";
 import { FORM1_NEW_CATEGORY_FORM_DEFAULTS } from "@/lib/form1DefaultServiceCategoryConfig";
 import { bookingFormScopeFromSearchParams } from "@/lib/bookingFormScope";
+
+type ServiceCategoryDisplay =
+  | "customer_frontend_backend_admin"
+  | "customer_backend_admin"
+  | "admin_only";
 
 // Simple Rich Text Editor for popup content
 function RichTextEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
@@ -95,13 +100,15 @@ function RichTextEditor({ value, onChange }: { value: string; onChange: (value: 
 
 export default function ServiceCategoryNewPage() {
   const params = useSearchParams();
+  const pathname = usePathname();
   const router = useRouter();
   const { toast } = useToast();
   const { currentBusiness } = useBusiness();
   const industry = params.get("industry") || "Industry";
   const industryIdFromUrl = params.get("industryId");
   const editId = params.get("editId") || null;
-  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
+  const isForm2 = bookingFormScope === "form2";
   const scopeQs = `&bookingFormScope=${bookingFormScope}`;
 
   const [loading, setLoading] = useState(false);
@@ -128,8 +135,8 @@ export default function ServiceCategoryNewPage() {
     },
     extras: [] as string[],
     selectedExcludeParameters: [] as string[],
-    display: FORM1_NEW_CATEGORY_FORM_DEFAULTS.display,
-    displayServiceLengthCustomer: "admin_only",
+    display: FORM1_NEW_CATEGORY_FORM_DEFAULTS.display as ServiceCategoryDisplay,
+    displayServiceLengthCustomer: "admin_only" as ServiceCategoryDisplay,
     enableServiceLengthTooltipCustomer: false,
     serviceLengthTooltipTextCustomer: "",
     displayServiceLengthProvider: false,
@@ -222,7 +229,9 @@ export default function ServiceCategoryNewPage() {
 
   // Reference data from API (pricing parameters, extras, exclude params, frequencies, providers)
   const [pricingParameters, setPricingParameters] = useState<{ [key: string]: any[] }>({});
-  const [availableExtras, setAvailableExtras] = useState<Array<{ id: number; name: string }>>([]);
+  const [availableExtras, setAvailableExtras] = useState<Array<{ id: number; name: string; listing_kind?: string }>>([]);
+  const [form2Items, setForm2Items] = useState<Array<{ id: string; name: string }>>([]);
+  const [form2Packages, setForm2Packages] = useState<Array<{ id: string; name: string }>>([]);
   const [excludeParameters, setExcludeParameters] = useState<any[]>([]);
   const [frequencies, setFrequencies] = useState<string[]>([]);
 
@@ -421,8 +430,8 @@ export default function ServiceCategoryNewPage() {
           },
           extras: normalizedExtras,
           selectedExcludeParameters: category.selected_exclude_parameters || [],
-          display: category.display || "customer_frontend_backend_admin",
-          displayServiceLengthCustomer: category.display_service_length_customer || "admin_only",
+          display: (category.display || "customer_frontend_backend_admin") as ServiceCategoryDisplay,
+          displayServiceLengthCustomer: (category.display_service_length_customer || "admin_only") as ServiceCategoryDisplay,
           displayServiceLengthProvider: category.display_service_length_provider || false,
           canCustomerEditService: category.can_customer_edit_service || false,
           serviceFeeEnabled: category.service_fee_enabled || false,
@@ -583,6 +592,64 @@ export default function ServiceCategoryNewPage() {
     }
   }, [industryId, currentBusiness?.id, bookingFormScope]);
 
+  // Load Form 2 items (pricing variables)
+  useEffect(() => {
+    const fetchForm2Items = async () => {
+      if (!isForm2 || !industryId || !currentBusiness?.id) {
+        setForm2Items([]);
+        return;
+      }
+      try {
+        const response = await fetch(
+          `/api/pricing-variables?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
+        );
+        const data = await response.json();
+        if (response.ok && Array.isArray(data.variables)) {
+          setForm2Items(
+            data.variables
+              .map((v: any) => ({ id: String(v.id), name: String(v.name ?? "").trim() }))
+              .filter((v: { id: string; name: string }) => v.id && v.name),
+          );
+        } else {
+          setForm2Items([]);
+        }
+      } catch (error) {
+        console.error('Error fetching Form 2 items:', error);
+        setForm2Items([]);
+      }
+    };
+    fetchForm2Items();
+  }, [isForm2, industryId, currentBusiness?.id, bookingFormScope]);
+
+  // Load Form 2 packages (pricing parameters)
+  useEffect(() => {
+    const fetchForm2Packages = async () => {
+      if (!isForm2 || !industryId || !currentBusiness?.id) {
+        setForm2Packages([]);
+        return;
+      }
+      try {
+        const response = await fetch(
+          `/api/pricing-parameters?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
+        );
+        const data = await response.json();
+        if (response.ok && Array.isArray(data.pricingParameters)) {
+          setForm2Packages(
+            data.pricingParameters
+              .map((p: any) => ({ id: String(p.id), name: String(p.name ?? "").trim() }))
+              .filter((p: { id: string; name: string }) => p.id && p.name),
+          );
+        } else {
+          setForm2Packages([]);
+        }
+      } catch (error) {
+        console.error('Error fetching Form 2 packages:', error);
+        setForm2Packages([]);
+      }
+    };
+    fetchForm2Packages();
+  }, [isForm2, industryId, currentBusiness?.id, bookingFormScope]);
+
   // Fetch industryId if not in URL
   useEffect(() => {
     const fetchIndustryId = async () => {
@@ -615,12 +682,12 @@ export default function ServiceCategoryNewPage() {
   // Load extras from database
   useEffect(() => {
     const fetchExtras = async () => {
-      if (!industryId) return;
+      if (!industryId || !currentBusiness?.id) return;
       
       try {
         console.log('Fetching extras for industryId:', industryId);
         const response = await fetch(
-          `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness?.id ?? "")}${scopeQs}`,
+          `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
         );
         console.log('Extras API response status:', response.status);
         
@@ -630,7 +697,13 @@ export default function ServiceCategoryNewPage() {
           
           if (data.extras && Array.isArray(data.extras)) {
             console.log('Setting available extras:', data.extras);
-            setAvailableExtras(data.extras.map((e: any) => ({ id: e.id, name: e.name })));
+            setAvailableExtras(
+              data.extras.map((e: any) => ({
+                id: e.id,
+                name: e.name,
+                listing_kind: e.listing_kind ? String(e.listing_kind) : undefined,
+              })),
+            );
           } else {
             console.log('No extras array in response');
           }
@@ -642,10 +715,10 @@ export default function ServiceCategoryNewPage() {
       }
     };
     
-    if (industryId) {
+    if (industryId && currentBusiness?.id) {
       fetchExtras();
     }
-  }, [industryId, bookingFormScope]);
+  }, [industryId, bookingFormScope, currentBusiness?.id]);
 
   // Load frequencies from database
   useEffect(() => {
@@ -689,6 +762,10 @@ export default function ServiceCategoryNewPage() {
 
   // Load exclude parameters from database
   useEffect(() => {
+    if (isForm2) {
+      setExcludeParameters([]);
+      return;
+    }
     const fetchExcludeParameters = async () => {
       if (!industryId) return;
       
@@ -721,7 +798,7 @@ export default function ServiceCategoryNewPage() {
     if (industryId) {
       fetchExcludeParameters();
     }
-  }, [industryId]);
+  }, [industryId, isForm2]);
 
   // Fetch providers from database
   useEffect(() => {
@@ -1006,8 +1083,10 @@ export default function ServiceCategoryNewPage() {
         service_category_frequency: form.serviceCategoryFrequency,
         selected_frequencies: form.selectedFrequencies,
         variables: form.variables,
-        exclude_parameters: form.excludeParameters,
-        selected_exclude_parameters: form.selectedExcludeParameters,
+        exclude_parameters: isForm2
+          ? { pets: false, smoking: false, deepCleaning: false }
+          : form.excludeParameters,
+        selected_exclude_parameters: isForm2 ? [] : form.selectedExcludeParameters,
         extras: form.extras,
         extras_config: form.extrasConfig,
         expedited_charge: (() => {
@@ -1047,21 +1126,29 @@ export default function ServiceCategoryNewPage() {
         ...categoryData,
         // Ensure arrays are properly formatted
         selected_frequencies: Array.isArray(form.selectedFrequencies) ? form.selectedFrequencies.filter(f => typeof f === 'string' && f.trim()) : [],
-        selected_exclude_parameters: Array.isArray(form.selectedExcludeParameters) ? form.selectedExcludeParameters.filter(p => typeof p === 'string' && p.trim()) : [],
+        selected_exclude_parameters: isForm2
+          ? []
+          : Array.isArray(form.selectedExcludeParameters)
+            ? form.selectedExcludeParameters.filter(p => typeof p === 'string' && p.trim())
+            : [],
         extras: Array.isArray(form.extras)
           ? form.extras.map((e) => String(e).trim()).filter((id) => id.length > 0)
           : [],
         // Ensure objects are properly structured
         variables: typeof form.variables === 'object' && form.variables !== null ? form.variables : {},
-        exclude_parameters: typeof form.excludeParameters === 'object' && form.excludeParameters !== null ? {
-          pets: Boolean(form.excludeParameters.pets),
-          smoking: Boolean(form.excludeParameters.smoking),
-          deepCleaning: Boolean(form.excludeParameters.deepCleaning)
-        } : {
-          pets: false,
-          smoking: false,
-          deepCleaning: false
-        },
+        exclude_parameters: isForm2
+          ? { pets: false, smoking: false, deepCleaning: false }
+          : typeof form.excludeParameters === 'object' && form.excludeParameters !== null
+            ? {
+                pets: Boolean(form.excludeParameters.pets),
+                smoking: Boolean(form.excludeParameters.smoking),
+                deepCleaning: Boolean(form.excludeParameters.deepCleaning)
+              }
+            : {
+                pets: false,
+                smoking: false,
+                deepCleaning: false
+              },
         // Ensure other complex objects are properly structured
         extras_config: form.extrasConfig || {
           tip: { enabled: false, saveTo: 'all', display: 'customer_frontend_backend_admin' },
@@ -1412,7 +1499,7 @@ export default function ServiceCategoryNewPage() {
                 <p className="text-xs text-muted-foreground">Where do you want this service category to show up?</p>
                 <RadioGroup
                   value={form.display}
-                  onValueChange={(value) => setForm(p => ({ ...p, display: value }))}
+                  onValueChange={(value: ServiceCategoryDisplay) => setForm(p => ({ ...p, display: value }))}
                   className="grid gap-2"
                 >
                   <label className="flex items-center gap-2 text-sm">
@@ -1433,7 +1520,7 @@ export default function ServiceCategoryNewPage() {
                 <p className="text-xs text-muted-foreground">Would you like the customer to see how long the service will take in the summary box?</p>
                 <RadioGroup
                   value={form.displayServiceLengthCustomer}
-                  onValueChange={(value) => setForm(p => ({ ...p, displayServiceLengthCustomer: value }))}
+                  onValueChange={(value: ServiceCategoryDisplay) => setForm(p => ({ ...p, displayServiceLengthCustomer: value }))}
                   className="grid gap-2"
                 >
                   <label className="flex items-center gap-2 text-sm">
@@ -2998,94 +3085,196 @@ export default function ServiceCategoryNewPage() {
                   </div>
                 )}
 
-                {/* Variables */}
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="text-sm font-medium">Variables</h4>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Select which variable(s) will display for this service category. Any variables that have not been checked off in this section will not display when this service category is selected on the booking form.
-                    </p>
-                  </div>
-                  
-                  {Object.keys(pricingParameters).length === 0 ? (
-                    <p className="text-sm text-muted-foreground italic">
-                      No pricing parameters added yet. Add pricing parameters from the Pricing section.
-                    </p>
-                  ) : (
-                    <div className="space-y-4 p-4 border rounded-lg bg-white">
-                      {/* Group variables by category dynamically */}
-                      {Object.keys(pricingParameters).map(category => {
-                        const categoryParams = pricingParameters[category] || [];
-                        if (categoryParams.length === 0) return null;
-                        
-                        return (
-                          <div key={category} className="space-y-2">
-                            <h4 className="text-sm font-semibold">{category}</h4>
-                            <div className="flex items-center gap-2">
-                              <Checkbox
-                                id={`select-all-service-${category.toLowerCase().replace(' ', '-')}`}
-                                checked={form.variables[category]?.length === categoryParams.length && categoryParams.length > 0}
-                                onCheckedChange={(checked) => {
-                                  if (checked) {
-                                    setForm(p => ({
-                                      ...p,
-                                      variables: {
-                                        ...p.variables,
-                                        [category]: categoryParams.map(param => param.name)
-                                      }
-                                    }));
-                                  } else {
-                                    setForm(p => ({
-                                      ...p,
-                                      variables: {
-                                        ...p.variables,
-                                        [category]: []
-                                      }
-                                    }));
-                                  }
-                                }}
-                              />
-                              <Label htmlFor={`select-all-service-${category.toLowerCase().replace(' ', '-')}`} className="text-sm cursor-pointer">Select All</Label>
-                            </div>
-                            <div className="grid grid-cols-10 gap-2">
-                              {categoryParams.map((param) => (
-                                <div key={param.id} className="flex items-center gap-2">
-                                  <Checkbox
-                                    id={`service-variable-${param.id}`}
-                                    checked={form.variables[category]?.includes(param.name) || false}
-                                    onCheckedChange={(checked) => {
-                                      const currentSelections = form.variables[category] || [];
-                                      if (checked) {
-                                        setForm(p => ({
-                                          ...p,
-                                          variables: {
-                                            ...p.variables,
-                                            [category]: [...currentSelections, param.name]
-                                          }
-                                        }));
-                                      } else {
-                                        setForm(p => ({
-                                          ...p,
-                                          variables: {
-                                            ...p.variables,
-                                            [category]: currentSelections.filter(item => item !== param.name)
-                                          }
-                                        }));
-                                      }
-                                    }}
-                                  />
-                                  <Label htmlFor={`service-variable-${param.id}`} className="text-sm cursor-pointer">{param.name}</Label>
-                                </div>
-                              ))}
-                            </div>
+                {isForm2 ? (
+                  <>
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-medium">Items</h4>
+                      {form2Items.length === 0 ? (
+                        <p className="text-sm text-muted-foreground italic">
+                          No items added yet. Add items from the Items section.
+                        </p>
+                      ) : (
+                        <div className="space-y-2 p-4 border rounded-lg bg-white">
+                          <div className="flex items-center gap-2">
+                            <Checkbox
+                              id="select-all-service-form2-items"
+                              checked={form2Items.length > 0 && form2Items.every((it) => (form.variables.Items || []).includes(it.id))}
+                              onCheckedChange={(checked) => {
+                                setForm((p) => ({
+                                  ...p,
+                                  variables: {
+                                    ...p.variables,
+                                    Items: checked ? form2Items.map((it) => it.id) : [],
+                                  },
+                                }));
+                              }}
+                            />
+                            <Label htmlFor="select-all-service-form2-items" className="text-sm cursor-pointer">Select All</Label>
                           </div>
-                        );
-                      })}
+                          <div className="grid grid-cols-6 gap-2">
+                            {form2Items.map((item) => (
+                              <div key={item.id} className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`service-form2-item-${item.id}`}
+                                  checked={(form.variables.Items || []).includes(item.id)}
+                                  onCheckedChange={(checked) => {
+                                    const current = form.variables.Items || [];
+                                    setForm((p) => ({
+                                      ...p,
+                                      variables: {
+                                        ...p.variables,
+                                        Items: checked ? [...current, item.id] : current.filter((x) => x !== item.id),
+                                      },
+                                    }));
+                                  }}
+                                />
+                                <Label htmlFor={`service-form2-item-${item.id}`} className="text-sm cursor-pointer">{item.name}</Label>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
 
-                {/* Exclude Parameters */}
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-medium">Packages</h4>
+                      {form2Packages.length === 0 ? (
+                        <p className="text-sm text-muted-foreground italic">
+                          No packages added yet. Add packages from the Packages section.
+                        </p>
+                      ) : (
+                        <div className="space-y-2 p-4 border rounded-lg bg-white">
+                          <div className="flex items-center gap-2">
+                            <Checkbox
+                              id="select-all-service-form2-packages"
+                              checked={form2Packages.length > 0 && form2Packages.every((pkg) => (form.variables.Packages || []).includes(pkg.id))}
+                              onCheckedChange={(checked) => {
+                                setForm((p) => ({
+                                  ...p,
+                                  variables: {
+                                    ...p.variables,
+                                    Packages: checked ? form2Packages.map((pkg) => pkg.id) : [],
+                                  },
+                                }));
+                              }}
+                            />
+                            <Label htmlFor="select-all-service-form2-packages" className="text-sm cursor-pointer">Select All</Label>
+                          </div>
+                          <div className="grid grid-cols-6 gap-2">
+                            {form2Packages.map((pkg) => (
+                              <div key={pkg.id} className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`service-form2-package-${pkg.id}`}
+                                  checked={(form.variables.Packages || []).includes(pkg.id)}
+                                  onCheckedChange={(checked) => {
+                                    const current = form.variables.Packages || [];
+                                    setForm((p) => ({
+                                      ...p,
+                                      variables: {
+                                        ...p.variables,
+                                        Packages: checked ? [...current, pkg.id] : current.filter((x) => x !== pkg.id),
+                                      },
+                                    }));
+                                  }}
+                                />
+                                <Label htmlFor={`service-form2-package-${pkg.id}`} className="text-sm cursor-pointer">{pkg.name}</Label>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="text-sm font-medium">Variables</h4>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Select which variable(s) will display for this service category. Any variables that have not been checked off in this section will not display when this service category is selected on the booking form.
+                      </p>
+                    </div>
+                    
+                    {Object.keys(pricingParameters).length === 0 ? (
+                      <p className="text-sm text-muted-foreground italic">
+                        No pricing parameters added yet. Add pricing parameters from the Pricing section.
+                      </p>
+                    ) : (
+                      <div className="space-y-4 p-4 border rounded-lg bg-white">
+                        {/* Group variables by category dynamically */}
+                        {Object.keys(pricingParameters).map(category => {
+                          const categoryParams = pricingParameters[category] || [];
+                          if (categoryParams.length === 0) return null;
+                          
+                          return (
+                            <div key={category} className="space-y-2">
+                              <h4 className="text-sm font-semibold">{category}</h4>
+                              <div className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`select-all-service-${category.toLowerCase().replace(' ', '-')}`}
+                                  checked={form.variables[category]?.length === categoryParams.length && categoryParams.length > 0}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setForm(p => ({
+                                        ...p,
+                                        variables: {
+                                          ...p.variables,
+                                          [category]: categoryParams.map(param => param.name)
+                                        }
+                                      }));
+                                    } else {
+                                      setForm(p => ({
+                                        ...p,
+                                        variables: {
+                                          ...p.variables,
+                                          [category]: []
+                                        }
+                                      }));
+                                    }
+                                  }}
+                                />
+                                <Label htmlFor={`select-all-service-${category.toLowerCase().replace(' ', '-')}`} className="text-sm cursor-pointer">Select All</Label>
+                              </div>
+                              <div className="grid grid-cols-10 gap-2">
+                                {categoryParams.map((param) => (
+                                  <div key={param.id} className="flex items-center gap-2">
+                                    <Checkbox
+                                      id={`service-variable-${param.id}`}
+                                      checked={form.variables[category]?.includes(param.name) || false}
+                                      onCheckedChange={(checked) => {
+                                        const currentSelections = form.variables[category] || [];
+                                        if (checked) {
+                                          setForm(p => ({
+                                            ...p,
+                                            variables: {
+                                              ...p.variables,
+                                              [category]: [...currentSelections, param.name]
+                                            }
+                                          }));
+                                        } else {
+                                          setForm(p => ({
+                                            ...p,
+                                            variables: {
+                                              ...p.variables,
+                                              [category]: currentSelections.filter(item => item !== param.name)
+                                            }
+                                          }));
+                                        }
+                                      }}
+                                    />
+                                    <Label htmlFor={`service-variable-${param.id}`} className="text-sm cursor-pointer">{param.name}</Label>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Exclude Parameters (Form 1 only) */}
+                {!isForm2 && (
                 <div className="space-y-3">
                   <h4 className="text-sm font-medium">Exclude Parameters</h4>
                   {excludeParameters.length === 0 ? (
@@ -3129,6 +3318,64 @@ export default function ServiceCategoryNewPage() {
                     </div>
                   )}
                 </div>
+                )}
+
+                {/* Add-ons (Form 2 only) */}
+                {isForm2 && (
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-medium">Add-ons</h4>
+                    <div className="space-y-2 p-4 border rounded-lg bg-white">
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="select-all-addons"
+                          checked={
+                            availableExtras.filter((e) => (e.listing_kind ?? "extra") !== "extra").length > 0 &&
+                            availableExtras
+                              .filter((e) => (e.listing_kind ?? "extra") !== "extra")
+                              .every((e) => form.extras.includes(String(e.id)))
+                          }
+                          onCheckedChange={(checked) => {
+                            const addonIds = availableExtras
+                              .filter((e) => (e.listing_kind ?? "extra") !== "extra")
+                              .map((e) => String(e.id));
+                            if (checked) {
+                              setForm((p) => ({ ...p, extras: Array.from(new Set([...p.extras, ...addonIds])) }));
+                            } else {
+                              const addonIdSet = new Set(addonIds);
+                              setForm((p) => ({ ...p, extras: p.extras.filter((id) => !addonIdSet.has(id)) }));
+                            }
+                          }}
+                        />
+                        <Label htmlFor="select-all-addons" className="text-sm font-medium cursor-pointer">Select All</Label>
+                      </div>
+                      {availableExtras
+                        .filter((extra) => (extra.listing_kind ?? "extra") !== "extra")
+                        .map((extra) => {
+                          const extraId = String(extra.id);
+                          return (
+                            <div key={extra.id} className="flex items-center gap-2 ml-6">
+                              <Checkbox
+                                id={`addon-${extra.id}`}
+                                checked={form.extras.includes(extraId)}
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    setForm((p) =>
+                                      p.extras.includes(extraId) ? p : { ...p, extras: [...p.extras, extraId] },
+                                    );
+                                  } else {
+                                    setForm((p) => ({ ...p, extras: p.extras.filter((e) => e !== extraId) }));
+                                  }
+                                }}
+                              />
+                              <Label htmlFor={`addon-${extra.id}`} className="text-sm font-normal cursor-pointer">
+                                {extra.name}
+                              </Label>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
 
                 {/* Extras */}
                 <div className="space-y-3">
@@ -3138,21 +3385,28 @@ export default function ServiceCategoryNewPage() {
                       <Checkbox
                         id="select-all-extras"
                         checked={
-                          availableExtras.length > 0 &&
-                          availableExtras.every((e) => form.extras.includes(String(e.id)))
+                          availableExtras.filter((e) => !isForm2 || (e.listing_kind ?? "extra") === "extra").length > 0 &&
+                          availableExtras
+                            .filter((e) => !isForm2 || (e.listing_kind ?? "extra") === "extra")
+                            .every((e) => form.extras.includes(String(e.id)))
                         }
                         onCheckedChange={(checked) => {
+                          const extraIds = availableExtras
+                            .filter((e) => !isForm2 || (e.listing_kind ?? "extra") === "extra")
+                            .map((e) => String(e.id));
                           if (checked) {
-                            const extraIds = availableExtras.map((e) => String(e.id));
-                            setForm((p) => ({ ...p, extras: extraIds }));
+                            setForm((p) => ({ ...p, extras: Array.from(new Set([...p.extras, ...extraIds])) }));
                           } else {
-                            setForm((p) => ({ ...p, extras: [] }));
+                            const extraSet = new Set(extraIds);
+                            setForm((p) => ({ ...p, extras: p.extras.filter((id) => !extraSet.has(id)) }));
                           }
                         }}
                       />
                       <Label htmlFor="select-all-extras" className="text-sm font-medium cursor-pointer">Select All</Label>
                     </div>
-                    {availableExtras.map((extra) => {
+                    {availableExtras
+                      .filter((extra) => !isForm2 || (extra.listing_kind ?? "extra") === "extra")
+                      .map((extra) => {
                       const extraId = String(extra.id);
                       return (
                       <div key={extra.id} className="flex items-center gap-2 ml-6">

@@ -24,6 +24,31 @@ import {
 import { finalStatusForAdminBooking, providerIdFromBookingPayload } from '@/lib/adminBookingStatus';
 import { sendCustomerBookingConfirmedEmail } from '@/lib/sendCustomerBookingConfirmedEmail';
 import { applyKeyAndJobNotesFromPayload } from '@/lib/bookingKeyJobNotes';
+import { scopedIndustryTable } from '@/lib/formScopeTables';
+import type { BookingFormScope } from '@/lib/bookingFormScope';
+
+async function getServiceCategoryCancellationFee(
+  supabase: ReturnType<typeof createClient>,
+  businessId: string,
+  serviceId: string,
+): Promise<Record<string, unknown> | null> {
+  const base = await supabase
+    .from('industry_service_category')
+    .select('cancellation_fee')
+    .eq('id', serviceId)
+    .eq('business_id', businessId)
+    .maybeSingle();
+  const baseFee = (base.data as { cancellation_fee?: Record<string, unknown> } | null)?.cancellation_fee;
+  if (baseFee) return baseFee;
+
+  const form2 = await supabase
+    .from('industry_form2_service_categories')
+    .select('cancellation_fee')
+    .eq('id', serviceId)
+    .eq('business_id', businessId)
+    .maybeSingle();
+  return (form2.data as { cancellation_fee?: Record<string, unknown> } | null)?.cancellation_fee ?? null;
+}
 
 export async function GET(
   request: Request,
@@ -377,13 +402,11 @@ export async function PUT(
           .maybeSingle();
         let categoryFee = null;
         if (existing.service_id) {
-          const { data: cat } = await supabase
-            .from('industry_service_category')
-            .select('cancellation_fee')
-            .eq('id', existing.service_id)
-            .eq('business_id', existing.business_id)
-            .maybeSingle();
-          if (cat?.cancellation_fee) categoryFee = cat.cancellation_fee as Record<string, unknown>;
+          categoryFee = await getServiceCategoryCancellationFee(
+            supabase,
+            existing.business_id,
+            existing.service_id,
+          );
         }
         const fee = getCancellationFeeForBooking(
           existing,
@@ -449,10 +472,29 @@ export async function PUT(
       let frequencyRepeats: string | null =
         (addBookingFormUpdate.frequency_repeats as string | null | undefined) ?? null;
       if (!frequencyRepeats && addBookingFormUpdate.industry_id) {
+        let frequencyScope: BookingFormScope = 'form1';
+        if (addBookingFormUpdate.booking_form_scope === 'form2') {
+          frequencyScope = 'form2';
+        } else if (addBookingFormUpdate.booking_form_scope === 'form3') {
+          frequencyScope = 'form3';
+        } else {
+          const { data: ind } = await supabase
+            .from('industries')
+            .select('customer_booking_form_layout')
+            .eq('id', String(addBookingFormUpdate.industry_id))
+            .eq('business_id', businessId)
+            .maybeSingle();
+          const layout = (ind as { customer_booking_form_layout?: string } | null)?.customer_booking_form_layout;
+          if (layout === 'form2') frequencyScope = 'form2';
+          else if (layout === 'form3') frequencyScope = 'form3';
+        }
+        const frequencyTable = scopedIndustryTable('industry_frequency', frequencyScope);
         const { data: freq } = await supabase
-          .from('industry_frequency')
+          .from(frequencyTable)
           .select('frequency_repeats')
           .eq('industry_id', String(addBookingFormUpdate.industry_id))
+          .eq('business_id', businessId)
+          .eq('booking_form_scope', frequencyScope)
           .ilike('name', freqName)
           .maybeSingle();
         frequencyRepeats =

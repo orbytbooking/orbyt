@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { parseBookingFormScopeParam, type BookingFormScope } from '@/lib/bookingFormScope';
+import { scopedIndustryTable } from '@/lib/formScopeTables';
 
 export async function GET(request: NextRequest) {
   try {
@@ -56,6 +58,9 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const industryId = searchParams.get('industryId');
     const businessId = searchParams.get('businessId');
+    let bookingFormScope: BookingFormScope | null = parseBookingFormScopeParam(
+      searchParams.get('bookingFormScope'),
+    );
 
     if (!industryId || !businessId) {
       return NextResponse.json(
@@ -64,34 +69,56 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    if (!bookingFormScope) {
+      const { data: industryRow } = await supabaseAdmin
+        .from('industries')
+        .select('customer_booking_form_layout')
+        .eq('id', industryId)
+        .eq('business_id', businessId)
+        .maybeSingle();
+      const layout = (industryRow as { customer_booking_form_layout?: string } | null)
+        ?.customer_booking_form_layout;
+      if (layout === 'form2') bookingFormScope = 'form2';
+      else if (layout === 'form3') bookingFormScope = 'form3';
+      else if (layout === 'form4') bookingFormScope = 'form4';
+      else bookingFormScope = 'form1';
+    }
+
+    const serviceCategoryTable = scopedIndustryTable('industry_service_category', bookingFormScope);
+    const extrasTable = scopedIndustryTable('industry_extras', bookingFormScope);
+    const frequencyTable = scopedIndustryTable('industry_frequency', bookingFormScope);
+
     console.log('Fetching data for industry:', industryId, 'business:', businessId);
 
     // Fetch service categories
     const { data: categoriesData, error: categoriesError } = await supabaseAdmin
-      .from('industry_service_category')
+      .from(serviceCategoryTable)
       .select('*')
       .eq('industry_id', industryId)
-      .eq('business_id', businessId);
+      .eq('business_id', businessId)
+      .eq('booking_form_scope', bookingFormScope);
 
     console.log('Categories data:', categoriesData);
     console.log('Categories error:', categoriesError);
 
     // Fetch extras
     const { data: extrasData, error: extrasError } = await supabaseAdmin
-      .from('industry_extras')
+      .from(extrasTable)
       .select('*')
       .eq('industry_id', industryId)
-      .eq('business_id', businessId);
+      .eq('business_id', businessId)
+      .eq('booking_form_scope', bookingFormScope);
 
     console.log('Extras data:', extrasData);
     console.log('Extras error:', extrasError);
 
     // Fetch frequencies
     const { data: frequenciesData, error: frequenciesError } = await supabaseAdmin
-      .from('industry_frequency')
+      .from(frequencyTable)
       .select('*')
       .eq('industry_id', industryId)
       .eq('business_id', businessId)
+      .eq('booking_form_scope', bookingFormScope)
       .eq('is_active', true);
 
     console.log('Frequencies data:', frequenciesData);

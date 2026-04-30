@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Form1RichTextEditor } from "@/components/admin/Form1RichTextEditor";
-import { Info, Loader2 } from "lucide-react";
+import { Droplets, Home, Info, Layers, Loader2, Package, Sparkles, Wrench } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useBusiness } from "@/contexts/BusinessContext";
 import type { FrequencyPopupDisplay } from "@/lib/frequencyPopupDisplay";
@@ -95,17 +95,30 @@ function variableFromForm(id: string, form: EditFormState): ManagePricingVariabl
 
 export default function EditPricingVariablePage() {
   const params = useSearchParams();
+  const pathname = usePathname();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
   const itemId = params.get("itemId") || "";
-  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const isCreateMode = !itemId;
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
   const scopeQs = `&bookingFormScope=${bookingFormScope}`;
   const isForm2 = bookingFormScope === "form2";
+  const isForm3 = bookingFormScope === "form3";
+  const isItemsCatalog = isForm2 || isForm3;
   const { currentBusiness } = useBusiness();
   const { toast } = useToast();
-  const labels = useMemo(() => getManageVariableLabels(isForm2, industry), [isForm2, industry]);
+  const labels = useMemo(() => getManageVariableLabels(bookingFormScope, industry), [bookingFormScope, industry]);
+  const pageTitle = isCreateMode
+    ? isItemsCatalog
+      ? "Add item"
+      : labels.addDialogTitle
+    : labels.editTitle;
 
-  const listHref = `/admin/settings/industries/form-1/pricing-parameter/manage-variables?industry=${encodeURIComponent(industry)}${scopeQs}`;
+  const listHref = isForm3
+    ? `/admin/settings/industries/form-3/items?industry=${encodeURIComponent(industry)}${scopeQs}`
+    : isForm2
+      ? `/admin/settings/industries/form-2/items?industry=${encodeURIComponent(industry)}${scopeQs}`
+      : `/admin/settings/industries/form-1/pricing-parameter/manage-variables?industry=${encodeURIComponent(industry)}${scopeQs}`;
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -123,9 +136,20 @@ export default function EditPricingVariablePage() {
   const [frequencyNames, setFrequencyNames] = useState<string[]>([]);
   const [serviceCategoryNames, setServiceCategoryNames] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState("details");
+  const hasWizardTabs = isItemsCatalog && isCreateMode;
+  const [itemLayoutMode, setItemLayoutMode] = useState<"image" | "icon">("icon");
+  const iconPresets = [
+    { id: "layers", label: "Layers", Icon: Layers },
+    { id: "package", label: "Package", Icon: Package },
+    { id: "sparkles", label: "Sparkles", Icon: Sparkles },
+    { id: "home", label: "Home", Icon: Home },
+    { id: "droplets", label: "Droplets", Icon: Droplets },
+    { id: "wrench", label: "Wrench", Icon: Wrench },
+  ] as const;
+  const [selectedPresetIcon, setSelectedPresetIcon] = useState<string>(iconPresets[0].id);
 
   const load = useCallback(async () => {
-    if (!currentBusiness?.id || !industry || !itemId || itemId.startsWith("temp-")) {
+    if (!currentBusiness?.id || !industry || itemId.startsWith("temp-")) {
       setLoading(false);
       return;
     }
@@ -160,12 +184,19 @@ export default function EditPricingVariablePage() {
       if (!res.ok) throw new Error(data.error || labels.loadFail);
       const rows = mapApiPricingVariables(data.variables ?? []);
       setAllRows(rows);
-      const found = rows.find((r) => r.id === itemId);
-      if (!found) {
-        toast({ title: "Not found", description: labels.loadFail, variant: "destructive" });
-        setAllRows([]);
+      if (isCreateMode) {
+        setEditForm((prev) => ({
+          ...prev,
+          category: prev.category || "Item",
+        }));
       } else {
-        setEditForm(formFromVariable(found));
+        const found = rows.find((r) => r.id === itemId);
+        if (!found) {
+          toast({ title: "Not found", description: labels.loadFail, variant: "destructive" });
+          setAllRows([]);
+        } else {
+          setEditForm(formFromVariable(found));
+        }
       }
       setFrequencyNames(
         Array.isArray(freqData.frequencies)
@@ -187,7 +218,7 @@ export default function EditPricingVariablePage() {
     } finally {
       setLoading(false);
     }
-  }, [currentBusiness?.id, industry, itemId, toast, bookingFormScope, labels.loadFail]);
+  }, [currentBusiness?.id, industry, itemId, isCreateMode, toast, bookingFormScope, labels.loadFail]);
 
   useEffect(() => {
     load();
@@ -198,7 +229,8 @@ export default function EditPricingVariablePage() {
       toast({ title: "Error", description: "Industry or business not loaded.", variant: "destructive" });
       return;
     }
-    if (!editForm.category.trim()) {
+    const normalizedCategory = (editForm.category.trim() || (isItemsCatalog ? editForm.name.trim() : "")).trim();
+    if (!normalizedCategory) {
       toast({ title: "Error", description: labels.catKeyRequired, variant: "destructive" });
       return;
     }
@@ -208,7 +240,7 @@ export default function EditPricingVariablePage() {
     }
     setSaving(true);
     try {
-      const merged = allRows.map((v) => (v.id === itemId ? variableFromForm(itemId, editForm) : v));
+      const formToSave: EditFormState = { ...editForm, category: normalizedCategory };
       const res = await fetch("/api/pricing-variables", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -216,38 +248,49 @@ export default function EditPricingVariablePage() {
           industryId,
           businessId: currentBusiness.id,
           bookingFormScope,
-          variables: merged.map(mapPricingVariableToPostBody),
+          ...(isCreateMode
+            ? { variable: mapPricingVariableToPostBody(variableFromForm(`temp-${Date.now()}`, formToSave)) }
+            : {
+                variables: allRows
+                  .map((v) => (v.id === itemId ? variableFromForm(itemId, formToSave) : v))
+                  .map(mapPricingVariableToPostBody),
+              }),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || labels.saveFail);
-      toast({ title: labels.updateTitle, description: labels.updateDesc });
+      toast({
+        title: isCreateMode ? labels.addTitle : labels.updateTitle,
+        description: isCreateMode ? "The item has been created successfully." : labels.updateDesc,
+      });
       router.push(listHref);
     } catch (e) {
       console.error(e);
-      toast({ title: "Error", description: labels.saveFail, variant: "destructive" });
+      toast({
+        title: "Error",
+        description: e instanceof Error ? e.message : labels.saveFail,
+        variant: "destructive",
+      });
     } finally {
       setSaving(false);
     }
   };
 
-  if (!itemId) {
-    return (
-      <div className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>{labels.editTitle}</CardTitle>
-            <CardDescription>Missing item id. Return to the list and choose Edit again.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button variant="outline" type="button" onClick={() => router.push(listHref)}>
-              {labels.cancelBtn}
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  const goNextOrSave = async () => {
+    if (!hasWizardTabs) {
+      await save();
+      return;
+    }
+    if (activeTab === "details") {
+      setActiveTab("dependencies");
+      return;
+    }
+    if (activeTab === "dependencies") {
+      setActiveTab("providers");
+      return;
+    }
+    await save();
+  };
 
   if (itemId.startsWith("temp-")) {
     return (
@@ -274,9 +317,9 @@ export default function EditPricingVariablePage() {
       <div className="space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle>{labels.editTitle}</CardTitle>
+            <CardTitle>{pageTitle}</CardTitle>
             <CardDescription>
-              {isForm2 ? `Configure this item for ${industry}.` : `Configure this variable for ${industry}.`}
+              {isItemsCatalog ? `Configure this item for ${industry}.` : `Configure this variable for ${industry}.`}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex min-h-[200px] items-center justify-center">
@@ -287,12 +330,12 @@ export default function EditPricingVariablePage() {
     );
   }
 
-  if (!allRows.some((r) => r.id === itemId)) {
+  if (!isCreateMode && !allRows.some((r) => r.id === itemId)) {
     return (
       <div className="space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle>{labels.editTitle}</CardTitle>
+            <CardTitle>{pageTitle}</CardTitle>
             <CardDescription>This row could not be loaded.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -311,10 +354,10 @@ export default function EditPricingVariablePage() {
     !editForm.showBasedOnServiceCategory;
 
   return (
-    <div className="space-y-6">
+    <div className={hasWizardTabs ? "space-y-4" : "space-y-6"}>
       <Card>
         <CardHeader>
-          <CardTitle>{labels.editTitle}</CardTitle>
+          <CardTitle>{pageTitle}</CardTitle>
           <CardDescription>
             {labels.editIntro}
             {!industryId && (
@@ -324,12 +367,13 @@ export default function EditPricingVariablePage() {
         </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-2 mb-6">
+            <TabsList className={`grid w-full ${hasWizardTabs ? "mb-4 grid-cols-3" : "mb-6 grid-cols-2"}`}>
               <TabsTrigger value="details">{labels.tabDetails}</TabsTrigger>
               <TabsTrigger value="dependencies">{labels.tabDependencies}</TabsTrigger>
+              {hasWizardTabs && <TabsTrigger value="providers">Providers</TabsTrigger>}
             </TabsList>
 
-            <TabsContent value="details" className="mt-4 space-y-5">
+            <TabsContent value="details" className={hasWizardTabs ? "mt-2 space-y-4" : "mt-4 space-y-5"}>
             <TooltipProvider delayDuration={200}>
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5">
@@ -352,22 +396,24 @@ export default function EditPricingVariablePage() {
                 </div>
                 <Input
                   id="edit-var-name"
-                  placeholder="e.g., Sq Ft, 1 - 1249 Sq Ft"
+                  placeholder={hasWizardTabs ? "Ex: Inside Cabinets" : "e.g., Sq Ft, 1 - 1249 Sq Ft"}
                   value={editForm.name}
                   onChange={(e) => setEditForm((p) => ({ ...p, name: e.target.value }))}
                 />
               </div>
 
-              <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
-                <Checkbox
-                  id="edit-var-active"
-                  checked={editForm.isActive}
-                  onCheckedChange={(checked) => setEditForm((p) => ({ ...p, isActive: !!checked }))}
-                />
-                <Label htmlFor="edit-var-active" className="text-sm font-medium cursor-pointer">
-                  Active
-                </Label>
-              </div>
+              {!hasWizardTabs && (
+                <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
+                  <Checkbox
+                    id="edit-var-active"
+                    checked={editForm.isActive}
+                    onCheckedChange={(checked) => setEditForm((p) => ({ ...p, isActive: !!checked }))}
+                  />
+                  <Label htmlFor="edit-var-active" className="text-sm font-medium cursor-pointer">
+                    Active
+                  </Label>
+                </div>
+              )}
 
               <div className="rounded-lg border border-sky-200/90 bg-sky-50/90 p-4 dark:border-sky-900/55 dark:bg-sky-950/30">
                 <div className="flex items-start gap-2">
@@ -605,22 +651,79 @@ export default function EditPricingVariablePage() {
                 </RadioGroup>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="edit-var-category">{labels.editCategoryLabel}</Label>
-                <p className="text-xs text-muted-foreground">{labels.editCategoryHelp}</p>
-                <Input
-                  id="edit-var-category"
-                  placeholder={labels.editCategoryPh}
-                  value={editForm.category}
-                  onChange={(e) => setEditForm((p) => ({ ...p, category: e.target.value }))}
-                />
-              </div>
+              {!hasWizardTabs && (
+                <div className="space-y-2">
+                  <Label htmlFor="edit-var-category">{labels.editCategoryLabel}</Label>
+                  <p className="text-xs text-muted-foreground">{labels.editCategoryHelp}</p>
+                  <Input
+                    id="edit-var-category"
+                    placeholder={labels.editCategoryPh}
+                    value={editForm.category}
+                    onChange={(e) => setEditForm((p) => ({ ...p, category: e.target.value }))}
+                  />
+                </div>
+              )}
+
+              {hasWizardTabs && (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium">Select layout</h4>
+                  <RadioGroup
+                    value={itemLayoutMode}
+                    onValueChange={(v) => setItemLayoutMode(v as "image" | "icon")}
+                    className="flex gap-6"
+                  >
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <RadioGroupItem value="image" />
+                      Select image
+                    </label>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <RadioGroupItem value="icon" />
+                      Select icon
+                    </label>
+                  </RadioGroup>
+                  <div className="pt-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-8 w-8 p-0"
+                      aria-label="Choose item layout asset"
+                    >
+                      <Info className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  {itemLayoutMode === "icon" && (
+                    <div className="flex flex-wrap items-center gap-8 pt-1">
+                      {iconPresets.map(({ id, label, Icon }) => {
+                        const active = selectedPresetIcon === id;
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={() => setSelectedPresetIcon(id)}
+                            title={label}
+                            aria-label={`Select ${label} icon`}
+                            className={`flex h-10 w-10 items-center justify-center rounded-md border transition ${
+                              active
+                                ? "border-cyan-500 bg-cyan-50 text-cyan-700"
+                                : "border-border bg-background text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            <Icon className="h-4 w-4" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </TooltipProvider>
         </TabsContent>
 
         <TabsContent value="dependencies" className="mt-4 space-y-5">
-            {isForm2 ? (
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Form 2</h3>
+            {isItemsCatalog ? (
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                {isForm3 ? "Form 3" : "Form 2"}
+              </h3>
             ) : null}
             <p className="text-sm text-muted-foreground">{labels.depsIntro}</p>
             {depsHintVisible ? (
@@ -770,6 +873,13 @@ export default function EditPricingVariablePage() {
               </div>
             </div>
         </TabsContent>
+        {hasWizardTabs && (
+          <TabsContent value="providers" className="mt-4 space-y-5">
+            <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+              Provider assignment for items is optional and can be configured later.
+            </div>
+          </TabsContent>
+        )}
       </Tabs>
 
           <div className="mt-6 flex gap-2 justify-end">
@@ -778,10 +888,10 @@ export default function EditPricingVariablePage() {
             </Button>
             <Button
               type="button"
-              onClick={save}
+              onClick={goNextOrSave}
               className="text-white"
               style={{ background: "linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)" }}
-              disabled={saving || !industryId || !editForm.name.trim() || !editForm.category.trim()}
+              disabled={saving || !industryId || !editForm.name.trim()}
             >
               {saving ? (
                 <>
@@ -789,7 +899,11 @@ export default function EditPricingVariablePage() {
                   Saving...
                 </>
               ) : (
-                labels.updateBtn
+                hasWizardTabs
+                  ? activeTab === "providers"
+                    ? labels.updateBtn
+                    : "Next"
+                  : labels.updateBtn
               )}
             </Button>
           </div>

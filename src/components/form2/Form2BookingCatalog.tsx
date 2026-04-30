@@ -129,7 +129,7 @@ export function Form2ItemPickerGrid({
       <div
         className={cn(
           uiVariant === "admin"
-            ? "grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6"
+            ? "flex flex-wrap items-start gap-2.5"
             : "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4",
         )}
       >
@@ -142,7 +142,7 @@ export function Form2ItemPickerGrid({
               onClick={() => onSelect(item.id)}
               className={cn(
                 uiVariant === "admin"
-                  ? "flex h-[104px] flex-col items-center justify-center gap-2 rounded-lg border-2 p-3 text-center transition-all"
+                  ? "flex h-[78px] w-[170px] max-w-full flex-col items-center justify-center gap-1 rounded-lg border-2 p-1.5 text-center transition-all"
                   : "flex flex-col items-center gap-3 rounded-2xl border-2 p-4 text-center transition-all min-h-[140px]",
                 uiVariant === "admin"
                   ? active
@@ -156,7 +156,7 @@ export function Form2ItemPickerGrid({
               <Form2ItemIcon category={item.category} uiVariant={uiVariant} />
               <span
                 className={cn(
-                  uiVariant === "admin" ? "text-xs font-medium" : "text-xs font-semibold",
+                  uiVariant === "admin" ? "text-[11px] font-medium" : "text-xs font-semibold",
                   "leading-snug text-slate-700 dark:text-slate-100",
                 )}
               >

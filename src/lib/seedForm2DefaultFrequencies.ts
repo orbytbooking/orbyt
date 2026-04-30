@@ -101,7 +101,7 @@ export async function seedForm2DefaultFrequenciesIfEmpty(
 ): Promise<{ applied: boolean; skipped?: boolean; error?: string }> {
   try {
     const { count, error: cErr } = await supabase
-      .from('industry_frequency')
+      .from('industry_form2_frequencies')
       .select('*', { count: 'exact', head: true })
       .eq('industry_id', industryId)
       .eq('booking_form_scope', 'form2');
@@ -141,13 +141,13 @@ export async function seedForm2DefaultFrequenciesIfEmpty(
       is_active: true,
     }));
 
-    const { error: insErr } = await supabase.from('industry_frequency').insert(rows);
+    const { error: insErr } = await supabase.from('industry_form2_frequencies').insert(rows);
     if (insErr) {
       return { applied: false, error: insErr.message };
     }
 
     const { error: defErr } = await supabase
-      .from('industry_frequency')
+      .from('industry_form2_frequencies')
       .update({ is_default: false })
       .eq('business_id', businessId)
       .eq('industry_id', industryId)
@@ -157,7 +157,7 @@ export async function seedForm2DefaultFrequenciesIfEmpty(
     }
 
     const { data: oneTime, error: otErr } = await supabase
-      .from('industry_frequency')
+      .from('industry_form2_frequencies')
       .select('id')
       .eq('industry_id', industryId)
       .eq('booking_form_scope', 'form2')
@@ -168,7 +168,7 @@ export async function seedForm2DefaultFrequenciesIfEmpty(
     }
     if (oneTime?.id) {
       const { error: u2 } = await supabase
-        .from('industry_frequency')
+        .from('industry_form2_frequencies')
         .update({ is_default: true })
         .eq('id', oneTime.id)
         .eq('business_id', businessId)

@@ -13,7 +13,6 @@ import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { dispatchIndustryChanged } from "@/lib/industryEvents";
-import { withTenantBusiness } from "@/lib/adminTenantFetch";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,7 +23,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Checkbox } from "@/components/ui/checkbox";
 
 interface Industry {
   id: string;
@@ -34,8 +32,24 @@ interface Industry {
   is_custom: boolean;
   created_at: string;
   updated_at: string;
-  /** Public book-now: form1 (steps) or form2 (single page) */
+  /** Public book-now: form1 (steps), form2 (single page), or form3 (items + add-ons, no packages). */
   customer_booking_form_layout?: string;
+}
+
+function configureCatalogHref(industry: Industry): string {
+  const q = encodeURIComponent(industry.name);
+  const id = encodeURIComponent(industry.id);
+  const layout = industry.customer_booking_form_layout;
+  if (layout === "form4") {
+    return `/admin/settings/industries/form-4/locations?industry=${q}&industryId=${id}&bookingFormScope=form4`;
+  }
+  if (layout === "form3") {
+    return `/admin/settings/industries/form-3/locations?industry=${q}&industryId=${id}&bookingFormScope=form3`;
+  }
+  if (layout === "form2") {
+    return `/admin/settings/industries/form-2/locations?industry=${q}&industryId=${id}&bookingFormScope=form2`;
+  }
+  return `/admin/settings/industries/form-1/locations?industry=${q}&industryId=${id}&bookingFormScope=form1`;
 }
 
 export default function IndustriesSettingsPage() {
@@ -74,6 +88,7 @@ export default function IndustriesSettingsPage() {
       "Moving Service",
       "Pet Groomer",
       "Massage",
+      "Post-Construction",
       "Roof Construction",
       "Photographer",
       "Education/Tutor",
@@ -91,28 +106,6 @@ export default function IndustriesSettingsPage() {
       fetchIndustries();
     }
   }, [currentBusiness]);
-
-  useEffect(() => {
-    if (!currentBusiness?.id) return;
-    let cancelled = false;
-    (async () => {
-      setSeedForm1DefaultLoading(true);
-      try {
-        const res = await fetch("/api/admin/business", withTenantBusiness(currentBusiness.id));
-        const data = await res.json().catch(() => ({}));
-        if (cancelled) return;
-        const v = data?.business?.default_seed_form1_template;
-        setSeedForm1Template(typeof v === "boolean" ? v : true);
-      } catch {
-        if (!cancelled) setSeedForm1Template(true);
-      } finally {
-        if (!cancelled) setSeedForm1DefaultLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [currentBusiness?.id]);
 
   const fetchIndustries = async () => {
     if (!currentBusiness) return;
@@ -158,7 +151,6 @@ export default function IndustriesSettingsPage() {
             name,
             business_id: currentBusiness.id,
             is_custom: !allIndustries.includes(name),
-            seed_form1_template: seedForm1Template,
           })
         });
         
@@ -207,7 +199,6 @@ export default function IndustriesSettingsPage() {
           description: customIndustry.description.trim() || null,
           business_id: currentBusiness.id,
           is_custom: true,
-          seed_form1_template: seedForm1Template,
         })
       });
       
@@ -309,42 +300,6 @@ export default function IndustriesSettingsPage() {
             </TabsList>
 
             <TabsContent value="add" className="space-y-6">
-              <label className="flex items-center gap-2 text-sm cursor-pointer select-none max-w-xl">
-                <Checkbox
-                  checked={seedForm1Template}
-                  disabled={seedForm1DefaultLoading || !currentBusiness?.id}
-                  onCheckedChange={async (v) => {
-                    const next = v === true;
-                    setSeedForm1Template(next);
-                    if (!currentBusiness?.id) return;
-                    try {
-                      const res = await fetch(
-                        "/api/admin/business",
-                        withTenantBusiness(currentBusiness.id, {
-                          method: "PUT",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ default_seed_form1_template: next }),
-                        }),
-                      );
-                      const data = await res.json().catch(() => ({}));
-                      if (!res.ok) {
-                        throw new Error(data?.error || "Failed to save");
-                      }
-                      toast.success("Default saved for this business");
-                    } catch (e) {
-                      setSeedForm1Template(!next);
-                      toast.error(e instanceof Error ? e.message : "Could not save Form 1 default");
-                    }
-                  }}
-                />
-                <span>
-                  Include Form 1 starter template when adding an industry (saved for this business): manage variables
-                  (Sq Ft / Bedroom / Bathroom), seven frequencies, six service categories, pricing tiers with defaults,
-                  nine extras, five exclude parameters, frequency–extra links, and (if this business already has locations)
-                  industry–location links for all of the above. Everything is stored on your tenant and can be edited in
-                  Form 1 settings. Turn off for industries that will not use Form 1.
-                </span>
-              </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {allIndustries.map((name) => {
                   const isOn = selectedIndustryNames.includes(name);
@@ -419,11 +374,7 @@ export default function IndustriesSettingsPage() {
                       </div>
                       <div className="flex flex-wrap gap-2 justify-end">
                         <Button variant="outline" size="sm" asChild>
-                          <Link
-                            href={`/admin/settings/industries/form-1/locations?industry=${encodeURIComponent(industry.name)}&industryId=${encodeURIComponent(industry.id)}&bookingFormScope=${industry.customer_booking_form_layout === "form2" ? "form2" : "form1"}`}
-                          >
-                            Configure catalog
-                          </Link>
+                          <Link href={configureCatalogHref(industry)}>Configure catalog</Link>
                         </Button>
                         <Button variant="outline" size="sm" asChild>
                           <Link href={`/admin/settings/industries/booking-template?industryId=${encodeURIComponent(industry.id)}`}>

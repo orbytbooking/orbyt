@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,11 +38,12 @@ function normalizeShapeForApi(s: DrawnShape): { type: string; coordinates: unkno
 
 export default function AddLocationPage() {
   const params = useSearchParams();
+  const pathname = usePathname();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
   const industryId = params.get("industryId") || "";
   const editId = params.get("editId");
-  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
   const scopeQs = `&bookingFormScope=${bookingFormScope}`;
   const { currentBusiness } = useBusiness();
   const { toast } = useToast();
@@ -82,7 +83,9 @@ export default function AddLocationPage() {
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
   const [excludedProviderIds, setExcludedProviderIds] = useState<string[]>([]);
 
-  const listHref = `/admin/settings/industries/form-1/locations?industry=${encodeURIComponent(industry)}${industryId ? `&industryId=${industryId}` : ""}${scopeQs}`;
+  const formSeg =
+    bookingFormScope === "form3" ? "form-3" : bookingFormScope === "form2" ? "form-2" : "form-1";
+  const listHref = `/admin/settings/industries/${formSeg}/locations?industry=${encodeURIComponent(industry)}${industryId ? `&industryId=${industryId}` : ""}${scopeQs}`;
 
   useEffect(() => {
     const resolveBusiness = async () => {
@@ -168,7 +171,7 @@ export default function AddLocationPage() {
           : null,
         industryId ? fetch(`/api/exclude-parameters?industryId=${industryId}`) : null,
         industryId
-          ? bookingFormScope === "form2"
+          ? bookingFormScope === "form2" || bookingFormScope === "form3"
             ? fetch(
                 `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessId)}${scopeQs}`,
               )

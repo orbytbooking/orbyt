@@ -1,5 +1,7 @@
 import { supabase } from '@/lib/supabaseClient';
 import type { BookingFormScope } from '@/lib/bookingFormScope';
+import { hasBookingFormScopeColumnFilter } from '@/lib/bookingFormScope';
+import { scopedIndustryTable } from '@/lib/formScopeTables';
 
 export interface ServiceCategory {
   id: string;
@@ -185,11 +187,12 @@ class ServiceCategoriesService {
     industryId: string,
     bookingFormScope?: BookingFormScope | null,
   ): Promise<ServiceCategory[]> {
+    const table = scopedIndustryTable('industry_service_category', bookingFormScope);
     let q = this.supabase
-      .from('industry_service_category')
+      .from(table)
       .select('*')
       .eq('industry_id', industryId);
-    if (bookingFormScope === 'form1' || bookingFormScope === 'form2') {
+    if (hasBookingFormScopeColumnFilter(bookingFormScope)) {
       q = q.eq('booking_form_scope', bookingFormScope);
     }
     const { data, error } = await q
@@ -211,11 +214,15 @@ class ServiceCategoriesService {
       .eq('id', id)
       .single();
 
+    if (error?.code === 'PGRST116') {
+      for (const table of ['industry_form2_service_categories', 'industry_form4_service_categories']) {
+        const fallback = await this.supabase.from(table).select('*').eq('id', id).single();
+        if (!fallback.error) return fallback.data;
+      }
+      return null;
+    }
     if (error) {
       console.error('Error fetching service category:', error);
-      if (error.code === 'PGRST116') {
-        return null;
-      }
       throw error;
     }
 
@@ -226,8 +233,9 @@ class ServiceCategoriesService {
     console.log('=== CREATE SERVICE CATEGORY DEBUG ===');
     console.log('Category data:', categoryData);
     
+    const table = scopedIndustryTable('industry_service_category', categoryData.booking_form_scope ?? 'form1');
     const { data, error } = await this.supabase
-      .from('industry_service_category')
+      .from(table)
       .insert(categoryData)
       .select()
       .single();
@@ -253,12 +261,29 @@ class ServiceCategoriesService {
     console.log('ID:', id);
     console.log('UpdateData:', JSON.stringify(updateData, null, 2));
     
-    const { data, error } = await this.supabase
-      .from('industry_service_category')
-      .update(updateData)
-      .eq('id', id)
-      .select()
-      .single();
+    const scope = (updateData as { booking_form_scope?: BookingFormScope | null }).booking_form_scope ?? null;
+    const preferredTable = scopedIndustryTable('industry_service_category', scope);
+    const candidateTables = Array.from(
+      new Set([preferredTable, 'industry_service_category', 'industry_form2_service_categories', 'industry_form4_service_categories']),
+    );
+
+    let data: ServiceCategory | null = null;
+    let error: { code?: string; message?: string } | null = null;
+    for (const table of candidateTables) {
+      const res2 = await this.supabase
+        .from(table)
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+      if (!res2.error) {
+        data = res2.data;
+        error = null;
+        break;
+      }
+      error = res2.error;
+      if (res2.error?.code !== 'PGRST116') break;
+    }
 
     console.log('Update result:', { data, error });
 
@@ -277,31 +302,45 @@ class ServiceCategoriesService {
   }
 
   async deleteServiceCategory(id: string): Promise<void> {
-    const { error } = await this.supabase
+    let { error, data } = await this.supabase
       .from('industry_service_category')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .select('id');
 
     if (error) {
       console.error('Error deleting service category:', error);
       throw error;
     }
+    if ((data?.length ?? 0) > 0) return;
+    for (const table of ['industry_form2_service_categories', 'industry_form4_service_categories']) {
+      const r2 = await this.supabase
+        .from(table)
+        .delete()
+        .eq('id', id)
+        .select('id');
+      if (r2.error) throw r2.error;
+      if ((r2.data?.length ?? 0) > 0) return;
+    }
   }
 
   async updateServiceCategoryOrder(updates: Array<{ id: string; sort_order: number }>): Promise<void> {
-    const promises = updates.map(({ id, sort_order }) =>
-      this.supabase
+    for (const { id, sort_order } of updates) {
+      const r1 = await this.supabase
         .from('industry_service_category')
         .update({ sort_order })
         .eq('id', id)
-    );
-
-    const results = await Promise.all(promises);
-    
-    for (const result of results) {
-      if (result.error) {
-        console.error('Error updating service category order:', result.error);
-        throw result.error;
+        .select('id');
+      if (r1.error) throw r1.error;
+      if ((r1.data?.length ?? 0) > 0) continue;
+      for (const table of ['industry_form2_service_categories', 'industry_form4_service_categories']) {
+        const r2 = await this.supabase
+          .from(table)
+          .update({ sort_order })
+          .eq('id', id)
+          .select('id');
+        if (r2.error) throw r2.error;
+        if ((r2.data?.length ?? 0) > 0) break;
       }
     }
   }

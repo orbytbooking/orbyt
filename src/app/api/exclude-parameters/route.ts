@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { excludeParametersService } from '@/lib/exclude-parameters';
+import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
+import { requireIndustryBelongsToBusiness } from '@/lib/industryTenantGuard';
+import { supabaseAdmin } from '@/lib/supabaseClient';
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const { searchParams } = new URL(request.url);
     const industryId = searchParams.get('industryId');
     const id = searchParams.get('id');
+    const businessId = searchParams.get('businessId') || searchParams.get('business_id');
 
     if (id) {
       if (!industryId) {
@@ -14,7 +21,32 @@ export async function GET(request: NextRequest) {
           { status: 400 }
         );
       }
-      const param = await excludeParametersService.getExcludeParameterById(id);
+      if (!supabaseAdmin) {
+        return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
+      }
+      const effectiveBusinessId =
+        businessId ||
+        (
+          await supabaseAdmin
+            .from('industries')
+            .select('business_id')
+            .eq('id', industryId)
+            .maybeSingle()
+        ).data?.business_id ||
+        null;
+      if (!effectiveBusinessId) {
+        return NextResponse.json({ error: 'Business not found for industry' }, { status: 404 });
+      }
+      const allowed = await userCanManageBookingsForBusiness(supabaseAdmin, user.id, effectiveBusinessId);
+      if (!allowed) return createForbiddenResponse('You do not have access to this business');
+      const tenant = await requireIndustryBelongsToBusiness(supabaseAdmin, effectiveBusinessId, industryId);
+      if (!tenant.ok) {
+        return NextResponse.json({ error: 'Exclude parameter not found' }, { status: 404 });
+      }
+      const param = await excludeParametersService.getExcludeParameterById(id, {
+        business_id: effectiveBusinessId,
+        industry_id: industryId,
+      });
       if (!param || param.industry_id !== industryId) {
         return NextResponse.json({ error: 'Exclude parameter not found' }, { status: 404 });
       }
@@ -28,7 +60,33 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const excludeParameters = await excludeParametersService.getExcludeParametersByIndustry(industryId);
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
+    }
+    const effectiveBusinessId =
+      businessId ||
+      (
+        await supabaseAdmin
+          .from('industries')
+          .select('business_id')
+          .eq('id', industryId)
+          .maybeSingle()
+      ).data?.business_id ||
+      null;
+    if (!effectiveBusinessId) {
+      return NextResponse.json({ error: 'Business not found for industry' }, { status: 404 });
+    }
+    const allowed = await userCanManageBookingsForBusiness(supabaseAdmin, user.id, effectiveBusinessId);
+    if (!allowed) return createForbiddenResponse('You do not have access to this business');
+    const tenant = await requireIndustryBelongsToBusiness(supabaseAdmin, effectiveBusinessId, industryId);
+    if (!tenant.ok) {
+      return NextResponse.json({ error: 'Exclude parameters not found' }, { status: 404 });
+    }
+
+    const excludeParameters = await excludeParametersService.getExcludeParametersByIndustry(
+      industryId,
+      effectiveBusinessId,
+    );
     return NextResponse.json({ excludeParameters });
   } catch (error) {
     console.error('💥 Error fetching exclude parameters:', error);
@@ -44,6 +102,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const paramData = await request.json();
     
     console.log('Received exclude parameter data:', JSON.stringify(paramData, null, 2));
@@ -60,6 +120,20 @@ export async function POST(request: NextRequest) {
         { error: 'Business ID is required' },
         { status: 400 }
       );
+    }
+
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
+    }
+    const allowed = await userCanManageBookingsForBusiness(supabaseAdmin, user.id, String(paramData.business_id));
+    if (!allowed) return createForbiddenResponse('You do not have access to this business');
+    const tenant = await requireIndustryBelongsToBusiness(
+      supabaseAdmin,
+      String(paramData.business_id),
+      String(paramData.industry_id),
+    );
+    if (!tenant.ok) {
+      return NextResponse.json({ error: 'Industry not found for this business' }, { status: 404 });
     }
 
     const excludeParameter = await excludeParametersService.createExcludeParameter(paramData);
@@ -84,8 +158,10 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const body = await request.json();
-    const { id, ...updateData } = body;
+    const { id, business_id: bodyBusinessId, industry_id: bodyIndustryId, ...updateData } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -93,8 +169,37 @@ export async function PUT(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    const excludeParameter = await excludeParametersService.updateExcludeParameter(id, updateData);
+    if (!bodyBusinessId || !bodyIndustryId) {
+      return NextResponse.json(
+        { error: 'business_id and industry_id are required' },
+        { status: 400 },
+      );
+    }
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
+    }
+    const allowed = await userCanManageBookingsForBusiness(supabaseAdmin, user.id, String(bodyBusinessId));
+    if (!allowed) return createForbiddenResponse('You do not have access to this business');
+    const tenant = await requireIndustryBelongsToBusiness(
+      supabaseAdmin,
+      String(bodyBusinessId),
+      String(bodyIndustryId),
+    );
+    if (!tenant.ok) {
+      return NextResponse.json({ error: 'Exclude parameter not found' }, { status: 404 });
+    }
+    const existing = await excludeParametersService.getExcludeParameterById(String(id), {
+      business_id: String(bodyBusinessId),
+      industry_id: String(bodyIndustryId),
+    });
+    if (!existing) {
+      return NextResponse.json({ error: 'Exclude parameter not found' }, { status: 404 });
+    }
+    const excludeParameter = await excludeParametersService.updateExcludeParameter(
+      id,
+      updateData,
+      { business_id: String(bodyBusinessId), industry_id: String(bodyIndustryId) },
+    );
     
     return NextResponse.json({ excludeParameter });
   } catch (error) {
@@ -108,8 +213,12 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
+    const industryId = searchParams.get('industryId');
+    const businessId = searchParams.get('businessId') || searchParams.get('business_id');
 
     if (!id) {
       return NextResponse.json(
@@ -117,8 +226,29 @@ export async function DELETE(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    await excludeParametersService.deleteExcludeParameter(id);
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
+    }
+    const existing = await excludeParametersService.getExcludeParameterById(String(id));
+    if (!existing) {
+      return NextResponse.json({ error: 'Exclude parameter not found' }, { status: 404 });
+    }
+    const effectiveIndustryId = industryId || existing.industry_id;
+    const effectiveBusinessId = businessId || existing.business_id;
+    const allowed = await userCanManageBookingsForBusiness(supabaseAdmin, user.id, effectiveBusinessId);
+    if (!allowed) return createForbiddenResponse('You do not have access to this business');
+    const tenant = await requireIndustryBelongsToBusiness(
+      supabaseAdmin,
+      effectiveBusinessId,
+      effectiveIndustryId,
+    );
+    if (!tenant.ok) {
+      return NextResponse.json({ error: 'Exclude parameter not found' }, { status: 404 });
+    }
+    await excludeParametersService.deleteExcludeParameter(id, {
+      business_id: effectiveBusinessId,
+      industry_id: effectiveIndustryId,
+    });
     
     return NextResponse.json({ success: true });
   } catch (error) {

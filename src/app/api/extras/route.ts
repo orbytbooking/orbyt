@@ -85,7 +85,11 @@ export async function POST(request: NextRequest) {
       typeof extrasService.createExtra
     >[0];
 
-    if (extraData.booking_form_scope !== 'form2') {
+    if (
+      extraData.booking_form_scope !== 'form2' &&
+      extraData.booking_form_scope !== 'form3' &&
+      extraData.booking_form_scope !== 'form4'
+    ) {
       extraData.booking_form_scope = 'form1';
     }
     if (extraData.listing_kind !== 'addon') {

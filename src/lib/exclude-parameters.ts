@@ -73,17 +73,21 @@ class ExcludeParametersService {
     this.supabase = (typeof window === 'undefined' && supabaseAdmin) ? supabaseAdmin : supabase;
   }
 
-  async getExcludeParametersByIndustry(industryId: string): Promise<ExcludeParameter[]> {
+  async getExcludeParametersByIndustry(industryId: string, businessId?: string): Promise<ExcludeParameter[]> {
     console.log('🔍 EXCLUDE PARAMETERS SERVICE DEBUG');
     console.log('📥 industryId:', industryId);
     console.log('📥 industryId type:', typeof industryId);
     console.log('📥 industryId value:', JSON.stringify(industryId));
     console.log('🔍 Querying table: industry_exclude_parameter');
     
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from('industry_exclude_parameter')
       .select('*')
-      .eq('industry_id', industryId)
+      .eq('industry_id', industryId);
+    if (businessId?.trim()) {
+      query = query.eq('business_id', businessId.trim());
+    }
+    const { data, error } = await query
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true });
 
@@ -114,12 +118,17 @@ class ExcludeParametersService {
     return data || [];
   }
 
-  async getExcludeParameterById(id: string): Promise<ExcludeParameter | null> {
-    const { data, error } = await this.supabase
+  async getExcludeParameterById(
+    id: string,
+    scope?: { business_id?: string; industry_id?: string },
+  ): Promise<ExcludeParameter | null> {
+    let query = this.supabase
       .from('industry_exclude_parameter')
       .select('*')
-      .eq('id', id)
-      .single();
+      .eq('id', id);
+    if (scope?.business_id) query = query.eq('business_id', scope.business_id);
+    if (scope?.industry_id) query = query.eq('industry_id', scope.industry_id);
+    const { data, error } = await query.single();
 
     if (error) {
       console.error('Error fetching exclude parameter:', error);
@@ -169,14 +178,19 @@ class ExcludeParametersService {
     return data;
   }
 
-  async updateExcludeParameter(id: string, updateData: UpdateExcludeParameterData): Promise<ExcludeParameter> {
+  async updateExcludeParameter(
+    id: string,
+    updateData: UpdateExcludeParameterData,
+    scope?: { business_id?: string; industry_id?: string },
+  ): Promise<ExcludeParameter> {
     const updatePayload = this.pickTableColumns(updateData as Record<string, unknown>);
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from('industry_exclude_parameter')
       .update(updatePayload)
-      .eq('id', id)
-      .select()
-      .single();
+      .eq('id', id);
+    if (scope?.business_id) query = query.eq('business_id', scope.business_id);
+    if (scope?.industry_id) query = query.eq('industry_id', scope.industry_id);
+    const { data, error } = await query.select().single();
 
     if (error) {
       console.error('Error updating exclude parameter:', error);
@@ -186,11 +200,14 @@ class ExcludeParametersService {
     return data;
   }
 
-  async deleteExcludeParameter(id: string): Promise<void> {
-    const { error } = await this.supabase
+  async deleteExcludeParameter(id: string, scope?: { business_id?: string; industry_id?: string }): Promise<void> {
+    let query = this.supabase
       .from('industry_exclude_parameter')
       .delete()
       .eq('id', id);
+    if (scope?.business_id) query = query.eq('business_id', scope.business_id);
+    if (scope?.industry_id) query = query.eq('industry_id', scope.industry_id);
+    const { error } = await query;
 
     if (error) {
       console.error('Error deleting exclude parameter:', error);

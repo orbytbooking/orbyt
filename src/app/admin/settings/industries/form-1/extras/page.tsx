@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -42,15 +42,25 @@ type Extra = {
 
 export default function IndustryFormExtrasPage() {
   const params = useSearchParams();
+  const pathname = usePathname();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
   const industryIdFromUrl = params.get("industryId");
-  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
   const listingKindFilter = parseListingKindParam(params.get("listingKind"));
   const scopeQs =
     `&bookingFormScope=${bookingFormScope}` +
     (listingKindFilter ? `&listingKind=${listingKindFilter}` : "");
   const extrasSectionLabel = listingKindFilter === "addon" ? "Add-ons" : "Extras";
+  const formSegment =
+    bookingFormScope === "form3" ? "form-3" : bookingFormScope === "form2" ? "form-2" : "form-1";
+  const isSinglePageCatalog = bookingFormScope === "form2" || bookingFormScope === "form3";
+  const sectionBasePath =
+    isSinglePageCatalog && listingKindFilter === "addon"
+      ? `/admin/settings/industries/${formSegment}/add-ons`
+      : isSinglePageCatalog
+        ? `/admin/settings/industries/${formSegment}/extras`
+        : "/admin/settings/industries/form-1/extras";
   const { currentBusiness } = useBusiness();
   
   const [extras, setExtras] = useState<Extra[]>([]);
@@ -205,7 +215,7 @@ export default function IndustryFormExtrasPage() {
     <div className="space-y-6">
       <div className="flex justify-end">
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => router.push(`/admin/settings/industries/form-1/extras/new?industry=${encodeURIComponent(industry)}&industryId=${industryId}${scopeQs}`)}>Add New</Button>
+          <Button variant="outline" onClick={() => router.push(`${sectionBasePath}/new?industry=${encodeURIComponent(industry)}&industryId=${industryId}${scopeQs}`)}>Add New</Button>
           <Button variant="default" onClick={updatePriority}>Update priority</Button>
         </div>
       </div>
@@ -301,7 +311,7 @@ export default function IndustryFormExtrasPage() {
                           <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground">Options <ChevronDown className="h-4 w-4" /></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => router.push(`/admin/settings/industries/form-1/extras/new?industry=${encodeURIComponent(industry)}&industryId=${industryId}&editId=${extra.id}${scopeQs}`)}>Edit</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => router.push(`${sectionBasePath}/new?industry=${encodeURIComponent(industry)}&industryId=${industryId}&editId=${extra.id}${scopeQs}`)}>Edit</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => move(extra.id, -1)}>Move Up</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => move(extra.id, 1)}>Move Down</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => remove(extra.id)} className="text-red-600">Delete</DropdownMenuItem>

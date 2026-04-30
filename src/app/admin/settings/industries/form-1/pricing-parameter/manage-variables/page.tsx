@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -29,20 +29,31 @@ import {
 
 export default function ManageVariablesPage() {
   const params = useSearchParams();
+  const pathname = usePathname();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
-  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
   const scopeQs = `&bookingFormScope=${bookingFormScope}`;
   const { currentBusiness } = useBusiness();
   const { toast } = useToast();
   const isForm2 = bookingFormScope === "form2";
-  const labels = useMemo(() => getManageVariableLabels(isForm2, industry), [isForm2, industry]);
+  const isForm3 = bookingFormScope === "form3";
+  const isItemsCatalog = isForm2 || isForm3;
+  const itemEditBasePath =
+    bookingFormScope === "form3"
+      ? "/admin/settings/industries/form-3/items/edit"
+      : isForm2
+        ? "/admin/settings/industries/form-2/items/edit"
+        : "/admin/settings/industries/form-1/pricing-parameter/manage-variables/edit";
+  const labels = useMemo(() => getManageVariableLabels(bookingFormScope, industry), [bookingFormScope, industry]);
   const listTitle = useMemo(
     () =>
-      isForm2
-        ? `${industry} - Form 2 / Items`
-        : `${industry} - Form 1 / Pricing variables`,
-    [isForm2, industry],
+      isForm3
+        ? `${industry} - Form 3 / Items`
+        : isForm2
+          ? `${industry} - Form 2 / Items`
+          : `${industry} - Form 1 / Pricing variables`,
+    [isForm2, isForm3, industry],
   );
 
   const [variables, setVariables] = useState<ManagePricingVariableUI[]>([]);
@@ -259,7 +270,17 @@ export default function ManageVariablesPage() {
     <div className="space-y-6">
       <div className="flex justify-end">
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setShowAddDialog(true)} disabled={!industryId || loading}>
+          <Button
+            variant="outline"
+            onClick={() =>
+              isItemsCatalog
+                ? router.push(
+                    `/admin/settings/industries/${isForm3 ? "form-3" : "form-2"}/items/new?industry=${encodeURIComponent(industry)}${scopeQs}`,
+                  )
+                : setShowAddDialog(true)
+            }
+            disabled={!industryId || loading}
+          >
             {labels.addBtn}
           </Button>
           <Button variant="default" onClick={saveVariables} disabled={saving || !industryId || loading}>
@@ -333,7 +354,7 @@ export default function ManageVariablesPage() {
                               <DropdownMenuItem
                                 onClick={() =>
                                   router.push(
-                                    `/admin/settings/industries/form-1/pricing-parameter/manage-variables/edit?industry=${encodeURIComponent(industry)}${scopeQs}&itemId=${encodeURIComponent(variable.id)}`,
+                                    `${itemEditBasePath}?industry=${encodeURIComponent(industry)}${scopeQs}&itemId=${encodeURIComponent(variable.id)}`,
                                   )
                                 }
                               >

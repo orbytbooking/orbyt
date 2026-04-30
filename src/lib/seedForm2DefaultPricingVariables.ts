@@ -27,11 +27,11 @@ export async function seedForm2DefaultPricingVariablesIfEmpty(
   try {
     const tenant = await requireIndustryBelongsToBusiness(supabase, businessId, industryId);
     if (!tenant.ok) {
-      return { applied: false, error: tenant.error };
+      return { applied: false, error: "error" in tenant ? tenant.error : "Industry tenant check failed" };
     }
 
     const { count, error: cErr } = await supabase
-      .from('industry_pricing_variable')
+      .from('industry_form2_items')
       .select('*', { count: 'exact', head: true })
       .eq('business_id', businessId)
       .eq('industry_id', industryId)
@@ -63,7 +63,7 @@ export async function seedForm2DefaultPricingVariablesIfEmpty(
       display: 'customer_frontend_backend_admin',
     }));
 
-    const { error: insErr } = await supabase.from('industry_pricing_variable').insert(rows);
+    const { error: insErr } = await supabase.from('industry_form2_items').insert(rows);
     if (insErr) {
       return { applied: false, error: insErr.message };
     }

@@ -474,7 +474,7 @@ async function resolveRebookServiceAcrossIndustries(
     id?: string;
     key: string;
     label: string;
-    customer_booking_form_layout?: "form1" | "form2";
+    customer_booking_form_layout?: "form1" | "form2" | "form3" | "form4";
   }>,
   serviceName: string,
 ): Promise<{ industryKey: string; service: RebookServiceCategoryCard } | null> {
@@ -483,7 +483,14 @@ async function resolveRebookServiceAcrossIndustries(
   for (const ind of industryOptions) {
     const industryId = ind.id?.trim();
     if (!industryId) continue;
-    const scope = ind.customer_booking_form_layout === "form2" ? "form2" : "form1";
+    const scope =
+      ind.customer_booking_form_layout === "form4"
+        ? "form4"
+        : ind.customer_booking_form_layout === "form3"
+          ? "form3"
+          : ind.customer_booking_form_layout === "form2"
+            ? "form2"
+            : "form1";
     const mapped = await fetchServiceCategoriesMappedForRebook(businessId, industryId, scope);
     const hit = mapped.find((svc) => serviceLabelsMatch(svc.name, name));
     if (hit) {
@@ -598,7 +605,7 @@ function BookingPageContent() {
   const form2PackagesScrollRef = useRef<HTMLDivElement>(null);
   const [cardCustomizations, setCardCustomizations] = useState<Record<string, ServiceCustomization>>({});
   const [industryOptions, setIndustryOptions] = useState<
-    { label: string; key: string; id?: string; customer_booking_form_layout?: "form1" | "form2" }[]
+    { label: string; key: string; id?: string; customer_booking_form_layout?: "form1" | "form2" | "form3" | "form4" }[]
   >([]);
   const [industryListLoaded, setIndustryListLoaded] = useState(false);
   const [industries, setIndustries] = useState<Array<{ id: string; name: string }>>([]);
@@ -752,9 +759,11 @@ function BookingPageContent() {
 
   /** Layout for the industry matching the current category step (key available before payment/details complete). */
   const selectedIndustryFormLayout = useMemo(() => {
-    if (!selectedCategory) return null as "form1" | "form2" | null;
+    if (!selectedCategory) return null as "form1" | "form2" | "form3" | "form4" | null;
     const opt = industryOptions.find((o) => o.key === selectedCategory);
     if (!opt?.id) return null;
+    if (opt.customer_booking_form_layout === "form4") return "form4";
+    if (opt.customer_booking_form_layout === "form3") return "form3";
     return opt.customer_booking_form_layout === "form2" ? "form2" : "form1";
   }, [selectedCategory, industryOptions]);
 
@@ -766,6 +775,18 @@ function BookingPageContent() {
     [industryListLoaded, industryOptions],
   );
 
+  /** Form 2 and Form 3 both use the single-page shell (vs Form 1 stepper). */
+  const allIndustriesSinglePageLayout = useMemo(
+    () =>
+      industryListLoaded &&
+      industryOptions.length > 0 &&
+      industryOptions.every(
+        (o) =>
+          o.customer_booking_form_layout === "form2" || o.customer_booking_form_layout === "form3",
+      ),
+    [industryListLoaded, industryOptions],
+  );
+
   const useForm2Layout = useMemo(
     () =>
       Boolean(
@@ -773,9 +794,13 @@ function BookingPageContent() {
           !bookingIdParam &&
           !limitedEditMode &&
           (bookingFormLayoutQuery === "form2" ||
+            bookingFormLayoutQuery === "form3" ||
             (bookingFormLayoutQuery !== "form1" &&
               industryListLoaded &&
-              (allIndustriesForm2 || selectedIndustryFormLayout === "form2"))),
+              (allIndustriesForm2 ||
+                allIndustriesSinglePageLayout ||
+                selectedIndustryFormLayout === "form2" ||
+                selectedIndustryFormLayout === "form3"))),
       ),
     [
       businessIdFromUrl,
@@ -784,6 +809,7 @@ function BookingPageContent() {
       bookingFormLayoutQuery,
       industryListLoaded,
       allIndustriesForm2,
+      allIndustriesSinglePageLayout,
       selectedIndustryFormLayout,
     ],
   );
@@ -931,12 +957,14 @@ function BookingPageContent() {
 
   const selectedIndustryLabel = selectedIndustry?.label ?? "";
   const selectedIndustryId = selectedIndustry?.id ?? "";
-  const bookingFormScopeForCatalog = useMemo(
-    (): "form1" | "form2" =>
-      selectedIndustry?.customer_booking_form_layout === "form2" ? "form2" : "form1",
-    [selectedIndustry],
-  );
-  const catalogListingKind = bookingFormScopeForCatalog === "form2" ? "addon" : "extra";
+  const bookingFormScopeForCatalog = useMemo((): "form1" | "form2" | "form3" | "form4" => {
+    if (selectedIndustry?.customer_booking_form_layout === "form4") return "form4";
+    if (selectedIndustry?.customer_booking_form_layout === "form3") return "form3";
+    if (selectedIndustry?.customer_booking_form_layout === "form2") return "form2";
+    return "form1";
+  }, [selectedIndustry]);
+  const catalogListingKind =
+    bookingFormScopeForCatalog === "form2" || bookingFormScopeForCatalog === "form3" ? "addon" : "extra";
   const catalogScopeQs = `&bookingFormScope=${bookingFormScopeForCatalog}&listingKind=${catalogListingKind}`;
 
   const selectedFrequencyTrim = serviceCustomization?.frequency?.trim() ?? "";
@@ -965,8 +993,10 @@ function BookingPageContent() {
   const allPricingParams = useMemo(
     () =>
       pricingParametersFull.map((p) => ({
+        id: String(p.id ?? ""),
         variable_category: String(p.variable_category ?? "").trim(),
         name: String(p.name ?? ""),
+        unit_label: p.unit_label != null ? String(p.unit_label) : null,
         price: typeof p.price === "number" ? p.price : Number(p.price) || 0,
         service_category:
           p.service_category != null && String(p.service_category).trim() !== ""
@@ -1080,7 +1110,13 @@ function BookingPageContent() {
             key: toIndustryKey(ind.name) || `industry-${ind.id}`,
             id: ind.id,
             customer_booking_form_layout:
-              ind.customer_booking_form_layout === "form2" ? ("form2" as const) : ("form1" as const),
+              ind.customer_booking_form_layout === "form4"
+                ? ("form4" as const)
+                : ind.customer_booking_form_layout === "form3"
+                  ? ("form3" as const)
+                  : ind.customer_booking_form_layout === "form2"
+                    ? ("form2" as const)
+                    : ("form1" as const),
           }));
           setIndustryOptions(industryOptionsWithIds);
         } else {
@@ -1345,19 +1381,27 @@ function BookingPageContent() {
               }))
               .filter((v: { category: string }) => v.category.length > 0),
           );
-          if (bookingFormScopeForCatalog === "form2") {
-            setForm2CatalogItems(
-              list
-                .map((v: Record<string, unknown>) => ({
-                  id: String(v.id ?? ""),
-                  name: String(v.name ?? "").trim(),
-                  category:
-                    v.category != null && String(v.category).trim() !== ""
-                      ? String(v.category).trim()
-                      : null,
-                }))
-                .filter((x: { id: string; name: string }) => Boolean(x.id) && Boolean(x.name)),
-            );
+          if (bookingFormScopeForCatalog === "form2" || bookingFormScopeForCatalog === "form3") {
+            const mappedItems = list
+              .map((v: Record<string, unknown>) => ({
+                id: String(v.id ?? ""),
+                name: String(v.name ?? "").trim(),
+                category:
+                  v.category != null && String(v.category).trim() !== ""
+                    ? String(v.category).trim()
+                    : null,
+              }))
+              .filter((x: { id: string; name: string }) => Boolean(x.id) && Boolean(x.name));
+            const allowedItemIds = Array.isArray(pricingFrequencyDeps?.bathroomVariables)
+              ? pricingFrequencyDeps.bathroomVariables.map((x) => String(x))
+              : null;
+            const filteredItems =
+              allowedItemIds == null
+                ? mappedItems
+                : allowedItemIds.length === 0
+                  ? []
+                  : mappedItems.filter((x) => allowedItemIds.includes(String(x.id)));
+            setForm2CatalogItems(filteredItems);
           } else {
             setForm2CatalogItems([]);
           }
@@ -1376,7 +1420,7 @@ function BookingPageContent() {
     };
 
     fetchExtrasAndVariables();
-  }, [selectedIndustryId, businessIdFromUrl, bookingPopupSurface, bookingFormScopeForCatalog]);
+  }, [selectedIndustryId, businessIdFromUrl, bookingPopupSurface, bookingFormScopeForCatalog, pricingFrequencyDeps]);
 
   // Initialize booking form
   const form = useForm<z.infer<typeof formSchema>>({
@@ -1956,17 +2000,37 @@ function BookingPageContent() {
     if (!bookingFrequencyForFilters.trim()) return serviceCategories;
     return serviceCategories.filter((svc) => {
       const raw = svc.raw;
-      if (!raw?.service_category_frequency) return true;
-      if (!serviceListFrequencyDeps) return true;
-      if (!serviceListFrequencyDeps.serviceCategories?.length) return true;
-      return serviceListFrequencyDeps.serviceCategories.includes(String(raw.id));
+      const shouldApplyDeps = useForm2Layout || Boolean(raw?.service_category_frequency);
+      if (!shouldApplyDeps) return true;
+      if (!serviceListFrequencyDeps) return false;
+      const allowed = Array.isArray(serviceListFrequencyDeps.serviceCategories)
+        ? serviceListFrequencyDeps.serviceCategories.map((x) => String(x))
+        : [];
+      if (allowed.length === 0) return false;
+      return allowed.includes(String(raw.id));
     });
-  }, [limitedEditMode, serviceCategories, serviceListFrequencyDeps, bookingFrequencyForFilters]);
+  }, [limitedEditMode, serviceCategories, serviceListFrequencyDeps, bookingFrequencyForFilters, useForm2Layout]);
 
   const form2PackagesForActiveItem = useMemo((): Form2PackageRow[] => {
     if (!useForm2Layout || !form2ActiveItemId || form2CatalogItems.length === 0) return [];
+    const activeItem = form2CatalogItems.find((v) => v.id === form2ActiveItemId);
+    const activeCategory = String(activeItem?.category ?? "").trim();
+    const allowedPackageIds = Array.isArray(pricingFrequencyDeps?.sqftVariables)
+      ? pricingFrequencyDeps.sqftVariables.map((x) => String(x))
+      : null;
     return pricingParametersFull
-      .filter((p) => String(p.variable_category ?? "").trim() !== "")
+      .filter((p) => {
+        const cat = String(p.variable_category ?? "").trim();
+        if (!cat || cat === FORM2_STANDALONE_PACKAGE_CATEGORY) return false;
+        const pVarId = String((p as { pricing_variable_id?: string | null }).pricing_variable_id ?? "").trim();
+        if (pVarId) return pVarId === form2ActiveItemId;
+        return activeCategory.length > 0 && cat === activeCategory;
+      })
+      .filter((p) => {
+        if (!allowedPackageIds) return true;
+        if (allowedPackageIds.length === 0) return false;
+        return allowedPackageIds.includes(String(p.id));
+      })
       .filter((p) => {
         const d = String(p.display ?? "").trim();
         if (d === "Admin Only") return false;
@@ -1996,7 +2060,7 @@ function BookingPageContent() {
         };
       })
       .filter((x): x is Form2PackageRow => x != null);
-  }, [useForm2Layout, form2ActiveItemId, form2CatalogItems.length, pricingParametersFull]);
+  }, [useForm2Layout, form2ActiveItemId, form2CatalogItems, pricingParametersFull, pricingFrequencyDeps]);
 
   const form2StandalonePackages = useMemo((): Form2PackageRow[] => {
     if (!useForm2Layout) return [];
@@ -3351,9 +3415,38 @@ function BookingPageContent() {
     const vc = serviceCustomization?.variableCategories ?? {};
     const bedroomTierSubtotal =
       String(vc['Bedroom'] ?? serviceCustomization?.bedroom ?? '').trim() || null;
+    if (bookingFormScopeForCatalog === "form4") {
+      const units = Math.max(0, Number(serviceCustomization?.squareMeters) || 0);
+      if (units <= 0) return 0;
+      const selectedForm4Category = String(vc.__form4SelectedCategory ?? "").trim();
+      const applicable = allPricingParams.filter((p) =>
+        pricingParamAppliesToSelection(
+          {
+            show_based_on_frequency: p.show_based_on_frequency,
+            frequency: p.frequency,
+            show_based_on_service_category: p.show_based_on_service_category,
+            service_category: p.service_category,
+            show_based_on_service_category2: Boolean(p.show_based_on_service_category2),
+            service_category2: p.service_category2 ?? null,
+          },
+          selectedFrequency,
+          serviceName,
+          bedroomTierSubtotal,
+        ),
+      );
+      const param =
+        (selectedForm4Category
+          ? applicable.find((p) => p.variable_category === selectedForm4Category)
+          : null) ?? applicable[0];
+      if (param && typeof param.price === "number" && !Number.isNaN(param.price)) {
+        return units * param.price;
+      }
+      return 0;
+    }
     let sum = 0;
     let addedAreaLike = false;
     for (const [categoryKey, optionName] of Object.entries(vc)) {
+      if (categoryKey.startsWith("__")) continue;
       if (!optionName?.trim() || optionName.trim().toLowerCase() === "none") continue;
       if (useFreqVarDeps && pricingFrequencyDeps) {
         const allowed = frequencyDepOptionNamesForCategory(categoryKey, pricingFrequencyDeps);
@@ -5948,7 +6041,14 @@ function BookingPageContent() {
                       {serviceCustomization?.squareMeters != null &&
                         String(serviceCustomization.squareMeters).trim() !== "" && (
                           <div className="flex justify-between gap-2">
-                            <span className="text-muted-foreground">Sq Ft</span>
+                            <span className="text-muted-foreground">
+                              {bookingFormScopeForCatalog === "form4"
+                                ? String(
+                                    serviceCustomization.variableCategories?.__form4SelectedCategory ??
+                                      "How Big Is Your Space",
+                                  ).trim() || "How Big Is Your Space"
+                                : "Sq Ft"}
+                            </span>
                             <span className="font-medium text-right">{serviceCustomization.squareMeters}</span>
                           </div>
                         )}

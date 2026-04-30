@@ -1,6 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { parseBookingFormScopeParam, type BookingFormScope } from '@/lib/bookingFormScope';
+import { scopedIndustryTable } from '@/lib/formScopeTables';
+import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
+import { requireIndustryBelongsToBusiness } from '@/lib/industryTenantGuard';
 
 function createSupabaseServiceClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -12,6 +16,40 @@ function createSupabaseServiceClient() {
   return createClient(supabaseUrl, supabaseServiceKey);
 }
 
+type CategoryLookup = {
+  table: string;
+  id: string;
+  business_id: string;
+  industry_id: string;
+};
+
+async function findServiceCategoryById(
+  supabase: ReturnType<typeof createSupabaseServiceClient>,
+  id: string,
+): Promise<CategoryLookup | null> {
+  const tables = [
+    'industry_service_category',
+    'industry_form2_service_categories',
+    'industry_form3_service_categories',
+    'industry_form4_service_categories',
+  ];
+  for (const table of tables) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('id, business_id, industry_id')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) {
+      if (error.code === '42P01') continue;
+      continue;
+    }
+    if (data?.id && data.business_id && data.industry_id) {
+      return { table, id: data.id, business_id: data.business_id, industry_id: data.industry_id };
+    }
+  }
+  return null;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = createSupabaseServiceClient();
@@ -19,6 +57,7 @@ export async function GET(request: NextRequest) {
     const industryId = searchParams.get('industryId');
     const businessId = searchParams.get('businessId');
     const bookingFormScope = parseBookingFormScopeParam(searchParams.get('bookingFormScope'));
+    const categoryTable = scopedIndustryTable('industry_service_category', bookingFormScope);
 
     console.log('🔍 SERVICE CATEGORIES API DEBUG');
     console.log('📥 industryId:', industryId);
@@ -32,7 +71,7 @@ export async function GET(request: NextRequest) {
     }
 
     let query = supabase
-      .from('industry_service_category')
+      .from(categoryTable)
       .select('*')
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true });
@@ -86,6 +125,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const supabase = createSupabaseServiceClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const body = await request.json();
     const {
       business_id,
@@ -123,6 +164,7 @@ export async function POST(request: NextRequest) {
 
     const booking_form_scope: BookingFormScope =
       booking_form_scope_raw === 'form2' ? 'form2' : 'form1';
+    const categoryTable = scopedIndustryTable('industry_service_category', booking_form_scope);
 
     if (!business_id || !industry_id || !name) {
       return NextResponse.json(
@@ -131,8 +173,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const allowed = await userCanManageBookingsForBusiness(supabase, user.id, String(business_id));
+    if (!allowed) {
+      return createForbiddenResponse('You do not have access to this business');
+    }
+    const tenant = await requireIndustryBelongsToBusiness(supabase, String(business_id), String(industry_id));
+    if (!tenant.ok) {
+      return NextResponse.json({ error: 'Industry not found for this business' }, { status: 404 });
+    }
+
     const { data: category, error } = await supabase
-      .from('industry_service_category')
+      .from(categoryTable)
       .insert([
         {
           business_id,
@@ -264,6 +315,8 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const supabase = createSupabaseServiceClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const body = await request.json();
     const { id, ...updateData } = body;
 
@@ -272,6 +325,21 @@ export async function PUT(request: NextRequest) {
         { error: 'Service category ID is required' },
         { status: 400 }
       );
+    }
+
+    const existing = await findServiceCategoryById(supabase, String(id));
+    if (!existing) {
+      return NextResponse.json({ error: 'Service category not found' }, { status: 404 });
+    }
+    const allowed = await userCanManageBookingsForBusiness(supabase, user.id, existing.business_id);
+    if (!allowed) {
+      return createForbiddenResponse('You do not have access to this business');
+    }
+    if (updateData.business_id && String(updateData.business_id) !== existing.business_id) {
+      return NextResponse.json({ error: 'business_id mismatch' }, { status: 400 });
+    }
+    if (updateData.industry_id && String(updateData.industry_id) !== existing.industry_id) {
+      return NextResponse.json({ error: 'industry_id mismatch' }, { status: 400 });
     }
 
     const cleanedData: any = {
@@ -317,9 +385,11 @@ export async function PUT(request: NextRequest) {
     }
 
     const { data: category, error } = await supabase
-      .from('industry_service_category')
+      .from(existing.table)
       .update(cleanedData)
       .eq('id', id)
+      .eq('business_id', existing.business_id)
+      .eq('industry_id', existing.industry_id)
       .select()
       .single();
 
@@ -344,6 +414,8 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const supabase = createSupabaseServiceClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const permanent = searchParams.get('permanent') === 'true';
@@ -355,11 +427,23 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
+    const existing = await findServiceCategoryById(supabase, String(id));
+    if (!existing) {
+      return NextResponse.json({ error: 'Service category not found' }, { status: 404 });
+    }
+    const allowed = await userCanManageBookingsForBusiness(supabase, user.id, existing.business_id);
+    if (!allowed) {
+      return createForbiddenResponse('You do not have access to this business');
+    }
+
     if (permanent) {
       const { error } = await supabase
-        .from('industry_service_category')
+        .from(existing.table)
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .eq('business_id', existing.business_id)
+        .eq('industry_id', existing.industry_id)
+        .select('id');
 
       if (error) {
         console.error('Error permanently deleting service category:', error);
@@ -370,9 +454,12 @@ export async function DELETE(request: NextRequest) {
       }
     } else {
       const { error } = await supabase
-        .from('industry_service_category')
+        .from(existing.table)
         .update({ is_active: false, updated_at: new Date().toISOString() })
-        .eq('id', id);
+        .eq('id', id)
+        .eq('business_id', existing.business_id)
+        .eq('industry_id', existing.industry_id)
+        .select('id');
 
       if (error) {
         console.error('Error soft deleting service category:', error);

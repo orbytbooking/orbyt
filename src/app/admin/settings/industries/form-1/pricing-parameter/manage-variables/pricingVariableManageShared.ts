@@ -6,6 +6,7 @@ import {
   normalizePricingVariableDisplay,
   type PricingVariableDisplay,
 } from "@/lib/pricing-variables";
+import type { BookingFormScope } from "@/lib/bookingFormScope";
 
 export const VARIABLE_UI_DEFAULTS = {
   showExplanationIconOnForm: false,
@@ -106,8 +107,9 @@ export function mapPricingVariableToPostBody(v: ManagePricingVariableUI) {
   };
 }
 
-export function getManageVariableLabels(isForm2: boolean, industry: string) {
-  if (isForm2) {
+export function getManageVariableLabels(bookingFormScope: BookingFormScope, industry: string) {
+  if (bookingFormScope === "form2" || bookingFormScope === "form3") {
+    const isForm3 = bookingFormScope === "form3";
     return {
       loadFail: "Failed to load items",
       saveFail: "Failed to save items.",
@@ -118,15 +120,18 @@ export function getManageVariableLabels(isForm2: boolean, industry: string) {
       addRequired: "Item name is required.",
       removeTitle: "Item removed",
       removeDesc: "The item has been removed.",
-      catKeyRequired: "Item category key is required (must match how packages use this item).",
+      catKeyRequired: isForm3
+        ? "Item category key is required (internal key for add-ons and reporting)."
+        : "Item category key is required (must match how packages use this item).",
       nameRequired: "Name is required.",
       updateTitle: "Item updated",
       updateDesc: "The item has been updated successfully.",
-      back: "Back to Packages",
+      back: isForm3 ? "Back to Items" : "Back to Packages",
       addBtn: "Add New",
       cardTitle: "Items",
-      cardDesc:
-        "You can place an item here such as sedan or motorcycle for a car washing service and later when someone selects the sedan they will be shown packages for that item.",
+      cardDesc: isForm3
+        ? "Define items customers pick on Form 3 (for example vehicle type or home size). Add-ons can attach to these items."
+        : "You can place an item here such as sedan or motorcycle for a car washing service and later when someone selects the sedan they will be shown packages for that item.",
       emptyLine1: "No items defined.",
       emptyLine2: 'Click "Add New" above to create one, or add common defaults below.',
       defaultsBtn: "Add default items (Sq Ft, Bedroom, Bathroom, Hours, Rooms)",
@@ -137,8 +142,9 @@ export function getManageVariableLabels(isForm2: boolean, industry: string) {
       addTitle: "Item added",
       addPersistHint: "Click Save Changes to persist.",
       editTitle: "Edit item",
-      editIntro:
-        "Items are the choices customers pick on Form 2 (for example home size or vehicle type). Packages are offered after they choose an item.",
+      editIntro: isForm3
+        ? "Items are the choices customers pick on Form 3 before add-ons and extras. Form 3 does not use packages."
+        : "Items are the choices customers pick on Form 2 (for example home size or vehicle type). Packages are offered after they choose an item.",
       editCategoryLabel: "Item category key",
       editCategoryHelp:
         "Must match the item group used when configuring packages for this industry (internal key).",

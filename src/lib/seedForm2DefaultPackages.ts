@@ -144,10 +144,10 @@ export async function seedForm2DefaultPackagesIfEmpty(
 ): Promise<{ applied: boolean; skipped?: boolean; error?: string }> {
   try {
     const tenant = await requireIndustryBelongsToBusiness(supabase, businessId, industryId);
-    if (!tenant.ok) return { applied: false, error: tenant.error };
+    if (!tenant.ok) return { applied: false, error: "error" in tenant ? tenant.error : "Industry tenant check failed" };
 
     const { count, error: cErr } = await supabase
-      .from('industry_pricing_parameter')
+      .from('industry_form2_packages')
       .select('*', { count: 'exact', head: true })
       .eq('business_id', businessId)
       .eq('industry_id', industryId)
@@ -156,7 +156,7 @@ export async function seedForm2DefaultPackagesIfEmpty(
     if ((count ?? 0) > 0) return { applied: false, skipped: true };
 
     const { data: variableRows, error: vErr } = await supabase
-      .from('industry_pricing_variable')
+      .from('industry_form2_items')
       .select('id, category, sort_order')
       .eq('business_id', businessId)
       .eq('industry_id', industryId)
@@ -169,7 +169,7 @@ export async function seedForm2DefaultPackagesIfEmpty(
     const rows = appendPackageRows(byCategory, businessId, industryId);
     if (rows.length === 0) return { applied: false, skipped: true };
 
-    const { error: insErr } = await supabase.from('industry_pricing_parameter').insert(rows);
+    const { error: insErr } = await supabase.from('industry_form2_packages').insert(rows);
     if (insErr) return { applied: false, error: insErr.message };
     return { applied: true };
   } catch (e) {
@@ -189,10 +189,10 @@ export async function seedForm2MissingPackagesPerVariable(
 ): Promise<{ applied: boolean; inserted?: number; skipped?: boolean; error?: string }> {
   try {
     const tenant = await requireIndustryBelongsToBusiness(supabase, businessId, industryId);
-    if (!tenant.ok) return { applied: false, error: tenant.error };
+    if (!tenant.ok) return { applied: false, error: "error" in tenant ? tenant.error : "Industry tenant check failed" };
 
     const { data: variableRows, error: vErr } = await supabase
-      .from('industry_pricing_variable')
+      .from('industry_form2_items')
       .select('id, category, sort_order')
       .eq('business_id', businessId)
       .eq('industry_id', industryId)
@@ -205,7 +205,7 @@ export async function seedForm2MissingPackagesPerVariable(
     if (byCategory.size === 0) return { applied: false, skipped: true };
 
     const { data: paramRows, error: pErr } = await supabase
-      .from('industry_pricing_parameter')
+      .from('industry_form2_packages')
       .select('pricing_variable_id')
       .eq('business_id', businessId)
       .eq('industry_id', industryId)
@@ -229,7 +229,7 @@ export async function seedForm2MissingPackagesPerVariable(
     const rows = appendPackageRows(byCategory, businessId, industryId, missingIds);
     if (rows.length === 0) return { applied: false, skipped: true };
 
-    const { error: insErr } = await supabase.from('industry_pricing_parameter').insert(rows);
+    const { error: insErr } = await supabase.from('industry_form2_packages').insert(rows);
     if (insErr) return { applied: false, error: insErr.message };
     return { applied: true, inserted: rows.length };
   } catch (e) {

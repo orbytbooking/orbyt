@@ -3,6 +3,8 @@ import { pricingParametersService } from '@/lib/pricing-parameters';
 import { parseBookingFormScopeParam, type BookingFormScope } from '@/lib/bookingFormScope';
 import { requireIndustryBelongsToBusiness } from '@/lib/industryTenantGuard';
 import { supabaseAdmin } from '@/lib/supabaseClient';
+import { scopedIndustryTable } from '@/lib/formScopeTables';
+import { seedForm4DefaultsIfEmpty } from '@/lib/seedForm4Defaults';
 
 function queryBusinessId(searchParams: URLSearchParams): string | null {
   return searchParams.get('businessId') || searchParams.get('business_id');
@@ -54,6 +56,12 @@ export async function GET(request: NextRequest) {
     const tenant = await requireIndustryBelongsToBusiness(supabaseAdmin, businessId, industryId);
     if (!tenant.ok) {
       return NextResponse.json({ error: 'Pricing parameters not found' }, { status: 404 });
+    }
+
+    // Self-heal: existing Form 4 industries created before recent fixes may have
+    // variables/frequencies but no pricing parameter rows. Backfill missing defaults.
+    if (bookingFormScope === 'form4') {
+      await seedForm4DefaultsIfEmpty(supabaseAdmin, businessId, industryId);
     }
 
     const pricingParameters = await pricingParametersService.getPricingParametersByIndustry(
@@ -111,9 +119,50 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const booking_form_scope: BookingFormScope =
-      paramData.booking_form_scope === 'form2' ? 'form2' : 'form1';
+    const booking_form_scope =
+      parseBookingFormScopeParam(
+        typeof paramData.booking_form_scope === 'string' ? paramData.booking_form_scope : null,
+      ) ?? 'form1';
     paramData.booking_form_scope = booking_form_scope;
+
+    if (booking_form_scope === 'form4') {
+      const variableCategory = String(paramData.variable_category ?? '').trim();
+      if (variableCategory) {
+        const variableTable = scopedIndustryTable('industry_pricing_variable', 'form4');
+        const { data: existingVariable, error: findErr } = await supabaseAdmin
+          .from(variableTable)
+          .select('id')
+          .eq('business_id', String(paramData.business_id))
+          .eq('industry_id', String(paramData.industry_id))
+          .eq('booking_form_scope', 'form4')
+          .eq('category', variableCategory)
+          .maybeSingle();
+        if (findErr) {
+          return NextResponse.json(
+            { error: `Failed to validate Form 4 variable: ${findErr.message}` },
+            { status: 500 },
+          );
+        }
+        if (!existingVariable) {
+          const { error: insVarErr } = await supabaseAdmin.from(variableTable).insert({
+            business_id: String(paramData.business_id),
+            industry_id: String(paramData.industry_id),
+            booking_form_scope: 'form4',
+            name: variableCategory,
+            category: variableCategory,
+            description: 'Auto-created from Form 4 pricing parameter category.',
+            is_active: true,
+            sort_order: 0,
+          });
+          if (insVarErr) {
+            return NextResponse.json(
+              { error: `Failed to create Form 4 variable: ${insVarErr.message}` },
+              { status: 500 },
+            );
+          }
+        }
+      }
+    }
 
     const pricingParameter = await pricingParametersService.createPricingParameter(paramData);
     
@@ -176,7 +225,14 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Pricing parameter not found' }, { status: 404 });
     }
 
-    const pricingParameter = await pricingParametersService.updatePricingParameter(id, updateData);
+    const bookingFormScope = parseBookingFormScopeParam(
+      typeof updateData.booking_form_scope === 'string' ? updateData.booking_form_scope : null,
+    );
+    const pricingParameter = await pricingParametersService.updatePricingParameter(
+      id,
+      updateData,
+      bookingFormScope,
+    );
     
     console.log('PUT - Pricing parameter updated successfully:', pricingParameter);
     return NextResponse.json({ pricingParameter });

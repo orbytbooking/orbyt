@@ -90,8 +90,8 @@ interface ServiceCardProps {
   industryId?: string;
   /** Business that owns Form 1; required for correct industry_frequency dependency rows. */
   businessId?: string;
-  /** When set, limits dependency fetch to Form 1 vs Form 2 frequency rows. */
-  bookingFormScope?: "form1" | "form2";
+  /** When set, limits dependency fetch to booking form-specific frequency rows. */
+  bookingFormScope?: "form1" | "form2" | "form3" | "form4";
   serviceCategory?: any; // Add service category prop
   availableExtras?: any[]; // Add available extras prop
   availableVariables?: { [key: string]: any[] }; // Add available variables prop
@@ -182,6 +182,7 @@ export default function FrequencyAwareServiceCard({
   pricingVariableDefinitions = [],
   customizeLayout = "inline",
 }: ServiceCardProps) {
+  const isForm4Card = bookingFormScope === "form4";
   const serviceDisplayName = service.customerDisplayName?.trim() || service.name;
 
   const variableCategoryLabel = useCallback(
@@ -189,6 +190,23 @@ export default function FrequencyAwareServiceCard({
       getPricingVariableCategoryCustomerLabel(categoryKey, pricingVariableDefinitions),
     [pricingVariableDefinitions],
   );
+
+  const form4CategoryOptions = useMemo(
+    () =>
+      variableCategoryEntries.map(([categoryName]) => ({
+        value: categoryName,
+        label: variableCategoryLabel(categoryName),
+      })),
+    [variableCategoryEntries, variableCategoryLabel],
+  );
+
+  const selectedForm4Category = useMemo(() => {
+    const selected =
+      String(customization.variableCategories?.__form4SelectedCategory ?? "").trim();
+    if (!selected) return "";
+    const exists = form4CategoryOptions.some((opt) => opt.value === selected);
+    return exists ? selected : "";
+  }, [customization.variableCategories, form4CategoryOptions]);
 
   const cardFrequencyOptions = useMemo(
     () => filterFrequencyOptionsForServiceCategory(frequencyOptions, serviceCategory),
@@ -626,15 +644,23 @@ export default function FrequencyAwareServiceCard({
       visibleFields.push("frequency");
     }
 
-    // Only require variable categories that have at least one option (don't block when dropdown is empty)
-    variableCategoryEntries.forEach(([categoryName, vars]) => {
-      const options = (vars || []).map((v: any) => v?.name).filter(Boolean);
-      if (options.length === 0) return; // No options configured – skip requirement
-      const currentValue = getVariableCategoryValue(categoryName);
-      if (!currentValue) {
-        visibleFields.push(variableCategoryLabel(categoryName).toLowerCase());
+    if (isForm4Card) {
+      const units = Math.max(0, Number(curRef.squareMeters) || 0);
+      if (units <= 0) visibleFields.push("how big is your space");
+      if (form4CategoryOptions.length > 0 && !selectedForm4Category) {
+        visibleFields.push("pricing parameter");
       }
-    });
+    } else {
+      // Only require variable categories that have at least one option (don't block when dropdown is empty)
+      variableCategoryEntries.forEach(([categoryName, vars]) => {
+        const options = (vars || []).map((v: any) => v?.name).filter(Boolean);
+        if (options.length === 0) return; // No options configured – skip requirement
+        const currentValue = getVariableCategoryValue(categoryName);
+        if (!currentValue) {
+          visibleFields.push(variableCategoryLabel(categoryName).toLowerCase());
+        }
+      });
+    }
 
     if (visibleFields.length > 0) {
       alert(`Please select the following required options: ${visibleFields.join(", ")}`);
@@ -786,8 +812,60 @@ export default function FrequencyAwareServiceCard({
                 </div>
               )}
 
+              {/* Form 4 unit-structure input: quantity + pricing parameter selector */}
+              {isForm4Card && (
+                <div className={styles.formField}>
+                  <label className={styles.fieldLabel}>How Big Is Your Space?</label>
+                  <div className="mt-2 grid gap-3 md:grid-cols-2">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      step="any"
+                      value={customization.squareMeters ?? ""}
+                      onChange={(e) => {
+                        const updated: ServiceCustomization = {
+                          ...customization,
+                          squareMeters: e.target.value,
+                        };
+                        latestCustomizationRef.current = updated;
+                        onCustomizationChange(service.id, updated);
+                      }}
+                      placeholder="Area"
+                      className={styles.selectTrigger}
+                    />
+                    <Select
+                      value={selectedForm4Category || ""}
+                      onValueChange={(value) => {
+                        const updatedVariableCategories = {
+                          ...(customization.variableCategories || {}),
+                          __form4SelectedCategory: value,
+                        };
+                        const updated: ServiceCustomization = {
+                          ...customization,
+                          variableCategories: updatedVariableCategories,
+                        };
+                        latestCustomizationRef.current = updated;
+                        onCustomizationChange(service.id, updated);
+                      }}
+                    >
+                      <SelectTrigger className={styles.selectTrigger}>
+                        <SelectValue placeholder="Select pricing parameter" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {form4CategoryOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
               {/* Variable categories — grid matches admin AddBookingForm */}
-              {variableCategoryEntries.length > 0 && (
+              {!isForm4Card && variableCategoryEntries.length > 0 && (
                 <div
                   className={cn(
                     "grid gap-4",

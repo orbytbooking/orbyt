@@ -1,6 +1,8 @@
 import { supabase, supabaseAdmin } from '@/lib/supabaseClient';
 import { normalizeFrequencyPopupDisplay } from '@/lib/frequencyPopupDisplay';
 import type { BookingFormScope } from '@/lib/bookingFormScope';
+import { hasBookingFormScopeColumnFilter } from '@/lib/bookingFormScope';
+import { scopedIndustryTable } from '@/lib/formScopeTables';
 
 export type PricingVariableDisplay =
   | 'customer_frontend_backend_admin'
@@ -120,19 +122,33 @@ class PricingVariablesService {
     this.supabase = (typeof window === 'undefined' && supabaseAdmin) ? supabaseAdmin : supabase;
   }
 
+  private sanitizeForScope<T extends object>(
+    payload: T,
+    bookingFormScope: BookingFormScope,
+  ): T {
+    if (bookingFormScope !== 'form2') return payload;
+    const next = { ...(payload as Record<string, unknown>) };
+    delete next.show_based_on_frequency;
+    delete next.frequency_options;
+    delete next.show_based_on_service_category;
+    delete next.service_category_options;
+    return next as T;
+  }
+
   async getByIndustry(
     industryId: string,
     bookingFormScope: BookingFormScope | null = null,
     businessId?: string | null,
   ): Promise<PricingVariableRow[]> {
+    const table = scopedIndustryTable('industry_pricing_variable', bookingFormScope);
     let q = this.supabase
-      .from('industry_pricing_variable')
+      .from(table)
       .select('*')
       .eq('industry_id', industryId);
     if (businessId?.trim()) {
       q = q.eq('business_id', businessId.trim());
     }
-    if (bookingFormScope === 'form1' || bookingFormScope === 'form2') {
+    if (hasBookingFormScopeColumnFilter(bookingFormScope)) {
       q = q.eq('booking_form_scope', bookingFormScope);
     }
     const { data, error } = await q
@@ -147,9 +163,11 @@ class PricingVariablesService {
   }
 
   async create(payload: CreatePricingVariableData): Promise<PricingVariableRow> {
+    const table = scopedIndustryTable('industry_pricing_variable', payload.booking_form_scope ?? 'form1');
+    const sanitized = this.sanitizeForScope(payload, payload.booking_form_scope ?? 'form1');
     const { data, error } = await this.supabase
-      .from('industry_pricing_variable')
-      .insert(payload)
+      .from(table)
+      .insert(sanitized)
       .select()
       .single();
 
@@ -160,10 +178,12 @@ class PricingVariablesService {
     return data;
   }
 
-  async update(id: string, payload: UpdatePricingVariableData): Promise<PricingVariableRow> {
+  async update(id: string, payload: UpdatePricingVariableData, bookingFormScope: BookingFormScope = 'form1'): Promise<PricingVariableRow> {
+    const table = scopedIndustryTable('industry_pricing_variable', bookingFormScope);
+    const sanitized = this.sanitizeForScope(payload, bookingFormScope);
     const { data, error } = await this.supabase
-      .from('industry_pricing_variable')
-      .update({ ...payload, updated_at: new Date().toISOString() })
+      .from(table)
+      .update({ ...sanitized, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select()
       .single();
@@ -175,9 +195,10 @@ class PricingVariablesService {
     return data;
   }
 
-  async delete(id: string): Promise<void> {
+  async delete(id: string, bookingFormScope: BookingFormScope = 'form1'): Promise<void> {
+    const table = scopedIndustryTable('industry_pricing_variable', bookingFormScope);
     const { error } = await this.supabase
-      .from('industry_pricing_variable')
+      .from(table)
       .delete()
       .eq('id', id);
 
@@ -236,21 +257,22 @@ class PricingVariablesService {
             ? v.service_category_options.map((x) => String(x).trim()).filter(Boolean)
             : [],
       };
+      const scopedFields = this.sanitizeForScope(sharedFields, bookingFormScope);
       if (v.id && existingIds.has(v.id)) {
-        await this.update(v.id, sharedFields);
+        await this.update(v.id, scopedFields, bookingFormScope);
       } else {
         await this.create({
           industry_id: industryId,
           business_id: businessId,
           booking_form_scope: bookingFormScope,
-          ...sharedFields,
+          ...scopedFields,
         });
       }
     }
 
     for (const id of existingIds) {
       if (!incomingIds.has(id)) {
-        await this.delete(id);
+        await this.delete(id, bookingFormScope);
       }
     }
 

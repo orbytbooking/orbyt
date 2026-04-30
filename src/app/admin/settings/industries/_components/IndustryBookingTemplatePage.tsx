@@ -22,13 +22,13 @@ type IndustryRow = {
   customer_booking_form_layout?: string;
 };
 
-type LayoutKey = "form1" | "form2";
+type LayoutKey = "form1" | "form2" | "form3" | "form4";
 
-const FORM_TABS: { id: LayoutKey | "form3" | "form4" | "form5"; label: string; enabled: boolean }[] = [
+const FORM_TABS: { id: LayoutKey | "form5"; label: string; enabled: boolean }[] = [
   { id: "form1", label: "Form 1", enabled: true },
   { id: "form2", label: "Form 2", enabled: true },
-  { id: "form3", label: "Form 3", enabled: false },
-  { id: "form4", label: "Form 4", enabled: false },
+  { id: "form3", label: "Form 3", enabled: true },
+  { id: "form4", label: "Form 4", enabled: true },
   { id: "form5", label: "Form 5", enabled: false },
 ];
 
@@ -49,7 +49,60 @@ const DESCRIPTIONS: Record<LayoutKey, { headline: string; paragraphs: string[] }
       "Choose Form 2 when you prefer a modern, app-like flow where everything is visible and easy to adjust before checkout.",
     ],
   },
+  form3: {
+    headline: "Items + add-ons booking flow",
+    paragraphs: [
+      "Form 3 prices bookings using items and add-ons. Customers pick item(s) first (for example pet type, room type, or object type), then choose add-ons tied to those items.",
+      "Unlike package-based layouts, Form 3 does not rely on pricing parameter packages. It is designed for use cases where items define context and add-ons define purchasable services.",
+      "Recommended setup order: Locations, Frequencies, Service Category, Items, Add-ons, Extras, then Custom Sections.",
+    ],
+  },
+  form4: {
+    headline: "Unit-based pricing (pricing parameters)",
+    paragraphs: [
+      "Form 4 uses a unit structure in pricing parameters: you set a price and duration for one unit of measure (for example per square foot). The customer enters how many units apply; the total cost and job length are that number multiplied by your per-unit price and time.",
+      "This matches how many home-service businesses quote from total area, length, or another measurable quantity. Setup order: Locations, Frequencies, Service category, Pricing parameters, Extras, then Custom sections — as in BookingKoala’s Form 4 guide.",
+      "Best when tiered “small / medium / large” packages are not what you want, and a single rate × customer-supplied quantity is clearer.",
+    ],
+  },
 };
+
+function Form4PreviewMock({ industryName }: { industryName: string }) {
+  return (
+    <div className="flex h-full min-h-[320px] flex-col gap-3 rounded-lg border border-border/80 bg-muted/40 p-3 shadow-inner sm:min-h-[380px] sm:p-4">
+      <div className="flex items-center justify-between gap-2 border-b border-border/60 pb-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs">
+          Form 4 · unit pricing
+        </span>
+        <span className="truncate text-[10px] text-primary sm:text-xs">{industryName}</span>
+      </div>
+      <p className="text-[10px] font-semibold sm:text-xs">What needs to be done?</p>
+      <p className="text-[8px] text-muted-foreground sm:text-[9px]">Service category and frequency (from your catalog).</p>
+      <div className="rounded-md border bg-background p-3 shadow-sm">
+        <p className="text-[9px] font-medium sm:text-[10px]">How big is your space?</p>
+        <div className="mt-2 flex flex-wrap items-end gap-2">
+          <div className="min-w-[100px] flex-1">
+            <label className="text-[8px] text-muted-foreground">Area</label>
+            <div className="mt-0.5 h-8 rounded border border-dashed border-border bg-muted/50" />
+          </div>
+          <div className="w-28">
+            <label className="text-[8px] text-muted-foreground">Unit</label>
+            <div className="mt-0.5 h-8 rounded border bg-muted/40 px-2 text-[9px] leading-8 text-muted-foreground">
+              Square Feet
+            </div>
+          </div>
+        </div>
+        <p className="mt-2 text-[8px] text-muted-foreground sm:text-[9px]">
+          Quote = (your $/unit) × (area entered). Same idea for other units you configure.
+        </p>
+      </div>
+      <div className="mt-auto flex justify-end text-[9px] text-muted-foreground">
+        Example subtotal: <span className="ml-1 font-semibold text-foreground">$180.00</span>
+        <span className="ml-1 text-[8px]">@ $0.18 / sq ft × 1000</span>
+      </div>
+    </div>
+  );
+}
 
 function Form1PreviewMock({ industryName }: { industryName: string }) {
   const presetServices = buildForm1CustomerFacingPresetServiceCards();
@@ -239,7 +292,9 @@ export default function IndustryBookingTemplatePage() {
       const list = Array.isArray(data.industries) ? data.industries : [];
       const row = list.find((i: IndustryRow) => i.id === industryId) ?? null;
       setIndustry(row);
-      if (row?.customer_booking_form_layout === "form2") setLayout("form2");
+      if (row?.customer_booking_form_layout === "form4") setLayout("form4");
+      else if (row?.customer_booking_form_layout === "form3") setLayout("form3");
+      else if (row?.customer_booking_form_layout === "form2") setLayout("form2");
       else setLayout("form1");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load industry");
@@ -272,9 +327,24 @@ export default function IndustryBookingTemplatePage() {
       if (data.industry) setIndustry(data.industry as IndustryRow);
       const encName = encodeURIComponent((data.industry as IndustryRow | undefined)?.name ?? industry.name);
       const encId = encodeURIComponent(industryId);
-      const scope = layout === "form2" ? "form2" : "form1";
+      const scope =
+        layout === "form4"
+          ? "form4"
+          : layout === "form3"
+            ? "form3"
+            : layout === "form2"
+              ? "form2"
+              : "form1";
+      const formPath =
+        layout === "form4"
+          ? "form-4"
+          : layout === "form3"
+            ? "form-3"
+            : layout === "form2"
+              ? "form-2"
+              : "form-1";
       router.push(
-        `/admin/settings/industries/form-1/locations?industry=${encName}&industryId=${encId}&bookingFormScope=${scope}`,
+        `/admin/settings/industries/${formPath}/locations?industry=${encName}&industryId=${encId}&bookingFormScope=${scope}`,
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save");
@@ -397,6 +467,8 @@ export default function IndustryBookingTemplatePage() {
           <div className="h-full rounded-xl border bg-muted/30 p-3 sm:p-4">
             {layout === "form1" ? (
               <Form1PreviewMock industryName={industry.name} />
+            ) : layout === "form4" ? (
+              <Form4PreviewMock industryName={industry.name} />
             ) : (
               <Form2PreviewMock industryName={industry.name} />
             )}

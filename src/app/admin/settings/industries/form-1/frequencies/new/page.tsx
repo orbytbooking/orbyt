@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -181,12 +181,14 @@ interface Industry {
 
 export default function FrequencyNewPage() {
   const params = useSearchParams();
+  const pathname = usePathname();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
   const industryIdFromUrl = params.get("industryId");
   const editId = params.get("editId");
-  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
   const scopeQs = `&bookingFormScope=${bookingFormScope}`;
+  const isSinglePageScope = bookingFormScope === "form2" || bookingFormScope === "form3";
   const { currentBusiness } = useBusiness();
 
   type LocationRow = {
@@ -228,6 +230,7 @@ export default function FrequencyNewPage() {
   
   // Dynamic data states
   const [pricingParameters, setPricingParameters] = useState<any[]>([]);
+  const [pricingVariables, setPricingVariables] = useState<any[]>([]);
   const [loadingPricingParams, setLoadingPricingParams] = useState(true);
   const [industryId, setIndustryId] = useState<string | null>(industryIdFromUrl || null);
   const [loadingExtras, setLoadingExtras] = useState(true);
@@ -461,7 +464,7 @@ export default function FrequencyNewPage() {
         setLoadingExtras(true);
         const baseQs = `industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness?.id ?? "")}${scopeQs}`;
         const urls =
-          bookingFormScope === "form2"
+          isSinglePageScope
             ? [
                 `/api/extras?${baseQs}`,
                 `/api/extras?${baseQs}&listingKind=addon`,
@@ -481,7 +484,7 @@ export default function FrequencyNewPage() {
         const merged = payloads.flatMap(({ data, inferredListingKind }) =>
           (Array.isArray(data.extras) ? data.extras : []).map((e: any) => ({
             ...e,
-            listing_kind: e?.listing_kind ?? inferredListingKind ?? (bookingFormScope === "form2" ? "addon" : "extra"),
+            listing_kind: e?.listing_kind ?? inferredListingKind ?? (isSinglePageScope ? "addon" : "extra"),
           })),
         );
         const deduped = merged.filter(
@@ -502,7 +505,33 @@ export default function FrequencyNewPage() {
     };
 
     fetchExtras();
-  }, [industryId, bookingFormScope, currentBusiness?.id]);
+  }, [industryId, bookingFormScope, currentBusiness?.id, isSinglePageScope]);
+
+  // Load pricing variables (Form 2/3 items catalog)
+  useEffect(() => {
+    const fetchPricingVariables = async () => {
+      if (!industryId || !currentBusiness?.id) return;
+      try {
+        const response = await fetch(
+          `/api/pricing-variables?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
+        );
+        const data = await response.json();
+        if (response.ok && Array.isArray(data.variables)) {
+          setPricingVariables(data.variables);
+        } else {
+          setPricingVariables([]);
+        }
+      } catch (error) {
+        console.error("Error fetching pricing variables:", error);
+        setPricingVariables([]);
+      }
+    };
+    if (isSinglePageScope) {
+      fetchPricingVariables();
+    } else {
+      setPricingVariables([]);
+    }
+  }, [industryId, currentBusiness?.id, scopeQs, isSinglePageScope]);
 
   // Load locations from API
   useEffect(() => {
@@ -648,6 +677,38 @@ export default function FrequencyNewPage() {
     
     const discount = Number(form.discount) || 0;
 
+    const normalizeToIds = (
+      selected: string[],
+      rows: Array<{ id?: string | number; name?: string | null }>,
+    ): string[] => {
+      const byName = new Map(
+        rows
+          .map((r) => [String(r.name ?? "").trim(), String(r.id ?? "").trim()] as const)
+          .filter(([name, id]) => name.length > 0 && id.length > 0),
+      );
+      return Array.from(
+        new Set(
+          selected
+            .map((raw) => String(raw ?? "").trim())
+            .filter((v) => v.length > 0)
+            .map((v) => byName.get(v) ?? v),
+        ),
+      );
+    };
+
+    const normalizedServiceCategories = isSinglePageScope
+      ? normalizeToIds(form.serviceCategories, serviceCategories)
+      : form.serviceCategories;
+    const normalizedItems = isSinglePageScope
+      ? normalizeToIds(form.bathroomVariables, pricingVariables)
+      : form.bathroomVariables;
+    const normalizedPackages = isSinglePageScope
+      ? normalizeToIds(form.sqftVariables, pricingParameters)
+      : form.sqftVariables;
+    const normalizedExtras = isSinglePageScope
+      ? normalizeToIds(form.extras, extras)
+      : form.extras;
+
     const frequencyData = {
       business_id: currentBusiness.id,
       industry_id: industryId,
@@ -676,14 +737,17 @@ export default function FrequencyNewPage() {
       enabled_industries: form.enabledIndustries,
       show_based_on_location: form.showBasedOnLocation,
       location_ids: form.showBasedOnLocation ? form.locationIds : [],
-      service_categories: form.serviceCategories,
-      bathroom_variables: form.bathroomVariables,
-      sqft_variables: form.sqftVariables,
+      service_categories: normalizedServiceCategories,
+      bathroom_variables: normalizedItems,
+      sqft_variables: normalizedPackages,
       bedroom_variables: form.bedroomVariables,
       exclude_parameters: form.excludeParameters,
-      extras: form.extras,
+      extras: normalizedExtras,
       booking_form_scope: bookingFormScope,
     };
+    if (isSinglePageScope) {
+      frequencyData.exclude_parameters = [];
+    }
 
     try {
       if (editId) {
@@ -721,8 +785,8 @@ export default function FrequencyNewPage() {
     }
   };
 
-  const form2AddonRows = bookingFormScope === "form2" ? extras.filter((e) => e.listing_kind !== "extra") : [];
-  const form2ExtraRows = bookingFormScope === "form2" ? extras.filter((e) => e.listing_kind === "extra") : [];
+  const form2AddonRows = isSinglePageScope ? extras.filter((e) => e.listing_kind !== "extra") : [];
+  const form2ExtraRows = isSinglePageScope ? extras.filter((e) => e.listing_kind === "extra") : [];
 
   return (
     <div className="space-y-6">
@@ -1191,7 +1255,7 @@ export default function FrequencyNewPage() {
               <div className="border-t pt-6">
                 <div className="mb-4">
                   <h3 className="text-lg font-semibold mb-1">{industry}</h3>
-                  <p className="text-sm text-muted-foreground">{bookingFormScope === "form2" ? "Form 2" : "Form 1"}</p>
+                  <p className="text-sm text-muted-foreground">{isSinglePageScope ? "Form 2" : "Form 1"}</p>
                 </div>
 
                 {/* Location-based Display */}
@@ -1306,7 +1370,106 @@ export default function FrequencyNewPage() {
                   )}
                 </div>
 
-                {/* Variables Section */}
+                {/* Form 2/3 Items and Packages dependencies */}
+                {isSinglePageScope ? (
+                  <>
+                    <div className="space-y-3 mb-6 border p-4 rounded-md bg-white">
+                      <Label className="text-base font-semibold">Items</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Select which item(s) will display for this frequency.
+                      </p>
+                      {pricingVariables.length === 0 ? (
+                        <p className="text-sm text-muted-foreground italic">
+                          No items added yet. Add items from the Items section.
+                        </p>
+                      ) : (
+                        <div className="space-y-2 mt-3">
+                          <div className="flex items-center gap-2">
+                            <Checkbox
+                              id="select-all-items"
+                              checked={form.bathroomVariables.length === pricingVariables.length && pricingVariables.length > 0}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setForm((p) => ({ ...p, bathroomVariables: pricingVariables.map((v: any) => String(v.id)) }));
+                                } else {
+                                  setForm((p) => ({ ...p, bathroomVariables: [] }));
+                                }
+                              }}
+                            />
+                            <Label htmlFor="select-all-items" className="text-sm font-medium cursor-pointer">Select All</Label>
+                          </div>
+                          <div className="grid grid-cols-5 gap-2">
+                            {pricingVariables.map((item: any) => (
+                              <div key={item.id} className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`item-${item.id}`}
+                                  checked={form.bathroomVariables.includes(String(item.id))}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setForm((p) => ({ ...p, bathroomVariables: [...p.bathroomVariables, String(item.id)] }));
+                                    } else {
+                                      setForm((p) => ({ ...p, bathroomVariables: p.bathroomVariables.filter((x) => x !== String(item.id)) }));
+                                    }
+                                  }}
+                                />
+                                <Label htmlFor={`item-${item.id}`} className="text-sm cursor-pointer">{item.name}</Label>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-3 mb-6 border p-4 rounded-md bg-white">
+                      <Label className="text-base font-semibold">Packages</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Select which package(s) will display for this frequency.
+                      </p>
+                      {loadingPricingParams ? (
+                        <p className="text-sm text-muted-foreground italic">Loading packages...</p>
+                      ) : pricingParameters.length === 0 ? (
+                        <p className="text-sm text-muted-foreground italic">
+                          No packages added yet. Add packages from the Packages section.
+                        </p>
+                      ) : (
+                        <div className="space-y-2 mt-3">
+                          <div className="flex items-center gap-2">
+                            <Checkbox
+                              id="select-all-packages"
+                              checked={form.sqftVariables.length === pricingParameters.length && pricingParameters.length > 0}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setForm((p) => ({ ...p, sqftVariables: pricingParameters.map((pkg: any) => String(pkg.id)) }));
+                                } else {
+                                  setForm((p) => ({ ...p, sqftVariables: [] }));
+                                }
+                              }}
+                            />
+                            <Label htmlFor="select-all-packages" className="text-sm font-medium cursor-pointer">Select All</Label>
+                          </div>
+                          <div className="grid grid-cols-4 gap-2">
+                            {pricingParameters.map((pkg: any) => (
+                              <div key={pkg.id} className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`pkg-${pkg.id}`}
+                                  checked={form.sqftVariables.includes(String(pkg.id))}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setForm((p) => ({ ...p, sqftVariables: [...p.sqftVariables, String(pkg.id)] }));
+                                    } else {
+                                      setForm((p) => ({ ...p, sqftVariables: p.sqftVariables.filter((x) => x !== String(pkg.id)) }));
+                                    }
+                                  }}
+                                />
+                                <Label htmlFor={`pkg-${pkg.id}`} className="text-sm cursor-pointer">{pkg.name}</Label>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
                 <div className="space-y-4 mb-6 border p-4 rounded-md bg-white">
                   <div>
                     <Label className="text-base font-semibold">Variables</Label>
@@ -1403,8 +1566,10 @@ export default function FrequencyNewPage() {
                     </div>
                   )}
                 </div>
+                )}
 
-                {/* Exclude Parameters */}
+                {/* Exclude Parameters (Form 1 only) */}
+                {!isSinglePageScope && (
                 <div className="space-y-3 mb-6 border p-4 rounded-md bg-white">
                   <Label className="text-base font-semibold">Exclude Parameters</Label>
                   <p className="text-sm text-muted-foreground">
@@ -1453,9 +1618,10 @@ export default function FrequencyNewPage() {
                     </div>
                   )}
                 </div>
+                )}
 
                 {/* Form 2 Add-ons */}
-                {bookingFormScope === "form2" && (
+                {isSinglePageScope && (
                   <div className="space-y-3 mb-6 border p-4 rounded-md bg-white">
                     <Label className="text-base font-semibold">Add-ons</Label>
                     <p className="text-sm text-muted-foreground">
@@ -1508,9 +1674,10 @@ export default function FrequencyNewPage() {
                   </div>
                 )}
 
-                {/* Extras */}
                 <div className="space-y-3 mb-6 border p-4 rounded-md bg-white">
-                  <Label className="text-base font-semibold">Extras</Label>
+                  <Label className="text-base font-semibold">
+                    {isSinglePageScope ? "Extras" : "Extras"}
+                  </Label>
                   <p className="text-sm text-muted-foreground">
                     Select which extra(s) will display for frequency. Any extras that have not been checked off in this section will not display when frequency is selected on the booking form.
                   </p>
@@ -1518,7 +1685,7 @@ export default function FrequencyNewPage() {
                     <p className="text-sm text-muted-foreground italic">
                       Loading extras...
                     </p>
-                  ) : (bookingFormScope === "form2" ? form2ExtraRows.length === 0 : extras.length === 0) ? (
+                  ) : (isSinglePageScope ? form2ExtraRows.length === 0 : extras.length === 0) ? (
                     <p className="text-sm text-muted-foreground italic">
                       No extras added yet. Add extras from the Extras section.
                     </p>
@@ -1528,14 +1695,14 @@ export default function FrequencyNewPage() {
                         <Checkbox
                           id="select-all-extras"
                           checked={
-                            bookingFormScope === "form2"
+                            isSinglePageScope
                               ? form2ExtraRows.length > 0 &&
                                 form2ExtraRows.every((extra) => form.extras.includes(String(extra.id)))
                               : form.extras.length === extras.length && extras.length > 0
                           }
                           onCheckedChange={(checked) => {
                             if (checked) {
-                              if (bookingFormScope === "form2") {
+                              if (isSinglePageScope) {
                                 setForm((p) => ({
                                   ...p,
                                   extras: Array.from(new Set([...p.extras, ...form2ExtraRows.map((e) => String(e.id))])),
@@ -1544,7 +1711,7 @@ export default function FrequencyNewPage() {
                                 setForm(p => ({ ...p, extras: extras.map(e => String(e.id)) }));
                               }
                             } else {
-                              if (bookingFormScope === "form2") {
+                              if (isSinglePageScope) {
                                 const extraIds = new Set(form2ExtraRows.map((e) => String(e.id)));
                                 setForm((p) => ({ ...p, extras: p.extras.filter((id) => !extraIds.has(id)) }));
                               } else {
@@ -1555,7 +1722,7 @@ export default function FrequencyNewPage() {
                         />
                         <Label htmlFor="select-all-extras" className="text-sm font-medium cursor-pointer">Select All</Label>
                       </div>
-                      {(bookingFormScope === "form2" ? form2ExtraRows : extras).map((extra) => (
+                      {(isSinglePageScope ? form2ExtraRows : extras).map((extra) => (
                         <div key={extra.id} className="flex items-center gap-2">
                           <Checkbox
                             id={`extra-${extra.id}`}

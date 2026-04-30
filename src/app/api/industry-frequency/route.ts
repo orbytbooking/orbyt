@@ -2,6 +2,17 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { normalizeFrequencyPopupDisplay } from '@/lib/frequencyPopupDisplay';
 import { parseBookingFormScopeParam, type BookingFormScope } from '@/lib/bookingFormScope';
+import { scopedIndustryTable } from '@/lib/formScopeTables';
+import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
+import { requireIndustryBelongsToBusiness } from '@/lib/industryTenantGuard';
+function normalizeScope(raw: unknown): BookingFormScope {
+  const parsed = parseBookingFormScopeParam(
+    typeof raw === 'string' ? raw : raw == null ? null : String(raw),
+  );
+  return parsed ?? 'form1';
+}
+
 
 function createSupabaseServiceClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -13,6 +24,43 @@ function createSupabaseServiceClient() {
   return createClient(supabaseUrl, supabaseServiceKey);
 }
 
+type FrequencyLookup = {
+  table: string;
+  id: string;
+  business_id: string;
+  industry_id: string;
+  booking_form_scope?: string | null;
+};
+
+async function findFrequencyById(
+  supabase: ReturnType<typeof createSupabaseServiceClient>,
+  id: string,
+): Promise<FrequencyLookup | null> {
+  const tables = ['industry_frequency', 'industry_form2_frequencies', 'industry_form3_frequencies', 'industry_form4_frequencies'];
+  for (const table of tables) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('id, business_id, industry_id, booking_form_scope')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) {
+      if (error.code === '42P01') continue;
+      continue;
+    }
+    if (data?.id && data.business_id && data.industry_id) {
+      return {
+        table,
+        id: String(data.id),
+        business_id: String(data.business_id),
+        industry_id: String(data.industry_id),
+        booking_form_scope:
+          data.booking_form_scope == null ? null : String(data.booking_form_scope),
+      };
+    }
+  }
+  return null;
+}
+
 async function clearOtherIndustryFrequencyDefaults(
   supabase: ReturnType<typeof createSupabaseServiceClient>,
   businessId: string,
@@ -20,8 +68,9 @@ async function clearOtherIndustryFrequencyDefaults(
   exceptId: string,
   bookingFormScope: BookingFormScope,
 ) {
+  const table = scopedIndustryTable('industry_frequency', bookingFormScope);
   const { error } = await supabase
-    .from('industry_frequency')
+    .from(table)
     .update({ is_default: false, updated_at: new Date().toISOString() })
     .eq('business_id', businessId)
     .eq('industry_id', industryId)
@@ -100,6 +149,7 @@ export async function GET(request: NextRequest) {
     const includeAll = searchParams.get('includeAll') === 'true' || searchParams.get('admin') === 'true';
     const useWildcard = searchParams.get('wildcard') === 'true';
     const bookingFormScope = parseBookingFormScopeParam(searchParams.get('bookingFormScope'));
+    const frequencyTable = scopedIndustryTable('industry_frequency', bookingFormScope);
 
     console.log('=== INDUSTRY FREQUENCY API DEBUG ===');
     console.log('Industry ID:', industryId);
@@ -125,7 +175,7 @@ export async function GET(request: NextRequest) {
     }
 
     let query = supabase
-      .from('industry_frequency')
+      .from(frequencyTable)
       .select('*')
       .eq('is_active', true)
       .order('created_at', { ascending: true });
@@ -219,6 +269,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const supabase = createSupabaseServiceClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const body = await request.json();
     const {
       business_id,
@@ -258,8 +310,8 @@ export async function POST(request: NextRequest) {
       booking_form_scope: booking_form_scope_raw,
     } = body;
 
-    const booking_form_scope: BookingFormScope =
-      booking_form_scope_raw === 'form2' ? 'form2' : 'form1';
+    const booking_form_scope = normalizeScope(booking_form_scope_raw);
+    const frequencyTable = scopedIndustryTable('industry_frequency', booking_form_scope);
 
     if (!business_id || !industry_id || !name || !occurrence_time) {
       return NextResponse.json(
@@ -267,9 +319,17 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    const allowed = await userCanManageBookingsForBusiness(supabase, user.id, String(business_id));
+    if (!allowed) {
+      return createForbiddenResponse('You do not have access to this business');
+    }
+    const tenant = await requireIndustryBelongsToBusiness(supabase, String(business_id), String(industry_id));
+    if (!tenant.ok) {
+      return NextResponse.json({ error: 'Industry not found for this business' }, { status: 404 });
+    }
 
     const { data: frequency, error } = await supabase
-      .from('industry_frequency')
+      .from(frequencyTable)
       .insert([
         {
           business_id,
@@ -337,9 +397,7 @@ export async function POST(request: NextRequest) {
         frequency.business_id,
         frequency.industry_id,
         frequency.id,
-        (frequency as { booking_form_scope?: string }).booking_form_scope === 'form2'
-          ? 'form2'
-          : 'form1',
+        normalizeScope((frequency as { booking_form_scope?: string }).booking_form_scope),
       );
     }
 
@@ -356,6 +414,8 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const supabase = createSupabaseServiceClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const body = await request.json();
     const { id, ...updateData } = body;
 
@@ -364,6 +424,21 @@ export async function PUT(request: NextRequest) {
         { error: 'Frequency ID is required' },
         { status: 400 }
       );
+    }
+
+    const existing = await findFrequencyById(supabase, String(id));
+    if (!existing) {
+      return NextResponse.json({ error: 'Frequency not found' }, { status: 404 });
+    }
+    const allowed = await userCanManageBookingsForBusiness(supabase, user.id, existing.business_id);
+    if (!allowed) {
+      return createForbiddenResponse('You do not have access to this business');
+    }
+    if (updateData.business_id && String(updateData.business_id) !== existing.business_id) {
+      return NextResponse.json({ error: 'business_id mismatch' }, { status: 400 });
+    }
+    if (updateData.industry_id && String(updateData.industry_id) !== existing.industry_id) {
+      return NextResponse.json({ error: 'industry_id mismatch' }, { status: 400 });
     }
 
     const cleanedData: any = {
@@ -421,30 +496,22 @@ export async function PUT(request: NextRequest) {
     }
 
     if (cleanedData.is_default === true) {
-      const { data: scopeRow, error: scopeErr } = await supabase
-        .from('industry_frequency')
-        .select('business_id, industry_id, booking_form_scope')
-        .eq('id', id)
-        .single();
-      if (!scopeErr && scopeRow?.business_id && scopeRow?.industry_id) {
-        const scope: BookingFormScope =
-          (scopeRow as { booking_form_scope?: string }).booking_form_scope === 'form2'
-            ? 'form2'
-            : 'form1';
-        await clearOtherIndustryFrequencyDefaults(
-          supabase,
-          scopeRow.business_id,
-          scopeRow.industry_id,
-          id,
-          scope,
-        );
-      }
+      const scope: BookingFormScope = normalizeScope(existing.booking_form_scope);
+      await clearOtherIndustryFrequencyDefaults(
+        supabase,
+        existing.business_id,
+        existing.industry_id,
+        id,
+        scope,
+      );
     }
 
     const { data: frequency, error } = await supabase
-      .from('industry_frequency')
+      .from(existing.table)
       .update(cleanedData)
       .eq('id', id)
+      .eq('business_id', existing.business_id)
+      .eq('industry_id', existing.industry_id)
       .select()
       .single();
 
@@ -469,6 +536,8 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const supabase = createSupabaseServiceClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const permanent = searchParams.get('permanent') === 'true';
@@ -479,12 +548,23 @@ export async function DELETE(request: NextRequest) {
         { status: 400 }
       );
     }
+    const existing = await findFrequencyById(supabase, String(id));
+    if (!existing) {
+      return NextResponse.json({ error: 'Frequency not found' }, { status: 404 });
+    }
+    const allowed = await userCanManageBookingsForBusiness(supabase, user.id, existing.business_id);
+    if (!allowed) {
+      return createForbiddenResponse('You do not have access to this business');
+    }
 
     if (permanent) {
       const { error } = await supabase
-        .from('industry_frequency')
+        .from(existing.table)
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .eq('business_id', existing.business_id)
+        .eq('industry_id', existing.industry_id)
+        .select('id');
 
       if (error) {
         console.error('Error permanently deleting frequency:', error);
@@ -495,9 +575,12 @@ export async function DELETE(request: NextRequest) {
       }
     } else {
       const { error } = await supabase
-        .from('industry_frequency')
+        .from(existing.table)
         .update({ is_active: false, updated_at: new Date().toISOString() })
-        .eq('id', id);
+        .eq('id', id)
+        .eq('business_id', existing.business_id)
+        .eq('industry_id', existing.industry_id)
+        .select('id');
 
       if (error) {
         console.error('Error soft deleting frequency:', error);

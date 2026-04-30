@@ -47,7 +47,7 @@ export interface FilterOptions {
 export type GetFrequencyDependenciesOptions = {
   /** Required to match Form 1 rows in industry_frequency (scoped per business). */
   businessId?: string;
-  bookingFormScope?: "form1" | "form2";
+  bookingFormScope?: "form1" | "form2" | "form3" | "form4";
 };
 
 /**
@@ -73,7 +73,12 @@ export async function getFrequencyDependencies(
     if (options?.businessId?.trim()) {
       params.set('businessId', options.businessId.trim());
     }
-    if (options?.bookingFormScope === "form2" || options?.bookingFormScope === "form1") {
+    if (
+      options?.bookingFormScope === "form2" ||
+      options?.bookingFormScope === "form1" ||
+      options?.bookingFormScope === "form3" ||
+      options?.bookingFormScope === "form4"
+    ) {
       params.set("bookingFormScope", options.bookingFormScope);
     }
 

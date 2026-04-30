@@ -70,18 +70,30 @@ interface Industry {
   is_custom: boolean;
   created_at: string;
   updated_at: string;
-  /** Public book-now layout: drives sidebar label (Form 1 vs Form 2). */
+  /** Public book-now layout: drives sidebar label and catalog entry path. */
   customer_booking_form_layout?: string | null;
 }
 
-function industryFormNavEntry(industry: Industry): { label: "Form 1" | "Form 2"; path: string } {
+function industryFormNavEntry(industry: Industry): { label: "Form 1" | "Form 2" | "Form 3" | "Form 4"; path: string } {
   const q = encodeURIComponent(industry.name);
   const id = encodeURIComponent(industry.id);
-  const isForm2 = industry.customer_booking_form_layout === "form2";
-  if (isForm2) {
+  const layout = industry.customer_booking_form_layout;
+  if (layout === "form4") {
+    return {
+      label: "Form 4",
+      path: `/admin/settings/industries/form-4/locations?industry=${q}&industryId=${id}&bookingFormScope=form4`,
+    };
+  }
+  if (layout === "form3") {
+    return {
+      label: "Form 3",
+      path: `/admin/settings/industries/form-3/locations?industry=${q}&industryId=${id}&bookingFormScope=form3`,
+    };
+  }
+  if (layout === "form2") {
     return {
       label: "Form 2",
-      path: `/admin/settings/industries/form-1/locations?industry=${q}&industryId=${id}&bookingFormScope=form2`,
+      path: `/admin/settings/industries/form-2/locations?industry=${q}&industryId=${id}&bookingFormScope=form2`,
     };
   }
   return {
@@ -97,7 +109,12 @@ function isIndustryFormNavLinkActive(menuPath: string, pathname: string, searchP
   const base = qIdx >= 0 ? raw.slice(0, qIdx) : raw;
   const qs = qIdx >= 0 ? new URLSearchParams(raw.slice(qIdx + 1)) : new URLSearchParams();
   if (pathname !== base) return false;
-  if (base === "/admin/settings/industries/form-1") {
+  if (
+    base === "/admin/settings/industries/form-1" ||
+    base === "/admin/settings/industries/form-2" ||
+    base === "/admin/settings/industries/form-3" ||
+    base === "/admin/settings/industries/form-4"
+  ) {
     return (
       searchParams.get("industry") === qs.get("industry") &&
       searchParams.get("bookingFormScope") === qs.get("bookingFormScope")
@@ -129,24 +146,70 @@ function industryForm1AdminLinks(industry: Industry): Array<{ label: string; pat
   ];
 }
 
-/** Form 2 sidebar template: same underlying Form 1 data, ordered for the long-scroll booking layout. */
+/** Form 2 sidebar: catalog under `/form-2/...`, ordered for the single-page booking layout. */
 function industryForm2AdminLinks(industry: Industry): Array<{ label: string; path: string }> {
   const q = encodeURIComponent(industry.name);
   const id = encodeURIComponent(industry.id);
   const scope = "bookingFormScope=form2";
+  const base = "form-2";
   return [
-    { label: "Locations", path: `/admin/settings/industries/form-1/locations?industry=${q}&industryId=${id}&${scope}` },
-    { label: "Frequencies", path: `/admin/settings/industries/form-1/frequencies?industry=${q}&industryId=${id}&${scope}` },
-    { label: "Service Category", path: `/admin/settings/industries/form-1/service-category?industry=${q}&industryId=${id}&${scope}` },
-    { label: "Items", path: `/admin/settings/industries/form-1/pricing-parameter/manage-variables?industry=${q}&industryId=${id}&${scope}` },
-    { label: "Packages", path: `/admin/settings/industries/form-1/pricing-parameter?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Locations", path: `/admin/settings/industries/${base}/locations?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Frequencies", path: `/admin/settings/industries/${base}/frequencies?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Service Category", path: `/admin/settings/industries/${base}/service-category?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Items", path: `/admin/settings/industries/form-2/items?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Packages", path: `/admin/settings/industries/form-2/packages?industry=${q}&industryId=${id}&${scope}` },
     {
       label: "Addons",
-      path: `/admin/settings/industries/form-1/extras?industry=${q}&industryId=${id}&${scope}&listingKind=addon`,
+      path: `/admin/settings/industries/${base}/add-ons?industry=${q}&industryId=${id}&${scope}&listingKind=addon`,
     },
     {
       label: "Extras",
-      path: `/admin/settings/industries/form-1/extras?industry=${q}&industryId=${id}&${scope}&listingKind=extra`,
+      path: `/admin/settings/industries/${base}/extras?industry=${q}&industryId=${id}&${scope}&listingKind=extra`,
+    },
+    { label: "Custom Sections", path: `/admin/settings/design` },
+  ];
+}
+
+/** Form 4 sidebar: same catalog order as BookingKoala (locations → … → pricing parameters → extras). */
+function industryForm4AdminLinks(industry: Industry): Array<{ label: string; path: string }> {
+  const q = encodeURIComponent(industry.name);
+  const id = encodeURIComponent(industry.id);
+  const scope = "bookingFormScope=form4";
+  const base = "form-4";
+  return [
+    { label: "Locations", path: `/admin/settings/industries/${base}/locations?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Frequencies", path: `/admin/settings/industries/${base}/frequencies?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Service Category", path: `/admin/settings/industries/${base}/service-category?industry=${q}&industryId=${id}&${scope}` },
+    {
+      label: "Pricing Parameter",
+      path: `/admin/settings/industries/${base}/pricing-parameter?industry=${q}&industryId=${id}&${scope}`,
+    },
+    {
+      label: "Extras",
+      path: `/admin/settings/industries/${base}/extras?industry=${q}&industryId=${id}&${scope}&listingKind=extra`,
+    },
+    { label: "Custom Sections", path: `/admin/settings/design` },
+  ];
+}
+
+/** Form 3 sidebar: items + add-ons + extras (no packages). */
+function industryForm3AdminLinks(industry: Industry): Array<{ label: string; path: string }> {
+  const q = encodeURIComponent(industry.name);
+  const id = encodeURIComponent(industry.id);
+  const scope = "bookingFormScope=form3";
+  const base = "form-3";
+  return [
+    { label: "Locations", path: `/admin/settings/industries/${base}/locations?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Frequencies", path: `/admin/settings/industries/${base}/frequencies?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Service Category", path: `/admin/settings/industries/${base}/service-category?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Items", path: `/admin/settings/industries/${base}/items?industry=${q}&industryId=${id}&${scope}` },
+    {
+      label: "Addons",
+      path: `/admin/settings/industries/${base}/add-ons?industry=${q}&industryId=${id}&${scope}&listingKind=addon`,
+    },
+    {
+      label: "Extras",
+      path: `/admin/settings/industries/${base}/extras?industry=${q}&industryId=${id}&${scope}&listingKind=extra`,
     },
     { label: "Custom Sections", path: `/admin/settings/design` },
   ];
@@ -627,7 +690,17 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
             { label: 'Add Industries', path: '/admin/settings/industries' },
             ...(industries || []).map((industry) => {
               const formEntry = industryFormNavEntry(industry);
-              const isForm2Layout = industry.customer_booking_form_layout === "form2";
+              const layout = industry.customer_booking_form_layout;
+              const isForm4Layout = layout === "form4";
+              const isForm3Layout = layout === "form3";
+              const isForm2Layout = layout === "form2";
+              const formSetupKind = isForm4Layout
+                ? ("form4" as const)
+                : isForm3Layout
+                  ? ("form3" as const)
+                  : isForm2Layout
+                    ? ("form2" as const)
+                    : ("form1" as const);
               return {
                 label: industry.name,
                 path: formEntry.path,
@@ -635,11 +708,15 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                   {
                     label: formEntry.label,
                     path: formEntry.path,
-                    /** Click chevron to expand Form 1 vs Form 2 setup links */
-                    formSetupKind: (isForm2Layout ? "form2" : "form1") as const,
-                    children: isForm2Layout
-                      ? industryForm2AdminLinks(industry)
-                      : industryForm1AdminLinks(industry),
+                    /** Click chevron to expand Form 1 / 2 / 3 / 4 setup links */
+                    formSetupKind,
+                    children: isForm4Layout
+                      ? industryForm4AdminLinks(industry)
+                      : isForm3Layout
+                        ? industryForm3AdminLinks(industry)
+                        : isForm2Layout
+                          ? industryForm2AdminLinks(industry)
+                          : industryForm1AdminLinks(industry),
                   },
                   {
                     label: "Settings",
@@ -1026,7 +1103,13 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
                                                       {formSetupOpen && (
                                                         <div className="mt-1 space-y-0.5 border-l border-cyan-400/40 py-1 pl-3 ml-[3.25rem]">
                                                           <p className="px-0.5 pb-1 text-[10px] font-medium uppercase tracking-wide text-gray-500">
-                                                            {ggc.formSetupKind === "form2" ? "Form 2 setup" : "Form 1 setup"}
+                                                            {ggc.formSetupKind === "form4"
+                                                              ? "Form 4 setup"
+                                                              : ggc.formSetupKind === "form3"
+                                                                ? "Form 3 setup"
+                                                                : ggc.formSetupKind === "form2"
+                                                                  ? "Form 2 setup"
+                                                                  : "Form 1 setup"}
                                                           </p>
                                                           {ggc.children.map((sub: { label: string; path: string }) => {
                                                             const subActive = isIndustryFormNavLinkActive(

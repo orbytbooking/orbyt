@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { getPlatformPlanLimitsForBusiness } from '@/lib/platform-billing/resolvePlanLimits';
+import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -71,8 +73,12 @@ export async function GET(request: NextRequest) {
 // Create a new location (service role; validate business_id only)
 export async function POST(request: NextRequest) {
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const body = await request.json();
     const validatedData = locationSchema.parse(body);
+    const allowed = await userCanManageBookingsForBusiness(supabase, user.id, validatedData.business_id);
+    if (!allowed) return createForbiddenResponse('You do not have access to this business');
 
     const limits = await getPlatformPlanLimitsForBusiness(supabase, validatedData.business_id);
     const maxCalendars = limits.max_calendars;
@@ -125,6 +131,8 @@ export async function POST(request: NextRequest) {
 // Update a location (service role; validate business_id only)
 export async function PUT(request: NextRequest) {
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const body = await request.json();
     const { id, ...updateData } = body;
     
@@ -133,12 +141,18 @@ export async function PUT(request: NextRequest) {
     }
 
     const validatedData = locationSchema.partial().parse(updateData);
+    const scopeBusinessId = String(validatedData.business_id || body.business_id || '').trim();
+    if (!scopeBusinessId) {
+      return NextResponse.json({ error: 'business_id is required' }, { status: 400 });
+    }
+    const allowed = await userCanManageBookingsForBusiness(supabase, user.id, scopeBusinessId);
+    if (!allowed) return createForbiddenResponse('You do not have access to this business');
 
     const { data: location, error } = await supabase
       .from('locations')
       .update(validatedData)
       .eq('id', id)
-      .eq('business_id', validatedData.business_id || body.business_id)
+      .eq('business_id', scopeBusinessId)
       .select()
       .single();
 
@@ -161,6 +175,8 @@ export async function PUT(request: NextRequest) {
 // Delete a location (service role; validate business_id only)
 export async function DELETE(request: NextRequest) {
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const business_id = searchParams.get('business_id');
@@ -168,6 +184,8 @@ export async function DELETE(request: NextRequest) {
     if (!id || !business_id) {
       return NextResponse.json({ error: 'Location ID and Business ID are required' }, { status: 400 });
     }
+    const allowed = await userCanManageBookingsForBusiness(supabase, user.id, business_id);
+    if (!allowed) return createForbiddenResponse('You do not have access to this business');
 
     const { error } = await supabase
       .from('locations')

@@ -58,7 +58,7 @@ import {
 import { industryExtraPassesBookingDependencyRules } from "@/lib/industryExtraDependencies";
 import { normalizeTimeToHHmm } from "@/lib/schedulingFilters";
 import { FORM1_SEEDED_SERVICE_CATEGORIES } from "@/lib/form1DefaultServiceCategoryConfig";
-import { FORM2_STANDALONE_PACKAGE_CATEGORY } from "@/lib/bookingFormScope";
+import { FORM2_STANDALONE_PACKAGE_CATEGORY, type BookingFormScope } from "@/lib/bookingFormScope";
 import {
   Form2ItemPickerGrid,
   Form2PackageCardStrip,
@@ -87,9 +87,31 @@ function slotMatchesSelectedTime(slot: string, selectedTime: string): boolean {
   return normalizeTimeToHHmm(slot) === normalizeTimeToHHmm(selectedTime);
 }
 
+function makeForm2AddonSelectionKey(itemId: string, addonId: string): string {
+  return `f2:${itemId}:${addonId}`;
+}
+
+function makeForm3AddonSelectionKey(itemId: string, addonId: string): string {
+  return `f3:${itemId}:${addonId}`;
+}
+
+/** Per-item add-on keys from Form 2 (`f2:`) or Form 3 (`f3:`). */
+function parsePerItemAddonSelectionKey(value: string): { itemId: string; addonId: string } | null {
+  if (!value.startsWith("f2:") && !value.startsWith("f3:")) return null;
+  const parts = value.split(":");
+  if (parts.length !== 3) return null;
+  const [, itemId, addonId] = parts;
+  if (!itemId || !addonId) return null;
+  return { itemId, addonId };
+}
+
+/** Marker in `categoryValues[itemId]` meaning this item row is on the booking (Form 3 — no package). */
+const FORM3_ITEM_LINE_VALUE = "__form3_line__";
+
 type Extra = {
   id: string;
   name: string;
+  listing_kind?: "addon" | "extra";
   icon?: string;
   time: number; // in minutes
   serviceCategory: string;
@@ -179,6 +201,8 @@ type PricingParameter = {
   excluded_services: string[];
   sort_order: number;
   pricing_variable_id?: string | null;
+  unit_label?: string | null;
+  quantity_based?: boolean;
 };
 
 type PricingVariable = {
@@ -207,7 +231,11 @@ type CustomerSavedCardOption = {
   stripePaymentMethodId: string | null;
 };
 
-type Industry = { id: string; name: string; customer_booking_form_layout?: "form1" | "form2" };
+type Industry = {
+  id: string;
+  name: string;
+  customer_booking_form_layout?: "form1" | "form2" | "form3" | "form4";
+};
 
 const createEmptyBookingForm = () => ({
   customerType: "new",
@@ -364,10 +392,19 @@ export function AddBookingForm({
     () => industries.find((i) => i.id === selectedIndustryId) ?? null,
     [industries, selectedIndustryId],
   );
-  const bookingFormScopeForCatalog: "form1" | "form2" =
-    selectedIndustry?.customer_booking_form_layout === "form2" ? "form2" : "form1";
+  const bookingFormScopeForCatalog: BookingFormScope = useMemo(() => {
+    const layout = selectedIndustry?.customer_booking_form_layout;
+    if (layout === "form2") return "form2";
+    if (layout === "form3") return "form3";
+    if (layout === "form4") return "form4";
+    return "form1";
+  }, [selectedIndustry?.customer_booking_form_layout]);
   const isForm2Catalog = bookingFormScopeForCatalog === "form2";
-  const extrasListingKindForCatalog = bookingFormScopeForCatalog === "form2" ? "addon" : "extra";
+  const isForm3Catalog = bookingFormScopeForCatalog === "form3";
+  const isForm4Catalog = bookingFormScopeForCatalog === "form4";
+  const isForm2Or3Catalog = isForm2Catalog || isForm3Catalog;
+  const extrasListingKindForCatalog =
+    bookingFormScopeForCatalog === "form2" || bookingFormScopeForCatalog === "form3" ? "addon" : "extra";
   const [pricingVariables, setPricingVariables] = useState<PricingVariable[]>([]);
   /** Form 2: selected catalog item (`industry_pricing_variable.id`). */
   const [selectedForm2VariableId, setSelectedForm2VariableId] = useState<string>("");
@@ -377,6 +414,25 @@ export function AddBookingForm({
   const [priceAdjustmentNoteEnabled, setPriceAdjustmentNoteEnabled] = useState(false);
   const [timeAdjustmentNoteEnabled, setTimeAdjustmentNoteEnabled] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null);
+  const form2ServiceDependencyKey = useMemo(() => {
+    if ((!isForm2Catalog && !isForm3Catalog) || !newBooking.service) return "";
+    const selected = serviceCategories.find((c) => c.name === newBooking.service);
+    if (!selected) return newBooking.service;
+    const vars = (selected as { variables?: Record<string, unknown> }).variables ?? {};
+    const items = Array.isArray(vars.Items) ? vars.Items.map((x) => String(x)).join("|") : "";
+    const packages = Array.isArray(vars.Packages) ? vars.Packages.map((x) => String(x)).join("|") : "";
+    return `${newBooking.service}::${items}::${packages}`;
+  }, [isForm2Catalog, isForm3Catalog, newBooking.service, serviceCategories]);
+  const form2FrequencyDependencyKey = useMemo(() => {
+    if (!frequencyDependencies || typeof frequencyDependencies !== "object") return "";
+    const b = Array.isArray((frequencyDependencies as { bathroomVariables?: unknown[] }).bathroomVariables)
+      ? (frequencyDependencies as { bathroomVariables: unknown[] }).bathroomVariables.map((x) => String(x)).join("|")
+      : "";
+    const s = Array.isArray((frequencyDependencies as { sqftVariables?: unknown[] }).sqftVariables)
+      ? (frequencyDependencies as { sqftVariables: unknown[] }).sqftVariables.map((x) => String(x)).join("|")
+      : "";
+    return `${b}::${s}`;
+  }, [frequencyDependencies]);
 
   // Load store options (specific_provider_for_admin, price/time adjustment note settings)
   useEffect(() => {
@@ -408,13 +464,13 @@ export function AddBookingForm({
     }
   }, [specificProviderForAdmin]);
 
-  // Form 2 does not use partial-cleaning / exclude-parameters behavior.
+  // Form 2 / Form 3 do not use partial-cleaning / exclude-parameters behavior.
   useEffect(() => {
-    if (!isForm2Catalog) return;
+    if (!isForm2Or3Catalog) return;
     setIsPartialCleaning(false);
     setSelectedExcludeParams([]);
     setNewBooking((prev) => ({ ...prev, excludeQuantities: {} }));
-  }, [isForm2Catalog]);
+  }, [isForm2Or3Catalog]);
 
   // Load cancellation settings for Payment Summary display
   useEffect(() => {
@@ -505,10 +561,12 @@ export function AddBookingForm({
         const visible = data.frequencies.filter((f: any) => f && (f.display === "Both" || f.display === "Booking"));
         if (visible.length > 0) {
           setFrequencies(visible);
-          const defaultFreq =
-            visible.find((f: any) => f.is_default === true || f.isDefault === true) || visible[0];
-          if (defaultFreq) {
-            setNewBooking(prev => prev.frequency ? prev : { ...prev, frequency: defaultFreq.name });
+          if (!isForm2Or3Catalog) {
+            const defaultFreq =
+              visible.find((f: any) => f.is_default === true || f.isDefault === true) || visible[0];
+            if (defaultFreq) {
+              setNewBooking(prev => prev.frequency ? prev : { ...prev, frequency: defaultFreq.name });
+            }
           }
         } else {
           setFrequencies([]);
@@ -518,7 +576,7 @@ export function AddBookingForm({
       }
     };
     fetchFrequencies();
-  }, [currentBusiness, selectedIndustryId, newBooking.zipCode, hasLocationBasedFrequencies, bookingFormScopeForCatalog]);
+  }, [currentBusiness, selectedIndustryId, newBooking.zipCode, hasLocationBasedFrequencies, bookingFormScopeForCatalog, isForm2Or3Catalog]);
 
   // Load frequency dependencies when frequency changes
   useEffect(() => {
@@ -559,9 +617,8 @@ export function AddBookingForm({
     if (!selectedIndustryId || !currentBusiness?.id) return;
     const baseQs = `industryId=${selectedIndustryId}&businessId=${currentBusiness.id}&bookingFormScope=${bookingFormScopeForCatalog}`;
     const urls =
-      bookingFormScopeForCatalog === "form2"
+      bookingFormScopeForCatalog === "form2" || bookingFormScopeForCatalog === "form3"
         ? [
-            `/api/extras?${baseQs}`,
             `/api/extras?${baseQs}&listingKind=addon`,
             `/api/extras?${baseQs}&listingKind=extra`,
           ]
@@ -579,6 +636,7 @@ export function AddBookingForm({
           deduped.map((e: any) => ({
             id: e.id,
             name: e.name,
+            listing_kind: e.listing_kind === "addon" ? "addon" : "extra",
             icon: e.icon,
             time: e.time_minutes,
             serviceCategory: e.service_category || "",
@@ -612,19 +670,14 @@ export function AddBookingForm({
       .catch((e) => console.error("Error loading extras:", e));
   }, [selectedIndustryId, currentBusiness?.id, bookingFormScopeForCatalog, extrasListingKindForCatalog]);
 
-  // Update service categories when frequency dependencies or industry change
+  // Service categories should always be visible for selection.
+  // Frequency and downstream catalog options are filtered after service selection.
   useEffect(() => {
     if (!selectedIndustryId) return;
     serviceCategoriesService.getServiceCategoriesByIndustry(selectedIndustryId, bookingFormScopeForCatalog).then((categories) => {
-      const filtered = categories.filter((category: ServiceCategory) => {
-        if (!category.service_category_frequency) return true;
-        if (!frequencyDependencies) return true;
-        if (!frequencyDependencies.serviceCategories?.length) return true;
-        return frequencyDependencies.serviceCategories.includes(String(category.id));
-      });
-      setServiceCategories(filtered);
+      setServiceCategories(categories);
     }).catch(() => setServiceCategories([]));
-  }, [frequencyDependencies, selectedIndustryId, bookingFormScopeForCatalog]);
+  }, [selectedIndustryId, bookingFormScopeForCatalog]);
 
   // Pre-fill provider wage from service category override when service is selected
   useEffect(() => {
@@ -671,6 +724,17 @@ export function AddBookingForm({
           }
         }
 
+        if (isForm2Or3Catalog && depsLoaded) {
+          const form2AllowedExtraIds = Array.isArray(frequencyDependencies?.extras)
+            ? frequencyDependencies.extras.map((x: unknown) => String(x))
+            : [];
+          if (form2AllowedExtraIds.length === 0) {
+            filteredExtras = [];
+          } else {
+            filteredExtras = filteredExtras.filter((e) => form2AllowedExtraIds.includes(String(e.id)));
+          }
+        }
+
         filteredExtras = filteredExtras.filter((e) =>
           industryExtraPassesBookingDependencyRules(
             {
@@ -705,7 +769,7 @@ export function AddBookingForm({
     frequencyDependencies,
     allExtras,
     categoryValues,
-    isForm2Catalog,
+    isForm2Or3Catalog,
   ]);
 
   // Load providers from API
@@ -767,6 +831,11 @@ export function AddBookingForm({
   // Load pricing parameters from database (uses selected industry)
   useEffect(() => {
     if (!selectedIndustryId || !currentBusiness?.id) return;
+    if (isForm3Catalog) {
+      setPricingParameters([]);
+      setVariableCategories([]);
+      return;
+    }
     const load = async () => {
       try {
         const pricingRes = await fetch(
@@ -774,12 +843,41 @@ export function AddBookingForm({
         );
         const pricingData = await pricingRes.json();
         if (pricingData.pricingParameters) {
-          setPricingParameters(pricingData.pricingParameters);
-          const cats = Array.from(new Set(pricingData.pricingParameters.map((p: PricingParameter) => p.variable_category))).filter(Boolean) as string[];
+          let filteredParams = pricingData.pricingParameters as PricingParameter[];
+          const selectedServiceCategory = serviceCategories.find((c) => c.name === newBooking.service);
+          const form2ServicePackageDeps = isForm2Catalog
+            ? Array.isArray((selectedServiceCategory as { variables?: Record<string, unknown> } | undefined)?.variables?.Packages)
+              ? ((selectedServiceCategory as { variables?: Record<string, unknown> }).variables?.Packages as unknown[])
+                  .map((x) => String(x).trim())
+                  .filter((x) => x.length > 0)
+              : null
+            : null;
+          if (isForm2Catalog && form2ServicePackageDeps && form2ServicePackageDeps.length > 0) {
+            filteredParams = filteredParams.filter((p) => {
+              const id = String(p.id ?? "").trim();
+              const name = String(p.name ?? "").trim();
+              return form2ServicePackageDeps.includes(id) || (name.length > 0 && form2ServicePackageDeps.includes(name));
+            });
+          }
+          if (isForm2Catalog && frequencyDependencies && Array.isArray(frequencyDependencies.sqftVariables)) {
+            const allowedPackageKeys = frequencyDependencies.sqftVariables.map((x: unknown) => String(x));
+            // If frequency has no explicit package dependency selections, show all.
+            if (allowedPackageKeys.length > 0) {
+              filteredParams = filteredParams.filter((p) => {
+                const id = String(p.id ?? "").trim();
+                const name = String(p.name ?? "").trim();
+                return allowedPackageKeys.includes(id) || (name.length > 0 && allowedPackageKeys.includes(name));
+              });
+            }
+          }
+          setPricingParameters(filteredParams);
+          const cats = Array.from(new Set(filteredParams.map((p: PricingParameter) => p.variable_category))).filter(Boolean) as string[];
           setVariableCategories(cats);
           // Merge so edit-mode / loaded booking values are not wiped when params arrive
           setCategoryValues((prev) => {
-            const next: Record<string, string> = {};
+            const next: Record<string, string> = Object.fromEntries(
+              Object.entries(prev).filter(([k]) => k.startsWith("__form4_")),
+            );
             for (const c of cats) {
               const existing = prev[c];
               next[c] = existing != null && String(existing).trim() !== '' ? String(existing).trim() : '';
@@ -792,11 +890,19 @@ export function AddBookingForm({
       }
     };
     load();
-  }, [selectedIndustryId, currentBusiness?.id, bookingFormScopeForCatalog]);
+  }, [
+    selectedIndustryId,
+    currentBusiness?.id,
+    bookingFormScopeForCatalog,
+    isForm2Catalog,
+    isForm3Catalog,
+    form2FrequencyDependencyKey,
+    form2ServiceDependencyKey,
+  ]);
 
   // Form 2 item catalog (pricing variables)
   useEffect(() => {
-    if (!isForm2Catalog || !selectedIndustryId || !currentBusiness?.id) {
+    if (!isForm2Or3Catalog || !selectedIndustryId || !currentBusiness?.id) {
       setPricingVariables([]);
       setSelectedForm2VariableId("");
       return;
@@ -804,11 +910,37 @@ export function AddBookingForm({
     const load = async () => {
       try {
         const res = await fetch(
-          `/api/pricing-variables?industryId=${encodeURIComponent(selectedIndustryId)}&businessId=${encodeURIComponent(currentBusiness.id)}&bookingFormScope=form2`,
+          `/api/pricing-variables?industryId=${encodeURIComponent(selectedIndustryId)}&businessId=${encodeURIComponent(currentBusiness.id)}&bookingFormScope=${bookingFormScopeForCatalog}`,
         );
         const data = await res.json();
         if (res.ok && Array.isArray(data.variables)) {
-          const rows = data.variables as PricingVariable[];
+          let rows = data.variables as PricingVariable[];
+          const selectedServiceCategory = serviceCategories.find((c) => c.name === newBooking.service);
+          const form2ServiceItemDeps = isForm2Catalog
+            ? Array.isArray((selectedServiceCategory as { variables?: Record<string, unknown> } | undefined)?.variables?.Items)
+              ? ((selectedServiceCategory as { variables?: Record<string, unknown> }).variables?.Items as unknown[])
+                  .map((x) => String(x).trim())
+                  .filter((x) => x.length > 0)
+              : null
+            : null;
+          if (isForm2Catalog && form2ServiceItemDeps && form2ServiceItemDeps.length > 0) {
+            rows = rows.filter((r) => {
+              const id = String(r.id ?? "").trim();
+              const name = String(r.name ?? "").trim();
+              return form2ServiceItemDeps.includes(id) || (name.length > 0 && form2ServiceItemDeps.includes(name));
+            });
+          }
+          if (frequencyDependencies && Array.isArray(frequencyDependencies.bathroomVariables)) {
+            const allowedItemKeys = frequencyDependencies.bathroomVariables.map((x: unknown) => String(x));
+            // If frequency has no explicit item dependency selections, show all.
+            if (allowedItemKeys.length > 0) {
+              rows = rows.filter((r) => {
+                const id = String(r.id ?? "").trim();
+                const name = String(r.name ?? "").trim();
+                return allowedItemKeys.includes(id) || (name.length > 0 && allowedItemKeys.includes(name));
+              });
+            }
+          }
           setPricingVariables(rows);
           setSelectedForm2VariableId((prev) => {
             if (prev && rows.some((r) => r.id === prev)) return prev;
@@ -825,7 +957,14 @@ export function AddBookingForm({
       }
     };
     load();
-  }, [isForm2Catalog, selectedIndustryId, currentBusiness?.id]);
+  }, [
+    isForm2Or3Catalog,
+    selectedIndustryId,
+    currentBusiness?.id,
+    bookingFormScopeForCatalog,
+    form2FrequencyDependencyKey,
+    form2ServiceDependencyKey,
+  ]);
 
   // Edit mode: embedded sheet uses `bookingIdOverride`; full page uses URL (override optional).
   const fromUrl = searchParams.get("bookingId");
@@ -1346,6 +1485,62 @@ const handleAddBooking = async (status: string = 'pending') => {
     }
     const businessIdForApi = currentBusiness.id;
 
+    const normalizedCategoryValues: Record<string, string> = isForm3Catalog
+      ? Object.fromEntries(
+          Object.entries(categoryValues).filter(
+            ([, raw]) => String(raw ?? "").trim() === FORM3_ITEM_LINE_VALUE,
+          ),
+        )
+      : isForm4Catalog
+      ? (() => {
+          const next: Record<string, string> = {};
+          const qty = String(categoryValues.__form4_unit_quantity ?? "").trim();
+          if (qty) next.__form4_unit_quantity = qty;
+          const selectedParam = selectedForm4PricingParam;
+          if (selectedParam?.id) next.__form4_pricing_param = String(selectedParam.id);
+          if (selectedParam?.variable_category && selectedParam?.name) {
+            next[String(selectedParam.variable_category)] = String(selectedParam.name);
+          }
+          return next;
+        })()
+      : isForm2Catalog
+      ? (() => {
+          // Form 2 should only persist selected package rows (by id->name),
+          // avoiding stale Form 1-style category maps after industry switches.
+          const byId: Record<string, string> = {};
+          for (const [_, rawValue] of Object.entries(categoryValues)) {
+            const value = String(rawValue ?? "").trim();
+            if (!value || value.toLowerCase() === "none") continue;
+            const pkg = pricingParameters.find((p) => String(p.name ?? "").trim() === value);
+            if (pkg?.id) byId[String(pkg.id)] = value;
+          }
+          return byId;
+        })()
+      : categoryValues;
+
+    const normalizedSelectedExtrasForApi = isForm2Or3Catalog
+      ? Array.from(
+          new Set(
+            (newBooking.selectedExtras || [])
+              .map((raw) => {
+                const parsed = parsePerItemAddonSelectionKey(String(raw));
+                return parsed ? parsed.addonId : String(raw);
+              })
+              .filter((value) => value.trim().length > 0),
+          ),
+        )
+      : newBooking.selectedExtras;
+    const normalizedExtraQuantitiesForApi = isForm2Or3Catalog
+      ? Object.entries(newBooking.extraQuantities || {}).reduce<Record<string, number>>((acc, [rawKey, rawQty]) => {
+          const qty = Number(rawQty) || 0;
+          if (qty <= 0) return acc;
+          const parsed = parsePerItemAddonSelectionKey(String(rawKey));
+          const key = parsed ? parsed.addonId : String(rawKey);
+          acc[key] = (acc[key] || 0) + qty;
+          return acc;
+        }, {})
+      : newBooking.extraQuantities;
+
     // Build request body (same for create and update)
     const body: Record<string, unknown> = {
       customer_id: newBooking.customerId || null,
@@ -1379,10 +1574,10 @@ const handleAddBooking = async (status: string = 'pending') => {
             duration: newBooking.duration || (calculatedDurationMinutes != null ? String(Math.round(calculatedDurationMinutes)) : ''),
             duration_unit: (newBooking.duration ? newBooking.durationUnit : (calculatedDurationMinutes != null ? 'Minutes' : 'Hours')) as 'Hours' | 'Minutes',
           }),
-      selected_extras: newBooking.selectedExtras,
-      extra_quantities: newBooking.extraQuantities,
-      category_values: categoryValues,
-      is_partial_cleaning: isForm2Catalog ? false : isPartialCleaning,
+      selected_extras: normalizedSelectedExtrasForApi,
+      extra_quantities: normalizedExtraQuantitiesForApi,
+      category_values: normalizedCategoryValues,
+      is_partial_cleaning: isForm2Or3Catalog ? false : isPartialCleaning,
       excluded_areas: selectedExcludeParams,
       exclude_quantities: newBooking.excludeQuantities,
       service_provider_id: effectiveProviderId,
@@ -1405,6 +1600,7 @@ const handleAddBooking = async (status: string = 'pending') => {
       price_adjustment_note: newBooking.adjustPrice && newBooking.priceAdjustmentNote ? newBooking.priceAdjustmentNote : undefined,
       time_adjustment_note: newBooking.adjustTime && newBooking.timeAdjustmentNote ? newBooking.timeAdjustmentNote : undefined,
       industry_id: selectedIndustryId || undefined,
+      booking_form_scope: bookingFormScopeForCatalog,
       frequency_repeats: frequencies.find(f => f.name === newBooking.frequency)?.frequency_repeats ?? undefined,
       coupon_code: appliedCoupon?.code ?? (newBooking.couponType === "coupon-code" ? (newBooking.couponCode || "").trim() || undefined : undefined),
       coupon_discount_type: appliedCoupon?.discountType,
@@ -1997,6 +2193,36 @@ const handleAddBooking = async (status: string = 'pending') => {
     });
   };
 
+  const form4ApplicablePricingParams = useMemo(() => {
+    if (!isForm4Catalog || !newBooking.service || !newBooking.frequency) return [] as PricingParameter[];
+    const bedroomTierForFilter = categoryValues["Bedroom"] ?? null;
+    return pricingParameters.filter((p) =>
+      pricingParamAppliesToSelection(
+        {
+          show_based_on_frequency: p.show_based_on_frequency,
+          frequency: p.frequency,
+          show_based_on_service_category: p.show_based_on_service_category,
+          service_category: p.service_category,
+          show_based_on_service_category2: Boolean(p.show_based_on_service_category2),
+          service_category2: p.service_category2 ?? null,
+        },
+        newBooking.frequency,
+        newBooking.service,
+        bedroomTierForFilter,
+      ),
+    );
+  }, [isForm4Catalog, newBooking.service, newBooking.frequency, categoryValues, pricingParameters]);
+
+  const selectedForm4PricingParam = useMemo(() => {
+    if (!isForm4Catalog) return null;
+    const selectedId = String(categoryValues.__form4_pricing_param ?? "").trim();
+    if (selectedId) {
+      const byId = form4ApplicablePricingParams.find((p) => String(p.id) === selectedId);
+      if (byId) return byId;
+    }
+    return form4ApplicablePricingParams[0] ?? null;
+  }, [isForm4Catalog, categoryValues, form4ApplicablePricingParams]);
+
   // Duration from pricing parameters (sum all matching variable categories) + extras time.
   // Hourly + "Based on the pricing parameters time": derive minutes from selections even if a stale duration field exists.
   const calculatedDurationMinutes = useMemo(() => {
@@ -2010,11 +2236,31 @@ const handleAddBooking = async (status: string = 'pending') => {
     let totalMinutes = 0;
     const bedroomTier = categoryValues['Bedroom'] ?? null;
 
+    if (isForm4Catalog) {
+      const units = Math.max(0, Number(categoryValues.__form4_unit_quantity ?? 0) || 0);
+      if (units > 0) {
+        const perUnitMinutes = Number(selectedForm4PricingParam?.time_minutes ?? 0);
+        if (!Number.isNaN(perUnitMinutes) && perUnitMinutes > 0) {
+          totalMinutes += perUnitMinutes * units;
+        }
+      }
+    }
+
     for (const [categoryKey, optionName] of Object.entries(categoryValues)) {
+      if (categoryKey.startsWith("__form4_")) continue;
       if (!optionName?.trim() || optionName.trim().toLowerCase() === "none") continue;
+      if (isForm3Catalog) continue;
+      if (isForm4Catalog) continue;
+      const form2Item = isForm2Catalog ? pricingVariables.find((v) => v.id === categoryKey) : null;
+      const effectiveCategoryKey = form2Item ? String(form2Item.category ?? "").trim() : categoryKey;
+      const form2ItemId = form2Item ? String(form2Item.id) : null;
       const param = pricingParameters.find(
         (p) =>
-          p.variable_category === categoryKey &&
+          p.variable_category === effectiveCategoryKey &&
+          (form2ItemId
+            ? (String(p.pricing_variable_id ?? "").trim() === form2ItemId ||
+               String(p.pricing_variable_id ?? "").trim().length === 0)
+            : true) &&
           p.name === optionName &&
           pricingParamAppliesToSelection(
             {
@@ -2035,10 +2281,15 @@ const handleAddBooking = async (status: string = 'pending') => {
       }
     }
 
-    newBooking.selectedExtras?.forEach(extraId => {
-      const extra = extras.find(e => e.id === extraId);
+    newBooking.selectedExtras?.forEach((rawExtraKey) => {
+      const parsed = parsePerItemAddonSelectionKey(String(rawExtraKey));
+      const extraId = parsed ? parsed.addonId : String(rawExtraKey);
+      const quantityKey = String(rawExtraKey);
+      const extra = extras.find((e) => e.id === extraId);
       if (!extra) return;
-      const qty = extra.qtyBased ? (newBooking.extraQuantities[extraId] || 1) : 1;
+      const qty = extra.qtyBased
+        ? (newBooking.extraQuantities[quantityKey] || newBooking.extraQuantities[extraId] || 1)
+        : 1;
       const { lineMinutes } = resolveQtyBasedExtraLine(
         {
           qty_based: extra.qtyBased,
@@ -2065,7 +2316,7 @@ const handleAddBooking = async (status: string = 'pending') => {
     }
 
     return totalMinutes > 0 ? totalMinutes : null;
-  }, [newBooking.service, newBooking.frequency, newBooking.duration, categoryValues, pricingParameters, newBooking.selectedExtras, newBooking.extraQuantities, extras, isPartialCleaning, selectedExcludeParams, excludeParameters, newBooking.excludeQuantities, serviceCategories]);
+  }, [newBooking.service, newBooking.frequency, newBooking.duration, categoryValues, pricingParameters, pricingVariables, isForm2Catalog, isForm3Catalog, isForm4Catalog, selectedForm4PricingParam, newBooking.selectedExtras, newBooking.extraQuantities, extras, isPartialCleaning, selectedExcludeParams, excludeParameters, newBooking.excludeQuantities, serviceCategories]);
 
   // Calculate service total: service base price (if set) + sum of selected options (Bathroom, Bedroom, etc.)
   const calculateServiceTotal = useMemo(() => {
@@ -2088,12 +2339,29 @@ const handleAddBooking = async (status: string = 'pending') => {
 
     // 2) Add prices for each selected option (Bathroom, Bedroom, Living Room, Sq Ft, Storage, etc.)
     let optionsSum = 0;
+    if (isForm4Catalog) {
+      const units = Math.max(0, Number(categoryValues.__form4_unit_quantity ?? 0) || 0);
+      const perUnitPrice = Number(selectedForm4PricingParam?.price ?? 0);
+      if (units > 0 && !Number.isNaN(perUnitPrice) && perUnitPrice >= 0) {
+        optionsSum = units * perUnitPrice;
+      }
+    }
     const bedroomTierForPrice = categoryValues['Bedroom'] ?? null;
     for (const [categoryKey, optionName] of Object.entries(categoryValues)) {
+      if (categoryKey.startsWith("__form4_")) continue;
       if (!optionName?.trim() || optionName.trim().toLowerCase() === "none") continue;
+      if (isForm3Catalog) continue;
+      if (isForm4Catalog) continue;
+      const form2Item = isForm2Catalog ? pricingVariables.find((v) => v.id === categoryKey) : null;
+      const effectiveCategoryKey = form2Item ? String(form2Item.category ?? "").trim() : categoryKey;
+      const form2ItemId = form2Item ? String(form2Item.id) : null;
       const param = pricingParameters.find(
         (p) =>
-          p.variable_category === categoryKey &&
+          p.variable_category === effectiveCategoryKey &&
+          (form2ItemId
+            ? (String(p.pricing_variable_id ?? "").trim() === form2ItemId ||
+               String(p.pricing_variable_id ?? "").trim().length === 0)
+            : true) &&
           p.name === optionName &&
           pricingParamAppliesToSelection(
             {
@@ -2144,7 +2412,7 @@ const handleAddBooking = async (status: string = 'pending') => {
     }
 
     return 0;
-  }, [newBooking.service, newBooking.frequency, newBooking.duration, newBooking.durationUnit, categoryValues, pricingParameters, serviceCategories, calculatedDurationMinutes]);
+  }, [newBooking.service, newBooking.frequency, newBooking.duration, newBooking.durationUnit, categoryValues, pricingParameters, pricingVariables, isForm2Catalog, isForm3Catalog, isForm4Catalog, selectedForm4PricingParam, serviceCategories, calculatedDurationMinutes]);
 
   // Effective service total: when "Adjust Service Total" is on, use the entered amount (Booking Koala: overrides price before discounts)
   const effectiveServiceTotal = useMemo(() => {
@@ -2160,10 +2428,15 @@ const handleAddBooking = async (status: string = 'pending') => {
     const selectedServiceCategory = serviceCategories.find((cat) => cat.name === newBooking.service);
     const hs = selectedServiceCategory?.hourly_service;
     let total = 0;
-    newBooking.selectedExtras?.forEach(extraId => {
-      const extra = extras.find(e => e.id === extraId);
+    newBooking.selectedExtras?.forEach((rawExtraKey) => {
+      const parsed = parsePerItemAddonSelectionKey(String(rawExtraKey));
+      const extraId = parsed ? parsed.addonId : String(rawExtraKey);
+      const quantityKey = String(rawExtraKey);
+      const extra = extras.find((e) => e.id === extraId);
       if (!extra) return;
-      const quantity = extra.qtyBased ? (newBooking.extraQuantities[extraId] || 1) : 1;
+      const quantity = extra.qtyBased
+        ? (newBooking.extraQuantities[quantityKey] || newBooking.extraQuantities[extraId] || 1)
+        : 1;
       const { linePrice } = resolveQtyBasedExtraLine(
         {
           qty_based: extra.qtyBased,
@@ -2529,12 +2802,7 @@ const handleAddBooking = async (status: string = 'pending') => {
     return pricingParameters
       .filter((p) => {
         const categoryKey = String(p.variable_category || "").trim();
-        if (!categoryKey) return false;
-        return true;
-      })
-      .filter((p) => {
-        const d = String(p.display || "");
-        return d.includes("Customer") || d.includes("Frontend") || !d;
+        return categoryKey.length > 0;
       })
       .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name))
       .map((p) => ({
@@ -2550,17 +2818,75 @@ const handleAddBooking = async (status: string = 'pending') => {
 
   const selectedForm2PackageHighlight = useMemo(() => {
     const v = pricingVariables.find((r) => r.id === selectedForm2VariableId);
+    const itemKey = String(v?.id ?? "").trim();
     const cat = String(v?.category ?? "").trim();
-    if (!cat) return null;
-    const n = categoryValues[cat];
+    if (!itemKey && !cat) return null;
+    const n = categoryValues[itemKey] ?? categoryValues[cat];
     return n && String(n).trim() ? String(n).trim() : null;
   }, [pricingVariables, selectedForm2VariableId, categoryValues]);
+
+  const hasAnyForm2PackageSelected = useMemo(
+    () => Object.values(categoryValues).some((v) => String(v ?? "").trim().length > 0),
+    [categoryValues],
+  );
+  const form2AddonRows = useMemo(
+    () => (isForm2Or3Catalog ? extras.filter((e) => e.listing_kind === "addon") : []),
+    [isForm2Or3Catalog, extras],
+  );
+  const form2ExtraRows = useMemo(
+    () => (isForm2Or3Catalog ? extras.filter((e) => e.listing_kind !== "addon") : extras),
+    [isForm2Or3Catalog, extras],
+  );
+  const selectedForm2PackageCards = useMemo(() => {
+    if (!isForm2Catalog) return [];
+    const cards = pricingVariables
+      .map((item) => {
+        const categoryKey = String(item.category ?? "").trim();
+        const itemKey = String(item.id ?? "").trim();
+        if (!categoryKey || !itemKey) return null;
+        const selectedPackageName = String(categoryValues[itemKey] ?? categoryValues[categoryKey] ?? "").trim();
+        if (!selectedPackageName) return null;
+        const pkg = pricingParameters.find((p) => {
+          if (String(p.name ?? "").trim() !== selectedPackageName) return false;
+          const linkedVariableId = String(p.pricing_variable_id ?? "").trim();
+          if (linkedVariableId) return linkedVariableId === itemKey;
+          return String(p.variable_category ?? "").trim() === categoryKey;
+        });
+        return {
+          itemId: itemKey,
+          itemName: item.name,
+          categoryKey: itemKey,
+          packageName: selectedPackageName,
+          packageId: pkg?.id ?? null,
+        };
+      })
+      .filter((x): x is { itemId: string; itemName: string; categoryKey: string; packageName: string; packageId: string | null } => x != null);
+    return cards.sort((a, b) => a.itemName.localeCompare(b.itemName));
+  }, [isForm2Catalog, pricingVariables, categoryValues, pricingParameters]);
+
+  const selectedForm3ItemCards = useMemo(() => {
+    if (!isForm3Catalog) return [];
+    const cards = pricingVariables
+      .map((item) => {
+        const itemKey = String(item.id ?? "").trim();
+        if (!itemKey) return null;
+        const line = String(categoryValues[itemKey] ?? "").trim();
+        if (line !== FORM3_ITEM_LINE_VALUE) return null;
+        return {
+          itemId: itemKey,
+          itemName: item.name,
+          categoryKey: itemKey,
+        };
+      })
+      .filter((x): x is { itemId: string; itemName: string; categoryKey: string } => x != null);
+    return cards.sort((a, b) => a.itemName.localeCompare(b.itemName));
+  }, [isForm3Catalog, pricingVariables, categoryValues]);
 
   const showBookingForm = !bookingLoadError && !(editingBookingId && loadingBooking);
 
   const bookingEditorGrid = showBookingForm ? (
       <>
-      <div className="grid gap-6 lg:grid-cols-[0.8fr_2fr]">
+      <div className="grid gap-6 xl:grid-cols-[0.85fr_1.85fr]">
         <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
           <Card>
             <CardHeader>
@@ -2986,7 +3312,7 @@ const handleAddBooking = async (status: string = 'pending') => {
           </div>
         </div>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <Card className="border-primary/20 shadow-lg">
           <CardHeader className="space-y-1">
             <CardTitle>Customer Details</CardTitle>
@@ -3234,6 +3560,7 @@ const handleAddBooking = async (status: string = 'pending') => {
                   setNewBooking((prev) => ({
                     ...prev,
                     service: value,
+                    frequency: "",
                     ...(clearManualDuration ? { duration: "", durationUnit: "Hours" as const } : {}),
                   }));
                   setErrors(prev => ({ ...prev, service: false }));
@@ -3336,8 +3663,7 @@ const handleAddBooking = async (status: string = 'pending') => {
                 
                 if (newBooking.service) {
                   const selectedServiceCategory = serviceCategories.find(cat => cat.name === newBooking.service);
-
-                  if (selectedServiceCategory && selectedServiceCategory.service_category_frequency) {
+                  if (selectedServiceCategory) {
                     const names = frequencies.map((f) => f.name).filter(Boolean);
                     const filteredNames = filterFrequencyOptionsForServiceCategory(
                       names,
@@ -3565,25 +3891,285 @@ const handleAddBooking = async (status: string = 'pending') => {
                           : "Select an item to see packages."}
                       </p>
                     ) : (
-                      <Form2PackageCardStrip
-                        packages={form2PackageStripRows}
-                        selectedPackageName={selectedForm2PackageHighlight}
-                        uiVariant="admin"
-                        onAdd={(pkg) => {
-                          setCategoryValues((prev) => ({
-                            ...prev,
-                            [pkg.variable_category]: pkg.name,
-                          }));
-                        }}
-                      />
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <Label className="text-sm font-semibold">Chosen Packages</Label>
+                          <span className="text-xs text-muted-foreground">View all</span>
+                        </div>
+                        <Form2PackageCardStrip
+                          packages={form2PackageStripRows}
+                          selectedPackageName={selectedForm2PackageHighlight}
+                          uiVariant="admin"
+                          onAdd={(pkg) => {
+                            const activeItem = pricingVariables.find((v) => v.id === selectedForm2VariableId);
+                            const itemKey = String(activeItem?.id ?? "").trim();
+                            const activeCategory = String(activeItem?.category ?? "").trim();
+                            const categoryKey = itemKey || activeCategory || pkg.variable_category;
+                            setCategoryValues((prev) => ({
+                              ...prev,
+                              [categoryKey]: pkg.name,
+                            }));
+                          }}
+                        />
+                      </div>
                     )}
+                    {selectedForm2PackageCards.length > 0 ? (
+                      <div className="space-y-3">
+                        {selectedForm2PackageCards.map((card) => (
+                          <div key={card.itemId} className="rounded-lg border overflow-hidden">
+                            <div className="flex items-start justify-between gap-3 bg-slate-100/80 px-4 py-3">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-slate-900">{card.itemName}</p>
+                                <p className="text-sm text-muted-foreground">{card.packageName}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setCategoryValues((prev) => ({ ...prev, [card.categoryKey]: "" }))
+                                }
+                                className="text-red-500 hover:text-red-600"
+                              >
+                                <X className="h-5 w-5" />
+                              </button>
+                            </div>
+                            {form2AddonRows.length > 0 ? (
+                              <div className="p-4">
+                                <p className="text-sm font-medium mb-2">Any Add-ons for this package?</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {form2AddonRows.map((addon) => {
+                                    const addonSelectionKey = makeForm2AddonSelectionKey(card.itemId, addon.id);
+                                    const selected = newBooking.selectedExtras?.includes(addonSelectionKey);
+                                    return (
+                                      <Button
+                                        key={`${card.itemId}-${addon.id}`}
+                                        type="button"
+                                        variant={selected ? "default" : "outline"}
+                                        size="sm"
+                                        onClick={() => {
+                                          setNewBooking((prev) => {
+                                            const exists = prev.selectedExtras?.includes(addonSelectionKey);
+                                            if (exists) {
+                                              const q = { ...prev.extraQuantities };
+                                              delete q[addonSelectionKey];
+                                              return {
+                                                ...prev,
+                                                selectedExtras: prev.selectedExtras?.filter((id) => id !== addonSelectionKey),
+                                                extraQuantities: q,
+                                              };
+                                            }
+                                            return {
+                                              ...prev,
+                                              selectedExtras: [...(prev.selectedExtras || []), addonSelectionKey],
+                                              extraQuantities: { ...prev.extraQuantities, [addonSelectionKey]: 1 },
+                                            };
+                                          });
+                                        }}
+                                      >
+                                        {addon.name}
+                                      </Button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    <Button
+                      type="button"
+                      onClick={() => setSelectedForm2VariableId("")}
+                      className="w-full bg-cyan-500 hover:bg-cyan-600 text-white"
+                    >
+                      + Add Another Item
+                    </Button>
                   </>
                 )}
               </div>
             )}
 
+            {/* Form 3: items + add-ons (no packages) */}
+            {isForm3Catalog && (
+              <div className="space-y-6 rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-card">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">What Needs To Be Done?</h3>
+                  <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+                    Select an item, add it to this booking, then choose add-ons for that item. Repeat for multiple items.
+                  </p>
+                </div>
+                {pricingVariables.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No items configured for this industry yet.</p>
+                ) : (
+                  <>
+                    <Form2ItemPickerGrid
+                      items={[...pricingVariables]
+                        .sort(
+                          (a, b) =>
+                            (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name),
+                        )
+                        .map((v) => ({
+                          id: v.id,
+                          name: v.name,
+                          category: v.category,
+                        }))}
+                      selectedId={selectedForm2VariableId || null}
+                      onSelect={setSelectedForm2VariableId}
+                      uiVariant="admin"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={!selectedForm2VariableId}
+                        onClick={() => {
+                          const activeItem = pricingVariables.find((v) => v.id === selectedForm2VariableId);
+                          const itemKey = String(activeItem?.id ?? "").trim();
+                          if (!itemKey) return;
+                          setCategoryValues((prev) => ({
+                            ...prev,
+                            [itemKey]: FORM3_ITEM_LINE_VALUE,
+                          }));
+                        }}
+                      >
+                        Add item to booking
+                      </Button>
+                    </div>
+                    {selectedForm3ItemCards.length > 0 ? (
+                      <div className="space-y-3">
+                        {selectedForm3ItemCards.map((card) => (
+                          <div key={card.itemId} className="rounded-lg border overflow-hidden">
+                            <div className="flex items-start justify-between gap-3 bg-slate-100/80 px-4 py-3">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-slate-900">{card.itemName}</p>
+                                <p className="text-sm text-muted-foreground">Item</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setCategoryValues((prev) => ({ ...prev, [card.categoryKey]: "" }))
+                                }
+                                className="text-red-500 hover:text-red-600"
+                              >
+                                <X className="h-5 w-5" />
+                              </button>
+                            </div>
+                            {form2AddonRows.length > 0 ? (
+                              <div className="p-4">
+                                <p className="text-sm font-medium mb-2">Any Add-ons for this item?</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {form2AddonRows.map((addon) => {
+                                    const addonSelectionKey = makeForm3AddonSelectionKey(card.itemId, addon.id);
+                                    const selected = newBooking.selectedExtras?.includes(addonSelectionKey);
+                                    return (
+                                      <Button
+                                        key={`${card.itemId}-${addon.id}`}
+                                        type="button"
+                                        variant={selected ? "default" : "outline"}
+                                        size="sm"
+                                        onClick={() => {
+                                          setNewBooking((prev) => {
+                                            const exists = prev.selectedExtras?.includes(addonSelectionKey);
+                                            if (exists) {
+                                              const q = { ...prev.extraQuantities };
+                                              delete q[addonSelectionKey];
+                                              return {
+                                                ...prev,
+                                                selectedExtras: prev.selectedExtras?.filter((id) => id !== addonSelectionKey),
+                                                extraQuantities: q,
+                                              };
+                                            }
+                                            return {
+                                              ...prev,
+                                              selectedExtras: [...(prev.selectedExtras || []), addonSelectionKey],
+                                              extraQuantities: { ...prev.extraQuantities, [addonSelectionKey]: 1 },
+                                            };
+                                          });
+                                        }}
+                                      >
+                                        {addon.name}
+                                      </Button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    <Button
+                      type="button"
+                      onClick={() => setSelectedForm2VariableId("")}
+                      className="w-full bg-cyan-500 hover:bg-cyan-600 text-white"
+                    >
+                      + Add Another Item
+                    </Button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Form 4: unit structure input (quantity + pricing parameter) */}
+            {isForm4Catalog && (
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <Label htmlFor="form4-unit-quantity" className="text-sm font-medium mb-2 block">
+                    How Big Is Your Space?
+                  </Label>
+                  <Input
+                    id="form4-unit-quantity"
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="Enter quantity"
+                    value={categoryValues.__form4_unit_quantity ?? ""}
+                    onChange={(e) =>
+                      setCategoryValues((prev) => ({
+                        ...prev,
+                        __form4_unit_quantity: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="form4-unit-type" className="text-sm font-medium mb-2 block">
+                    {selectedForm4PricingParam?.unit_label?.trim() || "Unit"}
+                  </Label>
+                  <Select
+                    value={
+                      String(categoryValues.__form4_pricing_param ?? "").trim() ||
+                      String(selectedForm4PricingParam?.id ?? "")
+                    }
+                    onValueChange={(value) =>
+                      setCategoryValues((prev) => ({
+                        ...prev,
+                        __form4_pricing_param: value,
+                      }))
+                    }
+                  >
+                    <SelectTrigger id="form4-unit-type">
+                      <SelectValue placeholder="Select pricing parameter" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {form4ApplicablePricingParams.length > 0 ? (
+                        form4ApplicablePricingParams.map((param) => (
+                          <SelectItem key={param.id} value={String(param.id)}>
+                            {param.name}
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <SelectItem value="no-form4-pricing" disabled>
+                          No pricing parameters available
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+
             {/* Form 1: dynamic variable categories from pricing parameters */}
-            {!isForm2Catalog && variableCategories.length > 0 && (
+            {!isForm2Or3Catalog && !isForm4Catalog && variableCategories.length > 0 && (
               <div className={`grid gap-4 ${variableCategories.length === 1 ? 'md:grid-cols-1' : variableCategories.length === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
                 {variableCategories.map((category) => {
                   const categoryOptions = pricingParameters.filter(p => p.variable_category === category);
@@ -3751,7 +4337,7 @@ const handleAddBooking = async (status: string = 'pending') => {
             )}
 
             {/* Form 1 only: Partial Cleaning + Exclude Parameters */}
-            {!isForm2Catalog && (
+            {!isForm2Or3Catalog && !isForm4Catalog && (
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id="partial-cleaning"
@@ -3763,7 +4349,7 @@ const handleAddBooking = async (status: string = 'pending') => {
             )}
 
             {/* Exclude Parameters - Show when partial cleaning is checked */}
-            {!isForm2Catalog && isPartialCleaning && (() => {
+            {!isForm2Or3Catalog && !isForm4Catalog && isPartialCleaning && (() => {
               // Apply filtering based on service category configuration
               let filteredExcludeParams = excludeParameters;
               
@@ -3950,13 +4536,95 @@ const handleAddBooking = async (status: string = 'pending') => {
               );
             })()}
 
-            {/* Extras - Display filtered extras */}
-            {extras.length > 0 && (
+            {/* Form 2 Add-ons: separate from extras and only after package selection */}
+            {!isForm2Or3Catalog && hasAnyForm2PackageSelected && form2AddonRows.length > 0 && (
               <TooltipProvider delayDuration={200}>
               <div>
-                <Label className="text-sm font-medium mb-3 block">Select Extras</Label>
+                <Label className="text-sm font-medium mb-3 block">Optional Add-ons</Label>
                 <div className="grid gap-1 md:grid-cols-3 lg:grid-cols-4">
-                  {extras.map((extra) => {
+                  {form2AddonRows.map((extra) => {
+                    const extraDisplayLabel = getExtraCustomerDisplayName({
+                      name: extra.name,
+                      different_on_customer_end: extra.differentOnCustomerEnd,
+                      customer_end_name: extra.customerEndName,
+                    });
+                    const extraTooltip =
+                      extra.showExplanationIconOnForm && String(extra.explanationTooltipText || "").trim()
+                        ? String(extra.explanationTooltipText).trim()
+                        : "";
+                    const extraPopupHtml = String(extra.popupContent || "").trim();
+                    return (
+                    <div
+                      key={extra.id}
+                      className={`relative p-3 border rounded-lg transition-all cursor-pointer ${
+                        newBooking.selectedExtras?.includes(extra.id)
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="flex flex-col items-center space-y-2">
+                        <div className="w-12 h-12 flex items-center justify-center">
+                          {extra.icon && industryFormIconIsImageSrc(extra.icon) ? (
+                            <img src={extra.icon} alt="" width={48} height={48} className="h-12 w-12 object-contain" />
+                          ) : (
+                            (() => {
+                              const rich = bookingFormPresetRichIconSrc(extra.icon, extraDisplayLabel);
+                              if (rich) return <img src={rich} alt="" width={48} height={48} className="h-12 w-12 object-contain drop-shadow-sm" />;
+                              const PresetIcon = resolveIndustryExtraPresetLucideIcon(extra.icon);
+                              if (PresetIcon) {
+                                const colorClass = bookingFormPresetIconTextClass(extra.icon, extraDisplayLabel);
+                                return <PresetIcon className={`h-12 w-12 ${colorClass}`} />;
+                              }
+                              return <img src={DEFAULT_INDUSTRY_EXTRA_ICON_SRC} alt="" width={48} height={48} className="h-12 w-12 object-contain" />;
+                            })()
+                          )}
+                        </div>
+                        <div className="flex items-center justify-center gap-1.5 flex-wrap mb-2">
+                          <span className="font-medium text-gray-900 text-center">{extraDisplayLabel}</span>
+                          {extraTooltip ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span tabIndex={0} role="button" className="inline-flex shrink-0 rounded p-0.5 text-orange-500 hover:bg-orange-500/15 focus:outline-none focus:ring-2 focus:ring-orange-400/40" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} aria-label={`About ${extraDisplayLabel}`}>
+                                  <Info className="h-4 w-4" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs border bg-popover text-popover-foreground shadow-md">
+                                <p className="text-sm leading-snug">{extraTooltip}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : null}
+                        </div>
+                        <div className="flex items-center justify-center w-full">
+                          {extra.qtyBased ? (
+                            <div className="flex items-center space-x-2">
+                              <button type="button" onClick={(e) => { e.stopPropagation(); const currentQty = newBooking.extraQuantities[extra.id] || 0; if (currentQty > 0) { const newQty = currentQty - 1; setNewBooking(prev => ({ ...prev, extraQuantities: { ...prev.extraQuantities, [extra.id]: newQty } })); if (newQty === 0 && newBooking.selectedExtras?.includes(extra.id)) { setNewBooking(prev => ({ ...prev, selectedExtras: prev.selectedExtras?.filter(id => id !== extra.id) })); } } }} className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 disabled:opacity-50 transition-colors" disabled={(newBooking.extraQuantities[extra.id] || 0) === 0}><Minus className="h-3 w-3" /></button>
+                              <span className="w-6 text-center text-sm font-semibold">{newBooking.extraQuantities[extra.id] || 0}</span>
+                              <button type="button" onClick={(e) => { e.stopPropagation(); const currentQty = newBooking.extraQuantities[extra.id] || 0; const maxQty = extra.maximumQuantity && extra.maximumQuantity > 0 ? extra.maximumQuantity : 999; const newQty = Math.min(currentQty + 1, maxQty); setNewBooking(prev => ({ ...prev, extraQuantities: { ...prev.extraQuantities, [extra.id]: newQty } })); if (!newBooking.selectedExtras?.includes(extra.id)) { setNewBooking(prev => ({ ...prev, selectedExtras: [...(prev.selectedExtras || []), extra.id] })); } if (currentQty === 0 && newQty > 0 && extra.enablePopupOnSelection && extraPopupHtml && popupDisplayAppliesToSurface(extra.popupDisplay, "admin_staff")) { setFrequencySelectionPopup({ title: extraDisplayLabel, html: extraPopupHtml }); } }} className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 transition-colors" disabled={(newBooking.extraQuantities[extra.id] || 0) >= (extra.maximumQuantity && extra.maximumQuantity > 0 ? extra.maximumQuantity : 999)}><Plus className="h-3 w-3" /></button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <button type="button" onClick={(e) => { e.stopPropagation(); const isSelected = newBooking.selectedExtras?.includes(extra.id); if (isSelected) { setNewBooking(prev => { const q = { ...prev.extraQuantities }; delete q[extra.id]; return { ...prev, selectedExtras: prev.selectedExtras?.filter(id => id !== extra.id), extraQuantities: q }; }); } else { setNewBooking(prev => ({ ...prev, selectedExtras: [...(prev.selectedExtras || []), extra.id], extraQuantities: { ...prev.extraQuantities, [extra.id]: 1 } })); if (extra.enablePopupOnSelection && extraPopupHtml && popupDisplayAppliesToSurface(extra.popupDisplay, "admin_staff")) { setFrequencySelectionPopup({ title: extraDisplayLabel, html: extraPopupHtml }); } } }} className="text-sm font-medium text-primary">{newBooking.selectedExtras?.includes(extra.id) ? 'Remove' : 'Add'}</button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                  })}
+                </div>
+              </div>
+              </TooltipProvider>
+            )}
+
+            {/* Extras - Display filtered extras */}
+            {(isForm2Or3Catalog ? form2ExtraRows.length > 0 : extras.length > 0) && (
+              <TooltipProvider delayDuration={200}>
+              <div>
+                <Label className="text-sm font-medium mb-3 block">
+                  {isForm2Or3Catalog ? "Select Extras (Separate from Add-ons)" : "Select Extras"}
+                </Label>
+                <div className="grid gap-1 md:grid-cols-3 lg:grid-cols-4">
+                  {(isForm2Or3Catalog ? form2ExtraRows : extras).map((extra) => {
                     const extraDisplayLabel = getExtraCustomerDisplayName({
                       name: extra.name,
                       different_on_customer_end: extra.differentOnCustomerEnd,

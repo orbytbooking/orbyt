@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -90,17 +90,21 @@ type ExtraDisplay =
 
 export default function ExtraNewPage() {
   const params = useSearchParams();
+  const pathname = usePathname();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
   const industryId = params.get("industryId");
   const editId = params.get("editId");
-  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
   const listingKindFilter = parseListingKindParam(params.get("listingKind"));
   const scopeQs =
     `&bookingFormScope=${bookingFormScope}` +
     (listingKindFilter ? `&listingKind=${listingKindFilter}` : "");
   const listing_kind = listingKindFilter === "addon" ? "addon" : "extra";
-  const isForm2Addon = bookingFormScope === "form2" && listingKindFilter === "addon";
+  const isForm2 = bookingFormScope === "form2";
+  const isForm3 = bookingFormScope === "form3";
+  const isSinglePageCatalog = isForm2 || isForm3;
+  const isSinglePageAddon = isSinglePageCatalog && listingKindFilter === "addon";
   const { currentBusiness } = useBusiness();
   const [saving, setSaving] = useState(false);
   
@@ -159,6 +163,7 @@ export default function ExtraNewPage() {
   const [availableFrequencies, setAvailableFrequencies] = useState<string[]>([]);
   const [availableServiceCategories, setAvailableServiceCategories] = useState<string[]>([]);
   const [availableVariables, setAvailableVariables] = useState<{ [key: string]: any[] }>({});
+  const [availablePackages, setAvailablePackages] = useState<string[]>([]);
 
   // Load providers from database
   useEffect(() => {
@@ -279,6 +284,30 @@ export default function ExtraNewPage() {
     const fetchVariables = async () => {
       if (!industryId || !currentBusiness?.id) return;
 
+      if (bookingFormScope === "form3") {
+        try {
+          const vRes = await fetch(
+            `/api/pricing-variables?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
+          );
+          if (!vRes.ok) throw new Error("Failed to fetch pricing variables");
+          const vData = await vRes.json();
+          const vs = vData.variables ?? [];
+          const itemNames = vs
+            .map((v: { name?: string; customer_end_name?: string | null }) =>
+              String((v.customer_end_name && String(v.customer_end_name).trim()) || v.name || "")
+                .trim(),
+            )
+            .filter((name: string) => name.length > 0);
+          setAvailablePackages(Array.from(new Set(itemNames)));
+          setAvailableVariables({});
+        } catch (error) {
+          console.error("Error fetching Form 3 items for add-ons:", error);
+          setAvailableVariables({});
+          setAvailablePackages([]);
+        }
+        return;
+      }
+
       try {
         const response = await fetch(
           `/api/pricing-parameters?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
@@ -289,6 +318,15 @@ export default function ExtraNewPage() {
         const data = await response.json();
         
         if (data.pricingParameters && Array.isArray(data.pricingParameters)) {
+          if (bookingFormScope === "form2") {
+            const packageNames = data.pricingParameters
+              .map((param: any) => String(param.name ?? "").trim())
+              .filter((name): name is string => name.length > 0);
+            const uniquePackageNames: string[] = Array.from(new Set(packageNames));
+            setAvailablePackages(uniquePackageNames);
+            setAvailableVariables({});
+            return;
+          }
           // Group variables by category
           const groupedVariables: { [key: string]: any[] } = {};
           
@@ -305,12 +343,15 @@ export default function ExtraNewPage() {
           });
           
           setAvailableVariables(groupedVariables);
+          setAvailablePackages([]);
         } else {
           setAvailableVariables({});
+          setAvailablePackages([]);
         }
       } catch (error) {
         console.error('Error fetching variables:', error);
         setAvailableVariables({});
+        setAvailablePackages([]);
       }
     };
 
@@ -318,6 +359,7 @@ export default function ExtraNewPage() {
   }, [industryId, currentBusiness?.id, bookingFormScope, listingKindFilter]);
 
   useEffect(() => {
+    if (!industryId || !currentBusiness?.id) return;
     if (editId && editId !== 'undefined' && editId !== 'null') {
       // Validate UUID format before fetching
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -328,7 +370,7 @@ export default function ExtraNewPage() {
         toast.error('Invalid extra ID format');
       }
     }
-  }, [editId]);
+  }, [editId, industryId, currentBusiness?.id]);
 
   const fetchExtraForEdit = async () => {
     console.log('=== FRONTEND DEBUG ===');
@@ -338,6 +380,10 @@ export default function ExtraNewPage() {
     
     if (!editId || editId === 'undefined' || editId === 'null') {
       console.error('❌ Invalid editId:', editId);
+      return;
+    }
+    if (!industryId || !currentBusiness?.id) {
+      // Query requirements for GET /api/extras/[id]
       return;
     }
 
@@ -352,7 +398,7 @@ export default function ExtraNewPage() {
     console.log('✅ Frontend validation passed, making API call...');
     
     try {
-      const apiUrl = `/api/extras/${editId}?industryId=${encodeURIComponent(industryId ?? "")}&businessId=${encodeURIComponent(currentBusiness?.id ?? "")}`;
+      const apiUrl = `/api/extras/${editId}?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}`;
       console.log('🔗 Calling API:', apiUrl);
       
       const response = await fetch(apiUrl);
@@ -555,7 +601,7 @@ export default function ExtraNewPage() {
       listing_kind,
     };
 
-    if (isForm2Addon) {
+    if (isSinglePageAddon) {
       extraData.price_merchant_location = hasMlPrice ? Number(form.priceMerchant) : null;
       extraData.time_minutes_merchant_location = hasMlTime ? timeMinutesMerchant : null;
     }
@@ -609,7 +655,7 @@ export default function ExtraNewPage() {
       <Card>
         <CardHeader>
           <CardTitle>
-            {isForm2Addon
+            {isSinglePageAddon
               ? editId
                 ? "Edit add-on"
                 : "Add add-ons"
@@ -618,7 +664,7 @@ export default function ExtraNewPage() {
                 : "Add Extra"}
           </CardTitle>
           <CardDescription>
-            {isForm2Addon
+            {isSinglePageAddon
               ? `If you want to allow customers to customize their purchases you can create add-ons that can make their requests very specific. For example if you offer car washing services, you can make add-ons such as "interior", "exterior", "waxing", "tire shine", etc., and they will be able to add those to their booking. Configure these for ${industry}.`
               : `Extras can be attached to a service and a variable (things like inside fridge for a cleaning service or wax for a car wash). Configure one for ${industry}.`}
           </CardDescription>
@@ -628,7 +674,7 @@ export default function ExtraNewPage() {
             <TabsList
               className={cn(
                 "mb-6 w-full",
-                isForm2Addon
+                isSinglePageAddon
                   ? "grid h-auto grid-cols-2 gap-0 rounded-none border-b border-border bg-transparent p-0"
                   : "grid grid-cols-3",
               )}
@@ -636,7 +682,7 @@ export default function ExtraNewPage() {
               <TabsTrigger
                 value="details"
                 className={cn(
-                  isForm2Addon &&
+                  isSinglePageAddon &&
                     "rounded-none border-b-2 border-transparent pb-2 data-[state=active]:border-orange-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none",
                 )}
               >
@@ -645,24 +691,24 @@ export default function ExtraNewPage() {
               <TabsTrigger
                 value="dependencies"
                 className={cn(
-                  isForm2Addon &&
+                  isSinglePageAddon &&
                     "rounded-none border-b-2 border-transparent pb-2 data-[state=active]:border-orange-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none",
                 )}
               >
                 Dependencies
               </TabsTrigger>
-              {!isForm2Addon ? (
+              {!isSinglePageAddon ? (
                 <TabsTrigger value="providers">Providers</TabsTrigger>
               ) : null}
             </TabsList>
 
             {/* DETAILS TAB */}
-            <TabsContent value="details" className={cn("mt-4 space-y-5", isForm2Addon && "space-y-8")}>
+            <TabsContent value="details" className={cn("mt-4 space-y-5", isSinglePageAddon && "space-y-8")}>
               <TooltipProvider delayDuration={200}>
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Label htmlFor="extra-name">Name</Label>
-                  {isForm2Addon ? (
+                  {isSinglePageAddon ? (
                     <OrangeInfoTip text='Internal name for this add-on. Customers see the customer end name when "Different on customer end" is enabled.' />
                   ) : (
                     <Tooltip>
@@ -681,7 +727,7 @@ export default function ExtraNewPage() {
                   id="extra-name"
                   value={form.name}
                   onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))}
-                  placeholder={isForm2Addon ? "Enter name" : "Ex: Deep Cleaning"}
+                  placeholder={isSinglePageAddon ? "Enter name" : "Ex: Deep Cleaning"}
                 />
               </div>
 
@@ -896,7 +942,7 @@ export default function ExtraNewPage() {
                 </RadioGroup>
               </div>
 
-              {isForm2Addon ? (
+              {isSinglePageAddon ? (
                 <>
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
@@ -1124,7 +1170,7 @@ export default function ExtraNewPage() {
 
               </TooltipProvider>
 
-              {!isForm2Addon ? (
+              {!isSinglePageAddon ? (
               <>
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
@@ -1755,94 +1801,158 @@ export default function ExtraNewPage() {
                   )}
                 </div>
 
-                <div className="space-y-2">
-                  <Label>Should the extras show based on the variables?</Label>
-                  <RadioGroup
-                    value={form.showBasedOnVariables ? "yes" : "no"}
-                    onValueChange={(v) => setForm(p => ({ ...p, showBasedOnVariables: v === "yes" }))}
-                    className="flex gap-4"
-                  >
-                    <label className="flex items-center gap-2 text-sm">
-                      <RadioGroupItem value="yes" /> Yes
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <RadioGroupItem value="no" /> No
-                    </label>
-                  </RadioGroup>
-                  
-                  {form.showBasedOnVariables && (
-                    <div className="ml-6 mt-3 space-y-2">
-                      <Label className="text-sm">Select variable options</Label>
-                      <div className="space-y-2">
-                        {Object.keys(availableVariables).length === 0 ? (
-                          <p className="text-xs text-muted-foreground italic">No variables available. Add variables from the pricing parameters section.</p>
+                {!(bookingFormScope === "form2" && listing_kind === "extra") && (
+                  <div className="space-y-2">
+                    <Label>
+                      {listing_kind === "addon"
+                        ? isForm3
+                          ? "Should the add-ons show based on the items?"
+                          : isForm2
+                            ? "Should the add-ons show based on the packages?"
+                            : "Should the add-ons show based on the variables?"
+                        : "Should the extras show based on the variables?"}
+                    </Label>
+                    <RadioGroup
+                      value={form.showBasedOnVariables ? "yes" : "no"}
+                      onValueChange={(v) => setForm(p => ({ ...p, showBasedOnVariables: v === "yes" }))}
+                      className="flex gap-4"
+                    >
+                      <label className="flex items-center gap-2 text-sm">
+                        <RadioGroupItem value="yes" /> Yes
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <RadioGroupItem value="no" /> No
+                      </label>
+                    </RadioGroup>
+                    
+                    {form.showBasedOnVariables && (
+                      <div className="ml-6 mt-3 space-y-2">
+                        <Label className="text-sm">
+                          {isForm3 ? "Select item options" : isForm2 ? "Select package options" : "Select variable options"}
+                        </Label>
+                        {listing_kind === "addon" && (isForm2 || isForm3) ? (
+                          <div className="space-y-2">
+                            {availablePackages.length === 0 ? (
+                              <p className="text-xs text-muted-foreground italic">
+                                {isForm3
+                                  ? "No items available. Add items from the items section."
+                                  : "No packages available. Add packages from the packages section."}
+                              </p>
+                            ) : (
+                              <div className="bg-white rounded-lg border p-4 shadow-sm space-y-3">
+                                <div className="flex items-center gap-2">
+                                  <Checkbox
+                                    id="select-all-addon-packages"
+                                    checked={form.variableOptions.length === availablePackages.length && availablePackages.length > 0}
+                                    onCheckedChange={(checked) => {
+                                      if (checked) {
+                                        setForm((p) => ({ ...p, variableOptions: [...availablePackages] }));
+                                      } else {
+                                        setForm((p) => ({ ...p, variableOptions: [] }));
+                                      }
+                                    }}
+                                  />
+                                  <Label htmlFor="select-all-addon-packages" className="text-sm font-medium cursor-pointer">Select All</Label>
+                                </div>
+                                <div className="grid grid-cols-6 gap-2">
+                                  {availablePackages.map((pkg) => (
+                                    <div key={pkg} className="flex items-center gap-2">
+                                      <Checkbox
+                                        id={`addon-package-${pkg}`}
+                                        checked={form.variableOptions.includes(pkg)}
+                                        onCheckedChange={(checked) => {
+                                          if (checked) {
+                                            setForm((p) => ({ ...p, variableOptions: [...p.variableOptions, pkg] }));
+                                          } else {
+                                            setForm((p) => ({
+                                              ...p,
+                                              variableOptions: p.variableOptions.filter((v) => v !== pkg),
+                                            }));
+                                          }
+                                        }}
+                                      />
+                                      <Label htmlFor={`addon-package-${pkg}`} className="text-sm cursor-pointer">
+                                        {pkg}
+                                      </Label>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         ) : (
-                          <div className="space-y-4">
-                            {/* Group variables by category */}
-                            {['Bathroom', 'Sq Ft', 'Bedroom'].map(category => {
-                              const categoryParams = availableVariables[category] || [];
-                              if (categoryParams.length === 0) return null;
-                              
-                              return (
-                                <div key={category} className="space-y-2">
-                                  <Label className="text-sm font-semibold">{category}</Label>
-                                  <div className="flex items-center gap-2">
-                                    <Checkbox
-                                      id={`select-all-extra-${category.toLowerCase().replace(' ', '-')}`}
-                                      checked={form.variableOptions.filter(v => v.startsWith(`${category}:`)).length === categoryParams.length && categoryParams.length > 0}
-                                      onCheckedChange={(checked) => {
-                                        if (checked) {
-                                          const categoryVariableOptions = categoryParams.map(param => `${category}:${param.name}`);
-                                          setForm(p => ({ 
-                                            ...p, 
-                                            variableOptions: [...p.variableOptions.filter(v => !v.startsWith(`${category}:`)), ...categoryVariableOptions]
-                                          }));
-                                        } else {
-                                          setForm(p => ({ 
-                                            ...p, 
-                                            variableOptions: p.variableOptions.filter(v => !v.startsWith(`${category}:`))
-                                          }));
-                                        }
-                                      }}
-                                    />
-                                    <Label htmlFor={`select-all-extra-${category.toLowerCase().replace(' ', '-')}`} className="text-sm cursor-pointer">Select All</Label>
-                                  </div>
-                                  <div className="grid grid-cols-6 gap-2">
-                                    {categoryParams.map((param) => (
-                                      <div key={param.id} className="flex items-center gap-2">
+                          <div className="space-y-2">
+                            {Object.keys(availableVariables).length === 0 ? (
+                              <p className="text-xs text-muted-foreground italic">No variables available. Add variables from the pricing parameters section.</p>
+                            ) : (
+                              <div className="space-y-4">
+                                {/* Group variables by category */}
+                                {['Bathroom', 'Sq Ft', 'Bedroom'].map(category => {
+                                  const categoryParams = availableVariables[category] || [];
+                                  if (categoryParams.length === 0) return null;
+                                  
+                                  return (
+                                    <div key={category} className="space-y-2">
+                                      <Label className="text-sm font-semibold">{category}</Label>
+                                      <div className="flex items-center gap-2">
                                         <Checkbox
-                                          id={`extra-variable-${param.id}`}
-                                          checked={form.variableOptions.includes(`${category}:${param.name}`)}
+                                          id={`select-all-extra-${category.toLowerCase().replace(' ', '-')}`}
+                                          checked={form.variableOptions.filter(v => v.startsWith(`${category}:`)).length === categoryParams.length && categoryParams.length > 0}
                                           onCheckedChange={(checked) => {
-                                            const variableOption = `${category}:${param.name}`;
                                             if (checked) {
-                                              setForm(p => ({ ...p, variableOptions: [...p.variableOptions, variableOption] }));
+                                              const categoryVariableOptions = categoryParams.map(param => `${category}:${param.name}`);
+                                              setForm(p => ({ 
+                                                ...p, 
+                                                variableOptions: [...p.variableOptions.filter(v => !v.startsWith(`${category}:`)), ...categoryVariableOptions]
+                                              }));
                                             } else {
-                                              setForm(p => ({ ...p, variableOptions: p.variableOptions.filter(v => v !== variableOption) }));
+                                              setForm(p => ({ 
+                                                ...p, 
+                                                variableOptions: p.variableOptions.filter(v => !v.startsWith(`${category}:`))
+                                              }));
                                             }
                                           }}
                                         />
-                                        <Label htmlFor={`extra-variable-${param.id}`} className="text-sm cursor-pointer">
-                                          {param.name}
-                                        </Label>
+                                        <Label htmlFor={`select-all-extra-${category.toLowerCase().replace(' ', '-')}`} className="text-sm cursor-pointer">Select All</Label>
                                       </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              );
-                            })}
+                                      <div className="grid grid-cols-6 gap-2">
+                                        {categoryParams.map((param) => (
+                                          <div key={param.id} className="flex items-center gap-2">
+                                            <Checkbox
+                                              id={`extra-variable-${param.id}`}
+                                              checked={form.variableOptions.includes(`${category}:${param.name}`)}
+                                              onCheckedChange={(checked) => {
+                                                const variableOption = `${category}:${param.name}`;
+                                                if (checked) {
+                                                  setForm(p => ({ ...p, variableOptions: [...p.variableOptions, variableOption] }));
+                                                } else {
+                                                  setForm(p => ({ ...p, variableOptions: p.variableOptions.filter(v => v !== variableOption) }));
+                                                }
+                                              }}
+                                            />
+                                            <Label htmlFor={`extra-variable-${param.id}`} className="text-sm cursor-pointer">
+                                              {param.name}
+                                            </Label>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
 
               </div>
             </TabsContent>
 
             {/* PROVIDERS TAB */}
-            {!isForm2Addon ? (
+            {!isSinglePageAddon ? (
             <TabsContent value="providers" className="mt-4 space-y-6">
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">

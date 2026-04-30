@@ -67,8 +67,16 @@ export default function IndustryForm1Page() {
         setIndustryId(id);
 
         const fromUrl = parseBookingFormScopeParam(bookingFormScopeKey || null);
-        const effectiveScope: BookingFormScope =
-          fromUrl ?? (currentIndustry.customer_booking_form_layout === "form2" ? "form2" : "form1");
+        const layout = currentIndustry.customer_booking_form_layout;
+        const layoutDefault: BookingFormScope =
+          layout === "form4"
+            ? "form4"
+            : layout === "form3"
+              ? "form3"
+              : layout === "form2"
+                ? "form2"
+                : "form1";
+        const effectiveScope: BookingFormScope = fromUrl ?? layoutDefault;
         setBookingFormScope(effectiveScope);
 
         const scopeQs = `bookingFormScope=${effectiveScope}`;
@@ -101,7 +109,7 @@ export default function IndustryForm1Page() {
         let addonsCount = 0;
         let itemsCount = 0;
 
-        if (effectiveScope === "form2") {
+        if (effectiveScope === "form2" || effectiveScope === "form3") {
           const [addonsRes, extrasRes, variablesRes] = await Promise.all([
             fetch(`/api/extras?industryId=${iid}&businessId=${bid}&${scopeQs}&listingKind=addon`),
             fetch(`/api/extras?industryId=${iid}&businessId=${bid}&${scopeQs}&listingKind=extra`),
@@ -139,7 +147,18 @@ export default function IndustryForm1Page() {
   }, [industryName, currentBusiness?.id, bookingFormScopeKey, industryIdFromUrl]);
 
   const isForm2 = bookingFormScope === "form2";
-  const formLabel = isForm2 ? "Form 2" : "Form 1";
+  const isForm3 = bookingFormScope === "form3";
+  const isForm4 = bookingFormScope === "form4";
+  const isExtendedCatalog = isForm2 || isForm3;
+  const formBasePath =
+    bookingFormScope === "form4"
+      ? "form-4"
+      : bookingFormScope === "form3"
+        ? "form-3"
+        : bookingFormScope === "form2"
+          ? "form-2"
+          : "form-1";
+  const formLabel = isForm4 ? "Form 4" : isForm3 ? "Form 3" : isForm2 ? "Form 2" : "Form 1";
   const scopeQs = `&bookingFormScope=${bookingFormScope}`;
   const idQs = industryId ? `&industryId=${encodeURIComponent(industryId)}` : "";
 
@@ -200,16 +219,24 @@ export default function IndustryForm1Page() {
             {industryName} – Booking form ({formLabel})
           </CardTitle>
           <CardDescription>
-            {isForm2
-              ? "Configure the single-page booking catalog: locations through packages, add-ons, and extras — same data model as Form 1, scoped for Form 2."
-              : "Configure the main booking form for this industry."}
+            {isForm4
+              ? "Form 4 uses unit-based pricing parameters: set a price and time per unit; the customer’s total is rate × quantity (e.g. $/sq ft × square feet)."
+              : isForm3
+                ? "Configure the Form 3 booking catalog: locations through items, add-ons, and extras (no packages)."
+                : isForm2
+                  ? "Configure the single-page booking catalog: locations through packages, add-ons, and extras — same data model as Form 1, scoped for Form 2."
+                  : "Configure the main booking form for this industry."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <p className="text-sm text-muted-foreground">
-            {isForm2
-              ? `Work through the same dependency sections as the tabs above so customers see the right frequencies, categories, items, packages, and upsells for ${industryName.toLowerCase()}.`
-              : `Work through the sections below to define how customers book ${industryName.toLowerCase()} services: categories, extras, visit frequency, locations, and pricing parameters.`}
+            {isForm4
+              ? `Set up locations, frequencies, service categories, then unit pricing in Pricing parameters, then extras. Recommended order matches the tabs above.`
+              : isForm3
+                ? `Work through the same dependency sections as the tabs above so customers see the right frequencies, categories, items, and upsells for ${industryName.toLowerCase()}.`
+                : isForm2
+                  ? `Work through the same dependency sections as the tabs above so customers see the right frequencies, categories, items, packages, and upsells for ${industryName.toLowerCase()}.`
+                  : `Work through the sections below to define how customers book ${industryName.toLowerCase()} services: categories, extras, visit frequency, locations, and pricing parameters.`}
           </p>
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -227,7 +254,7 @@ export default function IndustryForm1Page() {
                 </div>
                 <Button asChild size="sm">
                   <Link
-                    href={`/admin/settings/industries/form-1/service-category?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}`}
+                    href={`/admin/settings/industries/${formBasePath}/service-category?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}`}
                   >
                     Manage
                   </Link>
@@ -235,12 +262,16 @@ export default function IndustryForm1Page() {
               </CardContent>
             </Card>
 
-            {isForm2 ? (
+            {isExtendedCatalog ? (
               <>
                 <Card className="border-dashed">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base">Add-ons</CardTitle>
-                    <CardDescription>Optional upsells tied to packages on the Form 2 layout.</CardDescription>
+                    <CardDescription>
+                      {isForm3
+                        ? "Optional upsells tied to items on the Form 3 layout."
+                        : "Optional upsells tied to packages on the Form 2 layout."}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent className="flex items-end justify-between">
                     <div>
@@ -249,7 +280,7 @@ export default function IndustryForm1Page() {
                     </div>
                     <Button asChild size="sm">
                       <Link
-                        href={`/admin/settings/industries/form-1/extras?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}&listingKind=addon`}
+                        href={`/admin/settings/industries/${formBasePath}/add-ons?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}&listingKind=addon`}
                       >
                         Manage
                       </Link>
@@ -259,7 +290,11 @@ export default function IndustryForm1Page() {
                 <Card className="border-dashed">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base">Extras</CardTitle>
-                    <CardDescription>Standard extras list for this industry (Form 2).</CardDescription>
+                    <CardDescription>
+                      {isForm3
+                        ? "Standard extras list for this industry (Form 3)."
+                        : "Standard extras list for this industry (Form 2)."}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent className="flex items-end justify-between">
                     <div>
@@ -268,7 +303,7 @@ export default function IndustryForm1Page() {
                     </div>
                     <Button asChild size="sm">
                       <Link
-                        href={`/admin/settings/industries/form-1/extras?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}&listingKind=extra`}
+                        href={`/admin/settings/industries/${formBasePath}/extras?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}&listingKind=extra`}
                       >
                         Manage
                       </Link>
@@ -291,7 +326,7 @@ export default function IndustryForm1Page() {
                   </div>
                   <Button asChild size="sm">
                     <Link
-                      href={`/admin/settings/industries/form-1/extras?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}&listingKind=extra`}
+                      href={`/admin/settings/industries/${formBasePath}/extras?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}&listingKind=extra`}
                     >
                       Manage
                     </Link>
@@ -314,7 +349,7 @@ export default function IndustryForm1Page() {
                 </div>
                 <Button asChild size="sm">
                   <Link
-                    href={`/admin/settings/industries/form-1/frequencies?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}`}
+                    href={`/admin/settings/industries/${formBasePath}/frequencies?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}`}
                   >
                     Manage
                   </Link>
@@ -336,7 +371,7 @@ export default function IndustryForm1Page() {
                 </div>
                 <Button asChild size="sm">
                   <Link
-                    href={`/admin/settings/industries/form-1/locations?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}`}
+                    href={`/admin/settings/industries/${formBasePath}/locations?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}`}
                   >
                     Manage
                   </Link>
@@ -358,7 +393,7 @@ export default function IndustryForm1Page() {
                     </div>
                     <Button asChild size="sm">
                       <Link
-                        href={`/admin/settings/industries/form-1/pricing-parameter/manage-variables?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}`}
+                        href={`/admin/settings/industries/form-2/items?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}`}
                       >
                         Manage
                       </Link>
@@ -377,7 +412,7 @@ export default function IndustryForm1Page() {
                     </div>
                     <Button asChild size="sm">
                       <Link
-                        href={`/admin/settings/industries/form-1/pricing-parameter?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}`}
+                        href={`/admin/settings/industries/form-2/packages?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}`}
                       >
                         Manage
                       </Link>
@@ -385,6 +420,48 @@ export default function IndustryForm1Page() {
                   </CardContent>
                 </Card>
               </>
+            ) : isForm3 ? (
+              <Card className="border-dashed">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Items</CardTitle>
+                  <CardDescription>Service types or line items customers pick on the Form 3 layout.</CardDescription>
+                </CardHeader>
+                <CardContent className="flex items-end justify-between">
+                  <div>
+                    <p className="text-2xl font-semibold">{stats.items}</p>
+                    <p className="text-xs text-muted-foreground">items configured</p>
+                  </div>
+                  <Button asChild size="sm">
+                    <Link
+                      href={`/admin/settings/industries/form-3/items?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}`}
+                    >
+                      Manage
+                    </Link>
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : isForm4 ? (
+              <Card className="border-dashed">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Pricing Parameters</CardTitle>
+                  <CardDescription>
+                    Unit structure: price and duration per unit (customer total = rate × quantity).
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex items-end justify-between">
+                  <div>
+                    <p className="text-2xl font-semibold">{stats.pricingParams}</p>
+                    <p className="text-xs text-muted-foreground">unit-priced rows configured</p>
+                  </div>
+                  <Button asChild size="sm">
+                    <Link
+                      href={`/admin/settings/industries/form-4/pricing-parameter?industry=${encodeURIComponent(industryName)}${idQs}${scopeQs}`}
+                    >
+                      Manage
+                    </Link>
+                  </Button>
+                </CardContent>
+              </Card>
             ) : (
               <Card className="border-dashed">
                 <CardHeader className="pb-3">
@@ -417,7 +494,15 @@ export default function IndustryForm1Page() {
             <CardContent className="space-y-2 text-sm text-muted-foreground">
               <p>
                 Once these sections are configured, your public booking form and admin “Add booking” flow use the same{" "}
-                {isForm2 ? "Form 2 catalog" : "Form 1 catalog"} for {industryName.toLowerCase()}, scoped by your business.
+                {isForm4
+                  ? "Form 4 catalog"
+                  : isForm3
+                    ? "Form 3 catalog"
+                    : isForm2
+                      ? "Form 2 catalog"
+                      : "Form 1 catalog"}{" "}
+                for{" "}
+                {industryName.toLowerCase()}, scoped by your business.
               </p>
               <p>
                 Use the tabs at the top of this section to move between dependencies; counts here stay in sync with that

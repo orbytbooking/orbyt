@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -172,11 +172,19 @@ const mapApiPricingVariables = (
 
 export default function IndustryFormPricingParameterPage() {
   const params = useSearchParams();
+  const pathname = usePathname();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
-  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
   const scopeQs = `&bookingFormScope=${bookingFormScope}`;
   const isForm2 = bookingFormScope === "form2";
+  const isForm4 = bookingFormScope === "form4";
+  const packagesBasePath = isForm2
+    ? "/admin/settings/industries/form-2/packages"
+    : "/admin/settings/industries/form-1/pricing-parameter";
+  const itemsBasePath = isForm2
+    ? "/admin/settings/industries/form-2/items"
+    : "/admin/settings/industries/form-1/pricing-parameter/manage-variables";
   const { currentBusiness } = useBusiness();
   const { toast } = useToast();
 
@@ -312,12 +320,15 @@ export default function IndustryFormPricingParameterPage() {
         const varsData = varsRes.ok ? await varsRes.json() : { variables: [] };
         setVariables(mapApiPricingVariables(varsData.variables ?? []));
 
-        // Fetch exclude parameters from database
-        const excludeResponse = await fetch(`/api/exclude-parameters?industryId=${currentIndustry.id}`);
-        const excludeData = await excludeResponse.json();
-        
-        if (excludeData.excludeParameters) {
-          setExcludeParameters(excludeData.excludeParameters);
+        // Exclude parameters are only used in Form 1 pricing flow.
+        if (!isForm2 && !isForm4) {
+          const excludeResponse = await fetch(`/api/exclude-parameters?industryId=${currentIndustry.id}`);
+          const excludeData = await excludeResponse.json();
+          if (excludeData.excludeParameters) {
+            setExcludeParameters(excludeData.excludeParameters);
+          }
+        } else {
+          setExcludeParameters([]);
         }
 
         setLoading(false);
@@ -539,7 +550,7 @@ export default function IndustryFormPricingParameterPage() {
                     size="sm"
                     onClick={() =>
                       router.push(
-                        `/admin/settings/industries/form-1/pricing-parameter/new?industry=${encodeURIComponent(
+                        `${packagesBasePath}/new?industry=${encodeURIComponent(
                           industry
                         )}&industryId=${industryId}&category=${encodeURIComponent(categoryKey)}${scopeQs}`
                       )
@@ -590,7 +601,7 @@ export default function IndustryFormPricingParameterPage() {
                         <DropdownMenuItem
                           onClick={() =>
                             router.push(
-                              `/admin/settings/industries/form-1/pricing-parameter/new?industry=${encodeURIComponent(
+                              `${packagesBasePath}/new?industry=${encodeURIComponent(
                                 industry
                               )}&industryId=${industryId}&editId=${r.id}&category=${encodeURIComponent(categoryKey)}${scopeQs}`
                             )
@@ -687,7 +698,7 @@ export default function IndustryFormPricingParameterPage() {
                     variant="default"
                     onClick={() =>
                       router.push(
-                        `/admin/settings/industries/form-1/pricing-parameter/manage-variables?industry=${encodeURIComponent(
+                        `${itemsBasePath}?industry=${encodeURIComponent(
                           industry,
                         )}${scopeQs}`,
                       )
@@ -703,7 +714,7 @@ export default function IndustryFormPricingParameterPage() {
                       variant="outline"
                       onClick={() =>
                         router.push(
-                          `/admin/settings/industries/form-1/pricing-parameter/new?industry=${encodeURIComponent(
+                          `${packagesBasePath}/new?industry=${encodeURIComponent(
                             industry,
                           )}&industryId=${industryId}${scopeQs}`,
                         )
@@ -738,7 +749,7 @@ export default function IndustryFormPricingParameterPage() {
                                 size="sm"
                                 onClick={() =>
                                   router.push(
-                                    `/admin/settings/industries/form-1/pricing-parameter/new?industry=${encodeURIComponent(
+                                    `${packagesBasePath}/new?industry=${encodeURIComponent(
                                       industry,
                                     )}&industryId=${industryId}${scopeQs}`,
                                   )
@@ -798,7 +809,7 @@ export default function IndustryFormPricingParameterPage() {
                                     <DropdownMenuItem
                                       onClick={() =>
                                         router.push(
-                                          `/admin/settings/industries/form-1/pricing-parameter/new?industry=${encodeURIComponent(
+                                          `${packagesBasePath}/new?industry=${encodeURIComponent(
                                             industry,
                                           )}&industryId=${industryId}&editId=${r.id}&category=${encodeURIComponent(categoryKey)}${scopeQs}`,
                                         )
@@ -837,7 +848,7 @@ export default function IndustryFormPricingParameterPage() {
                       className="w-fit bg-orange-100 text-orange-900 hover:bg-orange-200/90 dark:bg-orange-950 dark:text-orange-100 dark:hover:bg-orange-900/80"
                       onClick={() =>
                         router.push(
-                          `/admin/settings/industries/form-1/pricing-parameter/manage-variables?industry=${encodeURIComponent(
+                          `${itemsBasePath}?industry=${encodeURIComponent(
                             industry,
                           )}${scopeQs}`,
                         )
@@ -865,7 +876,7 @@ export default function IndustryFormPricingParameterPage() {
                   variant="outline"
                   onClick={() =>
                     router.push(
-                      `/admin/settings/industries/form-1/pricing-parameter/new?industry=${encodeURIComponent(
+                      `${packagesBasePath}/new?industry=${encodeURIComponent(
                         industry,
                       )}&industryId=${industryId}${scopeQs}`,
                     )
@@ -878,7 +889,7 @@ export default function IndustryFormPricingParameterPage() {
                   className="bg-orange-100 text-orange-900 hover:bg-orange-200/90 dark:bg-orange-950 dark:text-orange-100 dark:hover:bg-orange-900/80"
                   onClick={() =>
                     router.push(
-                      `/admin/settings/industries/form-1/pricing-parameter/manage-variables?industry=${encodeURIComponent(
+                      `${itemsBasePath}?industry=${encodeURIComponent(
                         industry,
                       )}${scopeQs}`,
                     )
@@ -898,7 +909,7 @@ export default function IndustryFormPricingParameterPage() {
                     variant="default"
                     onClick={() =>
                       router.push(
-                        `/admin/settings/industries/form-1/pricing-parameter/manage-variables?industry=${encodeURIComponent(
+                        `${itemsBasePath}?industry=${encodeURIComponent(
                           industry,
                         )}${scopeQs}`,
                       )
@@ -997,7 +1008,8 @@ export default function IndustryFormPricingParameterPage() {
             </CardContent>
           </Card>
 
-          {/* Exclude Parameters Section */}
+          {/* Exclude Parameters Section (Form 1 only) */}
+          {!isForm2 && !isForm4 && (
           <Card>
         <CardHeader>
           <div className="flex justify-between items-center">
@@ -1113,7 +1125,8 @@ export default function IndustryFormPricingParameterPage() {
             </Table>
           </div>
         </CardContent>
-      </Card>
+          </Card>
+          )}
         </>
       )}
     </div>

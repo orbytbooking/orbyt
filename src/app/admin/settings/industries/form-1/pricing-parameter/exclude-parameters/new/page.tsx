@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,11 +37,12 @@ function normalizeIdList(raw: unknown): string[] {
 
 export default function ExcludeParameterNewPage() {
   const params = useSearchParams();
+  const pathname = usePathname();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
   const industryId = params.get("industryId");
   const editId = params.get("editId");
-  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
   const scopeQs = `&bookingFormScope=${bookingFormScope}`;
   const { currentBusiness } = useBusiness();
   const { toast } = useToast();
@@ -138,7 +139,7 @@ export default function ExcludeParameterNewPage() {
 
         try {
           const extrasRes = await fetch(
-            `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness?.id ?? "")}${scopeQs}&listingKind=${bookingFormScope === "form2" ? "addon" : "extra"}`,
+            `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness?.id ?? "")}${scopeQs}&listingKind=${bookingFormScope === "form2" || bookingFormScope === "form3" ? "addon" : "extra"}`,
           );
           if (extrasRes.ok) {
             const extrasData = await extrasRes.json();

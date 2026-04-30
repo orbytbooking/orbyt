@@ -10,6 +10,29 @@ import { ensureCustomerRowForBusiness } from '@/lib/ensureCustomerRowForBusiness
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+async function getServiceCategoryCancellationFee(
+  supabase: ReturnType<typeof createClient>,
+  businessId: string,
+  serviceId: string,
+): Promise<Record<string, unknown> | null> {
+  const base = await supabase
+    .from('industry_service_category')
+    .select('cancellation_fee')
+    .eq('id', serviceId)
+    .eq('business_id', businessId)
+    .maybeSingle();
+  const baseFee = (base.data as { cancellation_fee?: Record<string, unknown> } | null)?.cancellation_fee;
+  if (baseFee) return baseFee;
+
+  const form2 = await supabase
+    .from('industry_form2_service_categories')
+    .select('cancellation_fee')
+    .eq('id', serviceId)
+    .eq('business_id', businessId)
+    .maybeSingle();
+  return (form2.data as { cancellation_fee?: Record<string, unknown> } | null)?.cancellation_fee ?? null;
+}
+
 function formatTimeForDisplay(timeStr: string): string {
   if (!timeStr || typeof timeStr !== 'string') return timeStr;
   const trimmed = timeStr.trim();
@@ -286,13 +309,11 @@ export async function PATCH(
     };
     let categoryFee = null;
     if (booking.service_id) {
-      const { data: cat } = await supabase
-        .from('industry_service_category')
-        .select('cancellation_fee')
-        .eq('id', booking.service_id)
-        .eq('business_id', booking.business_id)
-        .maybeSingle();
-      if (cat?.cancellation_fee) categoryFee = cat.cancellation_fee as Record<string, unknown>;
+      categoryFee = await getServiceCategoryCancellationFee(
+        supabase,
+        booking.business_id,
+        booking.service_id,
+      );
     }
     const fee = getCancellationFeeForBooking(
       bookingForFee,
@@ -335,13 +356,11 @@ export async function PATCH(
     }
     let categoryFee = null;
     if (booking.service_id) {
-      const { data: cat } = await supabase
-        .from('industry_service_category')
-        .select('cancellation_fee')
-        .eq('id', booking.service_id)
-        .eq('business_id', booking.business_id)
-        .maybeSingle();
-      if (cat?.cancellation_fee) categoryFee = cat.cancellation_fee as Record<string, unknown>;
+      categoryFee = await getServiceCategoryCancellationFee(
+        supabase,
+        booking.business_id,
+        booking.service_id,
+      );
     }
     const fee = getCancellationFeeForBooking(
       booking,

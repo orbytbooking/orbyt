@@ -8,6 +8,10 @@ import {
   seedForm2DefaultPackagesIfEmpty,
   seedForm2MissingPackagesPerVariable,
 } from '@/lib/seedForm2DefaultPackages';
+import { seedForm3DefaultFrequenciesIfEmpty } from '@/lib/seedForm3DefaultFrequencies';
+import { seedForm3DefaultServiceCategoriesIfEmpty } from '@/lib/seedForm3DefaultServiceCategories';
+import { seedForm3DefaultItemsIfEmpty } from '@/lib/seedForm3DefaultItems';
+import { seedForm4DefaultsIfEmpty } from '@/lib/seedForm4Defaults';
 import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
 import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
 
@@ -131,7 +135,12 @@ export async function POST(request: NextRequest) {
     }
 
     const customer_booking_form_layout =
-      layoutBody === 'form2' || layoutBody === 'form1' ? layoutBody : 'form1';
+      layoutBody === 'form4' ||
+      layoutBody === 'form3' ||
+      layoutBody === 'form2' ||
+      layoutBody === 'form1'
+        ? layoutBody
+        : 'form1';
 
     let { data: industry, error } = await supabase
       .from('industries')
@@ -181,7 +190,12 @@ export async function POST(request: NextRequest) {
     }
 
     let form1_template: { applied: boolean; skipped?: boolean; error?: string } | undefined;
-    if (seed_form1_template !== false && industry?.id) {
+    if (
+      seed_form1_template !== false &&
+      industry?.id &&
+      customer_booking_form_layout !== 'form3' &&
+      customer_booking_form_layout !== 'form4'
+    ) {
       form1_template = await seedForm1IndustryTemplate(supabase, business_id, industry.id);
       if (form1_template.error) {
         console.error('Form 1 template seed error:', form1_template.error);
@@ -193,6 +207,35 @@ export async function POST(request: NextRequest) {
     let form2_pricing_variables: { applied: boolean; skipped?: boolean; error?: string } | undefined;
     let form2_packages: { applied: boolean; skipped?: boolean; error?: string } | undefined;
     let form2_package_gaps: { applied: boolean; skipped?: boolean; inserted?: number; error?: string } | undefined;
+    let form4_defaults: { applied: boolean; skipped?: boolean; error?: string } | undefined;
+    let form3_frequencies: { applied: boolean; skipped?: boolean; error?: string } | undefined;
+    let form3_service_categories: { applied: boolean; skipped?: boolean; error?: string } | undefined;
+    let form3_items: { applied: boolean; skipped?: boolean; error?: string } | undefined;
+    if (customer_booking_form_layout === 'form4' && industry?.id) {
+      form4_defaults = await seedForm4DefaultsIfEmpty(supabase, business_id, industry.id);
+      if (form4_defaults.error) {
+        console.error('Form 4 default catalog seed error:', form4_defaults.error);
+      }
+    }
+    if (customer_booking_form_layout === 'form3' && industry?.id) {
+      form3_frequencies = await seedForm3DefaultFrequenciesIfEmpty(supabase, business_id, industry.id);
+      if (form3_frequencies.error) {
+        console.error('Form 3 default frequencies seed error:', form3_frequencies.error);
+      }
+      form3_service_categories = await seedForm3DefaultServiceCategoriesIfEmpty(
+        supabase,
+        business_id,
+        industry.id,
+      );
+      if (form3_service_categories.error) {
+        console.error('Form 3 default service categories seed error:', form3_service_categories.error);
+      }
+      form3_items = await seedForm3DefaultItemsIfEmpty(supabase, business_id, industry.id);
+      if (form3_items.error) {
+        console.error('Form 3 default items seed error:', form3_items.error);
+      }
+    }
+
     if (customer_booking_form_layout === 'form2' && industry?.id) {
       form2_frequencies = await seedForm2DefaultFrequenciesIfEmpty(supabase, business_id, industry.id);
       if (form2_frequencies.error) {
@@ -233,6 +276,10 @@ export async function POST(request: NextRequest) {
         form2_pricing_variables,
         form2_packages,
         form2_package_gaps,
+        form4_defaults,
+        form3_frequencies,
+        form3_service_categories,
+        form3_items,
       },
       { status: 201 },
     );
@@ -276,7 +323,12 @@ export async function PATCH(request: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
-    if (body.customer_booking_form_layout === 'form1' || body.customer_booking_form_layout === 'form2') {
+    if (
+      body.customer_booking_form_layout === 'form1' ||
+      body.customer_booking_form_layout === 'form2' ||
+      body.customer_booking_form_layout === 'form3' ||
+      body.customer_booking_form_layout === 'form4'
+    ) {
       update.customer_booking_form_layout = body.customer_booking_form_layout;
     }
     if (typeof body.name === 'string' && body.name.trim()) {
@@ -316,6 +368,35 @@ export async function PATCH(request: NextRequest) {
     let form2_pricing_variables: { applied: boolean; skipped?: boolean; error?: string } | undefined;
     let form2_packages: { applied: boolean; skipped?: boolean; error?: string } | undefined;
     let form2_package_gaps: { applied: boolean; skipped?: boolean; inserted?: number; error?: string } | undefined;
+    let form4_defaults: { applied: boolean; skipped?: boolean; error?: string } | undefined;
+    let form3_frequencies: { applied: boolean; skipped?: boolean; error?: string } | undefined;
+    let form3_service_categories: { applied: boolean; skipped?: boolean; error?: string } | undefined;
+    let form3_items: { applied: boolean; skipped?: boolean; error?: string } | undefined;
+    if (body.customer_booking_form_layout === 'form4' && industry?.id && industryRow.business_id) {
+      const bid = industryRow.business_id as string;
+      const iid = industry.id as string;
+      form4_defaults = await seedForm4DefaultsIfEmpty(supabase, bid, iid);
+      if (form4_defaults.error) {
+        console.error('Form 4 default catalog seed error:', form4_defaults.error);
+      }
+    }
+    if (body.customer_booking_form_layout === 'form3' && industry?.id && industryRow.business_id) {
+      const bid = industryRow.business_id as string;
+      const iid = industry.id as string;
+      form3_frequencies = await seedForm3DefaultFrequenciesIfEmpty(supabase, bid, iid);
+      if (form3_frequencies.error) {
+        console.error('Form 3 default frequencies seed error:', form3_frequencies.error);
+      }
+      form3_service_categories = await seedForm3DefaultServiceCategoriesIfEmpty(supabase, bid, iid);
+      if (form3_service_categories.error) {
+        console.error('Form 3 default service categories seed error:', form3_service_categories.error);
+      }
+      form3_items = await seedForm3DefaultItemsIfEmpty(supabase, bid, iid);
+      if (form3_items.error) {
+        console.error('Form 3 default items seed error:', form3_items.error);
+      }
+    }
+
     if (body.customer_booking_form_layout === 'form2' && industry?.id && industryRow.business_id) {
       const bid = industryRow.business_id as string;
       const iid = industry.id as string;
@@ -343,11 +424,15 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({
       industry,
+      form4_defaults,
       form2_frequencies,
       form2_service_categories,
       form2_pricing_variables,
       form2_packages,
       form2_package_gaps,
+      form3_frequencies,
+      form3_service_categories,
+      form3_items,
     });
   } catch (error) {
     console.error('Unexpected error:', error);

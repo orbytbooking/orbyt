@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -14,12 +14,13 @@ import { bookingFormScopeFromSearchParams } from "@/lib/bookingFormScope";
 
 export default function IndustryFormServiceCategoryPage() {
   const params = useSearchParams();
+  const pathname = usePathname();
   const router = useRouter();
   const { toast } = useToast();
   const { currentBusiness } = useBusiness();
   const industry = params.get("industry") || "Industry";
   const industryIdFromUrl = params.get("industryId");
-  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"));
+  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
   const scopeQs = `&bookingFormScope=${bookingFormScope}`;
   
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
