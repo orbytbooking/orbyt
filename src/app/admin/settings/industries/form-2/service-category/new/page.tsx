@@ -41,7 +41,7 @@ import {
   normalizeFrequencyPopupDisplay,
   type FrequencyPopupDisplay,
 } from "@/lib/frequencyPopupDisplay";
-import { FORM1_NEW_CATEGORY_FORM_DEFAULTS } from "@/lib/form2DefaultServiceCategoryConfig";
+import { FORM1_NEW_CATEGORY_FORM_DEFAULTS } from "@/lib/form1DefaultServiceCategoryConfig";
 import { bookingFormScopeFromSearchParams } from "@/lib/bookingFormScope";
 
 type ServiceCategoryDisplay =
