@@ -201,9 +201,11 @@ export default function FeaturesPage() {
             </div>
             <div className="md:w-1/2 bg-gray-50 p-8 rounded-xl">
               <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-                <div className="h-64 bg-gray-100 rounded-md flex items-center justify-center text-gray-400">
-                  Customer Account Preview
-                </div>
+                <img
+                  src="/images/customer-account-preview.png"
+                  alt="Customer account dashboard preview"
+                  className="w-full h-auto rounded-md border border-gray-100"
+                />
               </div>
             </div>
           </div>
@@ -254,9 +256,11 @@ export default function FeaturesPage() {
             </div>
             <div className="md:w-1/2 md:pr-12 md:order-1">
               <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-                <div className="h-64 bg-gray-100 rounded-md flex items-center justify-center text-gray-400">
-                  Provider Account Preview
-                </div>
+                <img
+                  src="/images/provider-account-preview.png"
+                  alt="Provider account dashboard preview"
+                  className="w-full h-auto rounded-md border border-gray-100"
+                />
               </div>
             </div>
           </div>

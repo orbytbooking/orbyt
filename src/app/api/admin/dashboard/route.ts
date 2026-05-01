@@ -176,35 +176,54 @@ export async function GET(request: NextRequest) {
       return null;
     };
 
-    // Calculate current month metrics (using UTC dates)
-    const currentMonthBookings = safeBookings.filter(b => {
-      const bookingDate = new Date(b.created_at);
-      return bookingDate >= currentMonthStart && bookingDate <= currentMonthEnd;
+    const parseMoney = (value: unknown): number => {
+      const num = typeof value === 'number' ? value : Number(value);
+      return Number.isFinite(num) ? num : 0;
+    };
+
+    const getBookingDate = (booking: any): Date | null => {
+      const rawDate = booking.scheduled_date || booking.date || booking.created_at;
+      if (!rawDate) return null;
+      const date = new Date(rawDate);
+      return Number.isNaN(date.getTime()) ? null : date;
+    };
+
+    // Month-over-month cohorts should use the same date source used by the product UI.
+    const currentMonthBookings = safeBookings.filter((b) => {
+      const bookingDate = getBookingDate(b);
+      return bookingDate ? bookingDate >= currentMonthStart && bookingDate <= currentMonthEnd : false;
     });
 
-    const previousMonthBookings = safeBookings.filter(b => {
-      const bookingDate = new Date(b.created_at);
-      return bookingDate >= previousMonthStart && bookingDate < currentMonthStart;
+    const previousMonthBookings = safeBookings.filter((b) => {
+      const bookingDate = getBookingDate(b);
+      return bookingDate ? bookingDate >= previousMonthStart && bookingDate < currentMonthStart : false;
     });
 
-    // Current month stats
+    // Overall stats shown in cards
+    const totalBookings = safeBookings.length;
+    const completedOrConfirmedBookings = safeBookings.filter(
+      (b) => b.status === 'completed' || b.status === 'confirmed'
+    );
+    const completedBookings = safeBookings.filter((b) => b.status === 'completed');
+    const totalRevenue = completedOrConfirmedBookings.reduce(
+      (sum, booking) => sum + parseMoney(booking.total_price),
+      0
+    );
+    const completionRate = totalBookings > 0 ? (completedBookings.length / totalBookings) * 100 : 0;
+
+    // Current month stats for comparison deltas
     const currentMonthRevenue = currentMonthBookings
-      .filter(b => b.status === 'completed' || b.status === 'confirmed')
-      .reduce((sum, booking) => sum + (booking.total_price || 0), 0);
-    
+      .filter((b) => b.status === 'completed' || b.status === 'confirmed')
+      .reduce((sum, booking) => sum + parseMoney(booking.total_price), 0);
     const currentMonthBookingsCount = currentMonthBookings.length;
-    const currentMonthCompleted = currentMonthBookings.filter(b => b.status === 'completed').length;
-    const currentMonthCompletionRate = currentMonthBookingsCount > 0 
-      ? (currentMonthCompleted / currentMonthBookingsCount) * 100 
-      : 0;
+    const currentMonthCustomers = new Set(currentMonthBookings.map((b) => b.customer_id).filter(Boolean)).size;
 
     // Previous month stats for comparison
     const previousMonthRevenue = previousMonthBookings
-      .filter(b => b.status === 'completed' || b.status === 'confirmed')
-      .reduce((sum, booking) => sum + (booking.total_price || 0), 0);
-    
+      .filter((b) => b.status === 'completed' || b.status === 'confirmed')
+      .reduce((sum, booking) => sum + parseMoney(booking.total_price), 0);
     const previousMonthBookingsCount = previousMonthBookings.length;
-    const previousMonthCustomers = new Set(previousMonthBookings.map(b => b.customer_id).filter(Boolean)).size;
+    const previousMonthCustomers = new Set(previousMonthBookings.map((b) => b.customer_id).filter(Boolean)).size;
 
     // Calculate percentage changes with safe defaults
     const revenueChange = previousMonthRevenue > 0 
@@ -215,11 +234,13 @@ export async function GET(request: NextRequest) {
       ? ((currentMonthBookingsCount - previousMonthBookingsCount) / previousMonthBookingsCount * 100).toFixed(1)
       : currentMonthBookingsCount > 0 ? '100.0' : '0.0';
     
-    // Count unique customers from current month only
-    const activeCustomers = new Set(currentMonthBookings.map(b => b.customer_id).filter(Boolean)).size;
+    // Active customers card should reflect real customer base, not only current month.
+    const activeCustomers = (customers?.length ?? 0) > 0
+      ? customers!.length
+      : new Set(safeBookings.map((b) => b.customer_id).filter(Boolean)).size;
     const customersChange = previousMonthCustomers > 0
-      ? ((activeCustomers - previousMonthCustomers) / previousMonthCustomers * 100).toFixed(1)
-      : activeCustomers > 0 ? '100.0' : '0.0';
+      ? ((currentMonthCustomers - previousMonthCustomers) / previousMonthCustomers * 100).toFixed(1)
+      : currentMonthCustomers > 0 ? '100.0' : '0.0';
 
     const completionRateChange = '0.0'; // Would need historical data for accurate comparison
 
@@ -232,7 +253,7 @@ export async function GET(request: NextRequest) {
     // Create stats object with real data
     const stats = {
       totalRevenue: {
-        value: `$${currentMonthRevenue.toFixed(2)}`,
+        value: `$${totalRevenue.toFixed(2)}`,
         change: `${revenueChangeNum >= 0 ? '+' : ''}${revenueChange}%`,
         icon: 'DollarSign',
         trend: revenueChangeNum >= 0 ? 'up' : 'down',
@@ -240,7 +261,7 @@ export async function GET(request: NextRequest) {
         bgColor: revenueChangeNum >= 0 ? 'bg-green-100 dark:bg-green-900/20' : 'bg-red-100 dark:bg-red-900/20'
       },
       totalBookings: {
-        value: currentMonthBookingsCount.toString(),
+        value: totalBookings.toString(),
         change: `${bookingsChangeNum >= 0 ? '+' : ''}${bookingsChange}%`,
         icon: 'Calendar',
         trend: bookingsChangeNum >= 0 ? 'up' : 'down',
@@ -256,7 +277,7 @@ export async function GET(request: NextRequest) {
         bgColor: customersChangeNum >= 0 ? 'bg-cyan-100 dark:bg-cyan-900/20' : 'bg-red-100 dark:bg-red-900/20'
       },
       completionRate: {
-        value: `${currentMonthCompletionRate.toFixed(1)}%`,
+        value: `${completionRate.toFixed(1)}%`,
         change: `${completionRateChangeNum >= 0 ? '+' : ''}${completionRateChange}%`,
         icon: 'TrendingUp',
         trend: completionRateChangeNum >= 0 ? 'up' : 'down',
