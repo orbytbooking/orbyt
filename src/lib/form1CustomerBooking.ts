@@ -146,11 +146,14 @@ export function filterFrequencyOptionsForServiceCategory(
   if (!raw?.service_category_frequency || !raw.selected_frequencies?.length) {
     return allOptions;
   }
-  return allOptions.filter((opt) =>
+  const filtered = allOptions.filter((opt) =>
     raw.selected_frequencies!.some(
       (sf) => normalizeFrequencyLabelForMatch(sf) === normalizeFrequencyLabelForMatch(opt),
     ),
   );
+  // If the service category still stores stale preset names after a frequency rename,
+  // do not hide all DB-backed frequencies in admin/customer booking.
+  return filtered.length > 0 ? filtered : allOptions;
 }
 
 /** Ensure selected frequency is allowed for this service category (Form 1 selected_frequencies). */

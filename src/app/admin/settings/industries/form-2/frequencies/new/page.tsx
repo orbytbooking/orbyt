@@ -336,17 +336,23 @@ export default function FrequencyNewPage() {
 
   useEffect(() => {
     const fetchFrequency = async () => {
-      if (!editId || !industryId) return;
+      if (!editId || !currentBusiness?.id) return;
       
       try {
         setLoadingFrequency(true);
-        const response = await fetch(
-          `/api/industry-frequency?industryId=${industryId}&includeAll=true${scopeQs}`,
-        );
+        const queryParts = [
+          `id=${encodeURIComponent(editId)}`,
+          `businessId=${encodeURIComponent(currentBusiness.id)}`,
+          industryId ? `industryId=${encodeURIComponent(industryId)}` : "",
+          `bookingFormScope=${encodeURIComponent(bookingFormScope)}`,
+        ].filter(Boolean);
+        const response = await fetch(`/api/industry-frequency?${queryParts.join("&")}`, {
+          cache: "no-store",
+        });
         const data = await response.json();
         
-        if (response.ok && data.frequencies) {
-          const existing = data.frequencies.find((f: any) => f.id === editId);
+        if (response.ok && data.frequency) {
+          const existing = data.frequency;
           if (existing) {
             setForm({
               name: existing.name,
@@ -357,8 +363,8 @@ export default function FrequencyNewPage() {
               explanationTooltipText: existing.explanation_tooltip_text || "",
               popupContent: existing.popup_content || "",
               popupDisplay: normalizeFrequencyPopupDisplay(existing.popup_display),
-              display: existing.display,
-              occurrenceTime: existing.occurrence_time || "",
+              display: existing.display || "Both",
+              occurrenceTime: existing.occurrence_time || "one-time",
               discount: String(existing.discount ?? 0),
               discountType: existing.discount_type || "%",
               isDefault: !!existing.is_default,
@@ -382,6 +388,8 @@ export default function FrequencyNewPage() {
               extras: existing.extras || [],
             });
           }
+        } else if (!response.ok) {
+          console.error("Failed to fetch frequency for edit:", data?.error);
         }
       } catch (error) {
         console.error('Error fetching frequency:', error);
@@ -391,7 +399,7 @@ export default function FrequencyNewPage() {
     };
 
     fetchFrequency();
-  }, [editId, industryId, bookingFormScope]);
+  }, [editId, industryId, bookingFormScope, currentBusiness?.id]);
 
   // Load industries from API
   useEffect(() => {
@@ -667,11 +675,44 @@ export default function FrequencyNewPage() {
 
   const save = async () => {
     if (!validateForm()) {
+      const missing: string[] = [];
+      if (!form.name.trim()) missing.push("Name");
+      if (!form.occurrenceTime.trim()) missing.push("Occurrence Time");
+      if (String(form.discount).trim() === "" || Number.isNaN(Number(form.discount))) {
+        missing.push("Discount");
+      }
+      alert(
+        missing.length > 0
+          ? `Please complete required field(s): ${missing.join(", ")}.`
+          : "Please fix the highlighted validation fields before saving.",
+      );
       return;
     }
 
-    if (!currentBusiness || !industryId) {
+    if (!currentBusiness || (!industryId && !editId)) {
       alert('Business or Industry information is missing. Please try again.');
+      return;
+    }
+    let industryIdForSave = industryId;
+    if (!industryIdForSave) {
+      try {
+        const res = await fetch(`/api/industries?business_id=${encodeURIComponent(currentBusiness.id)}`);
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && Array.isArray(data.industries)) {
+          const hit = data.industries.find(
+            (ind: any) => String(ind?.name ?? "").trim() === String(industry ?? "").trim(),
+          );
+          if (hit?.id) {
+            industryIdForSave = String(hit.id);
+            setIndustryId(industryIdForSave);
+          }
+        }
+      } catch (e) {
+        console.error("Error resolving industry id for frequency save:", e);
+      }
+    }
+    if (!industryIdForSave) {
+      alert("Industry could not be resolved. Please go back and open Form 2 frequencies again.");
       return;
     }
     
@@ -711,7 +752,7 @@ export default function FrequencyNewPage() {
 
     const frequencyData = {
       business_id: currentBusiness.id,
-      industry_id: industryId,
+      industry_id: industryIdForSave,
       name: form.name.trim(),
       description: form.description,
       different_on_customer_end: form.differentOnCustomerEnd,
@@ -751,10 +792,15 @@ export default function FrequencyNewPage() {
 
     try {
       if (editId) {
+        const {
+          business_id: _ignoreBusinessId,
+          industry_id: _ignoreIndustryId,
+          ...editPayload
+        } = frequencyData;
         const response = await fetch('/api/industry-frequency', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: editId, ...frequencyData }),
+          body: JSON.stringify({ id: editId, ...editPayload }),
         });
 
         if (!response.ok) {
@@ -777,7 +823,7 @@ export default function FrequencyNewPage() {
       }
 
       router.push(
-        `/admin/settings/industries/form-2/frequencies?industry=${encodeURIComponent(industry)}${scopeQs}`,
+        `/admin/settings/industries/form-2/frequencies?industry=${encodeURIComponent(industry)}&industryId=${encodeURIComponent(industryIdForSave)}${scopeQs}&refresh=${Date.now()}`,
       );
     } catch (error) {
       console.error('Error saving frequency:', error);

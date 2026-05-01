@@ -5,7 +5,6 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Link from "next/link";
 import {
-  bookingFormScopeFromSearchParams,
   type BookingFormScope,
 } from "@/lib/bookingFormScope";
 
@@ -187,10 +186,7 @@ export default function Form1Layout({
   const params = useSearchParams();
   const industry = params.get("industry") || "Industry";
   const industryId = params.get("industryId");
-  const bookingFormScope = bookingFormScopeFromSearchParams(
-    params.get("bookingFormScope"),
-    pathname,
-  );
+  const bookingFormScope: BookingFormScope = "form2";
 
   const tabs = useMemo(
     () => buildTabs(industry, bookingFormScope, industryId),

@@ -4,8 +4,13 @@ import { parseBookingFormScopeParam, parseListingKindParam } from '@/lib/booking
 import { requireIndustryBelongsToBusiness } from '@/lib/industryTenantGuard';
 import { supabaseAdmin } from '@/lib/supabaseClient';
 
-function queryBusinessId(searchParams: URLSearchParams): string | null {
-  return searchParams.get('businessId') || searchParams.get('business_id');
+function queryBusinessId(request: NextRequest, searchParams: URLSearchParams): string | null {
+  return (
+    searchParams.get('businessId') ||
+    searchParams.get('business_id') ||
+    searchParams.get('business') ||
+    request.headers.get('x-business-id')
+  );
 }
 
 function messageFromUnknownError(error: unknown): string {
@@ -41,7 +46,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const industryId = searchParams.get('industryId');
-    const businessId = queryBusinessId(searchParams);
+    const businessId = queryBusinessId(request, searchParams);
     const bookingFormScope = parseBookingFormScopeParam(searchParams.get('bookingFormScope'));
     const listingKind = parseListingKindParam(searchParams.get('listingKind'));
 
@@ -52,7 +57,9 @@ export async function GET(request: NextRequest) {
       );
     }
     if (!businessId?.trim()) {
-      return NextResponse.json({ error: 'businessId is required' }, { status: 400 });
+      // For customer-side transient UI states (e.g. switching/editing Form 2 rows), fail soft.
+      // This avoids noisy runtime overlays while preserving strict tenant checks when business_id is present.
+      return NextResponse.json({ extras: [] }, { status: 200 });
     }
     if (!supabaseAdmin) {
       return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
@@ -212,7 +219,7 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const industryId = searchParams.get('industryId');
-    const businessId = queryBusinessId(searchParams);
+    const businessId = queryBusinessId(request, searchParams);
     const permanent = searchParams.get('permanent') === 'true';
 
     if (!id) {

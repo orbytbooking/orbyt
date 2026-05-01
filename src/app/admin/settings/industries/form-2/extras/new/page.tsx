@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,7 +29,6 @@ import { useBusiness } from "@/contexts/BusinessContext";
 import { toast } from "sonner";
 import { useRef } from "react";
 import {
-  bookingFormScopeFromSearchParams,
   parseListingKindParam,
 } from "@/lib/bookingFormScope";
 
@@ -90,20 +89,18 @@ type ExtraDisplay =
 
 export default function ExtraNewPage() {
   const params = useSearchParams();
-  const pathname = usePathname();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
   const industryId = params.get("industryId");
   const editId = params.get("editId");
-  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
+  const bookingFormScope = "form2" as const;
   const listingKindFilter = parseListingKindParam(params.get("listingKind"));
   const scopeQs =
     `&bookingFormScope=${bookingFormScope}` +
     (listingKindFilter ? `&listingKind=${listingKindFilter}` : "");
   const listing_kind = listingKindFilter === "addon" ? "addon" : "extra";
-  const isForm2 = bookingFormScope === "form2";
-  const isForm3 = bookingFormScope === "form3";
-  const isSinglePageCatalog = isForm2 || isForm3;
+  const isForm2 = true;
+  const isSinglePageCatalog = true;
   const isSinglePageAddon = isSinglePageCatalog && listingKindFilter === "addon";
   const { currentBusiness } = useBusiness();
   const [saving, setSaving] = useState(false);
@@ -198,7 +195,7 @@ export default function ExtraNewPage() {
       
       try {
         const response = await fetch(
-          `/api/industry-frequency?industryId=${industryId}&includeAll=true${scopeQs}`,
+          `/api/industry-frequency?industryId=${industryId}&businessId=${encodeURIComponent(currentBusiness?.id ?? "")}&includeAll=true${scopeQs}`,
         );
         if (!response.ok) {
           throw new Error('Failed to fetch frequencies');
@@ -236,7 +233,7 @@ export default function ExtraNewPage() {
       }
       
       try {
-        const apiUrl = `/api/service-categories?industryId=${industryId}${scopeQs}`;
+        const apiUrl = `/api/service-categories?industryId=${industryId}&businessId=${encodeURIComponent(currentBusiness?.id ?? "")}${scopeQs}`;
         console.log('🔗 Fetching from:', apiUrl);
         
         const response = await fetch(apiUrl);

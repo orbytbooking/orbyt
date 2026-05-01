@@ -22,6 +22,7 @@ export default function IndustryFormFrequenciesPage() {
   const industry = params.get("industry") || "Industry";
   const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
   const scopeQs = `&bookingFormScope=${bookingFormScope}`;
+  const businessQs = currentBusiness?.id ? `&businessId=${encodeURIComponent(currentBusiness.id)}` : "";
   type Row = {
     id: string;
     name: string;
@@ -64,7 +65,7 @@ export default function IndustryFormFrequenciesPage() {
 
   useEffect(() => {
     const fetchFrequencies = async () => {
-      if (!industryId) {
+      if (!industryId || !currentBusiness?.id) {
         setLoading(false);
         return;
       }
@@ -72,7 +73,8 @@ export default function IndustryFormFrequenciesPage() {
       try {
         setLoading(true);
         const response = await fetch(
-          `/api/industry-frequency?industryId=${industryId}&includeAll=true${scopeQs}`,
+          `/api/industry-frequency?industryId=${industryId}&includeAll=true${scopeQs}${businessQs}`,
+          { cache: "no-store" },
         );
         const data = await response.json();
         
@@ -99,11 +101,11 @@ export default function IndustryFormFrequenciesPage() {
     };
 
     fetchFrequencies();
-  }, [industryId, toast, bookingFormScope]);
+  }, [industryId, currentBusiness?.id, businessQs, toast, bookingFormScope]);
 
   const remove = async (id: string) => {
     try {
-      const response = await fetch(`/api/industry-frequency?id=${id}`, {
+      const response = await fetch(`/api/industry-frequency?id=${id}${scopeQs}${businessQs}`, {
         method: 'DELETE',
       });
 
@@ -139,7 +141,12 @@ export default function IndustryFormFrequenciesPage() {
       const response = await fetch('/api/industry-frequency', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, is_default: !frequency.is_default }),
+        body: JSON.stringify({
+          id,
+          is_default: !frequency.is_default,
+          booking_form_scope: bookingFormScope,
+          business_id: currentBusiness?.id,
+        }),
       });
 
       if (response.ok) {

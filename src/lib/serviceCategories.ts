@@ -207,7 +207,19 @@ class ServiceCategoriesService {
     return data || [];
   }
 
-  async getServiceCategoryById(id: string): Promise<ServiceCategory | null> {
+  async getServiceCategoryById(
+    id: string,
+    bookingFormScope?: BookingFormScope | null,
+  ): Promise<ServiceCategory | null> {
+    if (bookingFormScope) {
+      const table = scopedIndustryTable('industry_service_category', bookingFormScope);
+      const scoped = await this.supabase.from(table).select('*').eq('id', id).maybeSingle();
+      if (scoped.error) {
+        console.error('Error fetching service category:', scoped.error);
+        throw scoped.error;
+      }
+      return scoped.data ?? null;
+    }
     const { data, error } = await this.supabase
       .from('industry_service_category')
       .select('*')
@@ -256,12 +268,19 @@ class ServiceCategoriesService {
     return data;
   }
 
-  async updateServiceCategory(id: string, updateData: UpdateServiceCategoryData): Promise<ServiceCategory> {
+  async updateServiceCategory(
+    id: string,
+    updateData: UpdateServiceCategoryData,
+    bookingFormScope?: BookingFormScope | null,
+  ): Promise<ServiceCategory> {
     console.log('=== UPDATE SERVICE CATEGORY DEBUG ===');
     console.log('ID:', id);
     console.log('UpdateData:', JSON.stringify(updateData, null, 2));
     
-    const scope = (updateData as { booking_form_scope?: BookingFormScope | null }).booking_form_scope ?? null;
+    const scope =
+      bookingFormScope ??
+      (updateData as { booking_form_scope?: BookingFormScope | null }).booking_form_scope ??
+      null;
     const preferredTable = scopedIndustryTable('industry_service_category', scope);
     const candidateTables = Array.from(
       new Set([preferredTable, 'industry_service_category', 'industry_form2_service_categories', 'industry_form3_service_categories', 'industry_form4_service_categories', 'industry_form5_service_categories']),
@@ -301,7 +320,20 @@ class ServiceCategoriesService {
     return data;
   }
 
-  async deleteServiceCategory(id: string): Promise<void> {
+  async deleteServiceCategory(id: string, bookingFormScope?: BookingFormScope | null): Promise<void> {
+    if (bookingFormScope) {
+      const table = scopedIndustryTable('industry_service_category', bookingFormScope);
+      const scoped = await this.supabase
+        .from(table)
+        .delete()
+        .eq('id', id)
+        .select('id');
+      if (scoped.error) {
+        console.error('Error deleting service category:', scoped.error);
+        throw scoped.error;
+      }
+      return;
+    }
     let { error, data } = await this.supabase
       .from('industry_service_category')
       .delete()
@@ -324,7 +356,22 @@ class ServiceCategoriesService {
     }
   }
 
-  async updateServiceCategoryOrder(updates: Array<{ id: string; sort_order: number }>): Promise<void> {
+  async updateServiceCategoryOrder(
+    updates: Array<{ id: string; sort_order: number }>,
+    bookingFormScope?: BookingFormScope | null,
+  ): Promise<void> {
+    if (bookingFormScope) {
+      const table = scopedIndustryTable('industry_service_category', bookingFormScope);
+      for (const { id, sort_order } of updates) {
+        const scoped = await this.supabase
+          .from(table)
+          .update({ sort_order })
+          .eq('id', id)
+          .select('id');
+        if (scoped.error) throw scoped.error;
+      }
+      return;
+    }
     for (const { id, sort_order } of updates) {
       const r1 = await this.supabase
         .from('industry_service_category')

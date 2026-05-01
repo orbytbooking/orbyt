@@ -28,6 +28,12 @@ export function bookingFormScopeFromSearchParams(
   raw: string | null | undefined,
   pathname?: string | null,
 ): BookingFormScope {
+  // Hard-isolate admin route segments so stale query params cannot remap scope.
+  if (pathname?.includes('/industries/form-1')) return 'form1';
+  if (pathname?.includes('/industries/form-2')) return 'form2';
+  if (pathname?.includes('/industries/form-3')) return 'form3';
+  if (pathname?.includes('/industries/form-4')) return 'form4';
+  if (pathname?.includes('/industries/form-5')) return 'form5';
   const parsed = parseBookingFormScopeParam(raw ?? null);
   if (parsed) return parsed;
   if (pathname) {
@@ -35,6 +41,7 @@ export function bookingFormScopeFromSearchParams(
     if (pathname.includes('/industries/form-4')) return 'form4';
     if (pathname.includes('/industries/form-3')) return 'form3';
     if (pathname.includes('/industries/form-2')) return 'form2';
+    if (pathname.includes('/industries/form-1')) return 'form1';
   }
   return 'form1';
 }

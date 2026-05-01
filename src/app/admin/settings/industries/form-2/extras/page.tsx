@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -8,11 +8,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useEffect, useMemo, useState } from "react";
 import { useToast } from "@/components/ui/use-toast";
-import { ChevronDown, Loader2 } from "lucide-react";
+import { ChevronDown, Info, Loader2 } from "lucide-react";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { toast } from "sonner";
 import {
-  bookingFormScopeFromSearchParams,
   parseListingKindParam,
 } from "@/lib/bookingFormScope";
 
@@ -24,6 +23,8 @@ type Extra = {
   time_minutes: number;
   service_category?: string;
   price: number;
+  price_merchant_location?: number | null;
+  time_minutes_merchant_location?: number | null;
   display: "frontend-backend-admin" | "backend-admin" | "admin-only";
   qty_based: boolean;
   exempt_from_discount?: boolean;
@@ -42,19 +43,19 @@ type Extra = {
 
 export default function IndustryFormExtrasPage() {
   const params = useSearchParams();
-  const pathname = usePathname();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
   const industryIdFromUrl = params.get("industryId");
-  const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
+  const bookingFormScope = "form2" as const;
   const listingKindFilter = parseListingKindParam(params.get("listingKind"));
   const scopeQs =
     `&bookingFormScope=${bookingFormScope}` +
     (listingKindFilter ? `&listingKind=${listingKindFilter}` : "");
   const extrasSectionLabel = listingKindFilter === "addon" ? "Add-ons" : "Extras";
-  const formSegment =
-    bookingFormScope === "form3" ? "form-3" : bookingFormScope === "form2" ? "form-2" : "form-2";
-  const isSinglePageCatalog = bookingFormScope === "form2" || bookingFormScope === "form3";
+  const singularLabel = listingKindFilter === "addon" ? "add-on" : "extra";
+  const pluralLabel = listingKindFilter === "addon" ? "add-ons" : "extras";
+  const formSegment = "form-2";
+  const isSinglePageCatalog = true;
   const sectionBasePath =
     isSinglePageCatalog && listingKindFilter === "addon"
       ? `/admin/settings/industries/${formSegment}/add-ons`
@@ -66,6 +67,13 @@ export default function IndustryFormExtrasPage() {
   const [extras, setExtras] = useState<Extra[]>([]);
   const [loading, setLoading] = useState(true);
   const [industryId, setIndustryId] = useState<string | null>(industryIdFromUrl);
+
+  const formatMinutesLabel = (minutesRaw: number | null | undefined) => {
+    const total = Math.max(0, Number(minutesRaw) || 0);
+    const hours = Math.floor(total / 60);
+    const minutes = total % 60;
+    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  };
   
 
   useEffect(() => {
@@ -122,13 +130,13 @@ export default function IndustryFormExtrasPage() {
       const data = await response.json();
       
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch extras');
+        throw new Error(data.error || `Failed to fetch ${pluralLabel}`);
       }
       
       setExtras(data.extras || []);
     } catch (error) {
       console.error('Error fetching extras:', error);
-      toast.error('Failed to load extras');
+      toast.error(`Failed to load ${pluralLabel}`);
     } finally {
       setLoading(false);
     }
@@ -144,14 +152,21 @@ export default function IndustryFormExtrasPage() {
       
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error || 'Failed to delete extra');
+        throw new Error(data.error || `Failed to delete ${singularLabel}`);
       }
       
       setExtras(prev => prev.filter(r => r.id !== id));
-      toast.success('Extra deleted successfully');
+      toast.success(`${extrasSectionLabel.slice(0, -1)} deleted successfully`);
     } catch (error) {
       console.error('Error deleting extra:', error);
-      toast.error('Failed to delete extra');
+      const fallback = `Failed to delete ${singularLabel}`;
+      const message = error instanceof Error && error.message ? error.message : fallback;
+      // If backend still returns a generic "extra" phrase, keep UI wording aligned with current tab.
+      toast.error(
+        listingKindFilter === "addon"
+          ? message.replace(/extra/gi, "add-on")
+          : message,
+      );
     }
   };
 
@@ -204,7 +219,7 @@ export default function IndustryFormExtrasPage() {
         throw new Error('Failed to update priority');
       }
       
-      toast.success('Extras order updated successfully');
+      toast.success(`${extrasSectionLabel} order updated successfully`);
     } catch (error) {
       console.error('Error updating priority:', error);
       toast.error('Failed to update priority');
@@ -237,8 +252,8 @@ export default function IndustryFormExtrasPage() {
               <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
-                    <TableHead>Time</TableHead>
                     <TableHead>Price</TableHead>
+                    <TableHead>Time</TableHead>
                     <TableHead className="w-[150px]">Service Category</TableHead>
                     <TableHead>Display</TableHead>
                     <TableHead>Qty Based</TableHead>
@@ -270,9 +285,16 @@ export default function IndustryFormExtrasPage() {
                   </TableRow>
                 ) : null}
                 {!loading && extras.map((extra) => {
-                  const hours = Math.floor(extra.time_minutes / 60);
-                  const minutes = extra.time_minutes % 60;
-                  const timeDisplay = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+                  const saPrice = Number(extra.price || 0);
+                  const mlPrice =
+                    extra.price_merchant_location == null
+                      ? saPrice
+                      : Number(extra.price_merchant_location || 0);
+                  const saTime = Number(extra.time_minutes || 0);
+                  const mlTime =
+                    extra.time_minutes_merchant_location == null
+                      ? saTime
+                      : Number(extra.time_minutes_merchant_location || 0);
                   
                   // Map display values to readable labels
                   const displayLabel = extra.display === "frontend-backend-admin"
@@ -284,8 +306,34 @@ export default function IndustryFormExtrasPage() {
                   return (
                   <TableRow key={extra.id}>
                     <TableCell className="font-medium">{extra.name}</TableCell>
-                    <TableCell>{timeDisplay}</TableCell>
-                    <TableCell>${extra.price.toFixed(2)}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className="inline-flex items-center gap-1 rounded-md border border-cyan-300/80 bg-cyan-100/80 px-2 py-1 text-[11px] font-semibold text-cyan-900">
+                          <span className="rounded bg-cyan-200/80 px-1.5 py-0.5 leading-none">S.A.</span>
+                          <Info className="h-3 w-3" />
+                          <span>${saPrice.toFixed(2)}</span>
+                        </span>
+                        <span className="inline-flex items-center gap-1 rounded-md border border-amber-300/80 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-900">
+                          <span className="rounded bg-amber-100 px-1.5 py-0.5 leading-none">M.L.</span>
+                          <Info className="h-3 w-3" />
+                          <span>${mlPrice.toFixed(2)}</span>
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className="inline-flex items-center gap-1 rounded-md border border-cyan-300/80 bg-cyan-100/80 px-2 py-1 text-[11px] font-semibold text-cyan-900">
+                          <span className="rounded bg-cyan-200/80 px-1.5 py-0.5 leading-none">S.A.</span>
+                          <Info className="h-3 w-3" />
+                          <span>{formatMinutesLabel(saTime)}</span>
+                        </span>
+                        <span className="inline-flex items-center gap-1 rounded-md border border-amber-300/80 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-900">
+                          <span className="rounded bg-amber-100 px-1.5 py-0.5 leading-none">M.L.</span>
+                          <Info className="h-3 w-3" />
+                          <span>{formatMinutesLabel(mlTime)}</span>
+                        </span>
+                      </div>
+                    </TableCell>
                     <TableCell className="text-xs">
                       {extra.show_based_on_service_category && extra.service_category_options && extra.service_category_options.length > 0 ? (
                         <div className="flex flex-wrap gap-1">

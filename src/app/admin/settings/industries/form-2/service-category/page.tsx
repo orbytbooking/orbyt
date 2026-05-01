@@ -108,7 +108,7 @@ export default function IndustryFormServiceCategoryPage() {
 
   const remove = async (id: string) => {
     try {
-      await serviceCategoriesService.deleteServiceCategory(id);
+      await serviceCategoriesService.deleteServiceCategory(id, bookingFormScope);
       setCategories(prev => prev.filter(r => r.id !== id));
       toast({
         title: "Category deleted",
@@ -141,7 +141,7 @@ export default function IndustryFormServiceCategoryPage() {
         id: cat.id,
         sort_order: index
       }));
-      await serviceCategoriesService.updateServiceCategoryOrder(updates);
+      await serviceCategoriesService.updateServiceCategoryOrder(updates, bookingFormScope);
       toast({
         title: "Categories updated",
         description: "Service categories order has been saved.",

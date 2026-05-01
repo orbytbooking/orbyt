@@ -6,10 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useBusiness } from "@/contexts/BusinessContext";
-import {
-  parseBookingFormScopeParam,
-  type BookingFormScope,
-} from "@/lib/bookingFormScope";
+import { type BookingFormScope } from "@/lib/bookingFormScope";
 
 type FormStats = {
   serviceCategories: number;
@@ -33,7 +30,7 @@ export default function IndustryForm1Page() {
   const industryIdFromUrl = params.get("industryId");
   const { currentBusiness } = useBusiness();
   const [industryId, setIndustryId] = useState<string | null>(industryIdFromUrl);
-  const [bookingFormScope, setBookingFormScope] = useState<BookingFormScope>("form2");
+  const bookingFormScope: BookingFormScope = "form2";
   const [stats, setStats] = useState<FormStats>({
     serviceCategories: 0,
     extras: 0,
@@ -47,8 +44,6 @@ export default function IndustryForm1Page() {
   useEffect(() => {
     if (industryIdFromUrl) setIndustryId(industryIdFromUrl);
   }, [industryIdFromUrl]);
-
-  const bookingFormScopeKey = params.get("bookingFormScope") ?? "";
 
   useEffect(() => {
     if (!currentBusiness || !industryName) return;
@@ -66,31 +61,18 @@ export default function IndustryForm1Page() {
         const id = currentIndustry.id;
         setIndustryId(id);
 
-        const fromUrl = parseBookingFormScopeParam(bookingFormScopeKey || null);
-        const layout = currentIndustry.customer_booking_form_layout;
-        const layoutDefault: BookingFormScope =
-          layout === "form4"
-            ? "form4"
-            : layout === "form3"
-              ? "form3"
-              : layout === "form2"
-                ? "form2"
-                : "form2";
-        const effectiveScope: BookingFormScope = fromUrl ?? layoutDefault;
-        setBookingFormScope(effectiveScope);
-
-        const scopeQs = `bookingFormScope=${effectiveScope}`;
+        const scopeQs = "bookingFormScope=form2";
         const bid = encodeURIComponent(currentBusiness.id);
         const iid = encodeURIComponent(id);
 
         const serviceCategoriesResponse = await fetch(
-          `/api/service-categories?industryId=${iid}&${scopeQs}`,
+          `/api/service-categories?industryId=${iid}&businessId=${bid}&${scopeQs}`,
         );
         const serviceCategoriesData = await serviceCategoriesResponse.json();
         const serviceCategories = serviceCategoriesData.serviceCategories?.length || 0;
 
         const frequenciesResponse = await fetch(
-          `/api/industry-frequency?industryId=${iid}&includeAll=true&${scopeQs}`,
+          `/api/industry-frequency?industryId=${iid}&businessId=${bid}&includeAll=true&${scopeQs}`,
         );
         const frequenciesData = await frequenciesResponse.json();
         const frequencies = frequenciesData.frequencies?.length || 0;
@@ -109,25 +91,17 @@ export default function IndustryForm1Page() {
         let addonsCount = 0;
         let itemsCount = 0;
 
-        if (effectiveScope === "form2" || effectiveScope === "form3") {
-          const [addonsRes, extrasRes, variablesRes] = await Promise.all([
-            fetch(`/api/extras?industryId=${iid}&businessId=${bid}&${scopeQs}&listingKind=addon`),
-            fetch(`/api/extras?industryId=${iid}&businessId=${bid}&${scopeQs}&listingKind=extra`),
-            fetch(`/api/pricing-variables?industryId=${iid}&businessId=${bid}&${scopeQs}`),
-          ]);
-          const addonsData = await addonsRes.json();
-          const extrasData = await extrasRes.json();
-          const variablesData = await variablesRes.json();
-          addonsCount = addonsData.extras?.length || 0;
-          extrasCount = extrasData.extras?.length || 0;
-          itemsCount = variablesData.variables?.length || 0;
-        } else {
-          const extrasResponse = await fetch(
-            `/api/extras?industryId=${iid}&businessId=${bid}&${scopeQs}&listingKind=extra`,
-          );
-          const extrasData = await extrasResponse.json();
-          extrasCount = extrasData.extras?.length || 0;
-        }
+        const [addonsRes, extrasRes, variablesRes] = await Promise.all([
+          fetch(`/api/extras?industryId=${iid}&businessId=${bid}&${scopeQs}&listingKind=addon`),
+          fetch(`/api/extras?industryId=${iid}&businessId=${bid}&${scopeQs}&listingKind=extra`),
+          fetch(`/api/pricing-variables?industryId=${iid}&businessId=${bid}&${scopeQs}`),
+        ]);
+        const addonsData = await addonsRes.json();
+        const extrasData = await extrasRes.json();
+        const variablesData = await variablesRes.json();
+        addonsCount = addonsData.extras?.length || 0;
+        extrasCount = extrasData.extras?.length || 0;
+        itemsCount = variablesData.variables?.length || 0;
 
         setStats({
           serviceCategories,
@@ -144,21 +118,12 @@ export default function IndustryForm1Page() {
     };
 
     void fetchIndustryData();
-  }, [industryName, currentBusiness?.id, bookingFormScopeKey, industryIdFromUrl]);
+  }, [industryName, currentBusiness?.id, industryIdFromUrl]);
 
-  const isForm2 = bookingFormScope === "form2";
-  const isForm3 = bookingFormScope === "form3";
-  const isForm4 = bookingFormScope === "form4";
-  const isExtendedCatalog = isForm2 || isForm3;
-  const formBasePath =
-    bookingFormScope === "form4"
-      ? "form-2"
-      : bookingFormScope === "form3"
-        ? "form-3"
-        : bookingFormScope === "form2"
-          ? "form-2"
-          : "form-2";
-  const formLabel = isForm4 ? "Form 2" : isForm3 ? "Form 3" : isForm2 ? "Form 2" : "Form 2";
+  const isForm2 = true;
+  const isExtendedCatalog = true;
+  const formBasePath = "form-2";
+  const formLabel = "Form 2";
   const scopeQs = `&bookingFormScope=${bookingFormScope}`;
   const idQs = industryId ? `&industryId=${encodeURIComponent(industryId)}` : "";
 

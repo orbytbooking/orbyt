@@ -9,7 +9,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Info } from "lucide-react";
+import { ArrowLeft, Home, Info, LayoutTemplate, Sparkles } from "lucide-react";
 import QuantitySelector from "@/components/QuantitySelector";
 import styles from "./ServiceCard.module.css";
 import {
@@ -105,6 +105,14 @@ interface ServiceCardProps {
    * `expandedFlip` — centered overlay: card scales up while flipping (book-now).
    */
   customizeLayout?: "inline" | "expandedFlip";
+  /** Form 2: override front-card title to show selected item label. */
+  form2SelectedItemLabel?: string;
+  /** Form 2: override front-card subtitle to show selected package label. */
+  form2SelectedPackageLabel?: string;
+  /** Form 2: compact height for summary cards. */
+  form2CompactCard?: boolean;
+  /** Optional unique id per rendered card instance (used for flip/open state). */
+  cardInstanceId?: string;
 }
 
 export interface ExcludeParamOption {
@@ -126,6 +134,7 @@ export interface ExcludeParamOption {
 export interface ExtraOption {
   id: string;
   name: string;
+  listing_kind?: "addon" | "extra";
   icon?: string | null;
   display?: string;
   qty_based?: boolean;
@@ -181,9 +190,14 @@ export default function FrequencyAwareServiceCard({
   bookingPopupSurface,
   pricingVariableDefinitions = [],
   customizeLayout = "inline",
+  form2SelectedItemLabel,
+  form2SelectedPackageLabel,
+  form2CompactCard = false,
+  cardInstanceId,
 }: ServiceCardProps) {
   const isForm4Card = bookingFormScope === "form4";
   const isForm5Card = bookingFormScope === "form5";
+  const isForm2Card = bookingFormScope === "form2";
   const serviceDisplayName = service.customerDisplayName?.trim() || service.name;
 
   const variableCategoryLabel = useCallback(
@@ -210,7 +224,8 @@ export default function FrequencyAwareServiceCard({
     Boolean(serviceCategory?.hourly_service?.enabled) &&
     (serviceCategory?.hourly_service?.priceCalculationType ?? "customTime") === "customTime";
 
-  const isFlipped = flippedCardId === String(service.id) || flippedCardId === service.id;
+  const flipId = String(cardInstanceId ?? service.id);
+  const isFlipped = flippedCardId === flipId;
   const isExpandedFlip = customizeLayout === "expandedFlip";
   const [expandedReveal, setExpandedReveal] = useState(false);
   const [portalMounted, setPortalMounted] = useState(false);
@@ -236,6 +251,28 @@ export default function FrequencyAwareServiceCard({
     excludeParameters: DEFAULT_EXCLUDE_OPTIONS,
     extras: DEFAULT_EXTRA_OPTIONS,
   });
+
+  const separatedExtras = useMemo(() => {
+    const addOns = filteredOptions.extras.filter((e) => e.listing_kind === "addon");
+    const extras = filteredOptions.extras.filter((e) => e.listing_kind !== "addon");
+    return { addOns, extras };
+  }, [filteredOptions.extras]);
+  const selectedAddOnCount = useMemo(
+    () =>
+      (customization.extras || []).filter((x) => {
+        const hit = filteredOptions.extras.find((e) => e.name === x.name);
+        return hit?.listing_kind === "addon" && Number(x.quantity || 0) > 0;
+      }).length,
+    [customization.extras, filteredOptions.extras],
+  );
+  const selectedExtraCount = useMemo(
+    () =>
+      (customization.extras || []).filter((x) => {
+        const hit = filteredOptions.extras.find((e) => e.name === x.name);
+        return (!hit || hit.listing_kind !== "addon") && Number(x.quantity || 0) > 0;
+      }).length,
+    [customization.extras, filteredOptions.extras],
+  );
 
   // Variable categories from pricing parameters, minus options hidden by Manage Variables `display` for this surface
   const variableCategoryEntries = useMemo(() => {
@@ -462,6 +499,7 @@ export default function FrequencyAwareServiceCard({
     const toExtraOption = (e: any): ExtraOption => ({
       id: e.id,
       name: e.name,
+      listing_kind: e.listing_kind === "addon" ? "addon" : "extra",
       icon: e.icon != null && String(e.icon).trim() ? String(e.icon).trim() : null,
       display: e.display,
       qty_based: e.qty_based,
@@ -614,7 +652,7 @@ export default function FrequencyAwareServiceCard({
 
   const handleCardClick = () => {
     if (isFlipped) return;
-    onFlip(service.id);
+    onFlip(flipId);
   };
 
   const handleBack = (e: React.MouseEvent) => {
@@ -681,6 +719,47 @@ export default function FrequencyAwareServiceCard({
   };
 
   function renderCardFront(): React.ReactNode {
+    if (isForm2Card) {
+      const itemTitle = String(form2SelectedItemLabel ?? serviceDisplayName ?? service.name).trim() || serviceDisplayName;
+      const packageTitle = String(form2SelectedPackageLabel ?? "").trim();
+      const rawName = itemTitle.toLowerCase();
+      const icon =
+        rawName.includes("sq") || rawName.includes("ft") || rawName.includes("area") ? (
+          <LayoutTemplate className="h-8 w-8 text-slate-600 dark:text-slate-300" />
+        ) : rawName.includes("home") || rawName.includes("bed") ? (
+          <Home className="h-8 w-8 text-slate-600 dark:text-slate-300" />
+        ) : (
+          <Sparkles className="h-8 w-8 text-slate-600 dark:text-slate-300" />
+        );
+      return (
+        <div className={styles.cardFront} onClick={handleCardClick}>
+          <div className={cn("flex h-full flex-col", form2CompactCard && "min-h-[170px]")}>
+            <div className="flex items-center gap-3">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-slate-100 dark:border-slate-600 dark:from-slate-800 dark:to-slate-900">
+                {icon}
+              </div>
+              <div className="min-w-0">
+                <div className={styles.serviceName}>{itemTitle}</div>
+                <div className={styles.serviceDescription}>
+                  {packageTitle ? `${packageTitle} selected.` : "Package selected."} Tap to edit add-ons and extras.
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="inline-flex items-center rounded-full border border-cyan-300/70 bg-cyan-50 px-2.5 py-1 text-xs font-semibold text-cyan-700 dark:border-cyan-700/60 dark:bg-cyan-950/30 dark:text-cyan-300">
+                Add-ons: {selectedAddOnCount}
+              </span>
+              <span className="inline-flex items-center rounded-full border border-violet-300/70 bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-700 dark:border-violet-700/60 dark:bg-violet-950/30 dark:text-violet-300">
+                Extras: {selectedExtraCount}
+              </span>
+            </div>
+            <div className={cn("mt-auto pt-3", form2CompactCard && "pt-2")}>
+              <div className={styles.clickPrompt}>Tap to customize</div>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className={styles.cardFront} onClick={handleCardClick}>
         <div className={styles.serviceImageWrapper}>
@@ -719,50 +798,51 @@ export default function FrequencyAwareServiceCard({
             <p className={styles.backSubtitle}>{serviceDisplayName}</p>
 
             <div className={styles.customizationForm}>
-              {/* Frequency — dropdown (matches variable categories on this card) */}
-              <div className={styles.formField}>
-                <label className={styles.fieldLabel}>Frequency</label>
-                {cardFrequencyOptions.length > 0 ? (
-                  <Select
-                    value={effectiveFrequency || ""}
-                    onValueChange={(value) => {
-                      if (value === customization.frequency) return;
-                      const updated = { ...customization, frequency: value };
-                      latestCustomizationRef.current = updated;
-                      onCustomizationChange(service.id, updated);
-                      const meta = lookupFrequencyMeta(frequencyMetaByName, value);
-                      const html = String(meta?.popup_content ?? "").trim();
-                      if (
-                        bookingPopupSurface &&
-                        meta?.enable_popup &&
-                        html &&
-                        popupDisplayAppliesToSurface(meta.popup_display, bookingPopupSurface)
-                      ) {
-                        setHtmlDetailPopup({ title: value, html });
-                      }
-                    }}
-                  >
-                    <SelectTrigger className={styles.selectTrigger}>
-                      <SelectValue placeholder="Select frequency" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {cardFrequencyOptions.map((opt) => (
-                        <SelectItem key={opt} value={opt}>
-                          {opt}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <div className="rounded-lg border border-dashed border-gray-300 p-4 text-sm text-muted-foreground">
-                    {frequencyOptions.length > 0
-                      ? `No frequencies configured for "${serviceDisplayName}"`
-                      : "Select a service to see available frequencies"}
-                  </div>
-                )}
-              </div>
+              {!isForm2Card && (
+                <div className={styles.formField}>
+                  <label className={styles.fieldLabel}>Frequency</label>
+                  {cardFrequencyOptions.length > 0 ? (
+                    <Select
+                      value={effectiveFrequency || ""}
+                      onValueChange={(value) => {
+                        if (value === customization.frequency) return;
+                        const updated = { ...customization, frequency: value };
+                        latestCustomizationRef.current = updated;
+                        onCustomizationChange(service.id, updated);
+                        const meta = lookupFrequencyMeta(frequencyMetaByName, value);
+                        const html = String(meta?.popup_content ?? "").trim();
+                        if (
+                          bookingPopupSurface &&
+                          meta?.enable_popup &&
+                          html &&
+                          popupDisplayAppliesToSurface(meta.popup_display, bookingPopupSurface)
+                        ) {
+                          setHtmlDetailPopup({ title: value, html });
+                        }
+                      }}
+                    >
+                      <SelectTrigger className={styles.selectTrigger}>
+                        <SelectValue placeholder="Select frequency" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {cardFrequencyOptions.map((opt) => (
+                          <SelectItem key={opt} value={opt}>
+                            {opt}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-gray-300 p-4 text-sm text-muted-foreground">
+                      {frequencyOptions.length > 0
+                        ? `No frequencies configured for "${serviceDisplayName}"`
+                        : "Select a service to see available frequencies"}
+                    </div>
+                  )}
+                </div>
+              )}
 
-              {showHourlyCustomDuration && (
+              {!isForm2Card && showHourlyCustomDuration && (
                 <div className={styles.formField}>
                   <label className={styles.fieldLabel}>Booking length</label>
                   <p className="text-xs text-muted-foreground mb-2">
@@ -814,7 +894,7 @@ export default function FrequencyAwareServiceCard({
               )}
 
               {/* Form 4 unit-structure input: quantity + pricing parameter selector */}
-              {isForm4Card && (
+              {!isForm2Card && isForm4Card && (
                 <div className={styles.formField}>
                   <label className={styles.fieldLabel}>How Big Is Your Space?</label>
                   <div className="mt-2 grid gap-3 md:grid-cols-2">
@@ -866,7 +946,7 @@ export default function FrequencyAwareServiceCard({
               )}
 
               {/* Variable categories — grid matches admin AddBookingForm */}
-              {!isForm4Card && !isForm5Card && variableCategoryEntries.length > 0 && (
+              {!isForm2Card && !isForm4Card && !isForm5Card && variableCategoryEntries.length > 0 && (
                 <div
                   className={cn(
                     "grid gap-4",
@@ -944,36 +1024,38 @@ export default function FrequencyAwareServiceCard({
               )}
 
               {/* Partial Cleaning Checkbox */}
-              <div className={styles.formField}>
-                <label className={styles.fieldLabel}>Partial Cleaning</label>
-                <div className="mt-2 flex items-center space-x-2">
-                  <Checkbox
-                    id={`partial-${service.id}`}
-                    checked={customization.isPartialCleaning}
-                    onCheckedChange={(checked) => {
-                      const enabled = checked as boolean;
-                      if (enabled !== customization.isPartialCleaning) {
-                        const updated = {
-                          ...customization,
-                          isPartialCleaning: enabled,
-                          excludedAreas: enabled ? customization.excludedAreas : [],
-                        };
-                        latestCustomizationRef.current = updated;
-                        onCustomizationChange(service.id, updated);
-                      }
-                    }}
-                  />
-                  <label
-                    htmlFor={`partial-${service.id}`}
-                    className="text-sm font-medium leading-none text-slate-700 peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                  >
-                    This Is Partial Cleaning Only
-                  </label>
+              {!isForm2Card && (
+                <div className={styles.formField}>
+                  <label className={styles.fieldLabel}>Partial Cleaning</label>
+                  <div className="mt-2 flex items-center space-x-2">
+                    <Checkbox
+                      id={`partial-${service.id}`}
+                      checked={customization.isPartialCleaning}
+                      onCheckedChange={(checked) => {
+                        const enabled = checked as boolean;
+                        if (enabled !== customization.isPartialCleaning) {
+                          const updated = {
+                            ...customization,
+                            isPartialCleaning: enabled,
+                            excludedAreas: enabled ? customization.excludedAreas : [],
+                          };
+                          latestCustomizationRef.current = updated;
+                          onCustomizationChange(service.id, updated);
+                        }
+                      }}
+                    />
+                    <label
+                      htmlFor={`partial-${service.id}`}
+                      className="text-sm font-medium leading-none text-slate-700 peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    >
+                      This Is Partial Cleaning Only
+                    </label>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Excluded Areas - use configured exclude parameters with +/- like Extras; respect qty_based and maximum_quantity */}
-              {customization.isPartialCleaning && filteredOptions.excludeParameters.length > 0 && (
+              {!isForm2Card && customization.isPartialCleaning && filteredOptions.excludeParameters.length > 0 && (
                 <div className={styles.formField}>
                   <label className={styles.fieldLabel}>Select areas to exclude from cleaning:</label>
                   <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1043,12 +1125,81 @@ export default function FrequencyAwareServiceCard({
                 </div>
               )}
 
-              {/* Row 3: Extras (Full Width, Two Columns) - respect qty_based and maximum_quantity like exclude params */}
-              {filteredOptions.extras.length > 0 && (
+              {separatedExtras.addOns.length > 0 && (
+                <div className={styles.formField}>
+                  <label className={styles.fieldLabel}>Add-ons (Optional)</label>
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {separatedExtras.addOns.map((extra) => {
+                      const currentExtra = customization.extras?.find(e => e.name === extra.name);
+                      const quantity = currentExtra?.quantity || 0;
+                      const maxQty = extra.qty_based && extra.maximum_quantity != null && extra.maximum_quantity > 0
+                        ? extra.maximum_quantity
+                        : 1;
+                      const displayLabel = getExtraCustomerDisplayName(extra);
+                      const tooltipText =
+                        extra.show_explanation_icon_on_form && extra.explanation_tooltip_text?.trim()
+                          ? extra.explanation_tooltip_text.trim()
+                          : undefined;
+
+                      return (
+                        <QuantitySelector
+                          key={extra.id}
+                          extra={extra.name}
+                          displayLabel={displayLabel}
+                          icon={extra.icon}
+                          iconKind="extra"
+                          tooltipText={tooltipText}
+                          quantity={quantity}
+                          onQuantityChange={(extraName, newQuantity) => {
+                            const prevQty =
+                              customization.extras?.find((e) => e.name === extraName)?.quantity ?? 0;
+                            const currentExtras = customization.extras || [];
+                            let newExtras;
+
+                            if (newQuantity === 0) {
+                              newExtras = currentExtras.filter(e => e.name !== extraName);
+                            } else {
+                              const existingIndex = currentExtras.findIndex(e => e.name === extraName);
+                              if (existingIndex >= 0) {
+                                newExtras = [...currentExtras];
+                                newExtras[existingIndex] = { name: extraName, quantity: newQuantity };
+                              } else {
+                                newExtras = [...currentExtras, { name: extraName, quantity: newQuantity }];
+                              }
+                            }
+
+                            const updated = { ...customization, extras: newExtras };
+                            latestCustomizationRef.current = updated;
+                            onCustomizationChange(service.id, updated);
+                            if (prevQty === 0 && newQuantity > 0 && bookingPopupSurface) {
+                              const html = String(extra.popup_content ?? "").trim();
+                              if (
+                                extra.enable_popup_on_selection &&
+                                html &&
+                                popupDisplayAppliesToSurface(extra.popup_display, bookingPopupSurface)
+                              ) {
+                                setHtmlDetailPopup({
+                                  title: displayLabel,
+                                  html,
+                                });
+                              }
+                            }
+                          }}
+                          min={0}
+                          max={maxQty}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Extras - separate from add-ons */}
+              {separatedExtras.extras.length > 0 && (
                 <div className={styles.formField}>
                   <label className={styles.fieldLabel}>Extras (Optional)</label>
                   <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {filteredOptions.extras.map((extra) => {
+                    {separatedExtras.extras.map((extra) => {
                       const currentExtra = customization.extras?.find(e => e.name === extra.name);
                       const quantity = currentExtra?.quantity || 0;
                       const maxQty = extra.qty_based && extra.maximum_quantity != null && extra.maximum_quantity > 0
@@ -1178,11 +1329,14 @@ export default function FrequencyAwareServiceCard({
     {isExpandedFlip && isFlipped ? (
       <div className={styles.expandedFlipPlaceholder} aria-hidden />
     ) : (
-      <div className={styles.cardContainer}>
+      <div className={cn(styles.cardContainer, isForm2Card && form2CompactCard && "!min-h-[190px]")}>
         <div
-          className={`${styles.card} ${!isExpandedFlip && isFlipped ? styles.flipped : ""} ${
-            isSelected ? styles.selected : ""
-          }`}
+          className={cn(
+            styles.card,
+            !isExpandedFlip && isFlipped && styles.flipped,
+            isSelected && styles.selected,
+            isForm2Card && form2CompactCard && "!min-h-[190px] !h-auto",
+          )}
         >
           {renderCardFront()}
           {!isExpandedFlip && <div className={styles.cardBack}>{renderCustomizePanel()}</div>}

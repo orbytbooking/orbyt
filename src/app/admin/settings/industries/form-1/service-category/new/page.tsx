@@ -723,12 +723,13 @@ export default function ServiceCategoryNewPage() {
   // Load frequencies from database
   useEffect(() => {
     const fetchFrequencies = async () => {
-      if (!industryId) return;
+      if (!industryId || !currentBusiness?.id) return;
       
       try {
         console.log('Fetching frequencies for industryId:', industryId);
         const response = await fetch(
-          `/api/industry-frequency?industryId=${encodeURIComponent(industryId)}&includeAll=true${scopeQs}`,
+          `/api/industry-frequency?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}&includeAll=true${scopeQs}`,
+          { cache: "no-store" },
         );
         console.log('Frequencies API response status:', response.status);
         
@@ -755,10 +756,10 @@ export default function ServiceCategoryNewPage() {
       }
     };
     
-    if (industryId) {
+    if (industryId && currentBusiness?.id) {
       fetchFrequencies();
     }
-  }, [industryId, bookingFormScope]);
+  }, [industryId, bookingFormScope, currentBusiness?.id, scopeQs]);
 
   // Load exclude parameters from database
   useEffect(() => {

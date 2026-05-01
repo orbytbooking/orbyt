@@ -686,30 +686,33 @@ export default function ServiceCategoryNewPage() {
       
       try {
         console.log('Fetching extras for industryId:', industryId);
-        const response = await fetch(
-          `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
+        const extrasUrls =
+          bookingFormScope === "form2" || bookingFormScope === "form3"
+            ? [
+                `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}&listingKind=addon`,
+                `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}&listingKind=extra`,
+              ]
+            : [
+                `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
+              ];
+        const payloads = await Promise.all(
+          extrasUrls.map((u) => fetch(u).then((r) => (r.ok ? r.json() : { extras: [] }))),
         );
-        console.log('Extras API response status:', response.status);
-        
-        if (response.ok) {
-          const data = await response.json();
-          console.log('Extras API response data:', data);
-          
-          if (data.extras && Array.isArray(data.extras)) {
-            console.log('Setting available extras:', data.extras);
-            setAvailableExtras(
-              data.extras.map((e: any) => ({
-                id: e.id,
-                name: e.name,
-                listing_kind: e.listing_kind ? String(e.listing_kind) : undefined,
-              })),
-            );
-          } else {
-            console.log('No extras array in response');
-          }
-        } else {
-          console.error('API response not ok:', response.status, response.statusText);
-        }
+        const merged = payloads.flatMap((p: { extras?: any[] }) =>
+          Array.isArray(p.extras) ? p.extras : [],
+        );
+        const deduped = merged.filter(
+          (e: any, idx: number, arr: any[]) =>
+            e && arr.findIndex((x) => String(x?.id ?? "") === String(e?.id ?? "")) === idx,
+        );
+        console.log('Setting available extras:', deduped);
+        setAvailableExtras(
+          deduped.map((e: any) => ({
+            id: e.id,
+            name: e.name,
+            listing_kind: e.listing_kind ? String(e.listing_kind) : undefined,
+          })),
+        );
       } catch (error) {
         console.error('Error fetching extras:', error);
       }
@@ -728,7 +731,7 @@ export default function ServiceCategoryNewPage() {
       try {
         console.log('Fetching frequencies for industryId:', industryId);
         const response = await fetch(
-          `/api/industry-frequency?industryId=${encodeURIComponent(industryId)}&includeAll=true${scopeQs}`,
+          `/api/industry-frequency?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness?.id ?? "")}&includeAll=true${scopeQs}`,
         );
         console.log('Frequencies API response status:', response.status);
         

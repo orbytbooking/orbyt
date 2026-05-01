@@ -35,14 +35,17 @@ type FrequencyLookup = {
 async function findFrequencyById(
   supabase: ReturnType<typeof createSupabaseServiceClient>,
   id: string,
+  preferredScope?: BookingFormScope | null,
 ): Promise<FrequencyLookup | null> {
-  const tables = [
-    'industry_frequency',
-    'industry_form2_frequencies',
-    'industry_form3_frequencies',
-    'industry_form4_frequencies',
-    'industry_form5_frequencies',
-  ];
+  const tables = preferredScope
+    ? [scopedIndustryTable('industry_frequency', preferredScope)]
+    : [
+        'industry_frequency',
+        'industry_form2_frequencies',
+        'industry_form3_frequencies',
+        'industry_form4_frequencies',
+        'industry_form5_frequencies',
+      ];
   for (const table of tables) {
     const { data, error } = await supabase
       .from(table)
@@ -84,6 +87,74 @@ async function clearOtherIndustryFrequencyDefaults(
     .neq('id', exceptId);
   if (error) {
     console.error('Error clearing other frequency defaults:', error);
+  }
+}
+
+function normalizeFrequencyNameForMatch(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, ' ');
+}
+
+async function syncRenamedFrequencyIntoServiceCategories(
+  supabase: ReturnType<typeof createSupabaseServiceClient>,
+  params: {
+    businessId: string;
+    industryId: string;
+    bookingFormScope: BookingFormScope;
+    previousName: string;
+    nextName: string;
+  },
+) {
+  const previousNormalized = normalizeFrequencyNameForMatch(params.previousName);
+  const nextTrimmed = String(params.nextName ?? '').trim();
+  if (!previousNormalized || !nextTrimmed) return;
+  if (normalizeFrequencyNameForMatch(nextTrimmed) === previousNormalized) return;
+
+  const categoryTable = scopedIndustryTable('industry_service_category', params.bookingFormScope);
+  const { data: categories, error } = await supabase
+    .from(categoryTable)
+    .select('id, selected_frequencies')
+    .eq('business_id', params.businessId)
+    .eq('industry_id', params.industryId)
+    .eq('service_category_frequency', true);
+
+  if (error) {
+    console.error('Error loading service categories for frequency rename sync:', error);
+    return;
+  }
+
+  for (const category of categories || []) {
+    const current = Array.isArray((category as { selected_frequencies?: unknown[] }).selected_frequencies)
+      ? (category as { selected_frequencies: unknown[] }).selected_frequencies
+          .map((value) => String(value ?? '').trim())
+          .filter(Boolean)
+      : [];
+    if (!current.length) continue;
+
+    let changed = false;
+    const nextValues = current.map((value) => {
+      if (normalizeFrequencyNameForMatch(value) !== previousNormalized) return value;
+      changed = true;
+      return nextTrimmed;
+    });
+    if (!changed) continue;
+
+    const deduped = Array.from(
+      new Map(nextValues.map((value) => [normalizeFrequencyNameForMatch(value), value] as const)).values(),
+    );
+
+    const { error: updateError } = await supabase
+      .from(categoryTable)
+      .update({ selected_frequencies: deduped, updated_at: new Date().toISOString() })
+      .eq('id', String((category as { id?: string }).id ?? ''))
+      .eq('business_id', params.businessId)
+      .eq('industry_id', params.industryId);
+
+    if (updateError) {
+      console.error('Error syncing renamed frequency into service category:', updateError);
+    }
   }
 }
 
@@ -149,6 +220,7 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = createSupabaseServiceClient();
     const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
     const industryId = searchParams.get('industryId');
     const businessId = searchParams.get('businessId');
     const zipcode = searchParams.get('zipcode')?.trim();
@@ -158,15 +230,71 @@ export async function GET(request: NextRequest) {
     const frequencyTable = scopedIndustryTable('industry_frequency', bookingFormScope);
 
     console.log('=== INDUSTRY FREQUENCY API DEBUG ===');
+    console.log('Frequency ID:', id);
     console.log('Industry ID:', industryId);
     console.log('Business ID:', businessId);
     console.log('Zipcode filter:', zipcode || '(none)', useWildcard ? '(wildcard)' : '');
+
+    // Edit screen support: fetch a single row by ID with tenant validation.
+    if (id?.trim()) {
+      const existing = await findFrequencyById(supabase, id.trim(), bookingFormScope);
+      if (!existing) {
+        return NextResponse.json({ error: 'Frequency not found' }, { status: 404 });
+      }
+      if (businessId?.trim() && businessId.trim() !== existing.business_id) {
+        return NextResponse.json({ error: 'Frequency not found' }, { status: 404 });
+      }
+      if (industryId?.trim() && industryId.trim() !== existing.industry_id) {
+        return NextResponse.json({ error: 'Frequency not found' }, { status: 404 });
+      }
+      const tenant = await requireIndustryBelongsToBusiness(
+        supabase,
+        existing.business_id,
+        existing.industry_id,
+      );
+      if (!tenant.ok) {
+        return NextResponse.json({ error: 'Frequency not found' }, { status: 404 });
+      }
+      const { data: row, error: rowError } = await supabase
+        .from(existing.table)
+        .select('*')
+        .eq('id', existing.id)
+        .eq('business_id', existing.business_id)
+        .eq('industry_id', existing.industry_id)
+        .maybeSingle();
+      if (rowError) {
+        return NextResponse.json({ error: `Failed to fetch frequency: ${rowError.message}` }, { status: 500 });
+      }
+      if (!row) {
+        return NextResponse.json({ error: 'Frequency not found' }, { status: 404 });
+      }
+      return NextResponse.json({ frequency: row });
+    }
 
     if (!industryId && !businessId) {
       return NextResponse.json(
         { error: 'Industry ID or Business ID is required' },
         { status: 400 }
       );
+    }
+    // Form 2 must always resolve by business+industry tenant pair.
+    if (bookingFormScope === 'form2') {
+      if (!industryId || !businessId?.trim()) {
+        return NextResponse.json(
+          { error: 'industryId and businessId are required for form2 frequency requests' },
+          { status: 400 },
+        );
+      }
+      const tenant = await requireIndustryBelongsToBusiness(supabase, businessId, industryId);
+      if (!tenant.ok) {
+        return NextResponse.json({ error: 'Frequencies not found' }, { status: 404 });
+      }
+    } else if (industryId && businessId?.trim()) {
+      // When caller provides both, validate pair ownership to avoid cross-tenant probing.
+      const tenant = await requireIndustryBelongsToBusiness(supabase, businessId, industryId);
+      if (!tenant.ok) {
+        return NextResponse.json({ error: 'Frequencies not found' }, { status: 404 });
+      }
     }
 
     const forCustomer = !includeAll;
@@ -432,9 +560,23 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const existing = await findFrequencyById(supabase, String(id));
+    const requestedScope = normalizeScope(updateData.booking_form_scope);
+    const existing = await findFrequencyById(supabase, String(id), requestedScope);
     if (!existing) {
       return NextResponse.json({ error: 'Frequency not found' }, { status: 404 });
+    }
+    const { data: existingRow, error: existingRowError } = await supabase
+      .from(existing.table)
+      .select('name, booking_form_scope')
+      .eq('id', id)
+      .eq('business_id', existing.business_id)
+      .eq('industry_id', existing.industry_id)
+      .maybeSingle();
+    if (existingRowError) {
+      return NextResponse.json(
+        { error: `Failed to load existing frequency: ${existingRowError.message}` },
+        { status: 500 },
+      );
     }
     const allowed = await userCanManageBookingsForBusiness(supabase, user.id, existing.business_id);
     if (!allowed) {
@@ -501,7 +643,9 @@ export async function PUT(request: NextRequest) {
     }
 
     if (cleanedData.is_default === true) {
-      const scope: BookingFormScope = normalizeScope(existing.booking_form_scope);
+      const scope: BookingFormScope = normalizeScope(
+        cleanedData.booking_form_scope ?? existing.booking_form_scope,
+      );
       await clearOtherIndustryFrequencyDefaults(
         supabase,
         existing.business_id,
@@ -528,6 +672,22 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    const previousName = String((existingRow as { name?: unknown } | null)?.name ?? '').trim();
+    const nextName = String((frequency as { name?: unknown } | null)?.name ?? cleanedData.name ?? '').trim();
+    if (previousName && nextName) {
+      await syncRenamedFrequencyIntoServiceCategories(supabase, {
+        businessId: existing.business_id,
+        industryId: existing.industry_id,
+        bookingFormScope: normalizeScope(
+          (frequency as { booking_form_scope?: unknown } | null)?.booking_form_scope ??
+          (existingRow as { booking_form_scope?: unknown } | null)?.booking_form_scope ??
+          existing.booking_form_scope,
+        ),
+        previousName,
+        nextName,
+      });
+    }
+
     return NextResponse.json({ frequency });
   } catch (error) {
     console.error('Unexpected error:', error);
@@ -546,6 +706,7 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const permanent = searchParams.get('permanent') === 'true';
+    const bookingFormScope = parseBookingFormScopeParam(searchParams.get('bookingFormScope'));
 
     if (!id) {
       return NextResponse.json(
@@ -553,7 +714,7 @@ export async function DELETE(request: NextRequest) {
         { status: 400 }
       );
     }
-    const existing = await findFrequencyById(supabase, String(id));
+    const existing = await findFrequencyById(supabase, String(id), bookingFormScope);
     if (!existing) {
       return NextResponse.json({ error: 'Frequency not found' }, { status: 404 });
     }

@@ -336,12 +336,13 @@ export default function FrequencyNewPage() {
 
   useEffect(() => {
     const fetchFrequency = async () => {
-      if (!editId || !industryId) return;
+      if (!editId || !industryId || !currentBusiness?.id) return;
       
       try {
         setLoadingFrequency(true);
         const response = await fetch(
-          `/api/industry-frequency?industryId=${industryId}&includeAll=true${scopeQs}`,
+          `/api/industry-frequency?industryId=${industryId}&businessId=${encodeURIComponent(currentBusiness.id)}&includeAll=true${scopeQs}`,
+          { cache: "no-store" },
         );
         const data = await response.json();
         
@@ -391,7 +392,7 @@ export default function FrequencyNewPage() {
     };
 
     fetchFrequency();
-  }, [editId, industryId, bookingFormScope]);
+  }, [editId, industryId, currentBusiness?.id, bookingFormScope, scopeQs]);
 
   // Load industries from API
   useEffect(() => {

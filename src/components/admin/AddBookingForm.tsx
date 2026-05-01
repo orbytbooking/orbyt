@@ -3,7 +3,7 @@
 import { supabase } from '@/lib/supabaseClient';
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { serviceCategoriesService, ServiceCategory } from '@/lib/serviceCategories';
+import { ServiceCategory } from '@/lib/serviceCategories';
 import { frequencyDepOptionNamesForCategory, getFrequencyDependencies } from '@/lib/frequencyFilter';
 import { pricingParamAppliesToSelection } from '@/lib/pricingParameterVisibility';
 import { filterFrequencyOptionsForServiceCategory } from '@/lib/form1CustomerBooking';
@@ -543,6 +543,7 @@ export function AddBookingForm({
       `/api/industry-frequency?industryId=${selectedIndustryId}&businessId=${encodeURIComponent(
         currentBusiness.id,
       )}&includeAll=true&bookingFormScope=${bookingFormScopeForCatalog}`,
+      { cache: "no-store" },
     )
       .then((r) => r.json())
       .then((data) => {
@@ -574,7 +575,7 @@ export function AddBookingForm({
           : `/api/industry-frequency?industryId=${selectedIndustryId}&businessId=${encodeURIComponent(
               currentBusiness.id,
             )}&includeAll=true&bookingFormScope=${bookingFormScopeForCatalog}`;
-        const res = await fetch(url);
+        const res = await fetch(url, { cache: "no-store" });
         const data = await res.json();
         if (!res.ok || !data.frequencies) return;
         const visible = data.frequencies.filter((f: any) => f && (f.display === "Both" || f.display === "Booking"));
@@ -725,34 +726,41 @@ export function AddBookingForm({
   // Service categories should always be visible for selection.
   // Frequency and downstream catalog options are filtered after service selection.
   useEffect(() => {
-    if (!selectedIndustryId) return;
-    serviceCategoriesService.getServiceCategoriesByIndustry(selectedIndustryId, bookingFormScopeForCatalog).then((categories) => {
-      if (bookingFormScopeForCatalog !== "form5") {
-        setServiceCategories(categories);
-        return;
-      }
-      const resolvedSet = new Set(
-        resolvedIndustryLocationLabels.map((x) => x.trim().toLowerCase()).filter((x) => x.length > 0),
-      );
-      const filtered = categories.filter((cat) => {
-        const dep = (cat.extras_config as any)?.form5LocationDependency;
-        if (!dep?.enabled) return true;
-        const allowedNamesRaw = Array.isArray(dep.locationNames) ? dep.locationNames : [];
-        const allowed = allowedNamesRaw
-          .map((x: unknown) => String(x).trim().toLowerCase())
-          .filter((x: string) => x.length > 0);
-        // Only enforce location dependency when this industry has linked locations.
-        // If not linked yet, avoid hiding all configured services.
-        if (!industryHasLinkedLocations) return true;
-        // Backward compatibility: older rows may only have locationIds (no names yet).
-        // In that case, fail open so configured services still show.
-        if (allowed.length === 0) return true;
-        if (resolvedSet.size === 0) return false;
-        return allowed.some((name: string) => resolvedSet.has(name));
-      });
-      setServiceCategories(filtered);
-    }).catch(() => setServiceCategories([]));
-  }, [selectedIndustryId, bookingFormScopeForCatalog, resolvedIndustryLocationLabels, industryHasLinkedLocations]);
+    if (!selectedIndustryId || !currentBusiness?.id) return;
+    fetch(
+      `/api/service-categories?industryId=${encodeURIComponent(selectedIndustryId)}&businessId=${encodeURIComponent(currentBusiness.id)}&bookingFormScope=${bookingFormScopeForCatalog}`,
+      { cache: "no-store" },
+    )
+      .then((r) => (r.ok ? r.json() : { serviceCategories: [] }))
+      .then((data: { serviceCategories?: ServiceCategory[] }) => {
+        const categories = Array.isArray(data.serviceCategories) ? data.serviceCategories : [];
+        if (bookingFormScopeForCatalog !== "form5") {
+          setServiceCategories(categories);
+          return;
+        }
+        const resolvedSet = new Set(
+          resolvedIndustryLocationLabels.map((x) => x.trim().toLowerCase()).filter((x) => x.length > 0),
+        );
+        const filtered = categories.filter((cat) => {
+          const dep = (cat.extras_config as any)?.form5LocationDependency;
+          if (!dep?.enabled) return true;
+          const allowedNamesRaw = Array.isArray(dep.locationNames) ? dep.locationNames : [];
+          const allowed = allowedNamesRaw
+            .map((x: unknown) => String(x).trim().toLowerCase())
+            .filter((x: string) => x.length > 0);
+          // Only enforce location dependency when this industry has linked locations.
+          // If not linked yet, avoid hiding all configured services.
+          if (!industryHasLinkedLocations) return true;
+          // Backward compatibility: older rows may only have locationIds (no names yet).
+          // In that case, fail open so configured services still show.
+          if (allowed.length === 0) return true;
+          if (resolvedSet.size === 0) return false;
+          return allowed.some((name: string) => resolvedSet.has(name));
+        });
+        setServiceCategories(filtered);
+      })
+      .catch(() => setServiceCategories([]));
+  }, [selectedIndustryId, currentBusiness?.id, bookingFormScopeForCatalog, resolvedIndustryLocationLabels, industryHasLinkedLocations]);
 
   // Pre-fill provider wage from service category override when service is selected
   useEffect(() => {

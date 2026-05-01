@@ -6,6 +6,14 @@ import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenRespon
 import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
 import { requireIndustryBelongsToBusiness } from '@/lib/industryTenantGuard';
 
+function queryBusinessId(request: NextRequest, searchParams: URLSearchParams): string | null {
+  return (
+    searchParams.get('businessId') ||
+    searchParams.get('business_id') ||
+    request.headers.get('x-business-id')
+  );
+}
+
 function createSupabaseServiceClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -26,14 +34,17 @@ type CategoryLookup = {
 async function findServiceCategoryById(
   supabase: ReturnType<typeof createSupabaseServiceClient>,
   id: string,
+  preferredScope?: BookingFormScope | null,
 ): Promise<CategoryLookup | null> {
-  const tables = [
-    'industry_service_category',
-    'industry_form2_service_categories',
-    'industry_form3_service_categories',
-    'industry_form4_service_categories',
-    'industry_form5_service_categories',
-  ];
+  const tables = preferredScope
+    ? [scopedIndustryTable('industry_service_category', preferredScope)]
+    : [
+        'industry_service_category',
+        'industry_form2_service_categories',
+        'industry_form3_service_categories',
+        'industry_form4_service_categories',
+        'industry_form5_service_categories',
+      ];
   for (const table of tables) {
     const { data, error } = await supabase
       .from(table)
@@ -56,7 +67,7 @@ export async function GET(request: NextRequest) {
     const supabase = createSupabaseServiceClient();
     const { searchParams } = new URL(request.url);
     const industryId = searchParams.get('industryId');
-    const businessId = searchParams.get('businessId');
+    const businessId = queryBusinessId(request, searchParams);
     const bookingFormScope = parseBookingFormScopeParam(searchParams.get('bookingFormScope'));
     const categoryTable = scopedIndustryTable('industry_service_category', bookingFormScope);
 
@@ -69,6 +80,25 @@ export async function GET(request: NextRequest) {
         { error: 'Industry ID or Business ID is required' },
         { status: 400 }
       );
+    }
+    // Form 2 must always be tenant-scoped by business+industry pair.
+    if (bookingFormScope === 'form2') {
+      if (!industryId || !businessId?.trim()) {
+        return NextResponse.json(
+          { error: 'industryId and businessId are required for form2 service category requests' },
+          { status: 400 },
+        );
+      }
+      const tenant = await requireIndustryBelongsToBusiness(supabase, businessId, industryId);
+      if (!tenant.ok) {
+        return NextResponse.json({ error: 'Service categories not found' }, { status: 404 });
+      }
+    } else if (industryId && businessId?.trim()) {
+      // When both are present, always verify tenancy to prevent cross-tenant pair probing.
+      const tenant = await requireIndustryBelongsToBusiness(supabase, businessId, industryId);
+      if (!tenant.ok) {
+        return NextResponse.json({ error: 'Service categories not found' }, { status: 404 });
+      }
     }
 
     let query = supabase
@@ -336,7 +366,10 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const existing = await findServiceCategoryById(supabase, String(id));
+    const requestedScope = parseBookingFormScopeParam(
+      typeof updateData.booking_form_scope === 'string' ? updateData.booking_form_scope : null,
+    );
+    const existing = await findServiceCategoryById(supabase, String(id), requestedScope);
     if (!existing) {
       return NextResponse.json({ error: 'Service category not found' }, { status: 404 });
     }
@@ -436,6 +469,7 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const permanent = searchParams.get('permanent') === 'true';
+    const requestedScope = parseBookingFormScopeParam(searchParams.get('bookingFormScope'));
 
     if (!id) {
       return NextResponse.json(
@@ -444,7 +478,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const existing = await findServiceCategoryById(supabase, String(id));
+    const existing = await findServiceCategoryById(supabase, String(id), requestedScope);
     if (!existing) {
       return NextResponse.json({ error: 'Service category not found' }, { status: 404 });
     }

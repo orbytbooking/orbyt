@@ -202,7 +202,9 @@ export default function PricingParameterNewPage() {
       if (!industryId) return;
       
       try {
-        const response = await fetch(`/api/service-categories?industryId=${industryId}${scopeQs}`);
+        const response = await fetch(
+          `/api/service-categories?industryId=${industryId}&businessId=${encodeURIComponent(currentBusiness?.id ?? "")}${scopeQs}`,
+        );
         if (!response.ok) {
           throw new Error('Failed to fetch service categories');
         }
@@ -233,7 +235,7 @@ export default function PricingParameterNewPage() {
       
       try {
         const response = await fetch(
-          `/api/industry-frequency?industryId=${industryId}&includeAll=true${scopeQs}`,
+          `/api/industry-frequency?industryId=${industryId}&businessId=${encodeURIComponent(currentBusiness?.id ?? "")}&includeAll=true${scopeQs}`,
         );
         if (!response.ok) {
           throw new Error('Failed to fetch frequencies');

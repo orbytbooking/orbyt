@@ -175,7 +175,7 @@ export default function EditPricingVariablePage() {
       const bid = encodeURIComponent(currentBusiness.id);
       const [res, freqRes, catRes] = await Promise.all([
         fetch(`/api/pricing-variables?industryId=${iid}&businessId=${bid}${scopeQs}`),
-        fetch(`/api/industry-frequency?industryId=${iid}&includeAll=true${scopeQs}`),
+        fetch(`/api/industry-frequency?industryId=${iid}&businessId=${bid}&includeAll=true${scopeQs}`),
         fetch(`/api/service-categories?industryId=${iid}&businessId=${bid}${scopeQs}`),
       ]);
       const data = await res.json();
