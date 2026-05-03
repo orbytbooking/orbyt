@@ -96,7 +96,9 @@ export default function ExtraNewPage() {
   const industryId = params.get("industryId");
   const editId = params.get("editId");
   const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
-  const listingKindFilter = parseListingKindParam(params.get("listingKind"));
+  const listingKindFilter =
+    parseListingKindParam(params.get("listingKind")) ??
+    (pathname.includes("/add-ons") ? "addon" : "extra");
   const scopeQs =
     `&bookingFormScope=${bookingFormScope}` +
     (listingKindFilter ? `&listingKind=${listingKindFilter}` : "");
@@ -622,7 +624,7 @@ export default function ExtraNewPage() {
           throw new Error(data.error || 'Failed to update extra');
         }
 
-        toast.success('Extra updated successfully');
+        toast.success(isSinglePageAddon ? 'Add-on updated successfully' : 'Extra updated successfully');
       } else {
         // Create new extra
         const response = await fetch('/api/extras', {
@@ -636,7 +638,7 @@ export default function ExtraNewPage() {
           throw new Error(data.error || 'Failed to create extra');
         }
 
-        toast.success('Extra created successfully');
+        toast.success(isSinglePageAddon ? 'Add-on created successfully' : 'Extra created successfully');
       }
 
       router.push(

@@ -126,7 +126,7 @@ class PricingVariablesService {
     payload: T,
     bookingFormScope: BookingFormScope,
   ): T {
-    if (bookingFormScope !== 'form2') return payload;
+    if (bookingFormScope !== 'form2' && bookingFormScope !== 'form3') return payload;
     const next = { ...(payload as Record<string, unknown>) };
     delete next.show_based_on_frequency;
     delete next.frequency_options;

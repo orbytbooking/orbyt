@@ -231,7 +231,7 @@ export default function ServiceCategoryNewPage() {
 
   // Reference data from API (pricing parameters, extras, exclude params, frequencies, providers)
   const [pricingParameters, setPricingParameters] = useState<{ [key: string]: any[] }>({});
-  const [availableExtras, setAvailableExtras] = useState<Array<{ id: number; name: string; listing_kind?: string }>>([]);
+  const [availableExtras, setAvailableExtras] = useState<Array<{ id: string; name: string; listing_kind?: string }>>([]);
   const [form2Items, setForm2Items] = useState<Array<{ id: string; name: string }>>([]);
   const [form2Packages, setForm2Packages] = useState<Array<{ id: string; name: string }>>([]);
   const [excludeParameters, setExcludeParameters] = useState<any[]>([]);
@@ -712,20 +712,25 @@ export default function ServiceCategoryNewPage() {
           if (data.extras && Array.isArray(data.extras)) {
             console.log('Setting available extras:', data.extras);
             setAvailableExtras(
-              data.extras.map((e: any) => ({
-                id: e.id,
-                name: e.name,
-                listing_kind: e.listing_kind ? String(e.listing_kind) : undefined,
-              })),
+              data.extras
+                .map((e: any) => ({
+                  id: String(e.id),
+                  name: String(e.name ?? "").trim(),
+                  listing_kind: e.listing_kind ? String(e.listing_kind) : undefined,
+                }))
+                .filter((e: { id: string; name: string }) => e.id.length > 0 && e.name.length > 0),
             );
           } else {
             console.log('No extras array in response');
+            setAvailableExtras([]);
           }
         } else {
           console.error('API response not ok:', response.status, response.statusText);
+          setAvailableExtras([]);
         }
       } catch (error) {
         console.error('Error fetching extras:', error);
+        setAvailableExtras([]);
       }
     };
     
@@ -3507,14 +3512,14 @@ export default function ServiceCategoryNewPage() {
                       <Checkbox
                         id="select-all-extras"
                         checked={
-                          availableExtras.filter((e) => !isForm2 || (e.listing_kind ?? "extra") === "extra").length > 0 &&
+                          availableExtras.filter((e) => (e.listing_kind ?? "extra") === "extra").length > 0 &&
                           availableExtras
-                            .filter((e) => !isForm2 || (e.listing_kind ?? "extra") === "extra")
+                            .filter((e) => (e.listing_kind ?? "extra") === "extra")
                             .every((e) => form.extras.includes(String(e.id)))
                         }
                         onCheckedChange={(checked) => {
                           const extraIds = availableExtras
-                            .filter((e) => !isForm2 || (e.listing_kind ?? "extra") === "extra")
+                            .filter((e) => (e.listing_kind ?? "extra") === "extra")
                             .map((e) => String(e.id));
                           if (checked) {
                             setForm((p) => ({ ...p, extras: Array.from(new Set([...p.extras, ...extraIds])) }));
@@ -3527,7 +3532,7 @@ export default function ServiceCategoryNewPage() {
                       <Label htmlFor="select-all-extras" className="text-sm font-medium cursor-pointer">Select All</Label>
                     </div>
                     {availableExtras
-                      .filter((extra) => !isForm2 || (extra.listing_kind ?? "extra") === "extra")
+                      .filter((extra) => (extra.listing_kind ?? "extra") === "extra")
                       .map((extra) => {
                       const extraId = String(extra.id);
                       return (

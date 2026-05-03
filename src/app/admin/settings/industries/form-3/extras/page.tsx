@@ -47,7 +47,9 @@ export default function IndustryFormExtrasPage() {
   const industry = params.get("industry") || "Industry";
   const industryIdFromUrl = params.get("industryId");
   const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
-  const listingKindFilter = parseListingKindParam(params.get("listingKind"));
+  const listingKindFilter =
+    parseListingKindParam(params.get("listingKind")) ??
+    (pathname.includes("/add-ons") ? "addon" : "extra");
   const scopeQs =
     `&bookingFormScope=${bookingFormScope}` +
     (listingKindFilter ? `&listingKind=${listingKindFilter}` : "");

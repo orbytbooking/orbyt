@@ -826,12 +826,20 @@ export function AddBookingForm({
           const form2AllowedExtraIds = Array.isArray(frequencyDependencies?.extras)
             ? frequencyDependencies.extras.map((x: unknown) => String(x))
             : [];
-          if (form2AllowedExtraIds.length === 0) {
-            filteredExtras = [];
-          } else {
+          // Keep Form 2/3 add-ons and extras visible unless frequency explicitly limits them.
+          if (form2AllowedExtraIds.length > 0) {
             filteredExtras = filteredExtras.filter((e) => form2AllowedExtraIds.includes(String(e.id)));
           }
         }
+
+        const selectedVariableOptionTokens = isForm3Catalog
+          ? pricingVariables
+              .filter((v) => String(categoryValues[String(v.id) ?? ""] ?? "").trim() === FORM3_ITEM_LINE_VALUE)
+              .map((v) => String(v.name ?? "").trim())
+              .filter((name) => name.length > 0)
+          : Object.values(categoryValues)
+              .map((v) => String(v ?? "").trim())
+              .filter((v) => v.length > 0 && v !== FORM3_ITEM_LINE_VALUE);
 
         filteredExtras = filteredExtras.filter((e) =>
           industryExtraPassesBookingDependencyRules(
@@ -852,6 +860,7 @@ export function AddBookingForm({
               serviceCategoryUsesFrequencyDeps: useFreq,
               frequencyDepsLoaded: depsLoaded,
               frequencyFormAllowExtraIds: formAllowIds,
+              selectedVariableOptionTokens,
             },
           ),
         );
@@ -868,6 +877,8 @@ export function AddBookingForm({
     allExtras,
     categoryValues,
     isForm2Or3Catalog,
+    isForm3Catalog,
+    pricingVariables,
   ]);
 
   // Load providers from API

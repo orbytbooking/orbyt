@@ -49,6 +49,8 @@ type ServiceCategoryDisplay =
   | "customer_backend_admin"
   | "admin_only";
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 // Simple Rich Text Editor for popup content
 function RichTextEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const editorRef = useRef<HTMLDivElement>(null);
@@ -109,6 +111,7 @@ export default function ServiceCategoryNewPage() {
   const editId = params.get("editId") || null;
   const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
   const isForm2 = bookingFormScope === "form2";
+  const isForm3 = bookingFormScope === "form3";
   const scopeQs = `&bookingFormScope=${bookingFormScope}`;
 
   const [loading, setLoading] = useState(false);
@@ -229,7 +232,7 @@ export default function ServiceCategoryNewPage() {
 
   // Reference data from API (pricing parameters, extras, exclude params, frequencies, providers)
   const [pricingParameters, setPricingParameters] = useState<{ [key: string]: any[] }>({});
-  const [availableExtras, setAvailableExtras] = useState<Array<{ id: number; name: string; listing_kind?: string }>>([]);
+  const [availableExtras, setAvailableExtras] = useState<Array<{ id: string; name: string; listing_kind?: string }>>([]);
   const [form2Items, setForm2Items] = useState<Array<{ id: string; name: string }>>([]);
   const [form2Packages, setForm2Packages] = useState<Array<{ id: string; name: string }>>([]);
   const [excludeParameters, setExcludeParameters] = useState<any[]>([]);
@@ -595,7 +598,8 @@ export default function ServiceCategoryNewPage() {
   // Load Form 2 items (pricing variables)
   useEffect(() => {
     const fetchForm2Items = async () => {
-      if (!isForm2 || !industryId || !currentBusiness?.id) {
+      const shouldLoadItems = bookingFormScope === "form2" || bookingFormScope === "form3";
+      if (!shouldLoadItems || !industryId || !currentBusiness?.id) {
         setForm2Items([]);
         return;
       }
@@ -619,7 +623,7 @@ export default function ServiceCategoryNewPage() {
       }
     };
     fetchForm2Items();
-  }, [isForm2, industryId, currentBusiness?.id, bookingFormScope]);
+  }, [industryId, currentBusiness?.id, bookingFormScope]);
 
   // Load Form 2 packages (pricing parameters)
   useEffect(() => {
@@ -682,43 +686,96 @@ export default function ServiceCategoryNewPage() {
   // Load extras from database
   useEffect(() => {
     const fetchExtras = async () => {
-      if (!industryId || !currentBusiness?.id) return;
+      if (!industryId || !currentBusiness?.id || !UUID_REGEX.test(industryId)) return;
       
       try {
         console.log('Fetching extras for industryId:', industryId);
+        if (isForm3) {
+          const [extrasRes, addonsRes] = await Promise.all([
+            fetch(
+              `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}&listingKind=extra`,
+            ),
+            fetch(
+              `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}&listingKind=addon`,
+            ),
+          ]);
+
+          const [extrasData, addonsData] = await Promise.all([
+            extrasRes.json().catch(() => ({})),
+            addonsRes.json().catch(() => ({})),
+          ]);
+
+          if (!extrasRes.ok || !addonsRes.ok) {
+            console.error('API response not ok:', {
+              extrasStatus: extrasRes.status,
+              addonsStatus: addonsRes.status,
+            });
+            setAvailableExtras([]);
+            return;
+          }
+
+          const normalizedExtras = Array.isArray(extrasData.extras)
+            ? extrasData.extras.map((e: any) => ({
+                id: String(e.id),
+                name: String(e.name ?? "").trim(),
+                listing_kind: "extra" as const,
+              }))
+            : [];
+          const normalizedAddons = Array.isArray(addonsData.extras)
+            ? addonsData.extras.map((e: any) => ({
+                id: String(e.id),
+                name: String(e.name ?? "").trim(),
+                listing_kind: "addon" as const,
+              }))
+            : [];
+
+          setAvailableExtras(
+            [...normalizedAddons, ...normalizedExtras].filter(
+              (e) => e.id.length > 0 && e.name.length > 0,
+            ),
+          );
+          return;
+        }
+
         const response = await fetch(
           `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
         );
         console.log('Extras API response status:', response.status);
-        
-        if (response.ok) {
-          const data = await response.json();
-          console.log('Extras API response data:', data);
-          
-          if (data.extras && Array.isArray(data.extras)) {
-            console.log('Setting available extras:', data.extras);
-            setAvailableExtras(
-              data.extras.map((e: any) => ({
-                id: e.id,
-                name: e.name,
-                listing_kind: e.listing_kind ? String(e.listing_kind) : undefined,
-              })),
-            );
-          } else {
-            console.log('No extras array in response');
-          }
-        } else {
+
+        if (!response.ok) {
           console.error('API response not ok:', response.status, response.statusText);
+          setAvailableExtras([]);
+          return;
+        }
+
+        const data = await response.json();
+        console.log('Extras API response data:', data);
+        
+        if (data.extras && Array.isArray(data.extras)) {
+          console.log('Setting available extras:', data.extras);
+          setAvailableExtras(
+            data.extras
+              .map((e: any) => ({
+                id: String(e.id),
+                name: String(e.name ?? "").trim(),
+                listing_kind: e.listing_kind ? String(e.listing_kind) : undefined,
+              }))
+              .filter((e: { id: string; name: string }) => e.id.length > 0 && e.name.length > 0),
+          );
+        } else {
+          console.log('No extras array in response');
+          setAvailableExtras([]);
         }
       } catch (error) {
         console.error('Error fetching extras:', error);
+        setAvailableExtras([]);
       }
     };
     
-    if (industryId && currentBusiness?.id) {
+    if (industryId && currentBusiness?.id && UUID_REGEX.test(industryId)) {
       fetchExtras();
     }
-  }, [industryId, bookingFormScope, currentBusiness?.id]);
+  }, [industryId, bookingFormScope, currentBusiness?.id, isForm3]);
 
   // Load frequencies from database
   useEffect(() => {
@@ -767,11 +824,13 @@ export default function ServiceCategoryNewPage() {
       return;
     }
     const fetchExcludeParameters = async () => {
-      if (!industryId) return;
+      if (!industryId || !currentBusiness?.id || !UUID_REGEX.test(industryId)) return;
       
       try {
         console.log('Fetching exclude parameters for industryId:', industryId);
-        const response = await fetch(`/api/exclude-parameters?industryId=${encodeURIComponent(industryId)}`);
+        const response = await fetch(
+          `/api/exclude-parameters?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}`,
+        );
         console.log('Exclude parameters API response status:', response.status);
         
         if (response.ok) {
@@ -795,10 +854,10 @@ export default function ServiceCategoryNewPage() {
       }
     };
     
-    if (industryId) {
+    if (industryId && currentBusiness?.id) {
       fetchExcludeParameters();
     }
-  }, [industryId, isForm2]);
+  }, [industryId, isForm2, currentBusiness?.id]);
 
   // Fetch providers from database
   useEffect(() => {
@@ -3185,18 +3244,66 @@ export default function ServiceCategoryNewPage() {
                       )}
                     </div>
                   </>
+                ) : isForm3 ? (
+                  <div className="space-y-3">
+                    {form2Items.length === 0 ? (
+                      <p className="text-sm text-muted-foreground italic">
+                        No items added yet. Add items from the Items section.
+                      </p>
+                    ) : (
+                      <div className="space-y-2 p-4 border rounded-lg bg-white">
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            id="select-all-service-form3-items"
+                            checked={form2Items.length > 0 && form2Items.every((it) => (form.variables.Items || []).includes(it.id))}
+                            onCheckedChange={(checked) => {
+                              setForm((p) => ({
+                                ...p,
+                                variables: {
+                                  ...p.variables,
+                                  Items: checked ? form2Items.map((it) => it.id) : [],
+                                },
+                              }));
+                            }}
+                          />
+                          <Label htmlFor="select-all-service-form3-items" className="text-sm cursor-pointer">Select All</Label>
+                        </div>
+                        <div className="grid grid-cols-6 gap-2">
+                          {form2Items.map((item) => (
+                            <div key={item.id} className="flex items-center gap-2">
+                              <Checkbox
+                                id={`service-form3-item-${item.id}`}
+                                checked={(form.variables.Items || []).includes(item.id)}
+                                onCheckedChange={(checked) => {
+                                  const current = form.variables.Items || [];
+                                  setForm((p) => ({
+                                    ...p,
+                                    variables: {
+                                      ...p.variables,
+                                      Items: checked ? [...current, item.id] : current.filter((x) => x !== item.id),
+                                    },
+                                  }));
+                                }}
+                              />
+                              <Label htmlFor={`service-form3-item-${item.id}`} className="text-sm cursor-pointer">{item.name}</Label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div className="space-y-4">
                     <div>
-                      <h4 className="text-sm font-medium">Variables</h4>
+                      <h4 className="text-sm font-medium">Items</h4>
                       <p className="text-sm text-muted-foreground mt-1">
-                        Select which variable(s) will display for this service category. Any variables that have not been checked off in this section will not display when this service category is selected on the booking form.
+                        Select which item(s) will display for this service category. Any items not checked here will not display when this service category is selected on the booking form.
                       </p>
                     </div>
                     
                     {Object.keys(pricingParameters).length === 0 ? (
                       <p className="text-sm text-muted-foreground italic">
-                        No pricing parameters added yet. Add pricing parameters from the Pricing section.
+                        No items added yet. Add items from the Items section.
                       </p>
                     ) : (
                       <div className="space-y-4 p-4 border rounded-lg bg-white">
@@ -3273,8 +3380,8 @@ export default function ServiceCategoryNewPage() {
                   </div>
                 )}
 
-                {/* Exclude Parameters (Form 3 only) */}
-                {!isForm2 && (
+                {/* Exclude Parameters (non-Form 2/3 only) */}
+                {!isForm2 && !isForm3 && (
                 <div className="space-y-3">
                   <h4 className="text-sm font-medium">Exclude Parameters</h4>
                   {excludeParameters.length === 0 ? (
@@ -3320,8 +3427,8 @@ export default function ServiceCategoryNewPage() {
                 </div>
                 )}
 
-                {/* Add-ons (Form 2 only) */}
-                {isForm2 && (
+                {/* Add-ons (Form 3) */}
+                {isForm3 && (
                   <div className="space-y-3">
                     <h4 className="text-sm font-medium">Add-ons</h4>
                     <div className="space-y-2 p-4 border rounded-lg bg-white">
@@ -3349,7 +3456,7 @@ export default function ServiceCategoryNewPage() {
                         <Label htmlFor="select-all-addons" className="text-sm font-medium cursor-pointer">Select All</Label>
                       </div>
                       {availableExtras
-                        .filter((extra) => (extra.listing_kind ?? "extra") !== "extra")
+                        .filter((extra) => (extra.listing_kind ?? "extra") === "addon")
                         .map((extra) => {
                           const extraId = String(extra.id);
                           return (
@@ -3385,14 +3492,16 @@ export default function ServiceCategoryNewPage() {
                       <Checkbox
                         id="select-all-extras"
                         checked={
-                          availableExtras.filter((e) => !isForm2 || (e.listing_kind ?? "extra") === "extra").length > 0 &&
                           availableExtras
-                            .filter((e) => !isForm2 || (e.listing_kind ?? "extra") === "extra")
+                            .filter((e) => (isForm3 ? (e.listing_kind ?? "extra") === "extra" : !isForm2 || (e.listing_kind ?? "extra") === "extra"))
+                            .length > 0 &&
+                          availableExtras
+                            .filter((e) => (isForm3 ? (e.listing_kind ?? "extra") === "extra" : !isForm2 || (e.listing_kind ?? "extra") === "extra"))
                             .every((e) => form.extras.includes(String(e.id)))
                         }
                         onCheckedChange={(checked) => {
                           const extraIds = availableExtras
-                            .filter((e) => !isForm2 || (e.listing_kind ?? "extra") === "extra")
+                            .filter((e) => (isForm3 ? (e.listing_kind ?? "extra") === "extra" : !isForm2 || (e.listing_kind ?? "extra") === "extra"))
                             .map((e) => String(e.id));
                           if (checked) {
                             setForm((p) => ({ ...p, extras: Array.from(new Set([...p.extras, ...extraIds])) }));
@@ -3405,7 +3514,7 @@ export default function ServiceCategoryNewPage() {
                       <Label htmlFor="select-all-extras" className="text-sm font-medium cursor-pointer">Select All</Label>
                     </div>
                     {availableExtras
-                      .filter((extra) => !isForm2 || (extra.listing_kind ?? "extra") === "extra")
+                      .filter((extra) => (isForm3 ? (extra.listing_kind ?? "extra") === "extra" : !isForm2 || (extra.listing_kind ?? "extra") === "extra"))
                       .map((extra) => {
                       const extraId = String(extra.id);
                       return (
@@ -3500,7 +3609,7 @@ export default function ServiceCategoryNewPage() {
           <div className="mt-6 flex gap-2 justify-end">
             <Button 
               variant="outline" 
-              onClick={() => router.push(`/admin/settings/industries/form-3/service-category?industry=${encodeURIComponent(industry)}`)}
+              onClick={() => router.push(`/admin/settings/industries/form-3/service-category?industry=${encodeURIComponent(industry)}${scopeQs}`)}
             >
               Cancel
             </Button>

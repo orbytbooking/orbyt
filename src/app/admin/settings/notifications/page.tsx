@@ -70,6 +70,18 @@ interface NotificationPreference {
   icon: any;
 }
 
+interface AdminNotificationItem {
+  id: string;
+  name: string;
+  description: string;
+}
+
+interface AdminNotificationSection {
+  id: string;
+  label: string;
+  items: AdminNotificationItem[];
+}
+
 type NotificationRole = "admin" | "customer" | "provider" | "staff";
 type MasterTemplate = Pick<
   BusinessNotificationTemplate,
@@ -338,24 +350,115 @@ export default function NotificationsSettingsPage() {
     console.log('Resending verification email to:', senderEmail);
   };
 
-  const adminNotificationSections = [
-    { id: "account", label: "Account" },
-    { id: "general", label: "General" },
-    { id: "new_modified_booking", label: "New & modified booking" },
-    { id: "cancel_postponed_booking", label: "Canceled & postponed booking" },
-    { id: "unassigned_booking", label: "Unassigned booking" },
-    { id: "reminders", label: "Reminders" },
-    { id: "booking_fee_charged", label: "Booking fee charged" },
-    { id: "payments_cards", label: "Payments/cards" },
-    { id: "rating_review", label: "Rating & review" },
-    { id: "gift_card_referral", label: "Gift card & referral" },
-    { id: "payment_processor", label: "Payment processor" },
-    { id: "schedule_settings", label: "Schedule & settings" },
-    { id: "clock_in_out", label: "Clock in/clock out" },
-    { id: "booking_reschedule_fee_charged_failed", label: "Booking reschedule fee charged & failed" },
-    { id: "checklist", label: "Checklist" },
-    { id: "invoice", label: "Invoice" },
-    { id: "signup", label: "Signup" },
+  const adminNotificationSections: AdminNotificationSection[] = [
+    {
+      id: "account",
+      label: "Account",
+      items: [
+        {
+          id: "account_deactivation_request",
+          name: "Account deactivation request",
+          description: "This email notification is sent to you when your customer requests to deactivate their account.",
+        },
+      ],
+    },
+    {
+      id: "general",
+      label: "General",
+      items: [
+        {
+          id: "google_calendar_failed_sync",
+          name: "Google calendar failed sync",
+          description: "This email notification is sent to you when the bookings sync to your Google Calendar fails.",
+        },
+        {
+          id: "google_calendar_failed_sync_provider",
+          name: "Google calendar failed sync for provider",
+          description:
+            "This email notification is sent to you when a bookings sync fails for any provider's Google Calendar.",
+        },
+        {
+          id: "google_sheets_failed_sync",
+          name: "Google sheets failed sync",
+          description: "This email notification is sent to you when the event sync to your Google Sheets fails.",
+        },
+      ],
+    },
+    {
+      id: "new_modified_booking",
+      label: "New & modified booking",
+      items: [],
+    },
+    {
+      id: "cancel_postponed_booking",
+      label: "Canceled & postponed booking",
+      items: [],
+    },
+    {
+      id: "unassigned_booking",
+      label: "Unassigned booking",
+      items: [],
+    },
+    {
+      id: "reminders",
+      label: "Reminders",
+      items: [],
+    },
+    {
+      id: "booking_fee_charged",
+      label: "Booking fee charged",
+      items: [],
+    },
+    {
+      id: "payments_cards",
+      label: "Payments/cards",
+      items: [],
+    },
+    {
+      id: "rating_review",
+      label: "Rating & review",
+      items: [],
+    },
+    {
+      id: "gift_card_referral",
+      label: "Gift card & referral",
+      items: [],
+    },
+    {
+      id: "payment_processor",
+      label: "Payment processor",
+      items: [],
+    },
+    {
+      id: "schedule_settings",
+      label: "Schedule & settings",
+      items: [],
+    },
+    {
+      id: "clock_in_out",
+      label: "Clock in/clock out",
+      items: [],
+    },
+    {
+      id: "booking_reschedule_fee_charged_failed",
+      label: "Booking reschedule fee charged & failed",
+      items: [],
+    },
+    {
+      id: "checklist",
+      label: "Checklist",
+      items: [],
+    },
+    {
+      id: "invoice",
+      label: "Invoice",
+      items: [],
+    },
+    {
+      id: "signup",
+      label: "Signup",
+      items: [],
+    },
   ];
 
   const customerNotificationSections = [
@@ -392,6 +495,9 @@ export default function NotificationsSettingsPage() {
     { id: "account", label: "Account" },
     { id: "general", label: "General" },
   ];
+
+  const getTemplateForNotification = (notificationName: string) =>
+    notificationTemplates.find((tpl) => tpl.name.trim().toLowerCase() === notificationName.trim().toLowerCase());
 
   return (
     <div className="space-y-6">
@@ -774,8 +880,72 @@ export default function NotificationsSettingsPage() {
                                   </span>
                                 </CollapsibleTrigger>
                                 <CollapsibleContent className="overflow-visible">
-                                  <div className="px-4 pb-4 pt-0 text-sm text-muted-foreground">
-                                    {/* Placeholder for future toggle/email template options */}
+                                  <div className="px-4 pb-4 pt-0">
+                                    {section.items.length === 0 ? (
+                                      <p className="text-sm text-muted-foreground py-2">No notifications in this category yet.</p>
+                                    ) : (
+                                      <div className="rounded-md border bg-background overflow-hidden">
+                                        <Table>
+                                          <TableHeader>
+                                            <TableRow>
+                                              <TableHead className="w-[100px]">Status</TableHead>
+                                              <TableHead className="w-[280px]">Name</TableHead>
+                                              <TableHead>Description</TableHead>
+                                              <TableHead className="w-[90px] text-right">Action</TableHead>
+                                            </TableRow>
+                                          </TableHeader>
+                                          <TableBody>
+                                            {section.items.map((item) => {
+                                              const matchedTemplate = getTemplateForNotification(item.name);
+                                              const hasTemplate = Boolean(matchedTemplate);
+                                              return (
+                                                <TableRow key={item.id}>
+                                                  <TableCell>
+                                                    <div className="flex items-center gap-2">
+                                                      <Badge
+                                                        variant="secondary"
+                                                        className={
+                                                          hasTemplate
+                                                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                                            : "bg-muted text-muted-foreground border border-border"
+                                                        }
+                                                      >
+                                                        {hasTemplate ? "Enabled" : "Disabled"}
+                                                      </Badge>
+                                                    </div>
+                                                  </TableCell>
+                                                  <TableCell className="text-sm">{item.name}</TableCell>
+                                                  <TableCell className="text-sm text-muted-foreground">{item.description}</TableCell>
+                                                  <TableCell className="text-right">
+                                                    {hasTemplate && matchedTemplate ? (
+                                                      <Button
+                                                        variant="link"
+                                                        className="h-auto p-0"
+                                                        onClick={() => goToEditTemplate(matchedTemplate.id)}
+                                                      >
+                                                        Edit
+                                                      </Button>
+                                                    ) : (
+                                                      <Button
+                                                        variant="link"
+                                                        className="h-auto p-0"
+                                                        onClick={() =>
+                                                          router.push(
+                                                            `/admin/settings/notifications/new?name=${encodeURIComponent(item.name)}`,
+                                                          )
+                                                        }
+                                                      >
+                                                        Add
+                                                      </Button>
+                                                    )}
+                                                  </TableCell>
+                                                </TableRow>
+                                              );
+                                            })}
+                                          </TableBody>
+                                        </Table>
+                                      </div>
+                                    )}
                                   </div>
                                 </CollapsibleContent>
                               </Collapsible>

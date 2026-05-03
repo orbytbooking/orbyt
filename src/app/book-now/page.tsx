@@ -621,6 +621,8 @@ function BookingPageContent() {
   const [flippedCardId, setFlippedCardId] = useState<string | null>(null);
   /** Form 2: active item — either `industry_pricing_variable.id` (preset catalog) or legacy service category id. */
   const [form2ActiveItemId, setForm2ActiveItemId] = useState<string | null>(null);
+  /** Form 3: selected item ids shown as booking line cards. */
+  const [form3SelectedItemIds, setForm3SelectedItemIds] = useState<string[]>([]);
   /** Form 2 items from admin (same source as admin booking form). */
   const [form2CatalogItems, setForm2CatalogItems] = useState<
     { id: string; name: string; category: string | null }[]
@@ -799,7 +801,7 @@ function BookingPageContent() {
     [industryListLoaded, industryOptions],
   );
 
-  /** Form 2 and Form 3 both use the single-page shell (vs Form 1 stepper). */
+  /** Legacy helper for single-page shell industries. */
   const allIndustriesSinglePageLayout = useMemo(
     () =>
       industryListLoaded &&
@@ -818,13 +820,10 @@ function BookingPageContent() {
           !bookingIdParam &&
           !limitedEditMode &&
           (bookingFormLayoutQuery === "form2" ||
-            bookingFormLayoutQuery === "form3" ||
             (bookingFormLayoutQuery !== "form1" &&
               industryListLoaded &&
               (allIndustriesForm2 ||
-                allIndustriesSinglePageLayout ||
-                selectedIndustryFormLayout === "form2" ||
-                selectedIndustryFormLayout === "form3"))),
+                selectedIndustryFormLayout === "form2"))),
       ),
     [
       businessIdFromUrl,
@@ -839,8 +838,8 @@ function BookingPageContent() {
   );
 
   const form2UsesVariableCatalog = useMemo(
-    () => Boolean(useForm2Layout && form2CatalogItems.length > 0),
-    [useForm2Layout, form2CatalogItems],
+    () => Boolean((useForm2Layout || selectedIndustryFormLayout === "form3") && form2CatalogItems.length > 0),
+    [useForm2Layout, selectedIndustryFormLayout, form2CatalogItems],
   );
 
   useEffect(() => {
@@ -1379,20 +1378,39 @@ function BookingPageContent() {
                 .filter((x) => x.length > 0)
             : null;
         // Fetch extras (Form 2/3 should load both add-ons and extras, same as admin flow)
-        const extrasUrls =
+        const extrasRequests =
           bookingFormScopeForCatalog === "form2" || bookingFormScopeForCatalog === "form3"
             ? [
-                `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessIdParam)}&bookingFormScope=${bookingFormScopeForCatalog}&listingKind=addon`,
-                `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessIdParam)}&bookingFormScope=${bookingFormScopeForCatalog}&listingKind=extra`,
+                {
+                  url: `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessIdParam)}&bookingFormScope=${bookingFormScopeForCatalog}&listingKind=addon`,
+                  listingKind: "addon" as const,
+                },
+                {
+                  url: `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessIdParam)}&bookingFormScope=${bookingFormScopeForCatalog}&listingKind=extra`,
+                  listingKind: "extra" as const,
+                },
               ]
             : [
-                `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessIdParam)}${catalogScopeQs}`,
+                {
+                  url: `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessIdParam)}${catalogScopeQs}`,
+                  listingKind: "extra" as const,
+                },
               ];
         const extrasPayloads = await Promise.all(
-          extrasUrls.map((u) => fetch(u).then((r) => (r.ok ? r.json() : { extras: [] }))),
+          extrasRequests.map(({ url, listingKind }) =>
+            fetch(url)
+              .then((r) => (r.ok ? r.json() : { extras: [] }))
+              .then((payload) => ({ payload, listingKind })),
+          ),
         );
-        const mergedExtras = extrasPayloads.flatMap((p: { extras?: unknown[] }) =>
-          Array.isArray(p.extras) ? p.extras : [],
+        const mergedExtras = extrasPayloads.flatMap(({ payload, listingKind }) =>
+          (Array.isArray((payload as { extras?: unknown[] }).extras)
+            ? (payload as { extras?: unknown[] }).extras
+            : []
+          ).map((row: any) => ({
+            ...row,
+            listing_kind: String(row?.listing_kind ?? "").trim() || listingKind,
+          })),
         );
         const dedupedExtras = mergedExtras.filter(
           (e: any, idx: number, arr: any[]) =>
@@ -2142,7 +2160,8 @@ function BookingPageContent() {
     if (!bookingFrequencyForFilters.trim()) return serviceCategories;
     return serviceCategories.filter((svc) => {
       const raw = svc.raw;
-      const shouldApplyDeps = useForm2Layout || Boolean(raw?.service_category_frequency);
+      const shouldApplyDeps =
+        bookingFormScopeForCatalog === "form2" || Boolean(raw?.service_category_frequency);
       if (!shouldApplyDeps) return true;
       if (!serviceListFrequencyDeps) return false;
       const allowed = Array.isArray(serviceListFrequencyDeps.serviceCategories)
@@ -2151,7 +2170,13 @@ function BookingPageContent() {
       if (allowed.length === 0) return false;
       return allowed.includes(String(raw.id));
     });
-  }, [limitedEditMode, serviceCategories, serviceListFrequencyDeps, bookingFrequencyForFilters, useForm2Layout]);
+  }, [
+    limitedEditMode,
+    serviceCategories,
+    serviceListFrequencyDeps,
+    bookingFrequencyForFilters,
+    bookingFormScopeForCatalog,
+  ]);
 
   const form2PackagesForActiveItem = useMemo((): Form2PackageRow[] => {
     if (!useForm2Layout || !form2ActiveItemId || form2CatalogItems.length === 0) return [];
@@ -2380,14 +2405,19 @@ function BookingPageContent() {
 
       let scopedExtras = [...availableExtras];
       if (depsLoaded && (bookingFormScopeForCatalog === "form2" || bookingFormScopeForCatalog === "form3")) {
-        if (frequencyFormAllowExtraIds.length === 0) {
-          scopedExtras = [];
-        } else {
+        // Keep Form 2/3 add-ons and extras visible unless frequency explicitly limits them.
+        if (frequencyFormAllowExtraIds.length > 0) {
           scopedExtras = scopedExtras.filter((e: any) =>
             frequencyFormAllowExtraIds.includes(String(e?.id ?? "")),
           );
         }
       }
+
+      const selectedVariableOptionTokens = [
+        rowPackageName,
+        rowServiceName,
+        String(row?.service?.customerDisplayName ?? "").trim(),
+      ].filter((token) => token.length > 0);
 
       const visible = scopedExtras.filter((e: any) =>
         industryExtraPassesBookingDependencyRules(
@@ -2410,6 +2440,7 @@ function BookingPageContent() {
             serviceCategoryUsesFrequencyDeps,
             frequencyDepsLoaded: depsLoaded,
             frequencyFormAllowExtraIds,
+            selectedVariableOptionTokens,
           },
         ),
       );
@@ -2428,6 +2459,7 @@ function BookingPageContent() {
       serviceCustomization?.bedroom,
       serviceCustomization?.bathroom,
       form2CategoryKeys,
+      bookingFormScopeForCatalog,
     ],
   );
 
@@ -2493,6 +2525,15 @@ function BookingPageContent() {
       setForm2ActiveItemId(null);
     }
   }, [categoryServicesForForm, form2ActiveItemId, form2CatalogItems]);
+
+  useEffect(() => {
+    if (bookingFormScopeForCatalog !== "form3") {
+      setForm3SelectedItemIds([]);
+      return;
+    }
+    const allowed = new Set(categoryServicesForForm.map((s) => String(s.id)));
+    setForm3SelectedItemIds((prev) => prev.filter((id) => allowed.has(String(id))));
+  }, [bookingFormScopeForCatalog, categoryServicesForForm]);
 
   useEffect(() => {
     if (!useForm2Layout || limitedEditMode) return;
@@ -4726,7 +4767,7 @@ function BookingPageContent() {
   }
 
   // Category Selection Screen
-  if (currentStep === "category" && !useForm2Layout) {
+  if (currentStep === "category" && !(useForm2Layout || bookingFormScopeForCatalog === "form3")) {
     const hasBusinessParam = Boolean(businessIdFromUrl);
     const categoriesAvailable = industryOptions.length > 0;
     return (
@@ -5079,7 +5120,8 @@ function BookingPageContent() {
     const { subtotal, tax, total } = showSummary ? calculateTotal() : { subtotal: 0, tax: 0, total: 0 };
     const form2Totals = showSummary ? calculateTotal() : null;
     /** Form 2: date / time / provider at the start of the main form (after packages-added on the page). */
-    const form2ScheduleAtFormStart = useForm2Layout && !limitedEditMode;
+    const form2ScheduleAtFormStart =
+      (useForm2Layout || bookingFormScopeForCatalog === "form3") && !limitedEditMode;
     const form2FrequencyLabel =
       (serviceCustomization?.frequency?.trim() || bookingFrequencyForFilters.trim() || "") || null;
     const renderBookingScheduleFields = () => (
@@ -5323,13 +5365,58 @@ function BookingPageContent() {
 
             <div
               className={
-                useForm2Layout
+                useForm2Layout || bookingFormScopeForCatalog === "form3"
                   ? "grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] lg:items-start lg:gap-10"
                   : ""
               }
             >
-              <div className={useForm2Layout ? "min-w-0 space-y-8 lg:col-span-1" : ""}>
-                {useForm2Layout && !limitedEditMode && industryOptions.length > 0 && (
+              <div className={useForm2Layout || bookingFormScopeForCatalog === "form3" ? "min-w-0 space-y-8 lg:col-span-1" : ""}>
+                {/* Location input - Zip/Postal code or City/Town (based on store location settings) */}
+                {!limitedEditMode && locationManagement !== "none" && (
+                  <div
+                    className={cn(
+                      "mb-6",
+                      (useForm2Layout || bookingFormScopeForCatalog === "form3") &&
+                        "rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-card",
+                    )}
+                  >
+                    <Form {...form}>
+                      <FormField
+                        control={form.control}
+                        name="zipCode"
+                        render={({ field }) => (
+                          <FormItem className={styles.formGroup}>
+                            <FormLabel className={styles.formLabel}>
+                              {locationManagement === "name" ? "Enter city or town name" : "Enter Zip Code"}
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                className={styles.formInput}
+                                placeholder={locationManagement === "name" ? "City or town name" : "Zip Code"}
+                                maxLength={locationManagement === "name" ? 80 : 10}
+                                {...field}
+                                onChange={(e) => {
+                                  field.onChange(e);
+                                  const val = String(e.target.value ?? "").trim().replace(/\s/g, "");
+                                  const minLen = locationManagement === "name" ? 2 : 5;
+                                  if (val.length >= minLen) refetchFrequenciesOnZipChange();
+                                }}
+                                onBlur={(e) => {
+                                  field.onBlur();
+                                  form.trigger("zipCode");
+                                  refetchFrequenciesOnZipChange();
+                                }}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </Form>
+                  </div>
+                )}
+
+                {(useForm2Layout || bookingFormScopeForCatalog === "form3") && !limitedEditMode && categoryServicesForForm.length > 0 && (
                   <div
                     className={cn(
                       "rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-card",
@@ -5337,27 +5424,32 @@ function BookingPageContent() {
                   >
                     <Label className="text-base font-semibold text-slate-800 dark:text-slate-100">Services</Label>
                     <p className="text-sm text-muted-foreground mt-1 mb-3">
-                      Choose the service line you want to book. Items and packages update for this selection.
+                      Choose the service category you want to book. Items and packages update for this selection.
                     </p>
                     <Select
-                      value={(selectedCategory || industryOptions[0]?.key) ?? ""}
-                      onValueChange={(key) => {
-                        if (!key || key === selectedCategory) return;
-                        setSelectedCategory(key as ServiceCategory);
-                        setSelectedService(null);
-                        setServiceCustomization(null);
-                        setCardCustomizations({});
-                        setFlippedCardId(null);
-                        setForm2ActiveItemId(null);
+                      value={selectedService ? String(selectedService.id) : ""}
+                      onValueChange={(serviceId) => {
+                        if (!serviceId) return;
+                        const selected = categoryServicesForForm.find(
+                          (svc) => String(svc.id) === serviceId,
+                        );
+                        if (!selected) return;
+                        handleServiceSelect(selected.name);
+                        setFlippedCardId(selected.id);
+                        if (bookingFormScopeForCatalog === "form2") {
+                          setForm2ActiveItemId(String(selected.id));
+                        } else {
+                          setForm2ActiveItemId(null);
+                        }
                       }}
                     >
                       <SelectTrigger className="h-12 w-full text-base">
-                        <SelectValue placeholder="Select a service" />
+                        <SelectValue placeholder="Select a service category" />
                       </SelectTrigger>
                       <SelectContent>
-                        {industryOptions.map((opt) => (
-                          <SelectItem key={opt.key} value={opt.key} className="text-base">
-                            {opt.label}
+                        {categoryServicesForForm.map((svc) => (
+                          <SelectItem key={svc.id} value={String(svc.id)} className="text-base">
+                            {svc.customerDisplayName?.trim() || svc.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -5365,53 +5457,8 @@ function BookingPageContent() {
                   </div>
                 )}
 
-            {/* Location input - Zip/Postal code or City/Town (based on store location settings) */}
-            {!limitedEditMode && locationManagement !== "none" && (
-              <div
-                className={cn(
-                  "mb-6",
-                  useForm2Layout &&
-                    "rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-card",
-                )}
-              >
-                <Form {...form}>
-                  <FormField
-                    control={form.control}
-                    name="zipCode"
-                    render={({ field }) => (
-                      <FormItem className={styles.formGroup}>
-                        <FormLabel className={styles.formLabel}>
-                          {locationManagement === "name" ? "Enter city or town name" : "Enter Zip Code"}
-                        </FormLabel>
-                        <FormControl>
-                          <Input
-                            className={styles.formInput}
-                            placeholder={locationManagement === "name" ? "City or town name" : "Zip Code"}
-                            maxLength={locationManagement === "name" ? 80 : 10}
-                            {...field}
-                            onChange={(e) => {
-                              field.onChange(e);
-                              const val = String(e.target.value ?? "").trim().replace(/\s/g, "");
-                              const minLen = locationManagement === "name" ? 2 : 5;
-                              if (val.length >= minLen) refetchFrequenciesOnZipChange();
-                            }}
-                            onBlur={(e) => {
-                              field.onBlur();
-                              form.trigger("zipCode");
-                              refetchFrequenciesOnZipChange();
-                            }}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </Form>
-              </div>
-            )}
-
             {/* Form 2 template: frequency strip before service / package selection */}
-            {useForm2Layout &&
+            {(useForm2Layout || bookingFormScopeForCatalog === "form3") &&
               !limitedEditMode &&
               frequencyOptions.length > 0 &&
               !needsLocationBeforeServices && (
@@ -5427,7 +5474,7 @@ function BookingPageContent() {
                   </p>
                   <div
                     className={cn(
-                      useForm2Layout
+                      useForm2Layout || bookingFormScopeForCatalog === "form3"
                         ? "grid max-w-4xl grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4"
                         : cn(
                             styles.form2FrequencyBar,
@@ -5446,7 +5493,7 @@ function BookingPageContent() {
                           onClick={() => applyForm2FrequencySelection(freq)}
                           className={cn(
                             "min-h-[48px] px-3 py-2 text-sm font-semibold transition-all",
-                            useForm2Layout
+                            useForm2Layout || bookingFormScopeForCatalog === "form3"
                               ? active
                                 ? "rounded-lg border-2 border-cyan-500 bg-gradient-to-r from-cyan-500 to-sky-500 text-white shadow-md"
                                 : "rounded-lg border border-slate-200 bg-white text-slate-700 hover:border-cyan-400 dark:border-slate-600 dark:bg-card dark:text-slate-200"
@@ -5472,7 +5519,7 @@ function BookingPageContent() {
               id="form2-service-packages"
               className={cn(
                 "mb-8",
-                useForm2Layout &&
+                (useForm2Layout || bookingFormScopeForCatalog === "form3") &&
                   "rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-card",
               )}
             >
@@ -5485,21 +5532,26 @@ function BookingPageContent() {
                 </div>
               ) : null}
               <h2 className={cn(styles.form2SectionTitle, "text-2xl mb-1 text-slate-800 dark:text-slate-100")}>
-                {useForm2Layout ? "What Needs To Be Done?" : "Select Services"}
+                {useForm2Layout || bookingFormScopeForCatalog === "form3" ? "What Needs To Be Done?" : "Select Services"}
               </h2>
-              {useForm2Layout ? (
+              {useForm2Layout || bookingFormScopeForCatalog === "form3" ? (
                 <p className="text-sm text-muted-foreground mb-6 max-w-2xl">
                   {form2UsesVariableCatalog
                     ? "Select an item (for example bedroom range or square footage), then choose a package and tap Add to include it in your booking."
                     : "Select a service line below, then customize your package on the card. Add extras from the card when needed."}
                 </p>
               ) : null}
-              {useForm2Layout && !serviceCategoriesLoading && form2UsesVariableCatalog ? (
+              {(useForm2Layout || bookingFormScopeForCatalog === "form3") && !serviceCategoriesLoading && form2UsesVariableCatalog ? (
                 <Form2ItemPickerGrid
                   items={form2CatalogItems}
                   selectedId={form2ActiveItemId}
                   onSelect={(id) => {
                     setForm2ActiveItemId(id);
+                    if (bookingFormScopeForCatalog === "form3") {
+                      setForm3SelectedItemIds((prev) =>
+                        prev.includes(String(id)) ? prev : [...prev, String(id)],
+                      );
+                    }
                     requestAnimationFrame(() => {
                       document
                         .getElementById("form2-packages-row")
@@ -5509,7 +5561,7 @@ function BookingPageContent() {
                   className="mb-2"
                   uiVariant="admin"
                 />
-              ) : useForm2Layout && !serviceCategoriesLoading && categoryServicesForForm.length > 0 ? (
+              ) : (useForm2Layout || bookingFormScopeForCatalog === "form3") && !serviceCategoriesLoading && categoryServicesForForm.length > 0 ? (
                 <div className="mb-6">
                   <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-3">Select item(s)</h3>
                   <div className="flex flex-wrap gap-3">
@@ -5524,6 +5576,11 @@ function BookingPageContent() {
                           type="button"
                           onClick={() => {
                             setForm2ActiveItemId(idStr);
+                            if (bookingFormScopeForCatalog === "form3") {
+                              setForm3SelectedItemIds((prev) =>
+                                prev.includes(idStr) ? prev : [...prev, idStr],
+                              );
+                            }
                             handleCardFlip(svc.id);
                             requestAnimationFrame(() => {
                               document
@@ -5560,11 +5617,141 @@ function BookingPageContent() {
                   <Loader2 className="h-8 w-8 animate-spin text-cyan-500" />
                 </div>
               ) : categoryServicesForForm.length > 0 || form2UsesVariableCatalog || form2StandalonePackages.length > 0 ? (
-                useForm2Layout ? (
+                useForm2Layout || bookingFormScopeForCatalog === "form3" ? (
                   form2UsesVariableCatalog ? (
                     <>
                       <div id="form2-packages-row" className="space-y-3">
-                        {!form2ActiveItemId && form2CatalogItems.length > 0 ? (
+                        {bookingFormScopeForCatalog === "form3" ? (
+                          (() => {
+                            const selectedItems = form3SelectedItemIds
+                              .map((itemId) =>
+                                form2CatalogItems.find((item) => String(item.id) === String(itemId)),
+                              )
+                              .filter(
+                                (
+                                  item,
+                                ): item is {
+                                  id: string;
+                                  name: string;
+                                  category: string | null;
+                                } => Boolean(item),
+                              );
+                            if (selectedItems.length === 0) {
+                              return (
+                                <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm text-muted-foreground dark:border-slate-600 dark:bg-slate-900/40">
+                                  Select an item above to add it to this booking.
+                                </div>
+                              );
+                            }
+                            const serviceForRows =
+                              selectedService ?? categoryServicesForForm[0] ?? null;
+                            return (
+                              <div className="space-y-3">
+                                {selectedItems.map((item) => {
+                                  const visibleRows = getForm2VisibleRowsForItem({
+                                    service: serviceForRows,
+                                    packageName: item.name,
+                                  });
+                                  const addonRows = visibleRows.addons;
+                                  const extraRows = visibleRows.extras;
+                                  const activeItemKey = String(item.id ?? "form3-item");
+                                  return (
+                                    <div key={activeItemKey} className="rounded-lg border overflow-hidden">
+                                      <div className="flex items-start justify-between gap-3 bg-slate-100/80 px-4 py-3">
+                                        <div className="min-w-0">
+                                          <p className="font-semibold text-slate-900">
+                                            {item.name}
+                                          </p>
+                                          <p className="text-sm text-muted-foreground">Item</p>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setForm3SelectedItemIds((prev) =>
+                                              prev.filter((id) => String(id) !== String(activeItemKey)),
+                                            );
+                                            removeForm2SelectedItem(activeItemKey, null, null);
+                                          }}
+                                          className="text-red-500 hover:text-red-600"
+                                        >
+                                          <X className="h-5 w-5" />
+                                        </button>
+                                      </div>
+                                      <div className="p-4">
+                                        <p className="text-sm font-medium mb-2">Any Add-ons for this item?</p>
+                                        {addonRows.length === 0 ? (
+                                          <p className="text-xs text-muted-foreground">No add-ons configured for this industry.</p>
+                                        ) : (
+                                          <div className="flex flex-wrap gap-2">
+                                            {addonRows.map((addon: any) => {
+                                              const qty = getForm2ExtraQtyForItem(activeItemKey, String(addon.name ?? ""));
+                                              const selected = qty > 0;
+                                              return (
+                                                <Button
+                                                  key={`${activeItemKey}-${addon.id}`}
+                                                  type="button"
+                                                  variant={selected ? "default" : "outline"}
+                                                  size="sm"
+                                                  onClick={() =>
+                                                    setForm2ExtraQtyForItem(
+                                                      activeItemKey,
+                                                      String(addon.name ?? ""),
+                                                      selected ? 0 : 1,
+                                                    )
+                                                  }
+                                                >
+                                                  {String(addon.name ?? "")}
+                                                </Button>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
+                                      </div>
+                                      {extraRows.length > 0 ? (
+                                        <div className="px-4 pb-4">
+                                          <p className="text-sm font-medium mb-2">Extras</p>
+                                          <div className="flex flex-wrap gap-2">
+                                            {extraRows.map((extra: any) => {
+                                              const qty = getForm2ExtraQtyForItem(
+                                                activeItemKey,
+                                                String(extra.name ?? ""),
+                                              );
+                                              const selected = qty > 0;
+                                              return (
+                                                <Button
+                                                  key={`${activeItemKey}-${extra.id}`}
+                                                  type="button"
+                                                  variant={selected ? "default" : "outline"}
+                                                  size="sm"
+                                                  onClick={() =>
+                                                    setForm2ExtraQtyForItem(
+                                                      activeItemKey,
+                                                      String(extra.name ?? ""),
+                                                      selected ? 0 : 1,
+                                                    )
+                                                  }
+                                                >
+                                                  {String(extra.name ?? "")}
+                                                </Button>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })}
+                                <Button
+                                  type="button"
+                                  onClick={() => setForm2ActiveItemId(null)}
+                                  className="w-full bg-cyan-500 hover:bg-cyan-600 text-white"
+                                >
+                                  + Add Another Item
+                                </Button>
+                                </div>
+                              );
+                          })()
+                        ) : !form2ActiveItemId && form2CatalogItems.length > 0 ? (
                           <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm text-muted-foreground dark:border-slate-600 dark:bg-slate-900/40">
                             Select an item above to see packages for that category.
                           </div>
@@ -5582,7 +5769,7 @@ function BookingPageContent() {
                           />
                         )}
                       </div>
-                      {form2SelectedItemRows.length > 0 && (
+                      {bookingFormScopeForCatalog !== "form3" && form2SelectedItemRows.length > 0 && (
                         <div className="mt-8 rounded-xl border border-slate-200/80 bg-white p-4 dark:border-slate-700 dark:bg-card">
                           <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-3">
                             Added items
@@ -6764,7 +6951,7 @@ function BookingPageContent() {
               </div>
             )}
               </div>
-              {useForm2Layout && (
+              {(useForm2Layout || bookingFormScopeForCatalog === "form3") && (
                 <aside className="min-w-0 space-y-4 lg:sticky lg:top-24 lg:z-10 lg:max-h-[calc(100vh-6.5rem)] lg:overflow-y-auto lg:overflow-x-hidden lg:overscroll-y-contain lg:self-start">
                   <Card>
                     <CardHeader>

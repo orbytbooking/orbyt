@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Eye } from "lucide-react";
+import { ArrowLeft, Check, Copy } from "lucide-react";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,10 +17,65 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { NotificationTemplateBodyEditor } from "@/components/admin/NotificationTemplateBodyEditor";
-import { DEFAULT_MASTER_TEMPLATE_BODY_HTML } from "@/lib/notificationMasterTemplate";
+import { DEFAULT_MASTER_TEMPLATE_BODY_HTML, TEMPLATE_SHORT_CODES } from "@/lib/notificationMasterTemplate";
 import { substituteEmailPlaceholders } from "@/lib/emailTemplatePlaceholders";
 import { useToast } from "@/components/ui/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+const DEFAULT_MASTER_TEMPLATE_ID = "__default_master_template__";
+const NO_MASTER_TEMPLATE_ID = "__no_master_template__";
+const CONTENT_PREVIEW_TOKEN = "__content_preview_html__";
+const EMPTY_TEMPLATE_HTML = `<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" data-template-shell="true" style="width:100%;margin:0;padding:0;background-color:#f4f4f5;">
+<tr>
+<td align="center" style="padding:24px 12px;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="600" data-template-shell="true" style="width:100%;max-width:600px;border-collapse:separate;border-spacing:0;background-color:#ffffff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;color:#000;font-size:16px;">
+<tbody>
+<tr>
+<td style="padding:16px;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" data-template-block="email-body" style="width:100%;min-height:260px;">
+<tr>
+<td style="padding:20px;vertical-align:top;text-align:center;">
+<p><br></p>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</table>`;
+const CONTENT_PREVIEW_SHELL_HTML = `<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" data-template-shell="true" style="width:100%;margin:0;padding:0;background-color:#f4f4f5;">
+<tr>
+<td align="center" style="padding:24px 12px;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="600" data-template-shell="true" style="width:100%;max-width:600px;border-collapse:separate;border-spacing:0;background-color:#ffffff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;color:#000;font-size:16px;">
+<tbody>
+<tr>
+<td style="padding:16px;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" data-template-block="email-body" style="width:100%;min-height:260px;">
+<tr>
+<td style="padding:20px;vertical-align:top;text-align:center;">
+${CONTENT_PREVIEW_TOKEN}
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</table>`;
+
+type MasterTemplateOption = {
+  id: string;
+  name: string;
+  body: string;
+  is_default: boolean;
+};
 
 export default function EditNotificationTemplatePage() {
   const router = useRouter();
@@ -32,7 +87,14 @@ export default function EditNotificationTemplatePage() {
   const [name, setName] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState(DEFAULT_MASTER_TEMPLATE_BODY_HTML);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const [masterTemplates, setMasterTemplates] = useState<MasterTemplateOption[]>([]);
+  const [selectedMasterTemplateId, setSelectedMasterTemplateId] = useState<string>(DEFAULT_MASTER_TEMPLATE_ID);
+  const [shortCodesDialogOpen, setShortCodesDialogOpen] = useState(false);
+  const [copiedShortCode, setCopiedShortCode] = useState<string | null>(null);
+  const [testEmailDialogOpen, setTestEmailDialogOpen] = useState(false);
+  const [testEmailTo, setTestEmailTo] = useState("");
+  const [previewWithMasterTemplate, setPreviewWithMasterTemplate] = useState(true);
+  const [sendingTestEmail, setSendingTestEmail] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -49,11 +111,35 @@ export default function EditNotificationTemplatePage() {
         if (!res.ok) {
           throw new Error(data.error || "Failed to load template");
         }
-        const t = data.template as { name?: string; subject?: string; body?: string };
+        const t = data.template as { id?: string; name?: string; subject?: string; body?: string };
         if (cancelled) return;
         setName(t.name ?? "");
         setSubject(t.subject ?? "");
-        setBody(t.body?.trim() ? t.body : DEFAULT_MASTER_TEMPLATE_BODY_HTML);
+
+        const templatesRes = await fetch("/api/admin/notification-templates", {
+          credentials: "include",
+          headers: { "x-business-id": currentBusiness.id },
+        });
+        const templatesData = await templatesRes.json().catch(() => ({}));
+        if (!templatesRes.ok) {
+          throw new Error(templatesData.error || "Failed to load master templates");
+        }
+        if (cancelled) return;
+        const rows = ((templatesData.templates || []) as MasterTemplateOption[]).filter(
+          (row) => row.id !== t.id && row.body?.trim(),
+        );
+        setMasterTemplates(rows);
+
+        const bodyFromDb = t.body?.trim() ? t.body : DEFAULT_MASTER_TEMPLATE_BODY_HTML;
+        setBody(bodyFromDb);
+        const exactMaster = rows.find((row) => row.body?.trim() === bodyFromDb);
+        if (bodyFromDb === DEFAULT_MASTER_TEMPLATE_BODY_HTML) {
+          setSelectedMasterTemplateId(DEFAULT_MASTER_TEMPLATE_ID);
+        } else if (exactMaster) {
+          setSelectedMasterTemplateId(exactMaster.id);
+        } else {
+          setSelectedMasterTemplateId(NO_MASTER_TEMPLATE_ID);
+        }
         setLoadState("ready");
       } catch (e) {
         if (!cancelled) {
@@ -72,6 +158,21 @@ export default function EditNotificationTemplatePage() {
       cancelled = true;
     };
   }, [templateId, currentBusiness?.id, router, toast]);
+
+  useEffect(() => {
+    if (loadState !== "ready") return;
+    if (!previewWithMasterTemplate) return;
+    if (selectedMasterTemplateId === NO_MASTER_TEMPLATE_ID) {
+      setBody(EMPTY_TEMPLATE_HTML);
+      return;
+    }
+    if (selectedMasterTemplateId === DEFAULT_MASTER_TEMPLATE_ID) {
+      setBody(DEFAULT_MASTER_TEMPLATE_BODY_HTML);
+      return;
+    }
+    const selected = masterTemplates.find((tpl) => tpl.id === selectedMasterTemplateId);
+    setBody(selected?.body?.trim() ? selected.body : DEFAULT_MASTER_TEMPLATE_BODY_HTML);
+  }, [loadState, masterTemplates, previewWithMasterTemplate, selectedMasterTemplateId]);
 
   const getTemplatePreviewSampleVars = (): Record<string, string> => {
     const biz = currentBusiness;
@@ -108,7 +209,16 @@ export default function EditNotificationTemplatePage() {
 
   const save = async () => {
     const cleanName = name.trim();
-    if (!cleanName || !templateId || !currentBusiness?.id) return;
+    if (!cleanName || !templateId) return;
+    if (!currentBusiness?.id) {
+      toast({
+        title: "Business context not ready",
+        description: "Please wait a moment and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const templateBodyForDelivery = getBodyForDelivery();
     setSaving(true);
     try {
       const res = await fetch(`/api/admin/notification-templates/${templateId}`, {
@@ -118,7 +228,7 @@ export default function EditNotificationTemplatePage() {
         body: JSON.stringify({
           name: cleanName,
           subject,
-          body,
+          body: templateBodyForDelivery,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -134,6 +244,149 @@ export default function EditNotificationTemplatePage() {
       setSaving(false);
     }
   };
+
+  const copyShortCode = async (token: string) => {
+    try {
+      await navigator.clipboard.writeText(token);
+      setCopiedShortCode(token);
+      window.setTimeout(() => {
+        setCopiedShortCode((current) => (current === token ? null : current));
+      }, 1500);
+    } catch (error) {
+      console.error("Failed to copy short code", error);
+    }
+  };
+
+  const sendTestEmail = async () => {
+    if (!currentBusiness?.id) return;
+    const recipient = testEmailTo.trim();
+    if (!recipient) {
+      toast({
+        title: "Recipient email required",
+        description: "Please enter an email address to send the test email.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const templateBodyForDelivery = getBodyForDelivery();
+    setSendingTestEmail(true);
+    try {
+      const res = await fetch("/api/admin/notification-templates/send-test-email", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "x-business-id": currentBusiness.id },
+        body: JSON.stringify({
+          subject,
+          body: templateBodyForDelivery,
+          to: recipient,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to send test email");
+      toast({
+        title: "Test email sent",
+        description: `Sent to ${data.to || recipient}.`,
+      });
+      setTestEmailDialogOpen(false);
+    } catch (e) {
+      toast({
+        title: "Could not send test email",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSendingTestEmail(false);
+    }
+  };
+
+  const getPreviewHtml = (fullTemplateHtml: string) => {
+    if (previewWithMasterTemplate) return fullTemplateHtml;
+    if (typeof document === "undefined") return fullTemplateHtml;
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = fullTemplateHtml;
+    const bodyBlock = wrapper.querySelector("[data-template-block='email-body']");
+    if (bodyBlock instanceof HTMLElement && bodyBlock.innerHTML.trim()) {
+      return CONTENT_PREVIEW_SHELL_HTML.replace(CONTENT_PREVIEW_TOKEN, bodyBlock.innerHTML);
+    }
+    return CONTENT_PREVIEW_SHELL_HTML.replace(CONTENT_PREVIEW_TOKEN, "<p><br></p>");
+  };
+
+  const getSelectedMasterTemplateHtml = () => {
+    if (selectedMasterTemplateId === NO_MASTER_TEMPLATE_ID) return "";
+    if (selectedMasterTemplateId === DEFAULT_MASTER_TEMPLATE_ID) return DEFAULT_MASTER_TEMPLATE_BODY_HTML;
+    return masterTemplates.find((tpl) => tpl.id === selectedMasterTemplateId)?.body || DEFAULT_MASTER_TEMPLATE_BODY_HTML;
+  };
+
+  const extractEmailBodyContent = (fullTemplateHtml: string) => {
+    if (typeof document === "undefined") return fullTemplateHtml;
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = fullTemplateHtml;
+    const bodyBlock = wrapper.querySelector("[data-template-block='email-body']");
+    if (bodyBlock instanceof HTMLElement) {
+      return bodyBlock.innerHTML || "";
+    }
+    return fullTemplateHtml;
+  };
+
+  const getBodyForDelivery = () => {
+    if (selectedMasterTemplateId === NO_MASTER_TEMPLATE_ID) return body;
+    const selectedMaster = getSelectedMasterTemplateHtml();
+    if (!selectedMaster) return body;
+    const contentOnlyRaw = extractEmailBodyContent(body || "");
+    let contentOnly = contentOnlyRaw;
+    if (typeof document !== "undefined") {
+      const masterWrap = document.createElement("div");
+      masterWrap.innerHTML = selectedMaster;
+      const masterBodyBlock = masterWrap.querySelector("[data-template-block='email-body']");
+      if (masterBodyBlock instanceof HTMLElement) {
+        const masterInner = masterBodyBlock.innerHTML || "";
+        const masterInnerWithoutToken = masterInner.replace("{{email_body}}", "").trim();
+        contentOnly = contentOnly.replace(/\{\{\s*email_body\s*\}\}/g, "");
+        if (masterInnerWithoutToken) {
+          contentOnly = contentOnly.replace(masterInnerWithoutToken, "");
+        }
+      }
+    }
+    contentOnly = contentOnly.trim();
+    if (selectedMaster.includes("{{email_body}}")) {
+      return selectedMaster.replace("{{email_body}}", contentOnly || "<p><br></p>");
+    }
+    return `${selectedMaster}\n${contentOnly}`;
+  };
+
+  const resetTemplateToDefault = () => {
+    const masterHtml =
+      selectedMasterTemplateId === DEFAULT_MASTER_TEMPLATE_ID
+        ? DEFAULT_MASTER_TEMPLATE_BODY_HTML
+        : selectedMasterTemplateId === NO_MASTER_TEMPLATE_ID
+          ? EMPTY_TEMPLATE_HTML
+          : masterTemplates.find((tpl) => tpl.id === selectedMasterTemplateId)?.body || DEFAULT_MASTER_TEMPLATE_BODY_HTML;
+
+    if (previewWithMasterTemplate) {
+      setBody(masterHtml);
+      return;
+    }
+    setBody(EMPTY_TEMPLATE_HTML);
+  };
+
+  useEffect(() => {
+    if (loadState !== "ready") return;
+    if (previewWithMasterTemplate) {
+      if (selectedMasterTemplateId === NO_MASTER_TEMPLATE_ID) {
+        setBody(EMPTY_TEMPLATE_HTML);
+        return;
+      }
+      if (selectedMasterTemplateId === DEFAULT_MASTER_TEMPLATE_ID) {
+        setBody(DEFAULT_MASTER_TEMPLATE_BODY_HTML);
+        return;
+      }
+      const selected = masterTemplates.find((tpl) => tpl.id === selectedMasterTemplateId);
+      setBody(selected?.body?.trim() ? selected.body : DEFAULT_MASTER_TEMPLATE_BODY_HTML);
+      return;
+    }
+    setBody(EMPTY_TEMPLATE_HTML);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadState, previewWithMasterTemplate]);
 
   const cancelHref = "/admin/settings/notifications?tab=notification-template";
 
@@ -159,11 +412,18 @@ export default function EditNotificationTemplatePage() {
       </div>
 
       <Card className="w-full">
-        <CardHeader>
-          <CardTitle>Edit notification template</CardTitle>
-          <CardDescription>
-            Build your HTML email layout. Short codes like {`{{business_name}}`} are replaced when emails are sent.
-          </CardDescription>
+        <CardHeader className="pb-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <CardTitle>Edit email template</CardTitle>
+              <CardDescription>
+                Build your HTML email layout. Short codes like {`{{business_name}}`} are replaced when emails are sent.
+              </CardDescription>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => setShortCodesDialogOpen(true)}>
+              View short codes
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-2">
@@ -187,28 +447,72 @@ export default function EditNotificationTemplatePage() {
           </div>
 
           <div className="space-y-2">
+            <Label htmlFor="master-template">Master template</Label>
+            <Select value={selectedMasterTemplateId} onValueChange={setSelectedMasterTemplateId}>
+              <SelectTrigger id="master-template">
+                <SelectValue placeholder="Select a master template" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={DEFAULT_MASTER_TEMPLATE_ID}>System default master template</SelectItem>
+                {masterTemplates.map((tpl) => (
+                  <SelectItem key={tpl.id} value={tpl.id}>
+                    {tpl.name}
+                    {tpl.is_default ? " (default)" : ""}
+                  </SelectItem>
+                ))}
+                <SelectItem value={NO_MASTER_TEMPLATE_ID}>No master template (custom HTML only)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Select a master template to load it into the editor, then customize it.
+            </p>
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="edit-tpl-body">Template</Label>
+            <div className="flex items-center gap-2 pb-1">
+              <Checkbox
+                id="preview-with-master-template-edit"
+                checked={previewWithMasterTemplate}
+                onCheckedChange={(checked) => setPreviewWithMasterTemplate(checked === true)}
+              />
+              <Label htmlFor="preview-with-master-template-edit" className="text-sm font-normal cursor-pointer">
+                Preview with master template
+              </Label>
+            </div>
+            <div className="rounded-lg border overflow-x-auto bg-[#f4f4f5] p-4 sm:p-6 shadow-sm">
+              <div
+                className="mx-auto w-full"
+                style={{ maxWidth: 640 }}
+                dangerouslySetInnerHTML={{
+                  __html: substituteEmailPlaceholders(getPreviewHtml(body || ""), getTemplatePreviewSampleVars(), {
+                    escapeValues: true,
+                    htmlUnescapedKeys: ["email_body"],
+                  }),
+                }}
+              />
+            </div>
             <NotificationTemplateBodyEditor value={body} onChange={setBody} />
             <p className="text-xs text-muted-foreground">
-              Short codes such as {`{{business_name}}`}, {`{{support_email}}`}, and {`{{email_body}}`} work in this
-              HTML. Click any link in the template (including the round social icons) to open a dialog and set the URL.
-              You can also use the link tool in the toolbar after selecting text.
+              You can fully edit this template HTML. Keep {`{{email_body}}`} if you want message content slot support.
             </p>
           </div>
 
           <div className="flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between">
-            <Button
-              type="button"
-              variant="outline"
-              className="border-cyan-200 bg-cyan-50 text-cyan-800 hover:bg-cyan-100 w-fit"
-              onClick={() => setPreviewOpen(true)}
-            >
-              <Eye className="mr-2 h-4 w-4" />
-              Preview
+            <Button type="button" variant="outline" asChild>
+              <Link href={cancelHref}>Cancel</Link>
             </Button>
             <div className="flex flex-wrap justify-end gap-2">
-              <Button type="button" variant="outline" asChild>
-                <Link href={cancelHref}>Cancel</Link>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setTestEmailDialogOpen(true)}
+                disabled={!currentBusiness?.id || !body.trim()}
+              >
+                {sendingTestEmail ? "Sending test…" : "Send test email"}
+              </Button>
+              <Button type="button" variant="outline" onClick={resetTemplateToDefault}>
+                Restore to default
               </Button>
               <Button
                 type="button"
@@ -223,44 +527,72 @@ export default function EditNotificationTemplatePage() {
         </CardContent>
       </Card>
 
-      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] flex flex-col overflow-hidden gap-0 p-0">
-          <div className="px-6 pt-6 pb-2">
-            <DialogHeader>
-              <DialogTitle>Template preview</DialogTitle>
-              <DialogDescription>
-                Short codes are filled with sample data from your business where available. Sent emails use live values.
-              </DialogDescription>
-            </DialogHeader>
+      <Dialog open={shortCodesDialogOpen} onOpenChange={setShortCodesDialogOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Template short codes</DialogTitle>
+            <DialogDescription>Click copy to insert a shortcode into your template.</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[420px] overflow-y-auto rounded-md border divide-y">
+            {TEMPLATE_SHORT_CODES.map((shortCode) => (
+              <div key={shortCode.token} className="flex items-start justify-between gap-4 p-3">
+                <div className="min-w-0">
+                  <p className="font-mono text-xs">{shortCode.token}</p>
+                  <p className="text-sm text-muted-foreground mt-1">{shortCode.description}</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => void copyShortCode(shortCode.token)}
+                >
+                  {copiedShortCode === shortCode.token ? (
+                    <>
+                      <Check className="mr-1 h-4 w-4" />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="mr-1 h-4 w-4" />
+                      Copy
+                    </>
+                  )}
+                </Button>
+              </div>
+            ))}
           </div>
-          <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-4 space-y-4">
-            <div className="rounded-md border bg-muted/50 px-4 py-3 text-sm">
-              <span className="text-muted-foreground">Subject: </span>
-              <span className="font-medium text-foreground">
-                {substituteEmailPlaceholders(subject.trim() || "(No subject)", getTemplatePreviewSampleVars())}
-              </span>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={testEmailDialogOpen} onOpenChange={setTestEmailDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send test email</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-md border border-red-100 bg-red-50 p-3 text-red-500 text-sm">
+              Note: This test email uses sample data. Real customers receive accurate booking details in live emails.
             </div>
-            <div
-              className="rounded-lg border overflow-x-auto bg-[#f4f4f5] p-4 sm:p-6 shadow-sm"
-              style={{ maxWidth: "100%" }}
-            >
-              <div
-                className="mx-auto w-full"
-                style={{ maxWidth: 640 }}
-                dangerouslySetInnerHTML={{
-                  __html: substituteEmailPlaceholders(body || "", getTemplatePreviewSampleVars(), {
-                    escapeValues: true,
-                    htmlUnescapedKeys: ["email_body"],
-                  }),
-                }}
+            <div className="space-y-2">
+              <Label htmlFor="test-email-to-edit">Where should the test be sent?</Label>
+              <Input
+                id="test-email-to-edit"
+                type="email"
+                placeholder="Ex: example@xyz.com"
+                value={testEmailTo}
+                onChange={(e) => setTestEmailTo(e.target.value)}
               />
             </div>
           </div>
-          <div className="border-t px-6 py-4 flex justify-end bg-muted/20">
-            <Button type="button" variant="secondary" onClick={() => setPreviewOpen(false)}>
-              Close
+          <DialogFooter className="flex items-center justify-between sm:justify-between">
+            <Button type="button" variant="outline" onClick={() => setTestEmailDialogOpen(false)} disabled={sendingTestEmail}>
+              Cancel
             </Button>
-          </div>
+            <Button type="button" className="bg-blue-600 hover:bg-blue-700" onClick={() => void sendTestEmail()} disabled={sendingTestEmail}>
+              {sendingTestEmail ? "Sending..." : "Send email"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

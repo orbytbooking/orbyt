@@ -23,6 +23,8 @@ export type IndustryExtraDependencyContext = {
   frequencyDepsLoaded: boolean;
   /** IDs listed on the Form 1 `industry_frequency.extras` for the selected frequency (only used when loaded). */
   frequencyFormAllowExtraIds: string[];
+  /** Optional direct selection tokens (e.g. Form 2 package names / Form 3 item names). */
+  selectedVariableOptionTokens?: string[];
 };
 
 /**
@@ -111,10 +113,18 @@ export function industryExtraPassesBookingDependencyRules(
   if (extra.show_based_on_variables) {
     const opts = Array.isArray(extra.variable_options) ? extra.variable_options : [];
     if (opts.length === 0) return false;
+    const directTokenSet = new Set(
+      (Array.isArray(ctx.selectedVariableOptionTokens) ? ctx.selectedVariableOptionTokens : [])
+        .map((t) => String(t).trim())
+        .filter((t) => t.length > 0),
+    );
     const anyMatch = opts.some((token) => {
       const s = String(token);
       const idx = s.indexOf(':');
-      if (idx < 0) return false;
+      if (idx < 0) {
+        // Form 2/3 add-ons can store direct package/item names instead of Category:Value tokens.
+        return directTokenSet.has(s.trim());
+      }
       const cat = s.slice(0, idx).trim();
       const paramName = s.slice(idx + 1).trim();
       if (!cat || !paramName) return false;

@@ -58,6 +58,21 @@ const FONT_SIZES: { label: string; value: string }[] = [
   { label: "32px", value: "32px" },
 ];
 
+function normalizeShortCodesToEditableText(html: string): string {
+  if (!html || typeof document === "undefined") return html;
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = html;
+
+  const shortcodeNodes = wrapper.querySelectorAll("span[data-shortcode='true'], span.merge-tag");
+  shortcodeNodes.forEach((node) => {
+    const text = (node.textContent || "").trim();
+    const replacementText = text || "{{email_body}}";
+    node.replaceWith(document.createTextNode(replacementText));
+  });
+
+  return wrapper.innerHTML;
+}
+
 function getDeletableBlockTable(table: HTMLTableElement, root: HTMLElement): HTMLTableElement | null {
   const block = table.closest("table[data-template-block]") as HTMLTableElement | null;
   if (block && root.contains(block)) return block;
@@ -110,7 +125,7 @@ export function NotificationTemplateBodyEditor({
       internalHtmlRef.current = null;
       return;
     }
-    el.innerHTML = value || "";
+    el.innerHTML = normalizeShortCodesToEditableText(value || "");
   }, [value]);
 
   const restoreSavedSelection = () => {
@@ -127,7 +142,10 @@ export function NotificationTemplateBodyEditor({
   const syncFromEditor = () => {
     const el = editorRef.current;
     if (!el) return;
-    const html = el.innerHTML;
+    const html = normalizeShortCodesToEditableText(el.innerHTML);
+    if (el.innerHTML !== html) {
+      el.innerHTML = html;
+    }
     internalHtmlRef.current = html;
     onChange(html);
   };

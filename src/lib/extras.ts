@@ -193,6 +193,15 @@ export interface CreateExtraData {
 
 export interface UpdateExtraData extends Partial<CreateExtraData> {}
 
+const EXTRA_FALLBACK_TABLES = [
+  'industry_form2_extras',
+  'industry_form2_addons',
+  'industry_form3_extras',
+  'industry_form3_addons',
+  'industry_form4_extras',
+  'industry_form5_extras',
+] as const;
+
 class ExtrasService {
   private supabase;
 
@@ -239,9 +248,17 @@ class ExtrasService {
 
   async getExtraById(
     id: string,
-    scope?: { business_id: string; industry_id: string },
+    scope?: {
+      business_id: string;
+      industry_id: string;
+      booking_form_scope?: BookingFormScope | null;
+      listing_kind?: IndustryExtraListingKind | null;
+    },
   ): Promise<Extra | null> {
-    let q = this.supabase.from('industry_extras').select('*').eq('id', id);
+    const preferredTable = scopedIndustryTable('industry_extras', scope?.booking_form_scope ?? null, {
+      listingKind: scope?.listing_kind ?? null,
+    });
+    let q = this.supabase.from(preferredTable).select('*').eq('id', id);
     if (scope?.business_id?.trim()) {
       q = q.eq('business_id', scope.business_id.trim());
     }
@@ -251,7 +268,10 @@ class ExtrasService {
     const { data, error } = await q.single();
 
     if (error?.code === 'PGRST116') {
-      const fallbackTables = ['industry_form2_extras', 'industry_form2_addons', 'industry_form4_extras', 'industry_form5_extras'];
+      const fallbackTables =
+        preferredTable === 'industry_extras'
+          ? EXTRA_FALLBACK_TABLES
+          : (['industry_extras', ...EXTRA_FALLBACK_TABLES] as const).filter((t) => t !== preferredTable);
       for (const table of fallbackTables) {
         let q2 = this.supabase.from(table).select('*').eq('id', id);
         if (scope?.business_id?.trim()) {
@@ -306,8 +326,7 @@ class ExtrasService {
     }
     let { data, error } = await q.select().single();
     if (error?.code === 'PGRST116') {
-      const fallbackTables = ['industry_form2_extras', 'industry_form2_addons', 'industry_form4_extras', 'industry_form5_extras'];
-      for (const table of fallbackTables) {
+      for (const table of EXTRA_FALLBACK_TABLES) {
         let q2 = this.supabase.from(table).update(updateData).eq('id', id);
         if (scope?.business_id?.trim()) {
           q2 = q2.eq('business_id', scope.business_id.trim());
@@ -348,8 +367,7 @@ class ExtrasService {
       throw error;
     }
     if (Array.isArray(data) && data.length > 0) return { deleted: true };
-    const fallbackTables = ['industry_form2_extras', 'industry_form2_addons', 'industry_form4_extras', 'industry_form5_extras'];
-    for (const table of fallbackTables) {
+    for (const table of EXTRA_FALLBACK_TABLES) {
       let q2 = this.supabase.from(table).delete().eq('id', id);
       if (scope?.business_id?.trim()) {
         q2 = q2.eq('business_id', scope.business_id.trim());
@@ -400,8 +418,7 @@ class ExtrasService {
       const r1 = await q.select('id');
       if (r1.error) throw r1.error;
       if ((r1.data?.length ?? 0) > 0) continue;
-      const fallbackTables = ['industry_form2_extras', 'industry_form2_addons', 'industry_form4_extras', 'industry_form5_extras'];
-      for (const table of fallbackTables) {
+      for (const table of EXTRA_FALLBACK_TABLES) {
         let q2 = this.supabase
           .from(table)
           .update({ sort_order })
