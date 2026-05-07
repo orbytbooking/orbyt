@@ -11,14 +11,17 @@ export function computeEffectiveServiceAndExtras(args: {
   selectedServiceListPrice?: number;
 }): { effectiveServiceTotal: number; extrasSubtotal: number } {
   let effectiveServiceTotal = args.variableSubtotal;
-  const { extrasSubtotal, fallbackServicePrice, selectedServiceListPrice } = args;
-  if (effectiveServiceTotal === 0 && extrasSubtotal === 0) {
+  const { fallbackServicePrice, selectedServiceListPrice } = args;
+  // When variable tiers yield $0 (e.g. Form 5 hourly with no sizing variables), the service line still
+  // uses fallback pricing (hourly × duration). Extras bill separately — do not withhold the base rate
+  // just because add-ons have a positive subtotal.
+  if (effectiveServiceTotal === 0) {
     effectiveServiceTotal = fallbackServicePrice;
   }
-  if (effectiveServiceTotal === 0 && extrasSubtotal === 0 && selectedServiceListPrice != null && selectedServiceListPrice > 0) {
+  if (effectiveServiceTotal === 0 && selectedServiceListPrice != null && selectedServiceListPrice > 0) {
     effectiveServiceTotal = selectedServiceListPrice;
   }
-  return { effectiveServiceTotal, extrasSubtotal };
+  return { effectiveServiceTotal, extrasSubtotal: args.extrasSubtotal };
 }
 
 export type CustomerFrequencyMeta = {

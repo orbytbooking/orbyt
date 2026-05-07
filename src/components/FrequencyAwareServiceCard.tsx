@@ -1023,8 +1023,9 @@ export default function FrequencyAwareServiceCard({
                 </div>
               )}
 
-              {/* Partial Cleaning Checkbox */}
-              {!isForm2Card && (
+              {/* Form 5 (hourly/catalog) mirrors admin: no partial cleaning or exclude-parameters. */}
+              {/* Partial Cleaning (Form 1-style only) */}
+              {!isForm2Card && !isForm5Card && (
                 <div className={styles.formField}>
                   <label className={styles.fieldLabel}>Partial Cleaning</label>
                   <div className="mt-2 flex items-center space-x-2">
@@ -1055,7 +1056,10 @@ export default function FrequencyAwareServiceCard({
               )}
 
               {/* Excluded Areas - use configured exclude parameters with +/- like Extras; respect qty_based and maximum_quantity */}
-              {!isForm2Card && customization.isPartialCleaning && filteredOptions.excludeParameters.length > 0 && (
+              {!isForm2Card &&
+                !isForm5Card &&
+                customization.isPartialCleaning &&
+                filteredOptions.excludeParameters.length > 0 && (
                 <div className={styles.formField}>
                   <label className={styles.fieldLabel}>Select areas to exclude from cleaning:</label>
                   <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">

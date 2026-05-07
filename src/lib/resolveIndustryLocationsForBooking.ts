@@ -47,6 +47,8 @@ export type ResolvedIndustryLocationLabels = {
   labels: string[];
   /** True when this industry has at least one linked `locations` row for the business. */
   hasLinkedLocations: boolean;
+  /** `locations.id` rows that matched zip/name lookup (subset of industry's linked rows). */
+  matchedLocationIds: string[];
 };
 
 /**
@@ -65,30 +67,39 @@ export async function resolveIndustryLocationLabelsForBookingInput(args: {
 }): Promise<ResolvedIndustryLocationLabels> {
   const rows = await fetchIndustryLocationsForBusiness(args.supabase, args.businessId, args.industryId);
   const hasLinkedLocations = rows.length > 0;
+  const emptyResult = (): ResolvedIndustryLocationLabels => ({
+    labels: [],
+    hasLinkedLocations,
+    matchedLocationIds: [],
+  });
   const withLabels = rows
     .map((r) => ({ ...r, label: marketingLocationDisplayLabel(r) }))
     .filter((r) => r.label.length > 0);
 
   if (args.mode === "none") {
-    return { labels: [], hasLinkedLocations };
+    return emptyResult();
   }
 
   if (args.mode === "name") {
     const q = args.input.trim().toLowerCase().replace(/\s+/g, " ");
-    if (q.length < 2) return { labels: [], hasLinkedLocations };
+    if (q.length < 2) return emptyResult();
     const out = new Set<string>();
+    const idOut = new Set<string>();
     for (const r of withLabels) {
       const L = r.label.toLowerCase().replace(/\s+/g, " ");
-      if (L === q || q.includes(L) || L.includes(q)) out.add(r.label);
+      if (L === q || q.includes(L) || L.includes(q)) {
+        out.add(r.label);
+        if (typeof r.id === "string" && r.id.trim().length > 0) idOut.add(String(r.id).trim());
+      }
     }
-    return { labels: Array.from(out), hasLinkedLocations };
+    return { labels: Array.from(out), hasLinkedLocations, matchedLocationIds: Array.from(idOut) };
   }
 
   const zip = args.input.trim().replace(/\s/g, "");
-  if (zip.length < 5) return { labels: [], hasLinkedLocations };
+  if (zip.length < 5) return emptyResult();
 
   const locationIds = rows.map((r) => r.id).filter(Boolean);
-  if (!locationIds.length) return { labels: [], hasLinkedLocations };
+  if (!locationIds.length) return emptyResult();
 
   let query = args.supabase
     .from("location_zip_codes")
@@ -107,10 +118,18 @@ export async function resolveIndustryLocationLabelsForBookingInput(args: {
       .filter((id): id is string => typeof id === "string" && id.length > 0)
   );
   const out = new Set<string>();
+  const matchedRows = new Set<string>();
   for (const r of withLabels) {
-    if (matchIds.has(r.id)) out.add(r.label);
+    if (matchIds.has(r.id)) {
+      out.add(r.label);
+      if (typeof r.id === "string" && String(r.id).trim().length > 0) matchedRows.add(String(r.id).trim());
+    }
   }
-  return { labels: Array.from(out), hasLinkedLocations };
+  return {
+    labels: Array.from(out),
+    hasLinkedLocations,
+    matchedLocationIds: Array.from(matchedRows),
+  };
 }
 
 /**

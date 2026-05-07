@@ -387,62 +387,363 @@ export default function NotificationsSettingsPage() {
     {
       id: "new_modified_booking",
       label: "New & modified booking",
-      items: [],
+      items: [
+        {
+          id: "admin_new_booking",
+          name: "New booking",
+          description: "This email notification is sent to you when you have a new booking.",
+        },
+        {
+          id: "admin_new_booking_via_referral",
+          name: "New booking via referral",
+          description: "This email notification is sent to you when you have a new booking via a referral.",
+        },
+        {
+          id: "admin_booking_modified",
+          name: "Booking modified",
+          description: "This email notification is sent to you when a booking has been modified.",
+        },
+        {
+          id: "admin_booking_modified_after_5pm",
+          name: "Booking modified after 5 pm",
+          description:
+            "This email notification is sent to you when a booking has been modified after 5 pm the day before the booking is to take place.",
+        },
+        {
+          id: "admin_booking_accepted",
+          name: "Booking accepted",
+          description: "This email notification is sent to you when the booking has been accepted.",
+        },
+        {
+          id: "admin_booking_declined",
+          name: "Booking declined",
+          description: "This email notification is sent to you when the booking has been declined.",
+        },
+      ],
     },
     {
       id: "cancel_postponed_booking",
       label: "Canceled & postponed booking",
-      items: [],
+      items: [
+        {
+          id: "admin_booking_canceled",
+          name: "Booking canceled",
+          description: "This email notification is sent to you when a booking has been canceled.",
+        },
+        {
+          id: "admin_booking_canceled_after_5pm",
+          name: "Booking canceled after 5 pm",
+          description:
+            "This email notification is sent to you when a booking has been canceled after 5 pm the day before the booking is to take place.",
+        },
+        {
+          id: "admin_booking_cancellation_request",
+          name: "Booking cancellation request",
+          description:
+            "This email notification is sent to you when the customer has sent a request to cancel their booking.",
+        },
+        {
+          id: "admin_booking_canceled_card_hold_failure",
+          name: "Booking canceled due to card hold failure",
+          description:
+            "This email notification is sent to you when a booking has been canceled due to the debit/credit card on hold has failed.",
+        },
+        {
+          id: "admin_postpone_booking",
+          name: "Postpone booking",
+          description:
+            "This email notification is sent to you when a customer has postponed their next upcoming booking.",
+        },
+      ],
     },
     {
       id: "unassigned_booking",
       label: "Unassigned booking",
-      items: [],
+      items: [
+        {
+          id: "admin_new_booking_unassigned_folder",
+          name: "New booking in unassigned folder",
+          description:
+            "This email notification is sent to you when there is a new booking that arrived in the unassigned folder.",
+        },
+        {
+          id: "admin_booking_moved_to_unassigned_folder",
+          name: "Booking moved to unassigned folder",
+          description:
+            "This email notification is sent to you when a booking is modified and subsequently moved to the unassigned folder.",
+        },
+        {
+          id: "admin_booking_modified_in_unassigned_folder",
+          name: "Booking modified in unassigned folder",
+          description:
+            "This email notification is sent to you when a booking was modified in the unassigned folder.",
+        },
+        {
+          id: "admin_someone_grabbed_job_unassigned_folder",
+          name: "Someone grabbed a job from unassigned folder",
+          description:
+            "This email notification is sent to you when a provider has accepted a job from the unassigned folder.",
+        },
+        {
+          id: "admin_unassigned_starting_lt_12h",
+          name: "Unassigned booking is starting in less than 12 hours",
+          description:
+            "This email notification is sent to you when a booking that is in the unassigned folder starts in less than 12 hours and it has not been paired with a provider yet.",
+        },
+        {
+          id: "admin_unassigned_starting_lt_4h",
+          name: "Unassigned booking is starting in less than 4 hours",
+          description:
+            "This email notification is sent to you when a booking that is in the unassigned folder starts in less than 4 hours and it has not been paired with a provider yet.",
+        },
+        {
+          id: "admin_unassigned_starting_lt_1h",
+          name: "Unassigned booking is starting in less than 1 hour",
+          description:
+            "This email notification is sent to you when a booking that is in the unassigned folder starts in less than 1 hour and it has not been paired with a provider yet.",
+        },
+      ],
     },
     {
       id: "reminders",
       label: "Reminders",
-      items: [],
+      items: [
+        {
+          id: "admin_job_reminders",
+          name: "Job reminders",
+          description: "This email notification is sent to you 24 hours before the booking is to start.",
+        },
+        {
+          id: "admin_email_reminder_to_admin",
+          name: "Email reminder to admin",
+          description:
+            "This email notification is sent to you when you set a job reminder while creating or editing a booking.",
+        },
+        {
+          id: "admin_bookings_cash_check_reminder",
+          name: "Bookings with cash/check reminder",
+          description:
+            "This email notification is sent to you when an upcoming booking has cash/check payment option.",
+        },
+      ],
     },
     {
       id: "booking_fee_charged",
       label: "Booking fee charged",
-      items: [],
+      items: [
+        {
+          id: "admin_cancellation_fee_charged_cash_check",
+          name: "Cancellation fee charged with cash/check",
+          description:
+            "This email notification is sent to you when the cancellation fee has been successfully charged using the cash/check method.",
+        },
+        {
+          id: "admin_canceled_after_1st_appointment_fee_cash_check",
+          name: "Canceled after 1st appointment fee charged with cash/check",
+          description:
+            "This email notification is sent to you when the cancellation fee for a booking that cancelled after the first appointment has been successfully charged using the cash/check method.",
+        },
+        {
+          id: "admin_tip_received_post_booking",
+          name: "Tip received (Post-Booking)",
+          description: "This email notification is sent to you when a tip has been charged post booking.",
+        },
+        {
+          id: "admin_extra_charge_charged_cash_check",
+          name: "Extra charge charged with cash/check",
+          description:
+            "This email notification is sent to you when an extra charge has been charged using the cash/check method.",
+        },
+      ],
     },
     {
       id: "payments_cards",
       label: "Payments/cards",
-      items: [],
+      items: [
+        {
+          id: "admin_declined_card",
+          name: "Declined card",
+          description: "This email notification is sent to you when a debit/credit card has declined.",
+        },
+        {
+          id: "admin_card_declined_on_hold",
+          name: "Card declined on hold",
+          description:
+            "This email notification is sent to you when a debit/credit card has declined when it is trying to place a hold for the booking amount.",
+        },
+        {
+          id: "admin_booking_modified_card_hold_failed",
+          name: "Booking modified but card hold failed",
+          description:
+            "This email notification is sent to you when there have been modifications made to the booking but the debit/credit card has declined when it is trying to place a hold for the booking amount.",
+        },
+        {
+          id: "admin_new_card_added_by_customer",
+          name: "New card added by customer",
+          description:
+            "This email notification is sent to you when a customer adds a new card along with the section it is added from. The card addition may happen from the following sections: 'invoice', 'link', or 'profile'.",
+        },
+        {
+          id: "admin_card_hold_amount_released",
+          name: "Card hold amount released",
+          description:
+            "This email notification is sent to you when a card hold released from payment processor directly.",
+        },
+      ],
     },
     {
       id: "rating_review",
       label: "Rating & review",
-      items: [],
+      items: [
+        {
+          id: "admin_new_review",
+          name: "New review",
+          description: "This email notification is sent to you when a provider gets rated for a job.",
+        },
+        {
+          id: "admin_poor_rating",
+          name: "Poor rating",
+          description:
+            "This email notification is sent to you when a provider has been rated 3 out of 5 or lower.",
+        },
+        {
+          id: "admin_poor_rating_twice_a_week",
+          name: "Poor rating twice a week",
+          description:
+            "This email notification is sent to you when a provider has been rated 3 out of 5 or lower twice in the same week.",
+        },
+        {
+          id: "admin_provider_overall_rating_dropped",
+          name: "Provider overall rating dropped",
+          description:
+            "This email notification is sent to you when a provider's overall rating has dropped below a 4 out of 5 and you will be notified each time it happens.",
+        },
+      ],
     },
     {
       id: "gift_card_referral",
       label: "Gift card & referral",
-      items: [],
+      items: [
+        {
+          id: "admin_new_gift_card_purchased",
+          name: "New gift card purchased",
+          description: "This email notification is sent to you when a new gift card has been purchased.",
+        },
+      ],
     },
     {
       id: "payment_processor",
       label: "Payment processor",
-      items: [],
+      items: [
+        {
+          id: "admin_payment_processor_account_pending",
+          name: "Payment processor account pending",
+          description:
+            "This email notification is sent to you when the provider's payment processor account has been created with restricted status due to insufficient information.",
+        },
+        {
+          id: "admin_payment_processor_account_verification_failed",
+          name: "Payment processor account verification failed",
+          description:
+            "This email notification is sent to you when the provider's payment processor account verification fails.",
+        },
+        {
+          id: "admin_payment_processor_account_connected",
+          name: "Payment processor account connected",
+          description:
+            "This email notification is sent to you when the provider's payment processor account has been successfully connected with your account.",
+        },
+        {
+          id: "admin_payment_processor_account_onboarding_completed",
+          name: "Payment processor account onboarding completed",
+          description:
+            "This email notification is sent to you when the onboarding process of the provider's payment processor account has been completed.",
+        },
+        {
+          id: "admin_payment_processor_account_restricted",
+          name: "Payment processor account restricted",
+          description:
+            "This email notification is sent to you when the provider's payment processor account becomes restricted.",
+        },
+      ],
     },
     {
       id: "schedule_settings",
       label: "Schedule & settings",
-      items: [],
+      items: [
+        {
+          id: "admin_settings_modification_request",
+          name: "Settings modification request",
+          description:
+            "This email notification is sent to you when a provider requests a modification to their settings.",
+        },
+        {
+          id: "admin_schedule_modification_request",
+          name: "Schedule modification request",
+          description:
+            "This email notification is sent to you when a provider requests a modification to their schedule.",
+        },
+        {
+          id: "admin_schedule_updated",
+          name: "Schedule updated",
+          description: "This email notification is sent to you when a provider has updated their schedule.",
+        },
+        {
+          id: "admin_settings_updated",
+          name: "Settings updated",
+          description: "This email notification is sent to you when a provider has updated their settings.",
+        },
+      ],
     },
     {
       id: "clock_in_out",
       label: "Clock in/clock out",
-      items: [],
+      items: [
+        {
+          id: "admin_provider_on_the_way",
+          name: "Provider on the way",
+          description:
+            "This email notification is sent to you when a provider clicks 'On the Way' button for booking, allowing real-time tracking and management.",
+        },
+        {
+          id: "admin_provider_not_on_the_way",
+          name: "Provider not on the way",
+          description:
+            "This email notification is sent to you when a provider has not clicked 'On the Way' button for their booking.",
+        },
+        {
+          id: "admin_booking_not_clocked_in",
+          name: "Booking not clocked in",
+          description: "This email notification is sent to you when a provider has not clocked in to their booking.",
+        },
+        {
+          id: "admin_booking_clocked_in",
+          name: "Booking clocked in",
+          description: "This email notification is sent to you when a provider has clocked in to their booking.",
+        },
+        {
+          id: "admin_booking_clocked_out",
+          name: "Booking clocked out",
+          description: "This email notification is sent to you when a provider has clocked out from their booking.",
+        },
+      ],
     },
     {
       id: "booking_reschedule_fee_charged_failed",
       label: "Booking reschedule fee charged & failed",
-      items: [],
+      items: [
+        {
+          id: "admin_booking_reschedule_fee_charged",
+          name: "Booking reschedule fee charged",
+          description: "This email notification is sent to you when the booking reschedule fee has been charged.",
+        },
+        {
+          id: "admin_booking_reschedule_fee_declined",
+          name: "Booking reschedule fee declined",
+          description:
+            "This email notification is sent to you when the booking rescheduling fee has declined.",
+        },
+      ],
     },
     {
       id: "checklist",
@@ -452,48 +753,451 @@ export default function NotificationsSettingsPage() {
     {
       id: "invoice",
       label: "Invoice",
-      items: [],
+      items: [
+        {
+          id: "admin_invoice_partial_charge",
+          name: "Invoice partial charge",
+          description: "This email notification is sent to you when an invoice has been partially charged.",
+        },
+        {
+          id: "admin_invoice_charge",
+          name: "Invoice charge",
+          description: "This email notification is sent to you when an invoice has been fully charged.",
+        },
+        {
+          id: "admin_invoice_card_declined",
+          name: "Invoice card declined",
+          description: "This email notification is sent to you when an invoice charge is declined.",
+        },
+        {
+          id: "admin_skip_invoice",
+          name: "Skip invoice",
+          description:
+            "This email notification is sent when an invoice is skipped due to the 'Create Booking and Send Invoice' setting. This can happen if a booking is charged, cancelled, or deleted, if a manual invoice was issued, or due to industry-specific scenarios with no active bookings at the time. The system skips the invoice generation when no valid bookings are found based on the selected settings.",
+        },
+        {
+          id: "admin_end_recurring_invoice_schedule",
+          name: "End recurring invoice schedule",
+          description:
+            "This email notification is sent to inform you when one or more recurring booking invoice schedules have been ended by the system due to no bookings or cancellations.",
+        },
+      ],
     },
     {
       id: "signup",
       label: "Signup",
-      items: [],
+      items: [
+        {
+          id: "admin_new_service_provider_signed_up",
+          name: "New service provider signed up",
+          description:
+            "This email notification is sent to you when someone has successfully signed up as a service provider.",
+        },
+        {
+          id: "admin_upgrade_plan_approve_new_provider",
+          name: "Upgrade plan to approve new service provider",
+          description:
+            "This email notification is sent to you when a new provider tries to sign up but your maximum provider limit for your current plan has been reached.",
+        },
+        {
+          id: "admin_review_provider_sign_up_request",
+          name: "Review provider sign up request",
+          description:
+            "This email notification is sent to you when a new provider signs up and you need to approve the request.",
+        },
+      ],
     },
   ];
 
-  const customerNotificationSections = [
-    { id: "account", label: "Account" },
-    { id: "new_modified_booking", label: "New & modified booking" },
-    { id: "canceled_booking", label: "Canceled booking" },
-    { id: "reminders", label: "Reminders" },
-    { id: "completed_booking", label: "Completed booking" },
-    { id: "booking_fee_charged_refund", label: "Booking fee charged & refund" },
-    { id: "card_declined", label: "Card declined" },
-    { id: "rating_review", label: "Rating & review" },
-    { id: "gift_card_referral", label: "Gift card & referral" },
-    { id: "quote", label: "Quote" },
-    { id: "customer_checklist", label: "Checklist" },
-    { id: "separate_charge", label: "Separate charge" },
-    { id: "customer_invoice", label: "Invoice" },
+  const customerNotificationSections: AdminNotificationSection[] = [
+    {
+      id: "account",
+      label: "Account",
+      items: [
+        {
+          id: "customer_new_account",
+          name: "New account",
+          description: "This email notification is sent to the customer when they have created their new account.",
+        },
+        {
+          id: "customer_set_up_new_password",
+          name: "Set up new password",
+          description: "This email notification is sent to the customer to set up a password for their account.",
+        },
+        {
+          id: "customer_reset_password",
+          name: "Reset password",
+          description: "This email notification is sent to the customer when they need to reset their password.",
+        },
+        {
+          id: "customer_password_changed",
+          name: "Password changed",
+          description: "This email notification is sent to the customer when their password has been successfully changed.",
+        },
+        {
+          id: "customer_profile_info_changed",
+          name: "Profile info changed",
+          description: "This email notification is sent to the customer when information in their profile has changed.",
+        },
+        {
+          id: "customer_activated",
+          name: "Customer activated",
+          description: "This email notification is sent to the customer letting them know that their account has been activated.",
+        },
+        {
+          id: "customer_deactivated",
+          name: "Customer deactivated",
+          description: "This email notification is sent to the customer letting them know that their account has been deactivated.",
+        },
+        {
+          id: "customer_add_card",
+          name: "Add card",
+          description: "This email notification is sent to the customer requesting them to add a card to their profile.",
+        },
+      ],
+    },
+    {
+      id: "new_modified_booking",
+      label: "New & modified booking",
+      items: [
+        {
+          id: "customer_receipt_email_one_time",
+          name: "Receipt email one-time",
+          description:
+            "This email notification is sent to the customer when they book a one-time booking using either card or cash/check.",
+        },
+        {
+          id: "customer_receipt_email_recurring",
+          name: "Receipt email recurring",
+          description:
+            "This email notification is sent to the customer when they book a recurring booking using either card or cash/check.",
+        },
+        {
+          id: "customer_booking_confirmed",
+          name: "Booking confirmed",
+          description:
+            "This email notification is sent to the customer when a booking has been confirmed by pairing a provider with that booking.",
+        },
+        {
+          id: "customer_booking_modified",
+          name: "Booking modified",
+          description:
+            "This email notification is sent to the customer letting them know that their booking has been modified.",
+        },
+      ],
+    },
+    {
+      id: "canceled_booking",
+      label: "Canceled booking",
+      items: [
+        {
+          id: "customer_booking_cancellation",
+          name: "Booking cancellation",
+          description:
+            "This email notification is sent to the customer letting them know that their booking has been cancelled.",
+        },
+        {
+          id: "customer_booking_canceled_card_hold_failure",
+          name: "Booking canceled due to card hold failure",
+          description:
+            "This email notification is sent to the customer when a booking has been canceled due to the debit/credit card on hold failing.",
+        },
+        {
+          id: "customer_never_found_a_provider",
+          name: "Never found a provider",
+          description:
+            "This email notification is sent to the customer when a provider was not found for their booking.",
+        },
+        {
+          id: "customer_cancellation_fee_authentication",
+          name: "Cancellation fee authentication",
+          description:
+            "This email notification is sent to the customer to authenticate their card for a cancellation fee.",
+        },
+      ],
+    },
+    { id: "reminders", label: "Reminders", items: [] },
+    {
+      id: "completed_booking",
+      label: "Completed booking",
+      items: [
+        {
+          id: "customer_leave_tip",
+          name: "Leave tip",
+          description: "This email notification is sent to the customer asking them to leave a tip.",
+        },
+      ],
+    },
+    {
+      id: "booking_fee_charged_refund",
+      label: "Booking fee charged & refund",
+      items: [
+        {
+          id: "customer_booking_charged",
+          name: "Booking charged",
+          description: "This email notification is sent to the customer when a booking has been successfully charged.",
+        },
+        {
+          id: "customer_service_receipt",
+          name: "Service receipt",
+          description: "This email notification is sent to the customer when we sent them a service receipt.",
+        },
+        {
+          id: "customer_fees_charged",
+          name: "Fees charged",
+          description:
+            "This email notification is sent to the customer when they have been charged a fee like a tip, cancellation, or extra.",
+        },
+        {
+          id: "customer_bookings_pre_paid",
+          name: "Bookings pre-paid",
+          description:
+            "This email notification is sent to the customer when they have been charged for pre-payment of booking(s).",
+        },
+        {
+          id: "customer_refund_given",
+          name: "Refund given",
+          description: "This email notification is sent to the customer when they have been given a refund.",
+        },
+        {
+          id: "customer_card_charge_authentication",
+          name: "Card charge authentication",
+          description:
+            "This email notification is sent to the customer to authenticate their card for a booking charge.",
+        },
+        {
+          id: "customer_pre_charge_authentication",
+          name: "Pre-charge authentication",
+          description:
+            "This email notification is sent to the customer to authenticate their card for pre-paid booking charges.",
+        },
+        {
+          id: "customer_bulk_bookings_charge",
+          name: "Bulk bookings charge",
+          description:
+            "This email notification is sent to the customer when a bulk charge is performed on their bookings.",
+        },
+        {
+          id: "customer_bulk_bookings_charge_authentication",
+          name: "Bulk bookings charge authentication",
+          description:
+            "This email notification is sent to the customer to authenticate their card for a bulk bookings charge.",
+        },
+      ],
+    },
+    {
+      id: "card_declined",
+      label: "Card declined",
+      items: [
+        {
+          id: "customer_card_declined",
+          name: "Card declined",
+          description: "This email notification is sent to the customer when their card declines.",
+        },
+        {
+          id: "customer_card_declined_on_hold",
+          name: "Card declined on hold",
+          description:
+            "This email notification is sent to the customer when their card declines during the card hold process.",
+        },
+        {
+          id: "customer_booking_modified_card_hold_failed",
+          name: "Booking modified but card hold failed",
+          description:
+            "This email notification is sent to the customer when there have been modifications made to the booking but the debit/credit card has declined when it is trying to place a hold for the booking amount.",
+        },
+        {
+          id: "customer_card_hold_authentication",
+          name: "Card hold authentication",
+          description:
+            "This email notification is sent to the customer to authenticate their card for a card hold/pre-authorization for their upcoming booking.",
+        },
+      ],
+    },
+    { id: "rating_review", label: "Rating & review", items: [] },
+    {
+      id: "gift_card_referral",
+      label: "Gift card & referral",
+      items: [
+        {
+          id: "customer_gift_card_receipt",
+          name: "Gift card receipt",
+          description: "This email notification is sent to the customer after they purchase a gift card.",
+        },
+        {
+          id: "customer_new_gift_card",
+          name: "New gift card",
+          description: "This email notification is sent to the customer when they have received a new gift card.",
+        },
+        {
+          id: "customer_gift_card_refund_given",
+          name: "Gift card refund given",
+          description: "This email notification is sent to the customer when they have been given a refund for a gift card.",
+        },
+        {
+          id: "customer_gift_card_value_updated",
+          name: "Gift card value updated",
+          description:
+            "This email notification is sent to the customer when a gift card sent to them is partially refunded.",
+        },
+        {
+          id: "customer_gift_card_expired",
+          name: "Gift card expired",
+          description:
+            "This email notification is sent to the customer when a gift card sent to them is fully refunded and has no amount left to be used.",
+        },
+        {
+          id: "customer_referral_invitation",
+          name: "Referral invitation",
+          description:
+            "This email notification is sent to the customer when someone sent them referral credits.",
+        },
+        {
+          id: "customer_referral_accepted",
+          name: "Referral accepted",
+          description:
+            "This email notification is sent to the customer when someone booked using their referral link.",
+        },
+        {
+          id: "customer_earned_referral_credits",
+          name: "Earned referral credits",
+          description: "This email notification is sent to the customer when they earned referral credits.",
+        },
+        {
+          id: "customer_gift_card_authentication",
+          name: "Gift card authentication",
+          description:
+            "This email notification is sent to the customer to authenticate their credit card and finalize the purchase of their gift card.",
+        },
+      ],
+    },
+    { id: "quote", label: "Quote", items: [] },
+    { id: "customer_checklist", label: "Checklist", items: [] },
+    { id: "separate_charge", label: "Separate charge", items: [] },
+    { id: "customer_invoice", label: "Invoice", items: [] },
   ];
 
-  const providerNotificationSections = [
-    { id: "account", label: "Account" },
-    { id: "drive", label: "Drive" },
-    { id: "new_modified_booking", label: "New & modified booking" },
-    { id: "cancel_postponed_booking", label: "Canceled & postponed booking" },
-    { id: "unassigned_booking", label: "Unassigned booking" },
-    { id: "reminders", label: "Reminders" },
-    { id: "rating_review", label: "Rating & review" },
-    { id: "payments", label: "Payments" },
-    { id: "payment_processor", label: "Payment processor" },
-    { id: "schedule_settings", label: "Schedule & settings" },
-    { id: "checklist", label: "Checklist" },
+  const providerNotificationSections: AdminNotificationSection[] = [
+    {
+      id: "account",
+      label: "Account",
+      items: [
+        {
+          id: "provider_new_account",
+          name: "New account",
+          description: "This email notification is sent to the provider when their account has been created.",
+        },
+        {
+          id: "provider_how_it_works",
+          name: "How it works",
+          description:
+            "This email notification is sent to the provider letting them know of all the things their new account can do.",
+        },
+        {
+          id: "provider_reset_password",
+          name: "Reset password",
+          description: "This email notification is sent to the provider when they need to reset their password.",
+        },
+        {
+          id: "provider_password_changed",
+          name: "Password changed",
+          description:
+            "This email notification is sent to the provider when their password has been successfully changed.",
+        },
+        {
+          id: "provider_account_activated",
+          name: "Account activated",
+          description: "This email notification is sent to the provider when their account has been activated.",
+        },
+        {
+          id: "provider_account_deactivated",
+          name: "Account deactivated",
+          description: "This email notification is sent to the provider when their account has been deactivated.",
+        },
+        {
+          id: "provider_sign_up_email_verification",
+          name: "Provider sign up email verification",
+          description: "This email notification is sent to the provider for email verification upon sign up.",
+        },
+        {
+          id: "provider_sign_up_request_submitted",
+          name: "Provider sign up request submitted",
+          description:
+            "This email notification is sent to the provider when their sign up request has been submitted.",
+        },
+        {
+          id: "provider_sign_up_request_rejected",
+          name: "Provider sign up request rejected",
+          description:
+            "This email notification is sent to the provider when their sign up request has been rejected.",
+        },
+      ],
+    },
+    { id: "drive", label: "Drive", items: [] },
+    { id: "new_modified_booking", label: "New & modified booking", items: [] },
+    { id: "cancel_postponed_booking", label: "Canceled & postponed booking", items: [] },
+    { id: "unassigned_booking", label: "Unassigned booking", items: [] },
+    { id: "reminders", label: "Reminders", items: [] },
+    { id: "rating_review", label: "Rating & review", items: [] },
+    { id: "payments", label: "Payments", items: [] },
+    { id: "payment_processor", label: "Payment processor", items: [] },
+    { id: "schedule_settings", label: "Schedule & settings", items: [] },
+    { id: "checklist", label: "Checklist", items: [] },
   ];
 
-  const staffNotificationSections = [
-    { id: "account", label: "Account" },
-    { id: "general", label: "General" },
+  const staffNotificationSections: AdminNotificationSection[] = [
+    {
+      id: "account",
+      label: "Account",
+      items: [
+        {
+          id: "staff_new_account",
+          name: "New account",
+          description:
+            "This email notification is sent to the staff member when their new account has been created and to create a password.",
+        },
+        {
+          id: "staff_how_it_works",
+          name: "How it works",
+          description:
+            "This email notification is sent to the staff member notifying them of what can be done in their account.",
+        },
+        {
+          id: "staff_reset_password",
+          name: "Reset password",
+          description: "This email notification is sent to the staff member notifying them to change their password.",
+        },
+        {
+          id: "staff_password_changed",
+          name: "Password changed",
+          description: "This email notification is sent to the staff member when their password has been changed.",
+        },
+        {
+          id: "staff_account_activated",
+          name: "Account activated",
+          description:
+            "This email notification is sent to the staff member notifying them that their account has been activated.",
+        },
+        {
+          id: "staff_account_deactivated",
+          name: "Account deactivated",
+          description:
+            "This email notification is sent to the staff member notifying them that their account has been deactivated.",
+        },
+      ],
+    },
+    {
+      id: "general",
+      label: "General",
+      items: [
+        {
+          id: "staff_google_calendar_failed_sync",
+          name: "Google calendar failed sync",
+          description:
+            "This email notification is sent to the staff member when the bookings sync to their Google Calendar fails.",
+        },
+      ],
+    },
   ];
 
   const getTemplateForNotification = (notificationName: string) =>
@@ -898,6 +1602,7 @@ export default function NotificationsSettingsPage() {
                                             {section.items.map((item) => {
                                               const matchedTemplate = getTemplateForNotification(item.name);
                                               const hasTemplate = Boolean(matchedTemplate);
+                                              const isEnabled = matchedTemplate?.enabled ?? false;
                                               return (
                                                 <TableRow key={item.id}>
                                                   <TableCell>
@@ -905,13 +1610,29 @@ export default function NotificationsSettingsPage() {
                                                       <Badge
                                                         variant="secondary"
                                                         className={
-                                                          hasTemplate
+                                                          isEnabled
                                                             ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                                                             : "bg-muted text-muted-foreground border border-border"
                                                         }
                                                       >
-                                                        {hasTemplate ? "Enabled" : "Disabled"}
+                                                        {isEnabled ? "Enabled" : "Disabled"}
                                                       </Badge>
+                                                      <Toggle
+                                                        checked={isEnabled}
+                                                        onCheckedChange={(checked) => {
+                                                          if (matchedTemplate) {
+                                                            void setTemplateEnabled(matchedTemplate.id, checked);
+                                                            return;
+                                                          }
+
+                                                          if (checked) {
+                                                            router.push(
+                                                              `/admin/settings/notifications/new?name=${encodeURIComponent(item.name)}`,
+                                                            );
+                                                          }
+                                                        }}
+                                                        aria-label={`Toggle ${item.name} notification`}
+                                                      />
                                                     </div>
                                                   </TableCell>
                                                   <TableCell className="text-sm">{item.name}</TableCell>
@@ -965,8 +1686,89 @@ export default function NotificationsSettingsPage() {
                                   </span>
                                 </CollapsibleTrigger>
                                 <CollapsibleContent className="overflow-visible">
-                                  <div className="px-4 pb-4 pt-0 text-sm text-muted-foreground">
-                                    {/* Placeholder for future toggle/email template options */}
+                                  <div className="px-4 pb-4 pt-0">
+                                    {section.items.length === 0 ? (
+                                      <p className="text-sm text-muted-foreground py-2">No notifications in this category yet.</p>
+                                    ) : (
+                                      <div className="rounded-md border bg-background overflow-hidden">
+                                        <Table>
+                                          <TableHeader>
+                                            <TableRow>
+                                              <TableHead className="w-[100px]">Status</TableHead>
+                                              <TableHead className="w-[280px]">Name</TableHead>
+                                              <TableHead>Description</TableHead>
+                                              <TableHead className="w-[90px] text-right">Action</TableHead>
+                                            </TableRow>
+                                          </TableHeader>
+                                          <TableBody>
+                                            {section.items.map((item) => {
+                                              const matchedTemplate = getTemplateForNotification(item.name);
+                                              const hasTemplate = Boolean(matchedTemplate);
+                                              const isEnabled = matchedTemplate?.enabled ?? false;
+                                              return (
+                                                <TableRow key={item.id}>
+                                                  <TableCell>
+                                                    <div className="flex items-center gap-2">
+                                                      <Badge
+                                                        variant="secondary"
+                                                        className={
+                                                          isEnabled
+                                                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                                            : "bg-muted text-muted-foreground border border-border"
+                                                        }
+                                                      >
+                                                        {isEnabled ? "Enabled" : "Disabled"}
+                                                      </Badge>
+                                                      <Toggle
+                                                        checked={isEnabled}
+                                                        onCheckedChange={(checked) => {
+                                                          if (matchedTemplate) {
+                                                            void setTemplateEnabled(matchedTemplate.id, checked);
+                                                            return;
+                                                          }
+
+                                                          if (checked) {
+                                                            router.push(
+                                                              `/admin/settings/notifications/new?name=${encodeURIComponent(item.name)}`,
+                                                            );
+                                                          }
+                                                        }}
+                                                        aria-label={`Toggle ${item.name} notification`}
+                                                      />
+                                                    </div>
+                                                  </TableCell>
+                                                  <TableCell className="text-sm">{item.name}</TableCell>
+                                                  <TableCell className="text-sm text-muted-foreground">{item.description}</TableCell>
+                                                  <TableCell className="text-right">
+                                                    {hasTemplate && matchedTemplate ? (
+                                                      <Button
+                                                        variant="link"
+                                                        className="h-auto p-0"
+                                                        onClick={() => goToEditTemplate(matchedTemplate.id)}
+                                                      >
+                                                        Edit
+                                                      </Button>
+                                                    ) : (
+                                                      <Button
+                                                        variant="link"
+                                                        className="h-auto p-0"
+                                                        onClick={() =>
+                                                          router.push(
+                                                            `/admin/settings/notifications/new?name=${encodeURIComponent(item.name)}`,
+                                                          )
+                                                        }
+                                                      >
+                                                        Add
+                                                      </Button>
+                                                    )}
+                                                  </TableCell>
+                                                </TableRow>
+                                              );
+                                            })}
+                                          </TableBody>
+                                        </Table>
+                                      </div>
+                                    )}
                                   </div>
                                 </CollapsibleContent>
                               </Collapsible>
@@ -986,8 +1788,89 @@ export default function NotificationsSettingsPage() {
                                   </span>
                                 </CollapsibleTrigger>
                                 <CollapsibleContent className="overflow-visible">
-                                  <div className="px-4 pb-4 pt-0 text-sm text-muted-foreground">
-                                    {/* Placeholder for future toggle/email template options */}
+                                  <div className="px-4 pb-4 pt-0">
+                                    {section.items.length === 0 ? (
+                                      <p className="text-sm text-muted-foreground py-2">No notifications in this category yet.</p>
+                                    ) : (
+                                      <div className="rounded-md border bg-background overflow-hidden">
+                                        <Table>
+                                          <TableHeader>
+                                            <TableRow>
+                                              <TableHead className="w-[100px]">Status</TableHead>
+                                              <TableHead className="w-[280px]">Name</TableHead>
+                                              <TableHead>Description</TableHead>
+                                              <TableHead className="w-[90px] text-right">Action</TableHead>
+                                            </TableRow>
+                                          </TableHeader>
+                                          <TableBody>
+                                            {section.items.map((item) => {
+                                              const matchedTemplate = getTemplateForNotification(item.name);
+                                              const hasTemplate = Boolean(matchedTemplate);
+                                              const isEnabled = matchedTemplate?.enabled ?? false;
+                                              return (
+                                                <TableRow key={item.id}>
+                                                  <TableCell>
+                                                    <div className="flex items-center gap-2">
+                                                      <Badge
+                                                        variant="secondary"
+                                                        className={
+                                                          isEnabled
+                                                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                                            : "bg-muted text-muted-foreground border border-border"
+                                                        }
+                                                      >
+                                                        {isEnabled ? "Enabled" : "Disabled"}
+                                                      </Badge>
+                                                      <Toggle
+                                                        checked={isEnabled}
+                                                        onCheckedChange={(checked) => {
+                                                          if (matchedTemplate) {
+                                                            void setTemplateEnabled(matchedTemplate.id, checked);
+                                                            return;
+                                                          }
+
+                                                          if (checked) {
+                                                            router.push(
+                                                              `/admin/settings/notifications/new?name=${encodeURIComponent(item.name)}`,
+                                                            );
+                                                          }
+                                                        }}
+                                                        aria-label={`Toggle ${item.name} notification`}
+                                                      />
+                                                    </div>
+                                                  </TableCell>
+                                                  <TableCell className="text-sm">{item.name}</TableCell>
+                                                  <TableCell className="text-sm text-muted-foreground">{item.description}</TableCell>
+                                                  <TableCell className="text-right">
+                                                    {hasTemplate && matchedTemplate ? (
+                                                      <Button
+                                                        variant="link"
+                                                        className="h-auto p-0"
+                                                        onClick={() => goToEditTemplate(matchedTemplate.id)}
+                                                      >
+                                                        Edit
+                                                      </Button>
+                                                    ) : (
+                                                      <Button
+                                                        variant="link"
+                                                        className="h-auto p-0"
+                                                        onClick={() =>
+                                                          router.push(
+                                                            `/admin/settings/notifications/new?name=${encodeURIComponent(item.name)}`,
+                                                          )
+                                                        }
+                                                      >
+                                                        Add
+                                                      </Button>
+                                                    )}
+                                                  </TableCell>
+                                                </TableRow>
+                                              );
+                                            })}
+                                          </TableBody>
+                                        </Table>
+                                      </div>
+                                    )}
                                   </div>
                                 </CollapsibleContent>
                               </Collapsible>
@@ -1007,29 +1890,89 @@ export default function NotificationsSettingsPage() {
                                   </span>
                                 </CollapsibleTrigger>
                                 <CollapsibleContent className="overflow-visible">
-                                  <div className="px-4 pb-4 pt-0 text-sm text-muted-foreground">
-                                    {/* Placeholder for future toggle/email template options */}
-                                  </div>
-                                </CollapsibleContent>
-                              </Collapsible>
-                            ))}
-                          </div>
-                        ) : role === "staff" ? (
-                          <div className="rounded-lg border bg-card overflow-hidden">
-                            {staffNotificationSections.map((section) => (
-                              <Collapsible key={section.id} className="group">
-                                <CollapsibleTrigger className="flex w-full items-center justify-between py-3 px-4 text-left font-semibold text-sm hover:bg-muted/50 transition-colors shrink-0">
-                                  <span>{section.label}</span>
-                                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-background group-data-[state=open]:hidden">
-                                    <Plus className="h-3.5 w-3.5 text-muted-foreground" />
-                                  </span>
-                                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-background hidden group-data-[state=open]:flex">
-                                    <Minus className="h-3.5 w-3.5 text-muted-foreground" />
-                                  </span>
-                                </CollapsibleTrigger>
-                                <CollapsibleContent className="overflow-visible">
-                                  <div className="px-4 pb-4 pt-0 text-sm text-muted-foreground">
-                                    {/* Placeholder for future SMS toggle/options */}
+                                  <div className="px-4 pb-4 pt-0">
+                                    {section.items.length === 0 ? (
+                                      <p className="text-sm text-muted-foreground py-2">No notifications in this category yet.</p>
+                                    ) : (
+                                      <div className="rounded-md border bg-background overflow-hidden">
+                                        <Table>
+                                          <TableHeader>
+                                            <TableRow>
+                                              <TableHead className="w-[100px]">Status</TableHead>
+                                              <TableHead className="w-[280px]">Name</TableHead>
+                                              <TableHead>Description</TableHead>
+                                              <TableHead className="w-[90px] text-right">Action</TableHead>
+                                            </TableRow>
+                                          </TableHeader>
+                                          <TableBody>
+                                            {section.items.map((item) => {
+                                              const matchedTemplate = getTemplateForNotification(item.name);
+                                              const hasTemplate = Boolean(matchedTemplate);
+                                              const isEnabled = matchedTemplate?.enabled ?? false;
+                                              return (
+                                                <TableRow key={item.id}>
+                                                  <TableCell>
+                                                    <div className="flex items-center gap-2">
+                                                      <Badge
+                                                        variant="secondary"
+                                                        className={
+                                                          isEnabled
+                                                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                                            : "bg-muted text-muted-foreground border border-border"
+                                                        }
+                                                      >
+                                                        {isEnabled ? "Enabled" : "Disabled"}
+                                                      </Badge>
+                                                      <Toggle
+                                                        checked={isEnabled}
+                                                        onCheckedChange={(checked) => {
+                                                          if (matchedTemplate) {
+                                                            void setTemplateEnabled(matchedTemplate.id, checked);
+                                                            return;
+                                                          }
+
+                                                          if (checked) {
+                                                            router.push(
+                                                              `/admin/settings/notifications/new?name=${encodeURIComponent(item.name)}`,
+                                                            );
+                                                          }
+                                                        }}
+                                                        aria-label={`Toggle ${item.name} notification`}
+                                                      />
+                                                    </div>
+                                                  </TableCell>
+                                                  <TableCell className="text-sm">{item.name}</TableCell>
+                                                  <TableCell className="text-sm text-muted-foreground">{item.description}</TableCell>
+                                                  <TableCell className="text-right">
+                                                    {hasTemplate && matchedTemplate ? (
+                                                      <Button
+                                                        variant="link"
+                                                        className="h-auto p-0"
+                                                        onClick={() => goToEditTemplate(matchedTemplate.id)}
+                                                      >
+                                                        Edit
+                                                      </Button>
+                                                    ) : (
+                                                      <Button
+                                                        variant="link"
+                                                        className="h-auto p-0"
+                                                        onClick={() =>
+                                                          router.push(
+                                                            `/admin/settings/notifications/new?name=${encodeURIComponent(item.name)}`,
+                                                          )
+                                                        }
+                                                      >
+                                                        Add
+                                                      </Button>
+                                                    )}
+                                                  </TableCell>
+                                                </TableRow>
+                                              );
+                                            })}
+                                          </TableBody>
+                                        </Table>
+                                      </div>
+                                    )}
                                   </div>
                                 </CollapsibleContent>
                               </Collapsible>

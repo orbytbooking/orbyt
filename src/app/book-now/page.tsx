@@ -1627,8 +1627,15 @@ function BookingPageContent() {
     inputKey: string;
     loading: boolean;
     labels: string[];
+    matchedLocationIds: string[];
     hasLinkedLocations: boolean;
-  }>({ inputKey: "", loading: false, labels: [], hasLinkedLocations: false });
+  }>({
+    inputKey: "",
+    loading: false,
+    labels: [],
+    matchedLocationIds: [],
+    hasLinkedLocations: false,
+  });
   const locationResolveRequestIdRef = useRef(0);
 
   useEffect(() => {
@@ -1693,6 +1700,7 @@ function BookingPageContent() {
       inputKey: "",
       loading: false,
       labels: [],
+      matchedLocationIds: [],
       hasLinkedLocations: false,
     });
   }, [selectedIndustryId, businessIdFromUrl, locationManagement]);
@@ -1723,6 +1731,7 @@ function BookingPageContent() {
         inputKey: locationInputKey,
         loading: false,
         labels: [],
+        matchedLocationIds: [],
         hasLinkedLocations: industryServiceAreaMeta?.hasLinkedLocations ?? false,
       });
       return;
@@ -1746,10 +1755,16 @@ function BookingPageContent() {
         .then((r) => (r.ok ? r.json() : null))
         .then((j) => {
           if (myId !== locationResolveRequestIdRef.current) return;
+          const labelsNorm = Array.isArray(j?.labels) ? j.labels.map((x: unknown) => String(x)) : [];
+          const idNorm =
+            Array.isArray((j as { matchedLocationIds?: unknown })?.matchedLocationIds)
+              ? (j as { matchedLocationIds: unknown[] }).matchedLocationIds.map((x: unknown) => String(x))
+              : [];
           setLocationResolve({
             inputKey: locationInputKey,
             loading: false,
-            labels: Array.isArray(j?.labels) ? j.labels : [],
+            labels: labelsNorm,
+            matchedLocationIds: idNorm.filter((x) => x.trim().length > 0),
             hasLinkedLocations: Boolean(j?.hasLinkedLocations),
           });
         })
@@ -1759,6 +1774,7 @@ function BookingPageContent() {
             inputKey: locationInputKey,
             loading: false,
             labels: [],
+            matchedLocationIds: [],
             hasLinkedLocations: industryServiceAreaMeta?.hasLinkedLocations ?? false,
           });
         });
@@ -1850,7 +1866,7 @@ function BookingPageContent() {
       return;
     }
 
-    if (needsLocationBeforeServices) {
+    if (needsLocationBeforeServices && bookingFormScopeForCatalog !== "form5") {
       setServiceCategories([]);
       setServiceCategoriesLoading(false);
       return;
@@ -1908,22 +1924,42 @@ function BookingPageContent() {
             ? mapped.filter((svc) => {
                 const dep = (svc.raw as any)?.extras_config?.form5LocationDependency;
                 if (!dep?.enabled) return true;
+                // Only enforce location dependency when this industry has linked locations.
+                if (!locationResolve.hasLinkedLocations) return true;
                 const allowedNamesRaw = Array.isArray(dep.locationNames) ? dep.locationNames : [];
-                const allowed = allowedNamesRaw
+                const allowedIdsRaw = Array.isArray(dep.locationIds) ? dep.locationIds : [];
+                const allowedNames = allowedNamesRaw
                   .map((x: unknown) => String(x).trim().toLowerCase())
                   .filter((x: string) => x.length > 0);
-                const resolved = locationResolve.labels
-                  .map((x) => String(x).trim().toLowerCase())
-                  .filter((x) => x.length > 0);
-                // Only enforce location dependency when this industry has linked locations.
-                // If not linked yet, avoid hiding all configured services.
-                if (!locationResolve.hasLinkedLocations) return true;
-                // Backward compatibility: older rows may only have locationIds (no names yet).
-                // In that case, fail open so configured services still show.
-                if (allowed.length === 0) return true;
-                if (resolved.length === 0) return false;
-                const resolvedSet = new Set(resolved);
-                return allowed.some((name: string) => resolvedSet.has(name));
+                const allowedIds = allowedIdsRaw
+                  .map((x: unknown) => String(x).trim().toLowerCase())
+                  .filter((x: string) => x.length > 0);
+                // Backward compatibility: no targeting stored — show everywhere.
+                if (allowedNames.length === 0 && allowedIds.length === 0) return true;
+                // Until the customer's zip/city resolves for the current industry, don't hide offerings.
+                const locationLookupPending =
+                  !locationInputMeetsMinLength ||
+                  locationResolve.loading ||
+                  locationResolve.inputKey !== locationInputKey;
+                if (locationLookupPending) return true;
+                const resolvedNameSet = new Set(
+                  locationResolve.labels
+                    .map((x) => String(x).trim().toLowerCase())
+                    .filter((x: string) => x.length > 0),
+                );
+                const resolvedIdSet = new Set(
+                  (locationResolve.matchedLocationIds ?? [])
+                    .map((x) => String(x).trim().toLowerCase())
+                    .filter((x: string) => x.length > 0),
+                );
+                if (resolvedNameSet.size === 0 && resolvedIdSet.size === 0) return false;
+                const nameHit =
+                  allowedNames.length > 0 &&
+                  allowedNames.some((name: string) => resolvedNameSet.has(name));
+                const idHit =
+                  allowedIds.length > 0 &&
+                  allowedIds.some((id: string) => resolvedIdSet.has(id.toLowerCase()));
+                return Boolean(nameHit || idHit);
               })
             : mapped;
 
@@ -1953,6 +1989,9 @@ function BookingPageContent() {
     locationResolve.inputKey,
     locationResolve.loading,
     locationResolve.labels,
+    locationResolve.matchedLocationIds,
+    locationInputMeetsMinLength,
+    locationInputKey,
   ]);
 
   useEffect(() => {
@@ -2163,11 +2202,13 @@ function BookingPageContent() {
       const shouldApplyDeps =
         bookingFormScopeForCatalog === "form2" || Boolean(raw?.service_category_frequency);
       if (!shouldApplyDeps) return true;
-      if (!serviceListFrequencyDeps) return false;
+      // Match `filterServiceCategories` semantics: deps still loading — don't suppress catalog yet.
+      if (!serviceListFrequencyDeps) return true;
       const allowed = Array.isArray(serviceListFrequencyDeps.serviceCategories)
         ? serviceListFrequencyDeps.serviceCategories.map((x) => String(x))
         : [];
-      if (allowed.length === 0) return false;
+      // Empty `service_categories` on the frequency row means "do not restrict by category".
+      if (allowed.length === 0) return true;
       return allowed.includes(String(raw.id));
     });
   }, [
@@ -3354,9 +3395,9 @@ function BookingPageContent() {
         bedroom: serviceCustomization.bedroom,
         bathroom: serviceCustomization.bathroom,
         extras: serviceCustomization.extras && serviceCustomization.extras.length > 0 ? formatExtrasForStorage(serviceCustomization.extras) : ["None"],
-        isPartialCleaning: serviceCustomization.isPartialCleaning,
-        excludedAreas: serviceCustomization.excludedAreas,
-        excludeQuantities: serviceCustomization.excludeQuantities ?? {},
+        isPartialCleaning: bookingFormScopeForCatalog === "form5" ? false : !!serviceCustomization.isPartialCleaning,
+        excludedAreas: bookingFormScopeForCatalog === "form5" ? [] : serviceCustomization.excludedAreas,
+        excludeQuantities: bookingFormScopeForCatalog === "form5" ? {} : serviceCustomization.excludeQuantities ?? {},
         variableCategories: serviceCustomization.variableCategories ?? {},
         bookingHours: serviceCustomization.bookingHours ?? "0",
         bookingMinutes: serviceCustomization.bookingMinutes ?? "0",
@@ -4175,9 +4216,9 @@ function BookingPageContent() {
       selectedServiceListPrice: selectedService?.price,
     });
     const partialCleaningDiscount = computePartialCleaningDiscount(
-      Boolean(serviceCustomization.isPartialCleaning),
-      serviceCustomization.excludedAreas,
-      serviceCustomization.excludeQuantities,
+      bookingFormScopeForCatalog === "form5" ? false : Boolean(serviceCustomization.isPartialCleaning),
+      bookingFormScopeForCatalog === "form5" ? [] : serviceCustomization.excludedAreas,
+      bookingFormScopeForCatalog === "form5" ? undefined : serviceCustomization.excludeQuantities,
       excludeParametersList,
     );
     const selectedFreq = serviceCustomization.frequency?.trim() || "";
@@ -4503,9 +4544,9 @@ function BookingPageContent() {
         bedroom: serviceCustomization.bedroom,
         bathroom: serviceCustomization.bathroom,
         extras: serviceCustomization.extras?.length ? formatExtrasForStorage(serviceCustomization.extras) : ["None"],
-        isPartialCleaning: serviceCustomization.isPartialCleaning,
-        excludedAreas: serviceCustomization.excludedAreas,
-        excludeQuantities: serviceCustomization.excludeQuantities ?? {},
+        isPartialCleaning: bookingFormScopeForCatalog === "form5" ? false : !!serviceCustomization.isPartialCleaning,
+        excludedAreas: bookingFormScopeForCatalog === "form5" ? [] : serviceCustomization.excludedAreas,
+        excludeQuantities: bookingFormScopeForCatalog === "form5" ? {} : serviceCustomization.excludeQuantities ?? {},
         variableCategories: serviceCustomization.variableCategories ?? {},
         bookingHours: serviceCustomization.bookingHours ?? "0",
         bookingMinutes: serviceCustomization.bookingMinutes ?? "0",

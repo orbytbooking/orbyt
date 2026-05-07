@@ -42,7 +42,8 @@ export async function GET(request: NextRequest) {
 
   const useWildcardZip = opts?.wildcard_zip_enabled !== false;
 
-  const { labels, hasLinkedLocations } = await resolveIndustryLocationLabelsForBookingInput({
+  const { labels, hasLinkedLocations, matchedLocationIds } =
+    await resolveIndustryLocationLabelsForBookingInput({
     supabase: supabaseAdmin,
     businessId,
     industryId,
@@ -51,5 +52,5 @@ export async function GET(request: NextRequest) {
     useWildcardZip,
   });
 
-  return NextResponse.json({ labels, hasLinkedLocations, mode });
+  return NextResponse.json({ labels, hasLinkedLocations, matchedLocationIds, mode });
 }
