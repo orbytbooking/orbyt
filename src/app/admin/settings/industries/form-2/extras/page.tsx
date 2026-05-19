@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -12,8 +12,17 @@ import { ChevronDown, Info, Loader2 } from "lucide-react";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { toast } from "sonner";
 import {
-  parseListingKindParam,
-} from "@/lib/bookingFormScope";
+  FORM2_CATALOG_SCOPE,
+  resolveForm2ListingKind,
+} from "@/lib/form2CatalogScope";
+import {
+  FORM2_ADDONS_REORDER_URL,
+  form2AddonsListUrl,
+} from "@/lib/form2AddonsApi";
+import {
+  FORM2_EXTRAS_REORDER_URL,
+  form2ExtrasListUrl,
+} from "@/lib/form2ExtrasApi";
 
 type Extra = {
   id: string;
@@ -43,14 +52,13 @@ type Extra = {
 
 export default function IndustryFormExtrasPage() {
   const params = useSearchParams();
+  const pathname = usePathname();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
   const industryIdFromUrl = params.get("industryId");
-  const bookingFormScope = "form2" as const;
-  const listingKindFilter = parseListingKindParam(params.get("listingKind"));
-  const scopeQs =
-    `&bookingFormScope=${bookingFormScope}` +
-    (listingKindFilter ? `&listingKind=${listingKindFilter}` : "");
+  const bookingFormScope = FORM2_CATALOG_SCOPE;
+  const listingKindFilter = resolveForm2ListingKind(pathname, params.get("listingKind"));
+  const scopeQs = `&bookingFormScope=${bookingFormScope}&listingKind=${listingKindFilter}`;
   const extrasSectionLabel = listingKindFilter === "addon" ? "Add-ons" : "Extras";
   const singularLabel = listingKindFilter === "addon" ? "add-on" : "extra";
   const pluralLabel = listingKindFilter === "addon" ? "add-ons" : "extras";
@@ -124,16 +132,18 @@ export default function IndustryFormExtrasPage() {
     
     try {
       setLoading(true);
-      const response = await fetch(
-        `/api/extras?industryId=${targetId}&businessId=${currentBusiness?.id ?? ""}${scopeQs}`,
-      );
+      const listUrl =
+        listingKindFilter === "addon"
+          ? form2AddonsListUrl(targetId, currentBusiness?.id ?? "")
+          : form2ExtrasListUrl(targetId, currentBusiness?.id ?? "");
+      const response = await fetch(listUrl);
       const data = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(data.error || `Failed to fetch ${pluralLabel}`);
       }
-      
-      setExtras(data.extras || []);
+
+      setExtras(data.addons ?? data.extras ?? []);
     } catch (error) {
       console.error('Error fetching extras:', error);
       toast.error(`Failed to load ${pluralLabel}`);
@@ -144,10 +154,12 @@ export default function IndustryFormExtrasPage() {
 
   const remove = async (id: string) => {
     try {
-      const response = await fetch(
-        `/api/extras?id=${id}&industryId=${industryId}&businessId=${currentBusiness?.id ?? ""}`,
-        {
-        method: 'DELETE'
+      const deleteUrl =
+        listingKindFilter === "addon"
+          ? `/api/form2/addons?id=${id}&industryId=${industryId}&businessId=${currentBusiness?.id ?? ""}`
+          : `/api/form2/extras?id=${id}&industryId=${industryId}&businessId=${currentBusiness?.id ?? ""}`;
+      const response = await fetch(deleteUrl, {
+        method: "DELETE",
       });
       
       if (!response.ok) {
@@ -185,10 +197,12 @@ export default function IndustryFormExtrasPage() {
     }));
     
     try {
-      const response = await fetch('/api/extras/reorder', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates, industryId, businessId: currentBusiness?.id })
+      const response = await fetch(
+        listingKindFilter === "addon" ? FORM2_ADDONS_REORDER_URL : FORM2_EXTRAS_REORDER_URL,
+        {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ updates, industryId, businessId: currentBusiness?.id }),
       });
       
       if (!response.ok) {
@@ -209,10 +223,12 @@ export default function IndustryFormExtrasPage() {
     }));
     
     try {
-      const response = await fetch('/api/extras/reorder', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates, industryId, businessId: currentBusiness?.id })
+      const response = await fetch(
+        listingKindFilter === "addon" ? FORM2_ADDONS_REORDER_URL : FORM2_EXTRAS_REORDER_URL,
+        {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ updates, industryId, businessId: currentBusiness?.id }),
       });
       
       if (!response.ok) {

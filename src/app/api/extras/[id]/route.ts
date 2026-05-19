@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extrasService } from '@/lib/extras';
+import { parseBookingFormScopeParam, parseListingKindParam } from '@/lib/bookingFormScope';
 import { requireIndustryBelongsToBusiness } from '@/lib/industryTenantGuard';
 import { supabaseAdmin } from '@/lib/supabaseClient';
 
@@ -42,9 +43,14 @@ export async function GET(
       );
     }
 
+    const bookingFormScope = parseBookingFormScopeParam(searchParams.get('bookingFormScope'));
+    const listingKind = parseListingKindParam(searchParams.get('listingKind'));
+
     const extra = await extrasService.getExtraById(id, {
       business_id: businessId,
       industry_id: industryId,
+      booking_form_scope: bookingFormScope,
+      listing_kind: listingKind,
     });
     
     if (!extra) {

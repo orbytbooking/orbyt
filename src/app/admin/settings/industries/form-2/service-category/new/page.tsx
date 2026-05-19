@@ -43,6 +43,8 @@ import {
 } from "@/lib/frequencyPopupDisplay";
 import { FORM1_NEW_CATEGORY_FORM_DEFAULTS } from "@/lib/form1DefaultServiceCategoryConfig";
 import { bookingFormScopeFromSearchParams } from "@/lib/bookingFormScope";
+import { form2AddonsListUrl } from "@/lib/form2AddonsApi";
+import { form2ExtrasListUrl } from "@/lib/form2ExtrasApi";
 
 type ServiceCategoryDisplay =
   | "customer_frontend_backend_admin"
@@ -687,19 +689,24 @@ export default function ServiceCategoryNewPage() {
       try {
         console.log('Fetching extras for industryId:', industryId);
         const extrasUrls =
-          bookingFormScope === "form2" || bookingFormScope === "form3"
+          bookingFormScope === "form2"
             ? [
-                `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}&listingKind=addon`,
-                `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}&listingKind=extra`,
+                form2AddonsListUrl(industryId, currentBusiness.id),
+                form2ExtrasListUrl(industryId, currentBusiness.id),
               ]
-            : [
-                `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
-              ];
+            : bookingFormScope === "form3"
+              ? [
+                  `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}&listingKind=addon`,
+                  `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}&listingKind=extra`,
+                ]
+              : [
+                  `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
+                ];
         const payloads = await Promise.all(
-          extrasUrls.map((u) => fetch(u).then((r) => (r.ok ? r.json() : { extras: [] }))),
+          extrasUrls.map((u) => fetch(u).then((r) => (r.ok ? r.json() : { extras: [], addons: [] }))),
         );
-        const merged = payloads.flatMap((p: { extras?: any[] }) =>
-          Array.isArray(p.extras) ? p.extras : [],
+        const merged = payloads.flatMap((p: { extras?: any[]; addons?: any[] }) =>
+          Array.isArray(p.addons) ? p.addons : Array.isArray(p.extras) ? p.extras : [],
         );
         const deduped = merged.filter(
           (e: any, idx: number, arr: any[]) =>

@@ -5,7 +5,14 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ServiceCategory } from '@/lib/serviceCategories';
 import { frequencyDepOptionNamesForCategory, getFrequencyDependencies } from '@/lib/frequencyFilter';
-import { form2PackagePassesBookingVisibility } from '@/lib/form2PackageVisibility';
+import {
+  buildForm2FrequencyDependencyKey,
+  buildForm2PackageStripRows,
+  buildForm2ServiceDependencyKey,
+  filterForm2ItemsForBooking,
+  getForm2ServiceItemAllowlist,
+  mapApiRowsToForm2CatalogItems,
+} from '@/lib/form2BookingCatalog';
 import { pricingParamAppliesToSelection } from '@/lib/pricingParameterVisibility';
 import { filterFrequencyOptionsForServiceCategory } from '@/lib/form1CustomerBooking';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -455,25 +462,14 @@ export function AddBookingForm({
   const [priceAdjustmentNoteEnabled, setPriceAdjustmentNoteEnabled] = useState(false);
   const [timeAdjustmentNoteEnabled, setTimeAdjustmentNoteEnabled] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null);
-  const form2ServiceDependencyKey = useMemo(() => {
-    if ((!isForm2Catalog && !isForm3Catalog) || !newBooking.service) return "";
-    const selected = serviceCategories.find((c) => c.name === newBooking.service);
-    if (!selected) return newBooking.service;
-    const vars = (selected as { variables?: Record<string, unknown> }).variables ?? {};
-    const items = Array.isArray(vars.Items) ? vars.Items.map((x) => String(x)).join("|") : "";
-    const packages = Array.isArray(vars.Packages) ? vars.Packages.map((x) => String(x)).join("|") : "";
-    return `${newBooking.service}::${items}::${packages}`;
-  }, [isForm2Catalog, isForm3Catalog, newBooking.service, serviceCategories]);
-  const form2FrequencyDependencyKey = useMemo(() => {
-    if (!frequencyDependencies || typeof frequencyDependencies !== "object") return "";
-    const b = Array.isArray((frequencyDependencies as { bathroomVariables?: unknown[] }).bathroomVariables)
-      ? (frequencyDependencies as { bathroomVariables: unknown[] }).bathroomVariables.map((x) => String(x)).join("|")
-      : "";
-    const s = Array.isArray((frequencyDependencies as { sqftVariables?: unknown[] }).sqftVariables)
-      ? (frequencyDependencies as { sqftVariables: unknown[] }).sqftVariables.map((x) => String(x)).join("|")
-      : "";
-    return `${b}::${s}`;
-  }, [frequencyDependencies]);
+  const form2ServiceDependencyKey = useMemo(
+    () => buildForm2ServiceDependencyKey(newBooking.service, serviceCategories),
+    [newBooking.service, serviceCategories],
+  );
+  const form2FrequencyDependencyKey = useMemo(
+    () => buildForm2FrequencyDependencyKey(frequencyDependencies),
+    [frequencyDependencies],
+  );
 
   // Load store options (specific_provider_for_admin, price/time adjustment note settings)
   useEffect(() => {
@@ -856,7 +852,7 @@ export function AddBookingForm({
 
         const selectedVariableOptionTokens = isForm3Catalog
           ? pricingVariables
-              .filter((v) => String(categoryValues[String(v.id) ?? ""] ?? "").trim() === FORM3_ITEM_LINE_VALUE)
+              .filter((v) => String(categoryValues[String(v.id ?? "")] ?? "").trim() === FORM3_ITEM_LINE_VALUE)
               .map((v) => String(v.name ?? "").trim())
               .filter((name) => name.length > 0)
           : Object.values(categoryValues)
@@ -1017,33 +1013,17 @@ export function AddBookingForm({
         );
         const data = await res.json();
         if (res.ok && Array.isArray(data.variables)) {
-          let rows = data.variables as PricingVariable[];
           const selectedServiceCategory = serviceCategories.find((c) => c.name === newBooking.service);
-          const form2ServiceItemDeps = isForm2Catalog
-            ? Array.isArray((selectedServiceCategory as { variables?: Record<string, unknown> } | undefined)?.variables?.Items)
-              ? ((selectedServiceCategory as { variables?: Record<string, unknown> }).variables?.Items as unknown[])
-                  .map((x) => String(x).trim())
-                  .filter((x) => x.length > 0)
-              : null
-            : null;
-          if (isForm2Catalog && form2ServiceItemDeps && form2ServiceItemDeps.length > 0) {
-            rows = rows.filter((r) => {
-              const id = String(r.id ?? "").trim();
-              const name = String(r.name ?? "").trim();
-              return form2ServiceItemDeps.includes(id) || (name.length > 0 && form2ServiceItemDeps.includes(name));
-            });
-          }
-          if (frequencyDependencies && Array.isArray(frequencyDependencies.bathroomVariables)) {
-            const allowedItemKeys = frequencyDependencies.bathroomVariables.map((x: unknown) => String(x));
-            // If frequency has no explicit item dependency selections, show all.
-            if (allowedItemKeys.length > 0) {
-              rows = rows.filter((r) => {
-                const id = String(r.id ?? "").trim();
-                const name = String(r.name ?? "").trim();
-                return allowedItemKeys.includes(id) || (name.length > 0 && allowedItemKeys.includes(name));
-              });
-            }
-          }
+          const rows = filterForm2ItemsForBooking(
+            mapApiRowsToForm2CatalogItems(data.variables as Array<Record<string, unknown>>),
+            {
+              serviceItemAllowlist: getForm2ServiceItemAllowlist(
+                selectedServiceCategory as { variables?: Record<string, unknown> } | undefined,
+                isForm2Catalog,
+              ),
+              frequencyDeps: frequencyDependencies,
+            },
+          ) as PricingVariable[];
           setPricingVariables(rows);
           setSelectedForm2VariableId((prev) => {
             if (prev && rows.some((r) => r.id === prev)) return prev;
@@ -2910,39 +2890,14 @@ const handleAddBooking = async (status: string = 'pending') => {
   const form2PackageStripRows = useMemo((): Form2PackageRow[] => {
     if (!isForm2Catalog) return [];
     const selectedServiceCategory = serviceCategories.find((c) => c.name === newBooking.service);
-    const serviceUsesFrequencyDeps = Boolean(selectedServiceCategory?.service_category_frequency);
-    const form2ServicePackageDeps = Array.isArray(
-      (selectedServiceCategory as { variables?: Record<string, unknown> } | undefined)?.variables?.Packages,
-    )
-      ? (
-          (selectedServiceCategory as { variables?: Record<string, unknown> }).variables?.Packages as unknown[]
-        )
-          .map((x) => String(x).trim())
-          .filter((x) => x.length > 0)
-      : [];
     const bedroomTier = String(categoryValues.Bedroom ?? "").trim() || null;
-
-    return pricingParameters
-      .filter((p) =>
-        form2PackagePassesBookingVisibility(p, {
-          frequencyDeps: frequencyDependencies,
-          servicePackageAllowlist: form2ServicePackageDeps.length > 0 ? form2ServicePackageDeps : null,
-          selectedFrequency: newBooking.frequency,
-          selectedServiceName: newBooking.service,
-          selectedBedroomTier: bedroomTier,
-          serviceUsesFrequencyDeps,
-        }),
-      )
-      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name))
-      .map((p) => ({
-        id: p.id,
-        name: p.name,
-        variable_category: p.variable_category,
-        description: p.description || null,
-        price: Number(p.price) || 0,
-        time_minutes: p.time_minutes ?? null,
-        icon: (p as { icon?: string | null }).icon ?? null,
-      }));
+    return buildForm2PackageStripRows(pricingParameters, {
+      frequencyDeps: frequencyDependencies,
+      serviceCategory: selectedServiceCategory ?? null,
+      selectedFrequency: newBooking.frequency,
+      selectedServiceName: newBooking.service,
+      selectedBedroomTier: bedroomTier,
+    });
   }, [
     isForm2Catalog,
     pricingParameters,

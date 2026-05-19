@@ -194,9 +194,18 @@ export async function PUT(request: NextRequest) {
       updateData.name = name;
     }
 
+    const bookingFormScope = parseBookingFormScopeParam(
+      typeof updateData.booking_form_scope === 'string' ? updateData.booking_form_scope : null,
+    );
+    const listingKind = parseListingKindParam(
+      typeof updateData.listing_kind === 'string' ? updateData.listing_kind : null,
+    );
+
     const extra = await extrasService.updateExtra(id, updateData, {
       business_id: bodyBusinessId,
       industry_id: bodyIndustryId,
+      booking_form_scope: bookingFormScope,
+      listing_kind: listingKind,
     });
     
     return NextResponse.json({ extra });
@@ -221,6 +230,8 @@ export async function DELETE(request: NextRequest) {
     const industryId = searchParams.get('industryId');
     const businessId = queryBusinessId(request, searchParams);
     const permanent = searchParams.get('permanent') === 'true';
+    const bookingFormScope = parseBookingFormScopeParam(searchParams.get('bookingFormScope'));
+    const listingKind = parseListingKindParam(searchParams.get('listingKind'));
 
     if (!id) {
       return NextResponse.json(
@@ -252,6 +263,8 @@ export async function DELETE(request: NextRequest) {
       result = await extrasService.deleteExtra(id, {
         business_id: businessId,
         industry_id: industryId,
+        booking_form_scope: bookingFormScope,
+        listing_kind: listingKind,
       });
     }
     if (!result.deleted) {

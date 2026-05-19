@@ -92,14 +92,14 @@ export default function IndustryForm1Page() {
         let itemsCount = 0;
 
         const [addonsRes, extrasRes, variablesRes] = await Promise.all([
-          fetch(`/api/extras?industryId=${iid}&businessId=${bid}&${scopeQs}&listingKind=addon`),
-          fetch(`/api/extras?industryId=${iid}&businessId=${bid}&${scopeQs}&listingKind=extra`),
+          fetch(`/api/form2/addons?industryId=${iid}&businessId=${bid}`),
+          fetch(`/api/form2/extras?industryId=${iid}&businessId=${bid}`),
           fetch(`/api/pricing-variables?industryId=${iid}&businessId=${bid}&${scopeQs}`),
         ]);
         const addonsData = await addonsRes.json();
         const extrasData = await extrasRes.json();
         const variablesData = await variablesRes.json();
-        addonsCount = addonsData.extras?.length || 0;
+        addonsCount = addonsData.addons?.length ?? addonsData.extras?.length ?? 0;
         extrasCount = extrasData.extras?.length || 0;
         itemsCount = variablesData.variables?.length || 0;
 
@@ -121,6 +121,8 @@ export default function IndustryForm1Page() {
   }, [industryName, currentBusiness?.id, industryIdFromUrl]);
 
   const isForm2 = true;
+  const isForm3 = false;
+  const isForm4 = false;
   const isExtendedCatalog = true;
   const formBasePath = "form-2";
   const formLabel = "Form 2";

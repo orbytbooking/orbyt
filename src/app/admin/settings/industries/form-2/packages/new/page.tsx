@@ -32,6 +32,8 @@ import {
   bookingFormScopeFromSearchParams,
   FORM2_STANDALONE_PACKAGE_CATEGORY,
 } from "@/lib/bookingFormScope";
+import { form2AddonsListUrl } from "@/lib/form2AddonsApi";
+import { form2ExtrasListUrl } from "@/lib/form2ExtrasApi";
 import { cn } from "@/lib/utils";
 import { Form1RichTextEditor } from "@/components/admin/Form1RichTextEditor";
 import { INDUSTRY_FORM_ICON_PRESETS, bookingFormPresetIconTextClass, industryFormIconIsImageSrc } from "@/lib/industryExtraIcons";
@@ -190,17 +192,19 @@ export default function PricingParameterNewPage() {
       if (!industryId) return;
       
       try {
-        const response = await fetch(
-          `/api/extras?industryId=${industryId}&businessId=${currentBusiness?.id ?? ""}${scopeQs}`,
+        const businessId = currentBusiness?.id ?? "";
+        const listUrls = isForm2
+          ? [form2AddonsListUrl(industryId, businessId), form2ExtrasListUrl(industryId, businessId)]
+          : [`/api/extras?industryId=${industryId}&businessId=${businessId}${scopeQs}`];
+        const payloads = await Promise.all(
+          listUrls.map((u) => fetch(u).then((r) => (r.ok ? r.json() : { extras: [], addons: [] }))),
         );
-        if (!response.ok) {
-          throw new Error('Failed to fetch extras');
-        }
-        const data = await response.json();
-        
-        if (data.extras && Array.isArray(data.extras)) {
+        const rows = payloads.flatMap((data) =>
+          Array.isArray(data.addons) ? data.addons : Array.isArray(data.extras) ? data.extras : [],
+        );
+        if (rows.length > 0) {
           setExtras(
-            data.extras.map((e: any) => ({
+            rows.map((e: any) => ({
               id: e.id,
               name: e.name,
               listing_kind: e.listing_kind ? String(e.listing_kind) : undefined,
@@ -216,7 +220,7 @@ export default function PricingParameterNewPage() {
     };
 
     fetchExtras();
-  }, [industryId, bookingFormScope]);
+  }, [industryId, bookingFormScope, isForm2, currentBusiness?.id, scopeQs]);
 
   // Load service categories from backend
   useEffect(() => {

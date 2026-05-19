@@ -28,6 +28,8 @@ import {
 } from "lucide-react";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { bookingFormScopeFromSearchParams } from "@/lib/bookingFormScope";
+import { form2AddonsListUrl } from "@/lib/form2AddonsApi";
+import { form2ExtrasListUrl } from "@/lib/form2ExtrasApi";
 import {
   Tooltip,
   TooltipContent,
@@ -472,27 +474,35 @@ export default function FrequencyNewPage() {
         setLoadingExtras(true);
         const baseQs = `industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness?.id ?? "")}${scopeQs}`;
         const urls =
-          isSinglePageScope
+          bookingFormScope === "form2"
             ? [
-                `/api/extras?${baseQs}`,
-                `/api/extras?${baseQs}&listingKind=addon`,
-                `/api/extras?${baseQs}&listingKind=extra`,
+                { url: form2AddonsListUrl(industryId, currentBusiness?.id ?? ""), listingKind: "addon" as const },
+                { url: form2ExtrasListUrl(industryId, currentBusiness?.id ?? ""), listingKind: "extra" as const },
               ]
-            : [`/api/extras?${baseQs}&listingKind=extra`];
+            : isSinglePageScope
+              ? [
+                  { url: `/api/extras?${baseQs}`, listingKind: null },
+                  { url: `/api/extras?${baseQs}&listingKind=addon`, listingKind: "addon" as const },
+                  { url: `/api/extras?${baseQs}&listingKind=extra`, listingKind: "extra" as const },
+                ]
+              : [{ url: `/api/extras?${baseQs}&listingKind=extra`, listingKind: "extra" as const }];
 
         const payloads = await Promise.all(
-          urls.map(async (u) => {
-            const r = await fetch(u);
-            const data = r.ok ? await r.json() : { extras: [] };
-            const inferredListingKind =
-              u.includes("listingKind=addon") ? "addon" : u.includes("listingKind=extra") ? "extra" : null;
-            return { data, inferredListingKind };
+          urls.map(async ({ url, listingKind }) => {
+            const r = await fetch(url);
+            const data = r.ok ? await r.json() : { extras: [], addons: [] };
+            const rows = Array.isArray(data.addons)
+              ? data.addons
+              : Array.isArray(data.extras)
+                ? data.extras
+                : [];
+            return { rows, listingKind };
           }),
         );
-        const merged = payloads.flatMap(({ data, inferredListingKind }) =>
-          (Array.isArray(data.extras) ? data.extras : []).map((e: any) => ({
+        const merged = payloads.flatMap(({ rows, listingKind }) =>
+          rows.map((e: any) => ({
             ...e,
-            listing_kind: e?.listing_kind ?? inferredListingKind ?? (isSinglePageScope ? "addon" : "extra"),
+            listing_kind: e?.listing_kind ?? listingKind ?? (isSinglePageScope ? "addon" : "extra"),
           })),
         );
         const deduped = merged.filter(

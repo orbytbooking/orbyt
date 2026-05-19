@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useState } from "react";
-import { Home, LayoutTemplate, Sparkles, ChevronLeft, ChevronRight } from "lucide-react";
+import { Home, LayoutTemplate, Sparkles, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { IndustryFormPresetIcon } from "@/components/industry/IndustryFormPresetIcon";
@@ -28,6 +28,39 @@ function itemVisualKind(category: string | null | undefined): "bedroom" | "sqft"
     return "sqft";
   if (c.includes("bed")) return "bedroom";
   return "default";
+}
+
+export function Form2CategoryIcon({
+  category,
+  size = "md",
+}: {
+  category?: string | null;
+  size?: "sm" | "md";
+}) {
+  const k = itemVisualKind(category);
+  const wrap = cn(
+    "flex shrink-0 items-center justify-center border border-slate-200 bg-gradient-to-br from-slate-50 to-slate-100 text-slate-600 dark:border-slate-600 dark:from-slate-800 dark:to-slate-900 dark:text-slate-300",
+    size === "sm" ? "h-11 w-11 rounded-xl" : "h-12 w-12 rounded-lg",
+  );
+  if (k === "bedroom") {
+    return (
+      <div className={wrap}>
+        <Home className={size === "sm" ? "h-5 w-5" : "h-6 w-6"} strokeWidth={1.5} />
+      </div>
+    );
+  }
+  if (k === "sqft") {
+    return (
+      <div className={wrap}>
+        <LayoutTemplate className={size === "sm" ? "h-5 w-5" : "h-6 w-6"} strokeWidth={1.5} />
+      </div>
+    );
+  }
+  return (
+    <div className={wrap}>
+      <Sparkles className={size === "sm" ? "h-5 w-5" : "h-5 w-5"} strokeWidth={1.5} />
+    </div>
+  );
 }
 
 function Form2ItemIcon({
@@ -353,6 +386,121 @@ export function Form2PackageCardStrip({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+export type Form2AddedPackageLine = {
+  itemId: string;
+  itemName: string;
+  category: string;
+  packageName: string;
+  packagePrice: number;
+  packageTimeMinutes: number | null;
+};
+
+export function Form2AddedPackagesSection({
+  serviceTitle,
+  serviceCategory,
+  frequencyLabel,
+  lines,
+  addOnCount,
+  extraCount,
+  onRemoveLine,
+  onRemoveAll,
+  onAddAnother,
+  renderLineExtras,
+  className,
+}: {
+  serviceTitle: string;
+  serviceCategory?: string | null;
+  frequencyLabel?: string | null;
+  lines: Form2AddedPackageLine[];
+  addOnCount: number;
+  extraCount: number;
+  onRemoveLine: (itemId: string, category: string, packageName: string) => void;
+  onRemoveAll?: () => void;
+  onAddAnother: () => void;
+  renderLineExtras?: (line: Form2AddedPackageLine) => React.ReactNode;
+  className?: string;
+}) {
+  if (lines.length === 0) return null;
+
+  const subtitle =
+    lines.length === 1
+      ? lines[0].packageName
+      : `${lines.length} packages`;
+
+  return (
+    <div className={cn("mt-6 space-y-4", className)}>
+      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">Packages added</h3>
+      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-600 dark:bg-card space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <Form2CategoryIcon category={serviceCategory ?? lines[0]?.category} size="sm" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-900 dark:text-slate-50 truncate">
+                {serviceTitle}
+              </p>
+              <p className="text-xs text-muted-foreground truncate">
+                {subtitle}
+                {frequencyLabel ? ` · ${frequencyLabel}` : ""}
+              </p>
+            </div>
+          </div>
+          {onRemoveAll ? (
+            <button
+              type="button"
+              className="rounded-full p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+              aria-label="Remove all packages"
+              onClick={onRemoveAll}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
+        </div>
+        <div className="space-y-2">
+          {lines.map((line) => (
+            <div key={`${line.itemId}-${line.packageName}`} className="space-y-2">
+              <div className="rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/40 flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate">
+                  <span className="font-semibold text-slate-800 dark:text-slate-100">{line.itemName}</span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    - {line.packageName}
+                    {` · $${Number(line.packagePrice || 0).toFixed(2)}`}
+                    {line.packageTimeMinutes ? ` · ${line.packageTimeMinutes} min` : ""}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200/70 dark:hover:bg-slate-800"
+                  aria-label={`Remove ${line.itemName}`}
+                  onClick={() => onRemoveLine(line.itemId, line.category, line.packageName)}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              {renderLineExtras ? renderLineExtras(line) : null}
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <span className="inline-flex items-center rounded-full border border-cyan-300/70 bg-cyan-50 px-2.5 py-1 text-xs font-semibold text-cyan-700 dark:border-cyan-700/60 dark:bg-cyan-950/30 dark:text-cyan-300">
+            Add-ons: {addOnCount}
+          </span>
+          <span className="inline-flex items-center rounded-full border border-violet-300/70 bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-700 dark:border-violet-700/60 dark:bg-violet-950/30 dark:text-violet-300">
+            Extras: {extraCount}
+          </span>
+        </div>
+      </div>
+      <Button
+        type="button"
+        className="w-full bg-gradient-to-r from-cyan-500 to-sky-500 text-white shadow-md hover:from-cyan-600 hover:to-sky-600"
+        onClick={onAddAnother}
+      >
+        + Add another item
+      </Button>
     </div>
   );
 }

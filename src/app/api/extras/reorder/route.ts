@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extrasService } from '@/lib/extras';
+import { parseBookingFormScopeParam, parseListingKindParam } from '@/lib/bookingFormScope';
 import { requireIndustryBelongsToBusiness } from '@/lib/industryTenantGuard';
 import { supabaseAdmin } from '@/lib/supabaseClient';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { updates, industryId, businessId, business_id } = body;
+    const { updates, industryId, businessId, business_id, bookingFormScope: scopeRaw, listingKind: kindRaw } =
+      body;
     const resolvedBusinessId = businessId ?? business_id;
 
     if (!updates || !Array.isArray(updates)) {
@@ -46,6 +48,8 @@ export async function POST(request: NextRequest) {
     await extrasService.updateExtraOrder(updates, {
       business_id: String(resolvedBusinessId),
       industry_id: String(industryId),
+      booking_form_scope: parseBookingFormScopeParam(scopeRaw ?? null),
+      listing_kind: parseListingKindParam(kindRaw ?? null),
     });
     
     return NextResponse.json({ success: true });

@@ -127,6 +127,31 @@ export async function getFrequencyDependencies(
 /**
  * Filters service categories based on frequency dependencies
  */
+/**
+ * Form 2/3 item catalog: frequency dependency checklists store item ids in
+ * `bathroom_variables` (admin Frequencies → Dependencies). When the list is empty, show all items.
+ */
+export function filterForm2CatalogItemsByFrequencyDependencies<
+  T extends { id: string; name: string },
+>(items: T[], dependencies: FrequencyDependencies | null | undefined): T[] {
+  if (!dependencies || !Array.isArray(dependencies.bathroomVariables)) {
+    return items;
+  }
+  const allowedItemKeys = dependencies.bathroomVariables
+    .map((x) => String(x).trim())
+    .filter((x) => x.length > 0);
+  if (allowedItemKeys.length === 0) {
+    return items;
+  }
+  return items.filter((row) => {
+    const id = String(row.id ?? '').trim();
+    const name = String(row.name ?? '').trim();
+    return (
+      allowedItemKeys.includes(id) || (name.length > 0 && allowedItemKeys.includes(name))
+    );
+  });
+}
+
 export function filterServiceCategories(
   categories: Array<{ id: string; name: string }>,
   dependencies: FrequencyDependencies

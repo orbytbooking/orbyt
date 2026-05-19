@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,8 +29,17 @@ import { useBusiness } from "@/contexts/BusinessContext";
 import { toast } from "sonner";
 import { useRef } from "react";
 import {
-  parseListingKindParam,
-} from "@/lib/bookingFormScope";
+  FORM2_CATALOG_SCOPE,
+  resolveForm2ListingKind,
+} from "@/lib/form2CatalogScope";
+import {
+  FORM2_ADDONS_COLLECTION_URL,
+  form2AddonByIdUrl,
+} from "@/lib/form2AddonsApi";
+import {
+  FORM2_EXTRAS_COLLECTION_URL,
+  form2ExtraByIdUrl,
+} from "@/lib/form2ExtrasApi";
 
 const FORM2_HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => String(i));
 const FORM2_MINUTE_OPTIONS = Array.from({ length: 60 }, (_, i) => String(i));
@@ -89,17 +98,15 @@ type ExtraDisplay =
 
 export default function ExtraNewPage() {
   const params = useSearchParams();
+  const pathname = usePathname();
   const router = useRouter();
   const industry = params.get("industry") || "Industry";
   const industryId = params.get("industryId");
   const editId = params.get("editId");
-  const bookingFormScope = "form2" as const;
-  const listingKindFilter = parseListingKindParam(params.get("listingKind"));
-  const scopeQs =
-    `&bookingFormScope=${bookingFormScope}` +
-    (listingKindFilter ? `&listingKind=${listingKindFilter}` : "");
-  const listing_kind = listingKindFilter === "addon" ? "addon" : "extra";
-  const isForm2 = true;
+  const bookingFormScope = FORM2_CATALOG_SCOPE;
+  const listingKindFilter = resolveForm2ListingKind(pathname, params.get("listingKind"));
+  const scopeQs = `&bookingFormScope=${bookingFormScope}&listingKind=${listingKindFilter}`;
+  const listing_kind = listingKindFilter;
   const isSinglePageCatalog = true;
   const isSinglePageAddon = isSinglePageCatalog && listingKindFilter === "addon";
   const { currentBusiness } = useBusiness();
@@ -281,30 +288,6 @@ export default function ExtraNewPage() {
     const fetchVariables = async () => {
       if (!industryId || !currentBusiness?.id) return;
 
-      if (bookingFormScope === "form3") {
-        try {
-          const vRes = await fetch(
-            `/api/pricing-variables?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
-          );
-          if (!vRes.ok) throw new Error("Failed to fetch pricing variables");
-          const vData = await vRes.json();
-          const vs = vData.variables ?? [];
-          const itemNames = vs
-            .map((v: { name?: string; customer_end_name?: string | null }) =>
-              String((v.customer_end_name && String(v.customer_end_name).trim()) || v.name || "")
-                .trim(),
-            )
-            .filter((name: string) => name.length > 0);
-          setAvailablePackages(Array.from(new Set(itemNames)));
-          setAvailableVariables({});
-        } catch (error) {
-          console.error("Error fetching Form 3 items for add-ons:", error);
-          setAvailableVariables({});
-          setAvailablePackages([]);
-        }
-        return;
-      }
-
       try {
         const response = await fetch(
           `/api/pricing-parameters?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}${scopeQs}`,
@@ -313,40 +296,19 @@ export default function ExtraNewPage() {
           throw new Error('Failed to fetch pricing parameters');
         }
         const data = await response.json();
-        
+
         if (data.pricingParameters && Array.isArray(data.pricingParameters)) {
-          if (bookingFormScope === "form2") {
-            const packageNames = data.pricingParameters
-              .map((param: any) => String(param.name ?? "").trim())
-              .filter((name): name is string => name.length > 0);
-            const uniquePackageNames: string[] = Array.from(new Set(packageNames));
-            setAvailablePackages(uniquePackageNames);
-            setAvailableVariables({});
-            return;
-          }
-          // Group variables by category
-          const groupedVariables: { [key: string]: any[] } = {};
-          
-          data.pricingParameters.forEach((param: any) => {
-            const category = param.variable_category;
-            if (!groupedVariables[category]) {
-              groupedVariables[category] = [];
-            }
-            groupedVariables[category].push({
-              id: param.id,
-              name: param.name,
-              description: param.description
-            });
-          });
-          
-          setAvailableVariables(groupedVariables);
-          setAvailablePackages([]);
+          const packageNames = data.pricingParameters
+            .map((param: { name?: string }) => String(param.name ?? "").trim())
+            .filter((name: string): name is string => name.length > 0);
+          setAvailablePackages(Array.from(new Set(packageNames)));
+          setAvailableVariables({});
         } else {
           setAvailableVariables({});
           setAvailablePackages([]);
         }
       } catch (error) {
-        console.error('Error fetching variables:', error);
+        console.error('Error fetching Form 2 packages for add-ons:', error);
         setAvailableVariables({});
         setAvailablePackages([]);
       }
@@ -395,7 +357,10 @@ export default function ExtraNewPage() {
     console.log('✅ Frontend validation passed, making API call...');
     
     try {
-      const apiUrl = `/api/extras/${editId}?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}`;
+      const apiUrl =
+        listing_kind === "addon"
+          ? form2AddonByIdUrl(editId, industryId, currentBusiness.id)
+          : form2ExtraByIdUrl(editId, industryId, currentBusiness.id);
       console.log('🔗 Calling API:', apiUrl);
       
       const response = await fetch(apiUrl);
@@ -417,7 +382,8 @@ export default function ExtraNewPage() {
         throw new Error(errorMessage);
       }
 
-      const { extra } = await response.json();
+      const payload = await response.json();
+      const extra = payload.extra ?? payload.addon;
       console.log('✅ API Success, extra data:', extra);
       
       if (extra) {
@@ -608,11 +574,14 @@ export default function ExtraNewPage() {
 
       if (editId) {
         // Update existing extra
-        const response = await fetch('/api/extras', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+        const response = await fetch(
+          listing_kind === "addon" ? FORM2_ADDONS_COLLECTION_URL : FORM2_EXTRAS_COLLECTION_URL,
+          {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: editId, ...extraData }),
-        });
+        },
+        );
 
         if (!response.ok) {
           const data = await response.json();
@@ -622,11 +591,14 @@ export default function ExtraNewPage() {
         toast.success('Extra updated successfully');
       } else {
         // Create new extra
-        const response = await fetch('/api/extras', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const response = await fetch(
+          listing_kind === "addon" ? FORM2_ADDONS_COLLECTION_URL : FORM2_EXTRAS_COLLECTION_URL,
+          {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(extraData),
-        });
+        },
+        );
 
         if (!response.ok) {
           const data = await response.json();
@@ -1802,11 +1774,7 @@ export default function ExtraNewPage() {
                   <div className="space-y-2">
                     <Label>
                       {listing_kind === "addon"
-                        ? isForm3
-                          ? "Should the add-ons show based on the items?"
-                          : isForm2
-                            ? "Should the add-ons show based on the packages?"
-                            : "Should the add-ons show based on the variables?"
+                        ? "Should the add-ons show based on the packages?"
                         : "Should the extras show based on the variables?"}
                     </Label>
                     <RadioGroup
@@ -1825,15 +1793,13 @@ export default function ExtraNewPage() {
                     {form.showBasedOnVariables && (
                       <div className="ml-6 mt-3 space-y-2">
                         <Label className="text-sm">
-                          {isForm3 ? "Select item options" : isForm2 ? "Select package options" : "Select variable options"}
+                          {listing_kind === "addon" ? "Select package options" : "Select variable options"}
                         </Label>
-                        {listing_kind === "addon" && (isForm2 || isForm3) ? (
+                        {listing_kind === "addon" ? (
                           <div className="space-y-2">
                             {availablePackages.length === 0 ? (
                               <p className="text-xs text-muted-foreground italic">
-                                {isForm3
-                                  ? "No items available. Add items from the items section."
-                                  : "No packages available. Add packages from the packages section."}
+                                No packages available. Add packages from the Form 2 packages section.
                               </p>
                             ) : (
                               <div className="bg-white rounded-lg border p-4 shadow-sm space-y-3">

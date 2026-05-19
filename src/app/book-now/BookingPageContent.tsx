@@ -75,6 +75,7 @@ import Link from "next/link";
 import Navigation from "@/components/Navigation";
 import FrequencyAwareServiceCard, { ServiceCustomization } from "@/components/FrequencyAwareServiceCard";
 import {
+  Form2AddedPackagesSection,
   Form2ItemPickerGrid,
   Form2PackageCardStrip,
   type Form2PackageRow,
@@ -101,7 +102,15 @@ import {
   getFrequencyDependencies,
   type FrequencyDependencies,
 } from "@/lib/frequencyFilter";
-import { form2PackagePassesBookingVisibility } from "@/lib/form2PackageVisibility";
+import {
+  buildForm2FrequencyDependencyKey,
+  buildForm2ServiceDependencyKey,
+  buildForm2PackageStripRows,
+  filterForm2ItemsForBooking,
+  getForm2ServiceItemAllowlist,
+  mapApiRowsToForm2CatalogItems,
+  resolveForm2PackageSelection,
+} from "@/lib/form2BookingCatalog";
 import {
   getServiceCategoryCustomerDisplayName,
   isIndustryExtraDisplayVisibleOnBookingSurface,
@@ -557,6 +566,40 @@ const parseForm2ExtraSelectionKey = (raw: string): { itemId: string; extraId: st
   return { itemId: m[1], extraId: m[2] };
 };
 
+/** Resolve add-on/extra row by id or legacy name key (admin Form 2 uses ids in selection keys). */
+function findAvailableExtraByRef(
+  extras: Array<{ id?: string; name?: string }>,
+  ref: string,
+): { id?: string; name?: string; listing_kind?: string; [key: string]: unknown } | undefined {
+  const key = String(ref ?? "").trim();
+  if (!key) return undefined;
+  return extras.find(
+    (e) => String(e?.id ?? "") === key || String(e?.name ?? "").trim() === key,
+  ) as { id?: string; name?: string; listing_kind?: string; [key: string]: unknown } | undefined;
+}
+
+/** Package ids + resolved names for variable-based add-on rules (matches admin Add Booking). */
+function buildForm2ExtraDependencyTokens(
+  variableCategories: Record<string, string> | undefined,
+  pricingParams: PricingParamRow[],
+  rowTokens: string[],
+): string[] {
+  const tokens = new Set<string>();
+  for (const raw of Object.values(variableCategories ?? {})) {
+    const v = String(raw ?? "").trim();
+    if (!v || v.startsWith("__")) continue;
+    tokens.add(v);
+    const pkg = resolveForm2PackageSelection(pricingParams, v);
+    if (pkg?.name) tokens.add(String(pkg.name).trim());
+    if (pkg?.id) tokens.add(String(pkg.id).trim());
+  }
+  for (const t of rowTokens) {
+    const v = String(t ?? "").trim();
+    if (v) tokens.add(v);
+  }
+  return Array.from(tokens);
+}
+
 // Helper function to format extras for storage (convert object array to string array)
 const formatExtrasForStorage = (extras: { name: string; quantity: number }[]): string[] => {
   const byName: Record<string, number> = {};
@@ -992,15 +1035,24 @@ export default function BookingPageContent() {
     bookingFormScopeForCatalog === "form2" || bookingFormScopeForCatalog === "form3" ? "addon" : "extra";
   const catalogScopeQs = `&bookingFormScope=${bookingFormScopeForCatalog}&listingKind=${catalogListingKind}`;
 
-  const selectedFrequencyTrim = serviceCustomization?.frequency?.trim() ?? "";
+  /** Form 2 customer: item grid + horizontal package strip (admin Add Booking style). Form 3: same when items exist. */
+  const form2AdminStyleItemPackageUi = useMemo(
+    () =>
+      Boolean(
+        (useForm2Layout && bookingFormScopeForCatalog === "form2") ||
+          (bookingFormScopeForCatalog === "form3" && form2CatalogItems.length > 0),
+      ),
+    [useForm2Layout, bookingFormScopeForCatalog, form2CatalogItems.length],
+  );
 
+  // Form 2 frequency deps for items/packages — same source as admin `newBooking.frequency`.
   useEffect(() => {
-    if (!selectedIndustryId || !businessIdFromUrl.trim() || !selectedFrequencyTrim.trim()) {
+    if (!selectedIndustryId || !businessIdFromUrl.trim() || !bookingFrequencyForFilters.trim()) {
       setPricingFrequencyDeps(null);
       return;
     }
     let cancelled = false;
-    getFrequencyDependencies(selectedIndustryId, selectedFrequencyTrim, {
+    getFrequencyDependencies(selectedIndustryId, bookingFrequencyForFilters, {
       businessId: businessIdFromUrl,
       bookingFormScope: bookingFormScopeForCatalog,
     })
@@ -1013,7 +1065,7 @@ export default function BookingPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [selectedIndustryId, businessIdFromUrl, selectedFrequencyTrim, bookingFormScopeForCatalog]);
+  }, [selectedIndustryId, businessIdFromUrl, bookingFrequencyForFilters, bookingFormScopeForCatalog]);
 
   const allPricingParams = useMemo(
     () =>
@@ -1046,6 +1098,12 @@ export default function BookingPageContent() {
         '',
     ).trim() || null;
 
+  const selectedFrequencyForPricing = useMemo(
+    () =>
+      serviceCustomization?.frequency?.trim() || bookingFrequencyForFilters.trim() || "",
+    [serviceCustomization?.frequency, bookingFrequencyForFilters],
+  );
+
   const pricingRows = useMemo(() => {
     if (!pricingParametersFull.length || !selectedService) return [] as PricingTier[];
     const svcName = String(selectedService.name ?? "");
@@ -1059,7 +1117,7 @@ export default function BookingPageContent() {
           show_based_on_service_category2: Boolean(p.show_based_on_service_category2),
           service_category2: p.service_category2 ?? null,
         },
-        selectedFrequencyTrim,
+        selectedFrequencyForPricing,
         svcName,
         selectedBedroomTierForPricing,
       ),
@@ -1068,7 +1126,7 @@ export default function BookingPageContent() {
       buildCustomerAvailableVariables(
         pricingParametersFull,
         selectedService,
-        selectedFrequencyTrim,
+        selectedFrequencyForPricing,
         pricingFrequencyDeps,
         selectedBedroomTierForPricing,
       ),
@@ -1096,7 +1154,7 @@ export default function BookingPageContent() {
   }, [
     pricingParametersFull,
     selectedService,
-    selectedFrequencyTrim,
+    selectedFrequencyForPricing,
     selectedIndustryLabel,
     pricingFrequencyDeps,
     selectedBedroomTierForPricing,
@@ -1362,32 +1420,39 @@ export default function BookingPageContent() {
 
     const fetchExtrasAndVariables = async () => {
       try {
-        const selectedServiceVars = (selectedService?.raw as { variables?: Record<string, unknown> } | undefined)
-          ?.variables;
-        const form2ServiceItemDeps =
-          bookingFormScopeForCatalog === "form2" &&
-          Array.isArray(selectedServiceVars?.Items)
-            ? (selectedServiceVars.Items as unknown[])
-                .map((x) => String(x).trim())
-                .filter((x) => x.length > 0)
-            : null;
-        const form2ServicePackageDeps =
-          bookingFormScopeForCatalog === "form2" &&
-          Array.isArray(selectedServiceVars?.Packages)
-            ? (selectedServiceVars.Packages as unknown[])
-                .map((x) => String(x).trim())
-                .filter((x) => x.length > 0)
-            : null;
+        const serviceNameForCatalog = String(selectedService?.name || "").trim();
+        const serviceCategoryForCatalog = serviceNameForCatalog
+          ? serviceCategories.find(
+              (s) =>
+                s.name === serviceNameForCatalog ||
+                (s.customerDisplayName?.trim() || "") === serviceNameForCatalog,
+            )?.raw
+          : null;
+        const form2ServiceItemDeps = getForm2ServiceItemAllowlist(
+          serviceCategoryForCatalog as { variables?: Record<string, unknown> } | null,
+          bookingFormScopeForCatalog === "form2",
+        );
         // Fetch extras (Form 2/3 should load both add-ons and extras, same as admin flow)
         const extrasRequests =
-          bookingFormScopeForCatalog === "form2" || bookingFormScopeForCatalog === "form3"
+          bookingFormScopeForCatalog === "form2"
             ? [
                 {
-                  url: `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessIdParam)}&bookingFormScope=${bookingFormScopeForCatalog}&listingKind=addon`,
+                  url: `/api/form2/addons?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessIdParam)}`,
                   listingKind: "addon" as const,
                 },
                 {
-                  url: `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessIdParam)}&bookingFormScope=${bookingFormScopeForCatalog}&listingKind=extra`,
+                  url: `/api/form2/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessIdParam)}`,
+                  listingKind: "extra" as const,
+                },
+              ]
+            : bookingFormScopeForCatalog === "form3"
+            ? [
+                {
+                  url: `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessIdParam)}&bookingFormScope=form3&listingKind=addon`,
+                  listingKind: "addon" as const,
+                },
+                {
+                  url: `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessIdParam)}&bookingFormScope=form3&listingKind=extra`,
                   listingKind: "extra" as const,
                 },
               ]
@@ -1405,9 +1470,11 @@ export default function BookingPageContent() {
           ),
         );
         const mergedExtras = extrasPayloads.flatMap(({ payload, listingKind }) =>
-          (Array.isArray((payload as { extras?: unknown[] }).extras)
-            ? (payload as { extras?: unknown[] }).extras
-            : []
+          (Array.isArray((payload as { addons?: unknown[]; extras?: unknown[] }).addons)
+            ? (payload as { addons?: unknown[] }).addons
+            : Array.isArray((payload as { extras?: unknown[] }).extras)
+              ? (payload as { extras?: unknown[] }).extras
+              : []
           ).map((row: any) => ({
             ...row,
             listing_kind: String(row?.listing_kind ?? "").trim() || listingKind,
@@ -1468,40 +1535,10 @@ export default function BookingPageContent() {
               .filter((v: { category: string }) => v.category.length > 0),
           );
           if (bookingFormScopeForCatalog === "form2" || bookingFormScopeForCatalog === "form3") {
-            let mappedItems = list
-              .map((v: Record<string, unknown>) => ({
-                id: String(v.id ?? ""),
-                name: String(v.name ?? "").trim(),
-                category:
-                  v.category != null && String(v.category).trim() !== ""
-                    ? String(v.category).trim()
-                    : null,
-              }))
-              .filter((x: { id: string; name: string }) => Boolean(x.id) && Boolean(x.name));
-            if (
-              bookingFormScopeForCatalog === "form2" &&
-              form2ServiceItemDeps &&
-              form2ServiceItemDeps.length > 0
-            ) {
-              mappedItems = mappedItems.filter((x: { id: string; name: string }) => {
-                const id = String(x.id ?? "").trim();
-                const name = String(x.name ?? "").trim();
-                return form2ServiceItemDeps.includes(id) || (name.length > 0 && form2ServiceItemDeps.includes(name));
-              });
-            }
-            // Form 2: item visibility can be restricted by frequency dependencies (Bedroom/Sq Ft/Bathroom lists).
-            // Use the matching list per item category; accept either item id or item name tokens.
-            const filteredItems = !pricingFrequencyDeps
-              ? mappedItems
-              : mappedItems.filter((row: { id: string; name: string; category?: string | null }) => {
-                  const cat = String(row.category ?? "").trim();
-                  const allowed = cat ? frequencyDepOptionNamesForCategory(cat, pricingFrequencyDeps) : null;
-                  if (allowed == null) return true; // category not restricted by deps
-                  if (allowed.length === 0) return false; // explicitly none allowed
-                  const id = String(row.id ?? "").trim();
-                  const name = String(row.name ?? "").trim();
-                  return allowed.includes(id) || (name.length > 0 && allowed.includes(name));
-                });
+            const filteredItems = filterForm2ItemsForBooking(mapApiRowsToForm2CatalogItems(list), {
+              serviceItemAllowlist: form2ServiceItemDeps,
+              frequencyDeps: pricingFrequencyDeps,
+            });
             setForm2CatalogItems(filteredItems);
           } else {
             setForm2CatalogItems([]);
@@ -1529,6 +1566,15 @@ export default function BookingPageContent() {
     pricingFrequencyDeps,
     selectedService?.id,
     selectedService?.name,
+    serviceCategories,
+    buildForm2ServiceDependencyKey(
+      String(selectedService?.name || "").trim(),
+      serviceCategories.map((s) => ({
+        name: s.name,
+        variables: (s.raw as { variables?: Record<string, unknown> })?.variables,
+      })),
+    ),
+    buildForm2FrequencyDependencyKey(pricingFrequencyDeps),
   ]);
 
   // Initialize booking form
@@ -1570,6 +1616,7 @@ export default function BookingPageContent() {
   const addressPreference = form.watch("addressPreference");
   const selectedProvider = form.watch("provider");
   const zipCode = form.watch("zipCode") ?? "";
+  const watchedBookingService = form.watch("service") ?? "";
   const existingAddressAvailable = Boolean(storedAddress?.address || customerAddress);
   const disableAddressFields = addressPreference === "existing" && existingAddressAvailable;
 
@@ -2200,89 +2247,78 @@ export default function BookingPageContent() {
     bookingFormScopeForCatalog,
   ]);
 
-  const form2ServicePackageDeps = useMemo((): string[] | null => {
-    if (!useForm2Layout) return null;
-    const vars = (selectedService?.raw as { variables?: Record<string, unknown> } | undefined)?.variables;
-    if (!Array.isArray(vars?.Packages)) return null;
-    const list = (vars.Packages as unknown[]).map((x) => String(x).trim()).filter((x) => x.length > 0);
-    return list.length > 0 ? list : null;
-  }, [useForm2Layout, selectedService?.raw]);
+  /** Form 2/3 item grid: pricing-variables items only (never service categories). */
+  const form2ItemPickerItems = useMemo(() => form2CatalogItems, [form2CatalogItems]);
+
+  const form2BookingServiceName = useMemo(
+    () => String(watchedBookingService || selectedService?.name || "").trim(),
+    [watchedBookingService, selectedService?.name],
+  );
+
+  const form2BookingServiceCategoryRaw = useMemo(() => {
+    if (!form2BookingServiceName) return null;
+    const hit = serviceCategories.find(
+      (s) =>
+        s.name === form2BookingServiceName ||
+        (s.customerDisplayName?.trim() || "") === form2BookingServiceName,
+    );
+    return (hit?.raw ?? null) as {
+      variables?: Record<string, unknown>;
+      service_category_frequency?: boolean;
+    } | null;
+  }, [serviceCategories, form2BookingServiceName]);
 
   const form2VisiblePackages = useMemo((): Form2PackageRow[] => {
     if (!useForm2Layout) return [];
-    const serviceUsesFrequencyDeps = Boolean(
-      (selectedService?.raw as { service_category_frequency?: boolean } | undefined)
-        ?.service_category_frequency,
-    );
-    const selectedServiceName = String(selectedService?.name ?? "").trim();
     const bedroomTier =
       String(
         serviceCustomization?.bedroom ??
           serviceCustomization?.variableCategories?.Bedroom ??
           "",
       ).trim() || null;
-
-    return pricingParametersFull
-      .filter((p) =>
-        form2PackagePassesBookingVisibility(p, {
-          frequencyDeps: pricingFrequencyDeps,
-          servicePackageAllowlist: form2ServicePackageDeps,
-          selectedFrequency: bookingFrequencyForFilters,
-          selectedServiceName,
-          selectedBedroomTier: bedroomTier,
-          serviceUsesFrequencyDeps,
-        }),
-      )
-      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name))
-      .map((p) => {
-        const id = String(p.id ?? "").trim();
-        if (!id) return null;
-        return {
-          id,
-          name: p.name,
-          variable_category: p.variable_category,
-          description: (p as { description?: string | null }).description ?? null,
-          price: typeof p.price === "number" ? p.price : Number(p.price) || 0,
-          time_minutes:
-            (p as { time_minutes?: number | null }).time_minutes != null
-              ? Number((p as { time_minutes?: number | null }).time_minutes)
-              : null,
-          icon: (p as { icon?: string | null }).icon ?? null,
-        };
-      })
-      .filter((x): x is Form2PackageRow => x != null);
+    return buildForm2PackageStripRows(pricingParametersFull, {
+      frequencyDeps: pricingFrequencyDeps,
+      serviceCategory: form2BookingServiceCategoryRaw,
+      selectedFrequency: bookingFrequencyForFilters,
+      selectedServiceName: form2BookingServiceName,
+      selectedBedroomTier: bedroomTier,
+    });
   }, [
     useForm2Layout,
     pricingParametersFull,
     pricingFrequencyDeps,
-    form2ServicePackageDeps,
     bookingFrequencyForFilters,
-    selectedService?.raw,
-    selectedService?.name,
+    form2BookingServiceName,
+    form2BookingServiceCategoryRaw,
     serviceCustomization?.bedroom,
     serviceCustomization?.variableCategories,
   ]);
 
-  const form2PackagesForDisplay = useMemo((): Form2PackageRow[] => {
-    if (form2CatalogItems.length === 0) return form2VisiblePackages;
-    if (!bookingFrequencyForFilters.trim()) return [];
-    return form2VisiblePackages;
-  }, [form2CatalogItems.length, form2VisiblePackages, bookingFrequencyForFilters]);
-
   const form2SelectedPackageHighlight = useMemo(() => {
-    if (!form2UsesVariableCatalog || !form2ActiveItemId || !serviceCustomization?.variableCategories) return null;
-    const item = form2CatalogItems.find((v) => v.id === form2ActiveItemId);
+    if (!form2AdminStyleItemPackageUi || !form2ActiveItemId || !serviceCustomization?.variableCategories) {
+      return null;
+    }
+    const item = form2ItemPickerItems.find((v) => String(v.id) === String(form2ActiveItemId));
     const itemId = String(item?.id ?? "").trim();
-    const byItem = itemId ? serviceCustomization.variableCategories[itemId] : null;
-    if (byItem && String(byItem).trim()) return String(byItem).trim();
-    const cat = item?.category?.trim();
-    if (!cat) return null;
-    const byCategory = serviceCustomization.variableCategories[cat];
-    return byCategory && String(byCategory).trim() ? String(byCategory).trim() : null;
-  }, [form2UsesVariableCatalog, form2ActiveItemId, serviceCustomization?.variableCategories, form2CatalogItems]);
+    const cat = item?.category?.trim() ?? "";
+    const raw = String(
+      (itemId ? serviceCustomization.variableCategories[itemId] : null) ??
+        (cat ? serviceCustomization.variableCategories[cat] : null) ??
+        "",
+    ).trim();
+    if (!raw) return null;
+    const pkg = resolveForm2PackageSelection(pricingParametersFull, raw);
+    return pkg?.name ?? raw;
+  }, [
+    form2AdminStyleItemPackageUi,
+    form2ItemPickerItems,
+    form2ActiveItemId,
+    serviceCustomization?.variableCategories,
+    pricingParametersFull,
+  ]);
 
   const form2SelectedItemRows = useMemo(() => {
-    if (!form2UsesVariableCatalog || !serviceCustomization?.variableCategories) return [] as Array<{
+    if (!form2AdminStyleItemPackageUi || !serviceCustomization?.variableCategories) return [] as Array<{
       itemId: string;
       itemName: string;
       category: string;
@@ -2292,7 +2328,7 @@ export default function BookingPageContent() {
       service: (typeof categoryServicesForForm)[number] | null;
     }>;
     const vc = serviceCustomization.variableCategories;
-    return form2CatalogItems
+    return form2ItemPickerItems
       .map((item) => {
         const idKey = String(item.id ?? "").trim();
         const catKey = String(item.category ?? "").trim();
@@ -2300,17 +2336,13 @@ export default function BookingPageContent() {
           (idKey ? vc[idKey] : null) ??
           (catKey ? vc[catKey] : null) ??
           null;
-        const packageName = String(packageNameRaw ?? "").trim();
-        if (!packageName) return null;
-        const param = pricingParametersFull.find((p) => {
-          const packageIdHint =
-            (idKey ? String(vc[`__f2pkgid:${idKey}`] ?? "").trim() : "") ||
-            (catKey ? String(vc[`__f2pkgid:${catKey}`] ?? "").trim() : "");
-          if (packageIdHint.length > 0 && String(p.id ?? "").trim() === packageIdHint) {
-            return true;
-          }
-          return String(p.name ?? "").trim() === packageName;
-        }) as (PricingParamRow & { service_category?: string | null }) | undefined;
+        const rawSelection = String(packageNameRaw ?? "").trim();
+        if (!rawSelection) return null;
+        const param = resolveForm2PackageSelection(
+          pricingParametersFull,
+          rawSelection,
+        ) as (PricingParamRow & { service_category?: string | null }) | undefined;
+        const packageName = param?.name ?? rawSelection;
         const csv = String(param?.service_category ?? "").trim();
         const svc = (() => {
           if (csv && categoryServicesForForm.length) {
@@ -2350,24 +2382,48 @@ export default function BookingPageContent() {
         service: (typeof categoryServicesForForm)[number] | null;
       } => x != null);
   }, [
-    form2UsesVariableCatalog,
+    form2AdminStyleItemPackageUi,
+    form2ItemPickerItems,
     serviceCustomization?.variableCategories,
-    form2CatalogItems,
     pricingParametersFull,
     categoryServicesForForm,
     selectedService,
   ]);
 
+  const form2AddedPackagesFrequencyLabel = useMemo(
+    () =>
+      serviceCustomization?.frequency?.trim() || bookingFrequencyForFilters.trim() || "",
+    [serviceCustomization?.frequency, bookingFrequencyForFilters],
+  );
+
+  const form2AddedPackagesCounts = useMemo(() => {
+    const selectedExtras = serviceCustomization?.extras ?? [];
+    let addOnCount = 0;
+    let extraCount = 0;
+    for (const x of selectedExtras) {
+      if (Number(x.quantity || 0) <= 0) continue;
+      const parsed = parseForm2ExtraSelectionKey(String(x.name ?? ""));
+      const lookup = parsed ? parsed.extraId : String(x.name ?? "");
+      const match = availableExtras.find(
+        (e: { id?: string; name?: string; listing_kind?: string }) =>
+          String(e?.id ?? "") === lookup || String(e?.name ?? "") === lookup,
+      );
+      if (String(match?.listing_kind ?? "extra") === "addon") addOnCount += 1;
+      else extraCount += 1;
+    }
+    return { addOnCount, extraCount };
+  }, [serviceCustomization?.extras, availableExtras]);
+
   const form2CategoryKeys = useMemo(
     () =>
       Array.from(
         new Set(
-          form2CatalogItems
+          form2ItemPickerItems
             .map((item) => String(item?.category ?? "").trim())
             .filter((x) => x.length > 0),
         ),
       ),
-    [form2CatalogItems],
+    [form2ItemPickerItems],
   );
 
   const getForm2VisibleRowsForItem = useCallback(
@@ -2384,18 +2440,26 @@ export default function BookingPageContent() {
           ? pricingFrequencyDeps.extras.map((x) => String(x))
           : [];
       const depsLoaded = pricingFrequencyDeps != null;
-      const baseCategoryValues = buildCategoryValuesMapForExtraDeps(
+      const rawVc = serviceCustomization?.variableCategories ?? {};
+      const categoryValuesForDeps = buildCategoryValuesMapForExtraDeps(
         {
-          variableCategories: serviceCustomization?.variableCategories ?? {},
+          variableCategories: rawVc,
           squareMeters: serviceCustomization?.squareMeters ?? "",
           bedroom: serviceCustomization?.bedroom ?? "",
           bathroom: serviceCustomization?.bathroom ?? "",
         },
         form2CategoryKeys,
       );
+      // Resolve stored package ids to names for Category:Value dependency checks (admin stores ids in categoryValues).
+      for (const [catKey, rawVal] of Object.entries(rawVc)) {
+        if (catKey.startsWith("__")) continue;
+        const trimmed = String(rawVal ?? "").trim();
+        if (!trimmed) continue;
+        const pkg = resolveForm2PackageSelection(pricingParametersFull, trimmed);
+        if (pkg?.name) categoryValuesForDeps[catKey] = String(pkg.name).trim();
+      }
       if (rowCategory && rowPackageName) {
-        // Ensure the active item row's chosen package is always represented for variable dependency checks.
-        baseCategoryValues[rowCategory] = rowPackageName;
+        categoryValuesForDeps[rowCategory] = rowPackageName;
       }
 
       let scopedExtras = [...availableExtras];
@@ -2408,11 +2472,11 @@ export default function BookingPageContent() {
         }
       }
 
-      const selectedVariableOptionTokens = [
-        rowPackageName,
-        rowServiceName,
-        String(row?.service?.customerDisplayName ?? "").trim(),
-      ].filter((token) => token.length > 0);
+      const selectedVariableOptionTokens = buildForm2ExtraDependencyTokens(
+        rawVc,
+        pricingParametersFull,
+        [rowPackageName, rowServiceName, String(row?.service?.customerDisplayName ?? "").trim()],
+      );
 
       const visible = scopedExtras.filter((e: any) =>
         industryExtraPassesBookingDependencyRules(
@@ -2431,7 +2495,7 @@ export default function BookingPageContent() {
             selectedFrequency,
             selectedServiceCategoryName: rowServiceName,
             selectedServiceCategoryId: rowServiceId,
-            categoryValues: baseCategoryValues,
+            categoryValues: categoryValuesForDeps,
             serviceCategoryUsesFrequencyDeps,
             frequencyDepsLoaded: depsLoaded,
             frequencyFormAllowExtraIds,
@@ -2455,6 +2519,7 @@ export default function BookingPageContent() {
       serviceCustomization?.bathroom,
       form2CategoryKeys,
       bookingFormScopeForCatalog,
+      pricingParametersFull,
     ],
   );
 
@@ -2512,14 +2577,10 @@ export default function BookingPageContent() {
 
   useEffect(() => {
     if (!form2ActiveItemId) return;
-    if (form2CatalogItems.length > 0) {
-      if (!form2CatalogItems.some((v) => v.id === form2ActiveItemId)) {
-        setForm2ActiveItemId(null);
-      }
-    } else if (!categoryServicesForForm.some((s) => String(s.id) === form2ActiveItemId)) {
+    if (!form2ItemPickerItems.some((v) => String(v.id) === String(form2ActiveItemId))) {
       setForm2ActiveItemId(null);
     }
-  }, [categoryServicesForForm, form2ActiveItemId, form2CatalogItems]);
+  }, [form2ItemPickerItems, form2ActiveItemId]);
 
   useEffect(() => {
     if (bookingFormScopeForCatalog !== "form3") {
@@ -2531,18 +2592,12 @@ export default function BookingPageContent() {
   }, [bookingFormScopeForCatalog, categoryServicesForForm]);
 
   useEffect(() => {
-    if (!useForm2Layout || limitedEditMode) return;
-    if (form2CatalogItems.length === 1) {
-      setForm2ActiveItemId(form2CatalogItems[0].id);
-      return;
-    }
-    if (form2CatalogItems.length === 0 && categoryServicesForForm.length === 1) {
-      const only = categoryServicesForForm[0];
-      const idStr = String(only.id);
-      setForm2ActiveItemId(idStr);
-      handleCardFlip(only.id);
-    }
-  }, [useForm2Layout, limitedEditMode, categoryServicesForForm, form2CatalogItems]);
+    if (!form2AdminStyleItemPackageUi || limitedEditMode) return;
+    setForm2ActiveItemId((prev) => {
+      if (prev && form2ItemPickerItems.some((v) => String(v.id) === String(prev))) return prev;
+      return form2ItemPickerItems[0]?.id ?? null;
+    });
+  }, [form2AdminStyleItemPackageUi, limitedEditMode, form2ItemPickerItems]);
 
   // Handle provider selection
   const handleProviderSelect = (provider: any) => {
@@ -3602,7 +3657,7 @@ export default function BookingPageContent() {
     // Form 2 behaves like admin categoryValues (global for the booking),
     // so always merge from current booking customization first.
     const custom = serviceCustomization ?? getCardCustomization(svc.id);
-    const activeItem = form2CatalogItems.find((v) => String(v.id) === String(form2ActiveItemId));
+    const activeItem = form2ItemPickerItems.find((v) => String(v.id) === String(form2ActiveItemId));
     const packageKey =
       String(activeItem?.id ?? "").trim() ||
       String(activeItem?.category ?? "").trim() ||
@@ -3618,8 +3673,7 @@ export default function BookingPageContent() {
       frequency: freq,
       variableCategories: {
         ...(custom.variableCategories || {}),
-        [packageKey]: pkg.name,
-        [packageIdKey]: String(pkg.id ?? "").trim(),
+        [packageKey]: String(pkg.id),
       },
     };
     handleServiceSelect(svc.name, next);
@@ -3664,38 +3718,61 @@ export default function BookingPageContent() {
   );
 
   const getForm2ExtraQtyForItem = useCallback(
-    (itemId: string, extraName: string): number => {
+    (itemId: string, extraId: string): number => {
       const extras = serviceCustomization?.extras ?? [];
-      const key = makeForm2ExtraSelectionKey(itemId, extraName);
+      const idKey = String(extraId ?? "").trim();
+      const key = makeForm2ExtraSelectionKey(itemId, idKey);
       const exact = extras.find((e) => String(e.name) === key);
       if (exact) return Math.max(0, Number(exact.quantity) || 0);
-      // Backward compatibility for old non-keyed entries
-      const legacy = extras.find((e) => String(e.name) === extraName);
-      return legacy ? Math.max(0, Number(legacy.quantity) || 0) : 0;
+      const legacyById = extras.find((e) => {
+        const parsed = parseForm2ExtraSelectionKey(String(e.name ?? ""));
+        return parsed?.itemId === itemId && parsed?.extraId === idKey;
+      });
+      if (legacyById) return Math.max(0, Number(legacyById.quantity) || 0);
+      const legacyName = findAvailableExtraByRef(availableExtras, idKey);
+      if (legacyName?.name) {
+        const legacy = extras.find(
+          (e) =>
+            String(e.name) === String(legacyName.name) ||
+            String(e.name) === makeForm2ExtraSelectionKey(itemId, String(legacyName.name)),
+        );
+        if (legacy) return Math.max(0, Number(legacy.quantity) || 0);
+      }
+      return 0;
     },
-    [serviceCustomization?.extras],
+    [serviceCustomization?.extras, availableExtras],
   );
 
   const setForm2ExtraQtyForItem = useCallback(
-    (itemId: string, extraName: string, qty: number) => {
-      if (!serviceCustomization) return;
+    (itemId: string, extraId: string, qty: number) => {
+      const svc = selectedService ?? categoryServicesForForm[0];
+      if (!svc) return;
+      const base = serviceCustomization ?? getCardCustomization(svc.id);
       const normalizedQty = Math.max(0, Number(qty) || 0);
-      const key = makeForm2ExtraSelectionKey(itemId, extraName);
-      const nextExtras = [...(serviceCustomization.extras ?? [])].filter(
-        (e) => String(e.name) !== key && String(e.name) !== extraName,
-      );
+      const idKey = String(extraId ?? "").trim();
+      const key = makeForm2ExtraSelectionKey(itemId, idKey);
+      const legacyName = findAvailableExtraByRef(availableExtras, idKey)?.name;
+      const nextExtras = [...(base.extras ?? [])].filter((e) => {
+        const n = String(e.name ?? "");
+        if (n === key) return false;
+        if (legacyName && (n === legacyName || n === makeForm2ExtraSelectionKey(itemId, legacyName))) {
+          return false;
+        }
+        const parsed = parseForm2ExtraSelectionKey(n);
+        return !(parsed?.itemId === itemId && parsed?.extraId === idKey);
+      });
       if (normalizedQty > 0) {
         nextExtras.push({ name: key, quantity: normalizedQty });
       }
-      const next: ServiceCustomization = { ...serviceCustomization, extras: nextExtras };
+      const next: ServiceCustomization = { ...base, extras: nextExtras };
       setServiceCustomization(next);
-      setCardCustomizations((prev) => {
-        if (!selectedService?.id) return prev;
-        return { ...prev, [String(selectedService.id)]: next };
-      });
+      setCardCustomizations((prev) => ({ ...prev, [cardKey(svc.id)]: next }));
+      if (!selectedService || cardKey(selectedService.id) !== cardKey(svc.id)) {
+        setSelectedService(svc);
+      }
       form.setValue("customization", toFormCustomization(next), { shouldValidate: true });
     },
-    [serviceCustomization, selectedService?.id, form],
+    [serviceCustomization, selectedService, categoryServicesForForm, availableExtras, form],
   );
 
   const applyForm2FrequencySelection = useCallback(
@@ -3892,7 +3969,7 @@ export default function BookingPageContent() {
     const vc = serviceCustomization?.variableCategories ?? {};
     if (
       (bookingFormScopeForCatalog === "form2" || bookingFormScopeForCatalog === "form3") &&
-      form2UsesVariableCatalog
+      form2AdminStyleItemPackageUi
     ) {
       const selectedRowsSubtotal = form2SelectedItemRows.reduce(
         (acc, row) => acc + (Number.isFinite(Number(row.packagePrice)) ? Number(row.packagePrice) : 0),
@@ -4042,8 +4119,8 @@ export default function BookingPageContent() {
     for (const item of serviceCustomization.extras) {
       if (item.name === "None") continue;
       const parsed = parseForm2ExtraSelectionKey(String(item.name ?? "").trim());
-      const extraLookupName = parsed ? parsed.extraId : String(item.name ?? "").trim();
-      const extra = availableExtras.find((e: any) => (e.name || "").trim() === extraLookupName);
+      const extraLookupRef = parsed ? parsed.extraId : String(item.name ?? "").trim();
+      const extra = findAvailableExtraByRef(availableExtras, extraLookupRef);
       if (!extra) continue;
       const qty = Math.max(1, Number(item.quantity) || 1);
       const { linePrice } = resolveQtyBasedExtraLine(
@@ -4133,7 +4210,7 @@ export default function BookingPageContent() {
     const hasForm2PackageSelection =
       useForm2Layout &&
       (bookingFormScopeForCatalog === "form2" || bookingFormScopeForCatalog === "form3") &&
-      form2UsesVariableCatalog &&
+      form2AdminStyleItemPackageUi &&
       (form2SelectedItemRows.length > 0 ||
         String(serviceCustomization?.variableCategories?.[FORM2_STANDALONE_PACKAGE_CATEGORY] ?? "").trim().length > 0);
     if (!serviceCustomization || (!selectedService && !hasForm2PackageSelection)) {
@@ -5430,10 +5507,7 @@ export default function BookingPageContent() {
                         );
                         if (!selected) return;
                         handleServiceSelect(selected.name);
-                        setFlippedCardId(selected.id);
-                        if (bookingFormScopeForCatalog === "form2") {
-                          setForm2ActiveItemId(String(selected.id));
-                        } else {
+                        if (bookingFormScopeForCatalog !== "form2") {
                           setForm2ActiveItemId(null);
                         }
                       }}
@@ -5531,14 +5605,16 @@ export default function BookingPageContent() {
               </h2>
               {useForm2Layout || bookingFormScopeForCatalog === "form3" ? (
                 <p className="text-sm text-muted-foreground mb-6 max-w-2xl">
-                  {form2UsesVariableCatalog
+                  {form2AdminStyleItemPackageUi
                     ? "Select an item (for example bedroom range or square footage), then choose a package and tap Add to include it in your booking."
                     : "Select a service line below, then customize your package on the card. Add extras from the card when needed."}
                 </p>
               ) : null}
-              {(useForm2Layout || bookingFormScopeForCatalog === "form3") && !serviceCategoriesLoading && form2UsesVariableCatalog ? (
+              {(useForm2Layout || bookingFormScopeForCatalog === "form3") &&
+              !serviceCategoriesLoading &&
+              form2AdminStyleItemPackageUi ? (
                 <Form2ItemPickerGrid
-                  items={form2CatalogItems}
+                  items={form2ItemPickerItems}
                   selectedId={form2ActiveItemId}
                   onSelect={(id) => {
                     setForm2ActiveItemId(id);
@@ -5556,7 +5632,10 @@ export default function BookingPageContent() {
                   className="mb-2"
                   uiVariant="admin"
                 />
-              ) : (useForm2Layout || bookingFormScopeForCatalog === "form3") && !serviceCategoriesLoading && categoryServicesForForm.length > 0 ? (
+              ) : (useForm2Layout || bookingFormScopeForCatalog === "form3") &&
+                !form2AdminStyleItemPackageUi &&
+                !serviceCategoriesLoading &&
+                categoryServicesForForm.length > 0 ? (
                 <div className="mb-6">
                   <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-3">Select item(s)</h3>
                   <div className="flex flex-wrap gap-3">
@@ -5611,9 +5690,11 @@ export default function BookingPageContent() {
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-8 w-8 animate-spin text-cyan-500" />
                 </div>
-              ) : categoryServicesForForm.length > 0 || form2UsesVariableCatalog || form2VisiblePackages.length > 0 ? (
+              ) : categoryServicesForForm.length > 0 ||
+                form2AdminStyleItemPackageUi ||
+                form2VisiblePackages.length > 0 ? (
                 useForm2Layout || bookingFormScopeForCatalog === "form3" ? (
-                  form2UsesVariableCatalog ? (
+                  form2AdminStyleItemPackageUi ? (
                     <>
                       <div id="form2-packages-row" className="space-y-3">
                         {bookingFormScopeForCatalog === "form3" ? (
@@ -5679,7 +5760,7 @@ export default function BookingPageContent() {
                                         ) : (
                                           <div className="flex flex-wrap gap-2">
                                             {addonRows.map((addon: any) => {
-                                              const qty = getForm2ExtraQtyForItem(activeItemKey, String(addon.name ?? ""));
+                                              const qty = getForm2ExtraQtyForItem(activeItemKey, String(addon.id ?? ""));
                                               const selected = qty > 0;
                                               return (
                                                 <Button
@@ -5690,7 +5771,7 @@ export default function BookingPageContent() {
                                                   onClick={() =>
                                                     setForm2ExtraQtyForItem(
                                                       activeItemKey,
-                                                      String(addon.name ?? ""),
+                                                      String(addon.id ?? ""),
                                                       selected ? 0 : 1,
                                                     )
                                                   }
@@ -5709,7 +5790,7 @@ export default function BookingPageContent() {
                                             {extraRows.map((extra: any) => {
                                               const qty = getForm2ExtraQtyForItem(
                                                 activeItemKey,
-                                                String(extra.name ?? ""),
+                                                String(extra.id ?? ""),
                                               );
                                               const selected = qty > 0;
                                               return (
@@ -5721,7 +5802,7 @@ export default function BookingPageContent() {
                                                   onClick={() =>
                                                     setForm2ExtraQtyForItem(
                                                       activeItemKey,
-                                                      String(extra.name ?? ""),
+                                                      String(extra.id ?? ""),
                                                       selected ? 0 : 1,
                                                     )
                                                   }
@@ -5746,17 +5827,15 @@ export default function BookingPageContent() {
                                 </div>
                               );
                           })()
-                        ) : !bookingFrequencyForFilters.trim() && form2CatalogItems.length > 0 ? (
+                        ) : form2VisiblePackages.length === 0 ? (
                           <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm text-muted-foreground dark:border-slate-600 dark:bg-slate-900/40">
-                            Select a frequency to see packages allowed for that visit schedule.
-                          </div>
-                        ) : form2PackagesForDisplay.length === 0 ? (
-                          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm text-muted-foreground dark:border-slate-600 dark:bg-slate-900/40">
-                            No packages match your current frequency and service settings. Check Frequencies → dependencies in admin.
+                            {form2ActiveItemId
+                              ? "No packages match your current frequency and service settings."
+                              : "Select an item to see packages."}
                           </div>
                         ) : (
                           <Form2PackageCardStrip
-                            packages={form2PackagesForDisplay}
+                            packages={form2VisiblePackages}
                             scrollRef={form2PackagesScrollRef}
                             selectedPackageName={form2SelectedPackageHighlight}
                             onAdd={handleForm2PackageAdd}
@@ -5764,177 +5843,187 @@ export default function BookingPageContent() {
                           />
                         )}
                       </div>
-                      {bookingFormScopeForCatalog !== "form3" && form2SelectedItemRows.length > 0 && (
-                        <div className="mt-8 rounded-xl border border-slate-200/80 bg-white p-4 dark:border-slate-700 dark:bg-card">
-                          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-3">
-                            Added items
-                          </h3>
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            {form2SelectedItemRows.map((row) => {
-                              if (!row.service) return null;
-                              const visibleRows = getForm2VisibleRowsForItem(row);
-                              const rowAddonRows = visibleRows.addons;
-                              const rowExtraRows = visibleRows.extras;
-                              return (
-                                <div
-                                  key={`${row.itemId}-${row.packageName}`}
-                                  className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-slate-900/40"
-                                >
-                                  <div className="mb-2 flex items-center justify-between">
-                                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate pr-2">
-                                      {row.itemName} - {row.packageName}
+                      {bookingFormScopeForCatalog === "form2" && form2SelectedItemRows.length > 0 ? (
+                        <Form2AddedPackagesSection
+                          serviceTitle={
+                            form2SelectedItemRows[0]?.service?.customerDisplayName?.trim() ||
+                            form2SelectedItemRows[0]?.service?.name ||
+                            selectedService?.customerDisplayName?.trim() ||
+                            selectedService?.name ||
+                            "Service"
+                          }
+                          serviceCategory={form2SelectedItemRows[0]?.category}
+                          frequencyLabel={form2AddedPackagesFrequencyLabel || null}
+                          lines={form2SelectedItemRows.map((row) => ({
+                            itemId: row.itemId,
+                            itemName: row.itemName,
+                            category: row.category,
+                            packageName: row.packageName,
+                            packagePrice: row.packagePrice,
+                            packageTimeMinutes: row.packageTimeMinutes,
+                          }))}
+                          addOnCount={form2AddedPackagesCounts.addOnCount}
+                          extraCount={form2AddedPackagesCounts.extraCount}
+                          onRemoveLine={removeForm2SelectedItem}
+                          onAddAnother={() => {
+                            setForm2ActiveItemId(null);
+                            requestAnimationFrame(() => {
+                              document
+                                .getElementById("form2-packages-row")
+                                ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                            });
+                          }}
+                          renderLineExtras={(line) => {
+                            const row = form2SelectedItemRows.find((r) => r.itemId === line.itemId);
+                            if (!row?.service) return null;
+                            const visibleRows = getForm2VisibleRowsForItem(row);
+                            const rowAddonRows = visibleRows.addons;
+                            const rowExtraRows = visibleRows.extras;
+                            return (
+                              <>
+                                {rowAddonRows.length > 0 ? (
+                                  <div className="rounded-md border border-cyan-200/70 bg-cyan-50/40 p-2 dark:border-cyan-900/40 dark:bg-cyan-950/20">
+                                    <p className="text-xs font-medium text-slate-700 dark:text-slate-200 mb-1.5">
+                                      Any Add-ons for this package?
                                     </p>
-                                    <button
-                                      type="button"
-                                      className="inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200/70 dark:hover:bg-slate-800"
-                                      aria-label={`Remove ${row.itemName}`}
-                                      onClick={() => removeForm2SelectedItem(row.itemId, row.category, row.packageName)}
-                                    >
-                                      <X className="h-4 w-4" />
-                                    </button>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {rowAddonRows.map((addon: any) => {
+                                        const qty = getForm2ExtraQtyForItem(
+                                          line.itemId,
+                                          String(addon.id ?? ""),
+                                        );
+                                        const selected = qty > 0;
+                                        const priceBadges = form2TierPricingBadges(addon);
+                                        const timeBadges = form2TierTimeBadges(addon);
+                                        return (
+                                          <button
+                                            key={`${line.itemId}-${addon.id}`}
+                                            type="button"
+                                            className={cn(
+                                              "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                                              selected
+                                                ? "border-cyan-500 bg-cyan-500 text-white"
+                                                : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-card dark:text-slate-200 dark:hover:bg-slate-800",
+                                            )}
+                                            onClick={() =>
+                                              setForm2ExtraQtyForItem(
+                                                line.itemId,
+                                                String(addon.id ?? ""),
+                                                selected ? 0 : 1,
+                                              )
+                                            }
+                                          >
+                                            <span className="block">{String(addon.name ?? "")}</span>
+                                            <span className="mt-1 flex flex-wrap items-center gap-1">
+                                              {priceBadges.map((b) => (
+                                                <span
+                                                  className={cn(
+                                                    "inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] leading-none",
+                                                    selected
+                                                      ? "border-white/70 bg-white/20 text-white"
+                                                      : "border-cyan-300/80 bg-cyan-50 text-cyan-700",
+                                                  )}
+                                                  key={`${addon.id}-p-${b.label}`}
+                                                >
+                                                  {b.label}: ${Number(b.value || 0).toFixed(2)}
+                                                </span>
+                                              ))}
+                                            </span>
+                                            <span className="mt-1 flex flex-wrap items-center gap-1">
+                                              {timeBadges.map((b) => (
+                                                <span
+                                                  className={cn(
+                                                    "inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] leading-none",
+                                                    selected
+                                                      ? "border-white/70 bg-white/20 text-white"
+                                                      : "border-cyan-300/80 bg-cyan-50 text-cyan-700",
+                                                  )}
+                                                  key={`${addon.id}-t-${b.label}`}
+                                                >
+                                                  {b.label}: {b.value}
+                                                </span>
+                                              ))}
+                                            </span>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
                                   </div>
-                                  <p className="mb-2 text-[11px] text-muted-foreground">
-                                    ${Number(row.packagePrice || 0).toFixed(2)}
-                                    {row.packageTimeMinutes ? ` · ${row.packageTimeMinutes} min` : ""}
-                                  </p>
-                                  {rowAddonRows.length > 0 && (
-                                    <div className="mt-2 rounded-md border border-cyan-200/70 bg-cyan-50/40 p-2 dark:border-cyan-900/40 dark:bg-cyan-950/20">
-                                      <p className="text-xs font-medium text-slate-700 dark:text-slate-200 mb-1.5">
-                                        Any Add-ons for this package?
-                                      </p>
-                                      <div className="flex flex-wrap gap-1.5">
-                                        {rowAddonRows.map((addon: any) => {
-                                          const qty = getForm2ExtraQtyForItem(row.itemId, String(addon.name ?? ""));
-                                          const selected = qty > 0;
-                                          const priceBadges = form2TierPricingBadges(addon);
-                                          const timeBadges = form2TierTimeBadges(addon);
-                                          return (
-                                            <button
-                                              key={`${row.itemId}-${addon.id}`}
-                                              type="button"
-                                              className={cn(
-                                                "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
-                                                selected
-                                                  ? "border-cyan-500 bg-cyan-500 text-white"
-                                                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-card dark:text-slate-200 dark:hover:bg-slate-800",
-                                              )}
-                                              onClick={() =>
-                                                setForm2ExtraQtyForItem(
-                                                  row.itemId,
-                                                  String(addon.name ?? ""),
-                                                  selected ? 0 : 1,
-                                                )
-                                              }
-                                            >
-                                              <span className="block">{String(addon.name ?? "")}</span>
-                                              <span className="mt-1 flex flex-wrap items-center gap-1">
-                                                {priceBadges.map((b) => (
-                                                  <span
-                                                    className={cn(
-                                                      "inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] leading-none",
-                                                      selected
-                                                        ? "border-white/70 bg-white/20 text-white"
-                                                        : "border-cyan-300/80 bg-cyan-50 text-cyan-700",
-                                                    )}
-                                                    key={`${addon.id}-p-${b.label}`}
-                                                  >
-                                                    {b.label}: ${Number(b.value || 0).toFixed(2)}
-                                                  </span>
-                                                ))}
-                                              </span>
-                                              <span className="mt-1 flex flex-wrap items-center gap-1">
-                                                {timeBadges.map((b) => (
-                                                  <span
-                                                    className={cn(
-                                                      "inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] leading-none",
-                                                      selected
-                                                        ? "border-white/70 bg-white/20 text-white"
-                                                        : "border-cyan-300/80 bg-cyan-50 text-cyan-700",
-                                                    )}
-                                                    key={`${addon.id}-t-${b.label}`}
-                                                  >
-                                                    {b.label}: {b.value}
-                                                  </span>
-                                                ))}
-                                              </span>
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
+                                ) : null}
+                                {rowExtraRows.length > 0 ? (
+                                  <div className="rounded-md border border-violet-200/70 bg-violet-50/40 p-2 dark:border-violet-900/40 dark:bg-violet-950/20">
+                                    <p className="text-xs font-medium text-slate-700 dark:text-slate-200 mb-1.5">
+                                      Extras (optional)
+                                    </p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {rowExtraRows.map((extra: any) => {
+                                        const qty = getForm2ExtraQtyForItem(
+                                          line.itemId,
+                                          String(extra.name ?? ""),
+                                        );
+                                        const selected = qty > 0;
+                                        const priceBadges = form2TierPricingBadges(extra);
+                                        const timeBadges = form2TierTimeBadges(extra);
+                                        return (
+                                          <button
+                                            key={`${line.itemId}-${extra.id}`}
+                                            type="button"
+                                            className={cn(
+                                              "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                                              selected
+                                                ? "border-violet-500 bg-violet-500 text-white"
+                                                : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-card dark:text-slate-200 dark:hover:bg-slate-800",
+                                            )}
+                                            onClick={() =>
+                                              setForm2ExtraQtyForItem(
+                                                line.itemId,
+                                                String(extra.id ?? ""),
+                                                selected ? 0 : 1,
+                                              )
+                                            }
+                                          >
+                                            <span className="block">{String(extra.name ?? "")}</span>
+                                            <span className="mt-1 flex flex-wrap items-center gap-1">
+                                              {priceBadges.map((b) => (
+                                                <span
+                                                  className={cn(
+                                                    "inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] leading-none",
+                                                    selected
+                                                      ? "border-white/70 bg-white/20 text-white"
+                                                      : "border-violet-300/80 bg-violet-50 text-violet-700",
+                                                  )}
+                                                  key={`${extra.id}-p-${b.label}`}
+                                                >
+                                                  {b.label}: ${Number(b.value || 0).toFixed(2)}
+                                                </span>
+                                              ))}
+                                            </span>
+                                            <span className="mt-1 flex flex-wrap items-center gap-1">
+                                              {timeBadges.map((b) => (
+                                                <span
+                                                  className={cn(
+                                                    "inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] leading-none",
+                                                    selected
+                                                      ? "border-white/70 bg-white/20 text-white"
+                                                      : "border-violet-300/80 bg-violet-50 text-violet-700",
+                                                  )}
+                                                  key={`${extra.id}-t-${b.label}`}
+                                                >
+                                                  {b.label}: {b.value}
+                                                </span>
+                                              ))}
+                                            </span>
+                                          </button>
+                                        );
+                                      })}
                                     </div>
-                                  )}
-                                  {rowExtraRows.length > 0 && (
-                                    <div className="mt-3 rounded-md border border-violet-200/70 bg-violet-50/40 p-2 dark:border-violet-900/40 dark:bg-violet-950/20">
-                                      <p className="text-xs font-medium text-slate-700 dark:text-slate-200 mb-1.5">
-                                        Extras (optional)
-                                      </p>
-                                      <div className="flex flex-wrap gap-1.5">
-                                        {rowExtraRows.map((extra: any) => {
-                                          const qty = getForm2ExtraQtyForItem(row.itemId, String(extra.name ?? ""));
-                                          const selected = qty > 0;
-                                          const priceBadges = form2TierPricingBadges(extra);
-                                          const timeBadges = form2TierTimeBadges(extra);
-                                          return (
-                                            <button
-                                              key={`${row.itemId}-${extra.id}`}
-                                              type="button"
-                                              className={cn(
-                                                "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
-                                                selected
-                                                  ? "border-violet-500 bg-violet-500 text-white"
-                                                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-card dark:text-slate-200 dark:hover:bg-slate-800",
-                                              )}
-                                              onClick={() =>
-                                                setForm2ExtraQtyForItem(
-                                                  row.itemId,
-                                                  String(extra.name ?? ""),
-                                                  selected ? 0 : 1,
-                                                )
-                                              }
-                                            >
-                                              <span className="block">{String(extra.name ?? "")}</span>
-                                              <span className="mt-1 flex flex-wrap items-center gap-1">
-                                                {priceBadges.map((b) => (
-                                                  <span
-                                                    className={cn(
-                                                      "inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] leading-none",
-                                                      selected
-                                                        ? "border-white/70 bg-white/20 text-white"
-                                                        : "border-violet-300/80 bg-violet-50 text-violet-700",
-                                                    )}
-                                                    key={`${extra.id}-p-${b.label}`}
-                                                  >
-                                                    {b.label}: ${Number(b.value || 0).toFixed(2)}
-                                                  </span>
-                                                ))}
-                                              </span>
-                                              <span className="mt-1 flex flex-wrap items-center gap-1">
-                                                {timeBadges.map((b) => (
-                                                  <span
-                                                    className={cn(
-                                                      "inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] leading-none",
-                                                      selected
-                                                        ? "border-white/70 bg-white/20 text-white"
-                                                        : "border-violet-300/80 bg-violet-50 text-violet-700",
-                                                    )}
-                                                    key={`${extra.id}-t-${b.label}`}
-                                                  >
-                                                    {b.label}: {b.value}
-                                                  </span>
-                                                ))}
-                                              </span>
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
+                                  </div>
+                                ) : null}
+                              </>
+                            );
+                          }}
+                        />
+                      ) : null}
                     </>
                   ) : (
                   <div id="form2-packages-row" className="space-y-3">
@@ -6073,7 +6162,7 @@ export default function BookingPageContent() {
               ) : (
                 <div className="rounded-2xl border border-dashed border-cyan-300 bg-cyan-50/70 p-8 text-center">
                   <p className="text-base text-slate-600">
-                    Services for {selectedIndustryLabel || "this industry"} haven’t been configured yet. Please add service offerings in the admin dashboard.
+                    Services for {selectedIndustryLabel || "this industry"} havenΓÇÖt been configured yet. Please add service offerings in the admin dashboard.
                   </p>
                   <Button variant="outline" className="mt-4" onClick={() => setCurrentStep("category")}>
                     Choose another industry
@@ -6081,195 +6170,6 @@ export default function BookingPageContent() {
                 </div>
               )}
             </div>
-            )}
-
-            {useForm2Layout && !limitedEditMode && selectedService && (
-              <section
-                className={cn(
-                  styles.form2SectionCard,
-                  "rounded-xl border border-cyan-200/60 bg-gradient-to-br from-cyan-50/90 to-white dark:border-cyan-900/50 dark:from-cyan-950/25 dark:to-card p-6 space-y-4",
-                )}
-              >
-                <h2 className={cn(styles.form2SectionTitle, "text-slate-800 dark:text-slate-100")}>Packages added</h2>
-                <div className="flex flex-wrap items-center gap-3">
-                  {(() => {
-                    const selectedRows = (() => {
-                      const vc = serviceCustomization?.variableCategories ?? {};
-                      return form2CatalogItems
-                        .map((item) => {
-                          const idKey = String(item.id ?? "").trim();
-                          const catKey = String(item.category ?? "").trim();
-                          const pkg =
-                            (idKey ? vc[idKey] : null) ??
-                            (catKey ? vc[catKey] : null) ??
-                            null;
-                          if (!pkg || !String(pkg).trim()) return null;
-                          return { itemName: item.name, packageName: String(pkg).trim(), idKey, catKey };
-                        })
-                        .filter((x): x is { itemName: string; packageName: string; idKey: string; catKey: string } => x != null);
-                    })();
-                    const selectedItem =
-                      form2CatalogItems.find((i) => i.id === form2ActiveItemId) ??
-                      form2CatalogItems.find((i) => String(i.id) === String(selectedService.id)) ??
-                      null;
-                    const itemKind = String(selectedItem?.category ?? "").toLowerCase();
-                    const itemIcon = itemKind.includes("sq") || itemKind.includes("ft") || itemKind.includes("area")
-                      ? <Building2 className="h-5 w-5" />
-                      : <Home className="h-5 w-5" />;
-                    const selectedPackageName = String(
-                      serviceCustomization?.variableCategories
-                        ? (() => {
-                            const vc = serviceCustomization.variableCategories;
-                            const activeItem = form2CatalogItems.find(
-                              (i) => String(i.id) === String(form2ActiveItemId),
-                            );
-                            const byItem = activeItem?.id ? vc[String(activeItem.id)] : null;
-                            if (byItem && String(byItem).trim()) return String(byItem).trim();
-                            const byCategory = activeItem?.category
-                              ? vc[String(activeItem.category).trim()]
-                              : null;
-                            if (byCategory && String(byCategory).trim()) return String(byCategory).trim();
-                            return (
-                              Object.entries(vc).find(
-                                ([key, value]) =>
-                                  !String(key).startsWith("__") &&
-                                  String(value ?? "").trim().length > 0,
-                              )?.[1] ?? ""
-                            );
-                          })()
-                        : "",
-                    ).trim();
-                    const selectedExtras = Array.isArray(serviceCustomization?.extras)
-                      ? serviceCustomization.extras
-                      : [];
-                    const addOnCount = selectedExtras.filter((x) => {
-                      const parsed = parseForm2ExtraSelectionKey(String(x.name ?? ""));
-                      const lookup = parsed ? parsed.extraId : String(x.name ?? "");
-                      const match = availableExtras.find(
-                        (e: any) =>
-                          String(e?.id ?? "") === lookup || String(e?.name ?? "") === lookup,
-                      );
-                      return String(match?.listing_kind ?? "extra") === "addon" && Number(x.quantity || 0) > 0;
-                    }).length;
-                    const extraCount = selectedExtras.filter((x) => {
-                      const parsed = parseForm2ExtraSelectionKey(String(x.name ?? ""));
-                      const lookup = parsed ? parsed.extraId : String(x.name ?? "");
-                      const match = availableExtras.find(
-                        (e: any) =>
-                          String(e?.id ?? "") === lookup || String(e?.name ?? "") === lookup,
-                      );
-                      return String(match?.listing_kind ?? "extra") !== "addon" && Number(x.quantity || 0) > 0;
-                    }).length;
-                    return (
-                      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-600 dark:bg-card space-y-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-slate-100 text-slate-600 dark:border-slate-600 dark:from-slate-800 dark:to-slate-900 dark:text-slate-300">
-                              {itemIcon}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="text-sm font-semibold text-slate-900 dark:text-slate-50 truncate">
-                                {selectedService.customerDisplayName?.trim() || selectedService.name}
-                              </p>
-                              <p className="text-xs text-muted-foreground truncate">
-                                {selectedPackageName || "Package selected"}
-                                {form2FrequencyLabel ? ` · ${form2FrequencyLabel}` : ""}
-                              </p>
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            className="rounded-full p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-                            aria-label="Remove selection"
-                            onClick={() => {
-                              const activeItem = form2CatalogItems.find(
-                                (i) => String(i.id) === String(form2ActiveItemId),
-                              );
-                              const idKey = String(activeItem?.id ?? "").trim();
-                              const catKey = String(activeItem?.category ?? "").trim();
-                              if (serviceCustomization) {
-                                const vc = { ...(serviceCustomization.variableCategories ?? {}) };
-                                if (idKey) delete vc[idKey];
-                                if (catKey) delete vc[catKey];
-                                const next: ServiceCustomization = {
-                                  ...serviceCustomization,
-                                  variableCategories: vc,
-                                };
-                                setServiceCustomization(next);
-                                setCardCustomizations((prev) => {
-                                  if (!selectedService?.id) return prev;
-                                  return { ...prev, [String(selectedService.id)]: next };
-                                });
-                                form.setValue("customization", toFormCustomization(next), { shouldValidate: true });
-                              }
-                              setFlippedCardId(null);
-                            }}
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
-                        </div>
-                        {selectedRows.length > 0 ? (
-                          <div className="space-y-1.5">
-                            {selectedRows.map((row) => {
-                              const priced = form2SelectedItemRows.find(
-                                (x) =>
-                                  String(x.itemId) === String(row.idKey) ||
-                                  (x.category && String(x.category) === String(row.catKey)),
-                              );
-                              return (
-                              <div
-                                key={`${row.idKey || row.catKey}-${row.packageName}`}
-                                className="rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/40 flex items-center justify-between gap-2"
-                              >
-                                <span className="min-w-0 truncate">
-                                  <span className="font-semibold text-slate-800 dark:text-slate-100">{row.itemName}</span>
-                                  <span className="text-muted-foreground">
-                                    {" "}
-                                    - {row.packageName}
-                                    {priced ? ` · $${Number(priced.packagePrice || 0).toFixed(2)}` : ""}
-                                    {priced?.packageTimeMinutes ? ` · ${priced.packageTimeMinutes} min` : ""}
-                                  </span>
-                                </span>
-                                <button
-                                  type="button"
-                                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200/70 dark:hover:bg-slate-800"
-                                  aria-label={`Remove ${row.itemName}`}
-                                  onClick={() => removeForm2SelectedItem(row.idKey, row.catKey, row.packageName)}
-                                >
-                                  <X className="h-4 w-4" />
-                                </button>
-                              </div>
-                            );
-                            })}
-                          </div>
-                        ) : null}
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <span className="inline-flex items-center rounded-full border border-cyan-300/70 bg-cyan-50 px-2.5 py-1 text-xs font-semibold text-cyan-700 dark:border-cyan-700/60 dark:bg-cyan-950/30 dark:text-cyan-300">
-                            Add-ons: {addOnCount}
-                          </span>
-                          <span className="inline-flex items-center rounded-full border border-violet-300/70 bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-700 dark:border-violet-700/60 dark:bg-violet-950/30 dark:text-violet-300">
-                            Extras: {extraCount}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-                <Button
-                  type="button"
-                  className="w-full bg-gradient-to-r from-cyan-500 to-sky-500 text-white shadow-md hover:from-cyan-600 hover:to-sky-600"
-                  onClick={() => {
-                    setForm2ActiveItemId(null);
-                    setFlippedCardId(null);
-                    document.getElementById("form2-service-packages")?.scrollIntoView({
-                      behavior: "smooth",
-                      block: "start",
-                    });
-                  }}
-                >
-                  + Add another item
-                </Button>
-              </section>
             )}
 
             {/* Customer Information Form - visible below service cards, or only section in limited edit */}
@@ -6955,20 +6855,20 @@ export default function BookingPageContent() {
                     <CardContent className="space-y-2 text-sm">
                       <div className="flex justify-between gap-2">
                         <span className="text-muted-foreground">Industry</span>
-                        <span className="font-medium text-right max-w-[180px]">{selectedIndustryLabel || "—"}</span>
+                        <span className="font-medium text-right max-w-[180px]">{selectedIndustryLabel || "ΓÇö"}</span>
                       </div>
                       <div className="flex justify-between gap-2">
                         <span className="text-muted-foreground">Service</span>
                         <span className="font-medium text-right max-w-[180px]">
                           {selectedService
                             ? selectedService.customerDisplayName?.trim() || selectedService.name
-                            : "—"}
+                            : "ΓÇö"}
                         </span>
                       </div>
                       <div className="flex justify-between gap-2">
                         <span className="text-muted-foreground">Frequency</span>
                         <span className="font-medium text-right max-w-[180px]">
-                          {serviceCustomization?.frequency || "—"}
+                          {serviceCustomization?.frequency || "ΓÇö"}
                         </span>
                       </div>
                       {serviceCustomization?.bedroom != null && String(serviceCustomization.bedroom) !== "" && (
@@ -7025,7 +6925,7 @@ export default function BookingPageContent() {
                         >
                           <ChevronLeft className="h-4 w-4" />
                         </Button>
-                        <p className="text-amber-500 text-center">★★★★★</p>
+                        <p className="text-amber-500 text-center">ΓÿàΓÿàΓÿàΓÿàΓÿà</p>
                         <Button
                           type="button"
                           variant="outline"
@@ -7043,7 +6943,7 @@ export default function BookingPageContent() {
                         &ldquo;{FORM2_SAMPLE_REVIEWS[form2ReviewIdx]?.quote}&rdquo;
                       </blockquote>
                       <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                        — {FORM2_SAMPLE_REVIEWS[form2ReviewIdx]?.author}
+                        ΓÇö {FORM2_SAMPLE_REVIEWS[form2ReviewIdx]?.author}
                       </p>
                     </CardContent>
                   </Card>

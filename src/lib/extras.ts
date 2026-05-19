@@ -202,6 +202,29 @@ const EXTRA_FALLBACK_TABLES = [
   'industry_form5_extras',
 ] as const;
 
+export type ExtraTenantScope = {
+  business_id: string;
+  industry_id: string;
+  booking_form_scope?: BookingFormScope | null;
+  listing_kind?: IndustryExtraListingKind | null;
+};
+
+function extraTableForScope(scope?: {
+  booking_form_scope?: BookingFormScope | null;
+  listing_kind?: IndustryExtraListingKind | null;
+}): string {
+  return scopedIndustryTable('industry_extras', scope?.booking_form_scope ?? null, {
+    listingKind: scope?.listing_kind ?? null,
+  });
+}
+
+/** When form scope is set, only touch that form's table (no cross-form fallback). */
+function isFormScopedExtraRequest(scope?: {
+  booking_form_scope?: BookingFormScope | null;
+}): boolean {
+  return hasBookingFormScopeColumnFilter(scope?.booking_form_scope);
+}
+
 class ExtrasService {
   private supabase;
 
@@ -246,18 +269,8 @@ class ExtrasService {
     return data || [];
   }
 
-  async getExtraById(
-    id: string,
-    scope?: {
-      business_id: string;
-      industry_id: string;
-      booking_form_scope?: BookingFormScope | null;
-      listing_kind?: IndustryExtraListingKind | null;
-    },
-  ): Promise<Extra | null> {
-    const preferredTable = scopedIndustryTable('industry_extras', scope?.booking_form_scope ?? null, {
-      listingKind: scope?.listing_kind ?? null,
-    });
+  async getExtraById(id: string, scope?: ExtraTenantScope): Promise<Extra | null> {
+    const preferredTable = extraTableForScope(scope);
     let q = this.supabase.from(preferredTable).select('*').eq('id', id);
     if (scope?.business_id?.trim()) {
       q = q.eq('business_id', scope.business_id.trim());
@@ -268,6 +281,9 @@ class ExtrasService {
     const { data, error } = await q.single();
 
     if (error?.code === 'PGRST116') {
+      if (isFormScopedExtraRequest(scope)) {
+        return null;
+      }
       const fallbackTables =
         preferredTable === 'industry_extras'
           ? EXTRA_FALLBACK_TABLES
@@ -312,12 +328,17 @@ class ExtrasService {
     return data;
   }
 
-  async updateExtra(
-    id: string,
-    updateData: UpdateExtraData,
-    scope?: { business_id: string; industry_id: string },
-  ): Promise<Extra> {
-    let q = this.supabase.from('industry_extras').update(updateData).eq('id', id);
+  async updateExtra(id: string, updateData: UpdateExtraData, scope?: ExtraTenantScope): Promise<Extra> {
+    const rowScope = {
+      booking_form_scope:
+        scope?.booking_form_scope ??
+        (updateData.booking_form_scope as BookingFormScope | undefined) ??
+        null,
+      listing_kind:
+        scope?.listing_kind ?? (updateData.listing_kind as IndustryExtraListingKind | undefined) ?? null,
+    };
+    const table = extraTableForScope(rowScope);
+    let q = this.supabase.from(table).update(updateData).eq('id', id);
     if (scope?.business_id?.trim()) {
       q = q.eq('business_id', scope.business_id.trim());
     }
@@ -325,9 +346,10 @@ class ExtrasService {
       q = q.eq('industry_id', scope.industry_id.trim());
     }
     let { data, error } = await q.select().single();
-    if (error?.code === 'PGRST116') {
-      for (const table of EXTRA_FALLBACK_TABLES) {
-        let q2 = this.supabase.from(table).update(updateData).eq('id', id);
+    if (error?.code === 'PGRST116' && !isFormScopedExtraRequest(rowScope)) {
+      for (const fallbackTable of EXTRA_FALLBACK_TABLES) {
+        if (fallbackTable === table) continue;
+        let q2 = this.supabase.from(fallbackTable).update(updateData).eq('id', id);
         if (scope?.business_id?.trim()) {
           q2 = q2.eq('business_id', scope.business_id.trim());
         }
@@ -349,11 +371,9 @@ class ExtrasService {
     return data;
   }
 
-  async deleteExtra(
-    id: string,
-    scope?: { business_id: string; industry_id: string },
-  ): Promise<{ deleted: boolean }> {
-    let q = this.supabase.from('industry_extras').delete().eq('id', id);
+  async deleteExtra(id: string, scope?: ExtraTenantScope): Promise<{ deleted: boolean }> {
+    const table = extraTableForScope(scope);
+    let q = this.supabase.from(table).delete().eq('id', id);
     if (scope?.business_id?.trim()) {
       q = q.eq('business_id', scope.business_id.trim());
     }
@@ -367,8 +387,12 @@ class ExtrasService {
       throw error;
     }
     if (Array.isArray(data) && data.length > 0) return { deleted: true };
-    for (const table of EXTRA_FALLBACK_TABLES) {
-      let q2 = this.supabase.from(table).delete().eq('id', id);
+    if (isFormScopedExtraRequest(scope)) {
+      return { deleted: false };
+    }
+    for (const fallbackTable of ['industry_extras', ...EXTRA_FALLBACK_TABLES] as const) {
+      if (fallbackTable === table) continue;
+      let q2 = this.supabase.from(fallbackTable).delete().eq('id', id);
       if (scope?.business_id?.trim()) {
         q2 = q2.eq('business_id', scope.business_id.trim());
       }
@@ -384,11 +408,9 @@ class ExtrasService {
     return { deleted: false };
   }
 
-  async permanentlyDeleteExtra(
-    id: string,
-    scope?: { business_id: string; industry_id: string },
-  ): Promise<{ deleted: boolean }> {
-    let q = this.supabase.from('industry_extras').delete().eq('id', id);
+  async permanentlyDeleteExtra(id: string, scope?: ExtraTenantScope): Promise<{ deleted: boolean }> {
+    const table = extraTableForScope(scope);
+    let q = this.supabase.from(table).delete().eq('id', id);
     if (scope?.business_id?.trim()) {
       q = q.eq('business_id', scope.business_id.trim());
     }
@@ -406,23 +428,22 @@ class ExtrasService {
 
   async updateExtraOrder(
     updates: Array<{ id: string; sort_order: number }>,
-    scope?: { business_id: string; industry_id: string },
+    scope?: ExtraTenantScope,
   ): Promise<void> {
+    const table = extraTableForScope(scope);
     for (const { id, sort_order } of updates) {
-      let q = this.supabase
-        .from('industry_extras')
-        .update({ sort_order })
-        .eq('id', id);
+      let q = this.supabase.from(table).update({ sort_order }).eq('id', id);
       if (scope?.business_id?.trim()) q = q.eq('business_id', scope.business_id.trim());
       if (scope?.industry_id?.trim()) q = q.eq('industry_id', scope.industry_id.trim());
       const r1 = await q.select('id');
       if (r1.error) throw r1.error;
       if ((r1.data?.length ?? 0) > 0) continue;
-      for (const table of EXTRA_FALLBACK_TABLES) {
-        let q2 = this.supabase
-          .from(table)
-          .update({ sort_order })
-          .eq('id', id);
+      if (isFormScopedExtraRequest(scope)) {
+        throw new Error(`Extra ${id} not found in ${table}`);
+      }
+      for (const fallbackTable of ['industry_extras', ...EXTRA_FALLBACK_TABLES] as const) {
+        if (fallbackTable === table) continue;
+        let q2 = this.supabase.from(fallbackTable).update({ sort_order }).eq('id', id);
         if (scope?.business_id?.trim()) q2 = q2.eq('business_id', scope.business_id.trim());
         if (scope?.industry_id?.trim()) q2 = q2.eq('industry_id', scope.industry_id.trim());
         const r2 = await q2.select('id');

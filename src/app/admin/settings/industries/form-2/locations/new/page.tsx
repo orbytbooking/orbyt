@@ -17,6 +17,8 @@ import { supabase } from "@/lib/supabaseClient";
 import { useToast } from "@/components/ui/use-toast";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { bookingFormScopeFromSearchParams } from "@/lib/bookingFormScope";
+import { form2AddonsListUrl } from "@/lib/form2AddonsApi";
+import { form2ExtrasListUrl } from "@/lib/form2ExtrasApi";
 
 interface DrawnShape {
   id: string;
@@ -171,13 +173,27 @@ export default function AddLocationPage() {
           : null,
         industryId ? fetch(`/api/exclude-parameters?industryId=${industryId}`) : null,
         industryId
-          ? bookingFormScope === "form2" || bookingFormScope === "form3"
-            ? fetch(
-                `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessId)}${scopeQs}`,
-              )
-            : fetch(
-                `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessId)}${scopeQs}&listingKind=extra`,
-              )
+          ? bookingFormScope === "form2"
+            ? Promise.all([
+                fetch(form2AddonsListUrl(industryId, businessId)),
+                fetch(form2ExtrasListUrl(industryId, businessId)),
+              ]).then(async ([addonRes, extraRes]) => {
+                const addonData = addonRes.ok ? await addonRes.json() : { addons: [] };
+                const extraData = extraRes.ok ? await extraRes.json() : { extras: [] };
+                const addons = Array.isArray(addonData.addons) ? addonData.addons : [];
+                const extras = Array.isArray(extraData.extras) ? extraData.extras : [];
+                return {
+                  ok: true,
+                  json: async () => ({ extras: [...addons, ...extras] }),
+                } as Response;
+              })
+            : bookingFormScope === "form3"
+              ? fetch(
+                  `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessId)}${scopeQs}`,
+                )
+              : fetch(
+                  `/api/extras?industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(businessId)}${scopeQs}&listingKind=extra`,
+                )
           : null,
       ]);
       const indData = await indRes.json();
