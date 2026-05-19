@@ -7,6 +7,8 @@ export default {
     // API routes have no Tailwind classes; excluding avoids build failures when a route
     // file is missing briefly (sync/cache) and speeds content scanning.
     "!./src/app/api/**",
+    // Thin route entry only — real UI lives in BookingPageContent.tsx (avoids Windows EBUSY during Tailwind scan).
+    "!./src/app/book-now/page.tsx",
   ],
   prefix: "",
   theme: {

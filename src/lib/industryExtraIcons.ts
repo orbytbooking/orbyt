@@ -181,6 +181,16 @@ const BOOKING_PRESET_LABEL_OVERRIDES: Record<string, string> = {
   "living room": "living_room",
 };
 
+/** Form 2 default package names → preset icon keys (Basic/Premium/Rug/Full Space). */
+export function presetKeyFromForm2PackageName(name: string | null | undefined): string | null {
+  const n = String(name ?? '').toLowerCase();
+  if (n.includes('rug cleaning')) return 'layers';
+  if (n.includes('premium package')) return 'sparkles';
+  if (n.includes('basic package')) return 'package';
+  if (n.includes('full space cleaning')) return 'package';
+  return null;
+}
+
 /** Canonical preset `value` inferred from a display name (same rules as icon shape). */
 export function presetKeyFromLabelHint(label: string): string | null {
   const exact = BOOKING_PRESET_LABEL_OVERRIDES[normalizeBookingLabelKey(label)];
@@ -226,6 +236,7 @@ export function resolveCanonicalBookingPresetKey(
   const raw = String(icon ?? "").trim();
   const hint = String(labelHint ?? "").trim();
   const fromLabel = hint ? presetKeyFromLabelHint(hint) : null;
+  const fromForm2Package = hint ? presetKeyFromForm2PackageName(hint) : null;
 
   if (raw && !industryFormIconIsImageSrc(raw)) {
     const k = canonicalPresetKeyFromStoredIcon(raw);
@@ -235,7 +246,7 @@ export function resolveCanonicalBookingPresetKey(
     }
     if (k) return k;
   }
-  return fromLabel;
+  return fromForm2Package ?? fromLabel;
 }
 
 const BOOKING_PRESET_RICH_ICON_DIR = "/images/booking-presets";

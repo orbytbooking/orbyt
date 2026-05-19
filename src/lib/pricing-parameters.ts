@@ -89,7 +89,11 @@ class PricingParametersService {
     if (businessId?.trim()) {
       q = q.eq('business_id', businessId.trim());
     }
-    if (hasBookingFormScopeColumnFilter(bookingFormScope)) {
+    // Dedicated form2/form4 tables are already scope-specific; only filter the shared Form 1 table.
+    if (
+      table === 'industry_pricing_parameter' &&
+      hasBookingFormScopeColumnFilter(bookingFormScope)
+    ) {
       q = q.eq('booking_form_scope', bookingFormScope);
     }
     const { data, error } = await q
@@ -107,38 +111,49 @@ class PricingParametersService {
 
   async getPricingParameterById(
     id: string,
-    scope?: { business_id: string; industry_id: string },
+    scope?: { business_id: string; industry_id: string; booking_form_scope?: BookingFormScope | null },
   ): Promise<PricingParameter | null> {
-    let q = this.supabase.from('industry_pricing_parameter').select('*').eq('id', id);
-    if (scope?.business_id?.trim()) {
-      q = q.eq('business_id', scope.business_id.trim());
-    }
-    if (scope?.industry_id?.trim()) {
-      q = q.eq('industry_id', scope.industry_id.trim());
-    }
-    const { data, error } = await q.single();
+    const preferredTable =
+      scope?.booking_form_scope != null
+        ? scopedIndustryTable('industry_pricing_parameter', scope.booking_form_scope)
+        : null;
+    const tables = Array.from(
+      new Set(
+        [
+          preferredTable,
+          'industry_pricing_parameter',
+          'industry_form2_packages',
+          'industry_form4_pricing_parameters',
+        ].filter(Boolean) as string[],
+      ),
+    );
 
-    if (error?.code === 'PGRST116') {
-      const fallbackTables = ['industry_form2_packages', 'industry_form4_pricing_parameters'];
-      for (const table of fallbackTables) {
-        let q = this.supabase.from(table).select('*').eq('id', id);
-        if (scope?.business_id?.trim()) {
-          q = q.eq('business_id', scope.business_id.trim());
-        }
-        if (scope?.industry_id?.trim()) {
-          q = q.eq('industry_id', scope.industry_id.trim());
-        }
-        const res = await q.single();
-        if (!res.error) return res.data;
+    for (const table of tables) {
+      let q = this.supabase.from(table).select('*').eq('id', id);
+      if (scope?.business_id?.trim()) {
+        q = q.eq('business_id', scope.business_id.trim());
       }
-      return null;
-    }
-    if (error) {
-      console.error('Error fetching pricing parameter:', error);
-      throw error;
+      if (scope?.industry_id?.trim()) {
+        q = q.eq('industry_id', scope.industry_id.trim());
+      }
+      // Scope column only disambiguates the shared Form 1 table; dedicated form2/form4 tables are already scoped by name.
+      if (
+        table === 'industry_pricing_parameter' &&
+        hasBookingFormScopeColumnFilter(scope?.booking_form_scope)
+      ) {
+        q = q.eq('booking_form_scope', scope!.booking_form_scope!);
+      }
+      const res = await q.maybeSingle();
+      if (res.error) {
+        if (res.error.code !== 'PGRST116') {
+          console.error(`Error fetching pricing parameter from ${table}:`, res.error);
+        }
+        continue;
+      }
+      if (res.data) return res.data;
     }
 
-    return data;
+    return null;
   }
 
   async createPricingParameter(paramData: CreatePricingParameterData): Promise<PricingParameter> {

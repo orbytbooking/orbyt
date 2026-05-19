@@ -4,9 +4,11 @@ import { seedForm1IndustryTemplate } from '@/lib/seedForm1IndustryTemplate';
 import { seedForm2DefaultFrequenciesIfEmpty } from '@/lib/seedForm2DefaultFrequencies';
 import { seedForm2DefaultServiceCategoriesIfEmpty } from '@/lib/seedForm2DefaultServiceCategories';
 import { seedForm2DefaultPricingVariablesIfEmpty } from '@/lib/seedForm2DefaultPricingVariables';
+import { backfillForm2DefaultDependencyConfig } from '@/lib/seedForm2DefaultDependencies';
 import {
+  backfillForm2DefaultPackageIcons,
+  backfillForm2PackageItemLinks,
   seedForm2DefaultPackagesIfEmpty,
-  seedForm2MissingPackagesPerVariable,
 } from '@/lib/seedForm2DefaultPackages';
 import { seedForm3DefaultFrequenciesIfEmpty } from '@/lib/seedForm3DefaultFrequencies';
 import { seedForm3DefaultServiceCategoriesIfEmpty } from '@/lib/seedForm3DefaultServiceCategories';
@@ -208,6 +210,9 @@ export async function POST(request: NextRequest) {
     let form2_service_categories: { applied: boolean; skipped?: boolean; error?: string } | undefined;
     let form2_pricing_variables: { applied: boolean; skipped?: boolean; error?: string } | undefined;
     let form2_packages: { applied: boolean; skipped?: boolean; error?: string } | undefined;
+    let form2_package_item_links:
+      | { applied: boolean; skipped?: boolean; updated?: number; error?: string }
+      | undefined;
     let form2_package_gaps: { applied: boolean; skipped?: boolean; inserted?: number; error?: string } | undefined;
     let form4_defaults: { applied: boolean; skipped?: boolean; error?: string } | undefined;
     let form5_defaults: { applied: boolean; skipped?: boolean; error?: string } | undefined;
@@ -273,10 +278,32 @@ export async function POST(request: NextRequest) {
       if (form2_packages.error) {
         console.error('Form 2 default packages seed error:', form2_packages.error);
       }
-      form2_package_gaps = await seedForm2MissingPackagesPerVariable(supabase, business_id, industry.id);
-      if (form2_package_gaps.error) {
-        console.error('Form 2 package gap fill error:', form2_package_gaps.error);
+      const form2_package_icons = await backfillForm2DefaultPackageIcons(
+        supabase,
+        business_id,
+        industry.id,
+      );
+      if (form2_package_icons.error) {
+        console.error('Form 2 default package icon backfill error:', form2_package_icons.error);
       }
+      form2_package_item_links = await backfillForm2PackageItemLinks(
+        supabase,
+        business_id,
+        industry.id,
+      );
+      if (form2_package_item_links.error) {
+        console.error('Form 2 package item link backfill error:', form2_package_item_links.error);
+      }
+      const form2_dependency_config = await backfillForm2DefaultDependencyConfig(
+        supabase,
+        business_id,
+        industry.id,
+      );
+      if (form2_dependency_config.error) {
+        console.error('Form 2 default dependency config backfill error:', form2_dependency_config.error);
+      }
+      // Intentionally do not auto-fill missing package rows in existing Form 2 industries.
+      // This keeps package presets fully user-customizable (deleted presets stay deleted).
     }
 
     return NextResponse.json(
@@ -287,6 +314,7 @@ export async function POST(request: NextRequest) {
         form2_service_categories,
         form2_pricing_variables,
         form2_packages,
+        form2_package_item_links,
         form2_package_gaps,
         form4_defaults,
         form5_defaults,
@@ -381,6 +409,9 @@ export async function PATCH(request: NextRequest) {
     let form2_service_categories: { applied: boolean; skipped?: boolean; error?: string } | undefined;
     let form2_pricing_variables: { applied: boolean; skipped?: boolean; error?: string } | undefined;
     let form2_packages: { applied: boolean; skipped?: boolean; error?: string } | undefined;
+    let form2_package_item_links:
+      | { applied: boolean; skipped?: boolean; updated?: number; error?: string }
+      | undefined;
     let form2_package_gaps: { applied: boolean; skipped?: boolean; inserted?: number; error?: string } | undefined;
     let form4_defaults: { applied: boolean; skipped?: boolean; error?: string } | undefined;
     let form5_defaults: { applied: boolean; skipped?: boolean; error?: string } | undefined;
@@ -442,10 +473,20 @@ export async function PATCH(request: NextRequest) {
       if (form2_packages.error) {
         console.error('Form 2 default packages seed error:', form2_packages.error);
       }
-      form2_package_gaps = await seedForm2MissingPackagesPerVariable(supabase, bid, iid);
-      if (form2_package_gaps.error) {
-        console.error('Form 2 package gap fill error:', form2_package_gaps.error);
+      const form2_package_icons_patch = await backfillForm2DefaultPackageIcons(supabase, bid, iid);
+      if (form2_package_icons_patch.error) {
+        console.error('Form 2 default package icon backfill error:', form2_package_icons_patch.error);
       }
+      form2_package_item_links = await backfillForm2PackageItemLinks(supabase, bid, iid);
+      if (form2_package_item_links.error) {
+        console.error('Form 2 package item link backfill error:', form2_package_item_links.error);
+      }
+      const form2_dependency_config_patch = await backfillForm2DefaultDependencyConfig(supabase, bid, iid);
+      if (form2_dependency_config_patch.error) {
+        console.error('Form 2 default dependency config backfill error:', form2_dependency_config_patch.error);
+      }
+      // Intentionally do not auto-fill missing package rows in existing Form 2 industries.
+      // This keeps package presets fully user-customizable (deleted presets stay deleted).
     }
 
     return NextResponse.json({
@@ -456,6 +497,7 @@ export async function PATCH(request: NextRequest) {
       form2_service_categories,
       form2_pricing_variables,
       form2_packages,
+      form2_package_item_links,
       form2_package_gaps,
       form3_frequencies,
       form3_service_categories,

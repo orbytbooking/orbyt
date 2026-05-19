@@ -22,16 +22,32 @@ export function Form1RichTextEditor({
   onChange: (value: string) => void;
 }) {
   const editorRef = useRef<HTMLDivElement>(null);
+  const lastHtmlRef = useRef<string>("");
   useEffect(() => {
-    if (editorRef.current) editorRef.current.innerHTML = value || "";
+    const el = editorRef.current;
+    if (!el) return;
+    const next = value || "";
+    // Avoid resetting innerHTML while user is typing, otherwise caret jumps to start
+    // and text appears "reversed" (each new char inserts at beginning).
+    if (document.activeElement === el) return;
+    if (lastHtmlRef.current === next) return;
+    el.innerHTML = next;
+    lastHtmlRef.current = next;
   }, [value]);
   const execCommand = (command: string, cmdValue?: string) => {
     document.execCommand(command, false, cmdValue);
     editorRef.current?.focus();
-    if (editorRef.current) onChange(editorRef.current.innerHTML);
+    if (editorRef.current) {
+      const html = editorRef.current.innerHTML;
+      lastHtmlRef.current = html;
+      onChange(html);
+    }
   };
   const updateContent = () => {
-    if (editorRef.current) onChange(editorRef.current.innerHTML);
+    if (!editorRef.current) return;
+    const html = editorRef.current.innerHTML;
+    lastHtmlRef.current = html;
+    onChange(html);
   };
   return (
     <div className="border rounded-lg overflow-hidden bg-white dark:bg-background">
@@ -77,6 +93,7 @@ export function Form1RichTextEditor({
         ref={editorRef}
         contentEditable
         onInput={updateContent}
+        onBlur={updateContent}
         className="min-h-[200px] p-4 focus:outline-none focus:ring-2 focus:ring-primary/20"
         style={{ whiteSpace: "pre-wrap" }}
       />

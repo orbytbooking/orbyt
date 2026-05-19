@@ -4,6 +4,7 @@ import React, { useRef, useState } from "react";
 import { Home, LayoutTemplate, Sparkles, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { IndustryFormPresetIcon } from "@/components/industry/IndustryFormPresetIcon";
 
 export type Form2CatalogItem = {
   id: string;
@@ -290,7 +291,6 @@ export function Form2PackageCardStrip({
           const lines = packageFeatureLines(pkg);
           const parsed = parsePackageDescription(pkg.description ?? "");
           const selected = selectedPackageName && selectedPackageName === pkg.name;
-          const iconSrc = pkg.icon && /^https?:|^\//.test(pkg.icon) ? pkg.icon : null;
           return (
             <div
               key={pkg.id}
@@ -317,14 +317,7 @@ export function Form2PackageCardStrip({
                 {pkg.name}
               </h4>
               <div className="mt-3 flex flex-1 flex-col items-center">
-                {iconSrc ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={iconSrc} alt="" className="h-24 w-full max-w-[180px] rounded-lg object-contain" />
-                ) : (
-                  <div className="flex h-28 w-full max-w-[180px] items-center justify-center rounded-xl bg-gradient-to-b from-cyan-50 to-slate-50 dark:from-cyan-950/40 dark:to-slate-900/60">
-                    <Sparkles className="h-14 w-14 text-cyan-600/80 dark:text-cyan-400/90" strokeWidth={1.25} />
-                  </div>
-                )}
+                <IndustryFormPresetIcon icon={pkg.icon} labelHint={pkg.name} framed />
               </div>
               <p className={cn("mt-3 text-xs text-muted-foreground", uiVariant === "admin" ? "line-clamp-2" : "line-clamp-3")}>
                 {parsed.summary ||

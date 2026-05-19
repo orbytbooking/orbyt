@@ -5,6 +5,11 @@ import { requireIndustryBelongsToBusiness } from '@/lib/industryTenantGuard';
 import { supabaseAdmin } from '@/lib/supabaseClient';
 import { scopedIndustryTable } from '@/lib/formScopeTables';
 import { seedForm4DefaultsIfEmpty } from '@/lib/seedForm4Defaults';
+import {
+  backfillForm2DefaultPackageIcons,
+  backfillForm2PackageBookingScope,
+  backfillForm2PackageItemLinks,
+} from '@/lib/seedForm2DefaultPackages';
 
 function queryBusinessId(searchParams: URLSearchParams): string | null {
   return searchParams.get('businessId') || searchParams.get('business_id');
@@ -39,6 +44,7 @@ export async function GET(request: NextRequest) {
       const param = await pricingParametersService.getPricingParameterById(id, {
         business_id: businessId,
         industry_id: industryId,
+        booking_form_scope: bookingFormScope,
       });
       if (!param) {
         return NextResponse.json({ error: 'Pricing parameter not found' }, { status: 404 });
@@ -62,6 +68,11 @@ export async function GET(request: NextRequest) {
     // variables/frequencies but no pricing parameter rows. Backfill missing defaults.
     if (bookingFormScope === 'form4') {
       await seedForm4DefaultsIfEmpty(supabaseAdmin, businessId, industryId);
+    }
+    if (bookingFormScope === 'form2') {
+      await backfillForm2DefaultPackageIcons(supabaseAdmin, businessId, industryId);
+      await backfillForm2PackageBookingScope(supabaseAdmin, businessId, industryId);
+      await backfillForm2PackageItemLinks(supabaseAdmin, businessId, industryId);
     }
 
     const pricingParameters = await pricingParametersService.getPricingParametersByIndustry(

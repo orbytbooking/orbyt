@@ -5,6 +5,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ServiceCategory } from '@/lib/serviceCategories';
 import { frequencyDepOptionNamesForCategory, getFrequencyDependencies } from '@/lib/frequencyFilter';
+import { form2PackagePassesBookingVisibility } from '@/lib/form2PackageVisibility';
 import { pricingParamAppliesToSelection } from '@/lib/pricingParameterVisibility';
 import { filterFrequencyOptionsForServiceCategory } from '@/lib/form1CustomerBooking';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -103,6 +104,27 @@ function parsePerItemAddonSelectionKey(value: string): { itemId: string; addonId
   const [, itemId, addonId] = parts;
   if (!itemId || !addonId) return null;
   return { itemId, addonId };
+}
+
+function resolveForm2PackageSelection(
+  pricingParameters: PricingParameter[],
+  rawSelection: string,
+  categoryKey: string,
+  itemId?: string | null,
+): PricingParameter | null {
+  const selection = String(rawSelection ?? "").trim();
+  if (!selection || selection.toLowerCase() === "none") return null;
+  const itemKey = String(itemId ?? "").trim();
+  const category = String(categoryKey ?? "").trim();
+  const inScope = (p: PricingParameter): boolean => {
+    if (String(p.variable_category ?? "").trim() !== category) return false;
+    const linkedVariableId = String(p.pricing_variable_id ?? "").trim();
+    if (!itemKey) return true;
+    return linkedVariableId === itemKey || linkedVariableId.length === 0;
+  };
+  const byId = pricingParameters.find((p) => String(p.id ?? "").trim() === selection && inScope(p));
+  if (byId) return byId;
+  return pricingParameters.find((p) => String(p.name ?? "").trim() === selection && inScope(p)) ?? null;
 }
 
 /** Marker in `categoryValues[itemId]` meaning this item row is on the booking (Form 3 — no package). */
@@ -952,41 +974,13 @@ export function AddBookingForm({
         );
         const pricingData = await pricingRes.json();
         if (pricingData.pricingParameters) {
-          let filteredParams = pricingData.pricingParameters as PricingParameter[];
-          const selectedServiceCategory = serviceCategories.find((c) => c.name === newBooking.service);
-          const form2ServicePackageDeps = isForm2Catalog
-            ? Array.isArray((selectedServiceCategory as { variables?: Record<string, unknown> } | undefined)?.variables?.Packages)
-              ? ((selectedServiceCategory as { variables?: Record<string, unknown> }).variables?.Packages as unknown[])
-                  .map((x) => String(x).trim())
-                  .filter((x) => x.length > 0)
-              : null
-            : null;
-          if (isForm2Catalog && form2ServicePackageDeps && form2ServicePackageDeps.length > 0) {
-            filteredParams = filteredParams.filter((p) => {
-              const id = String(p.id ?? "").trim();
-              const name = String(p.name ?? "").trim();
-              return form2ServicePackageDeps.includes(id) || (name.length > 0 && form2ServicePackageDeps.includes(name));
-            });
-          }
-          if (isForm2Catalog && frequencyDependencies && Array.isArray(frequencyDependencies.sqftVariables)) {
-            const allowedPackageKeys = frequencyDependencies.sqftVariables.map((x: unknown) => String(x));
-            // If frequency has no explicit package dependency selections, show all.
-            if (allowedPackageKeys.length > 0) {
-              filteredParams = filteredParams.filter((p) => {
-                const id = String(p.id ?? "").trim();
-                const name = String(p.name ?? "").trim();
-                return allowedPackageKeys.includes(id) || (name.length > 0 && allowedPackageKeys.includes(name));
-              });
-            }
-          }
+          const filteredParams = pricingData.pricingParameters as PricingParameter[];
           setPricingParameters(filteredParams);
           const cats = Array.from(new Set(filteredParams.map((p: PricingParameter) => p.variable_category))).filter(Boolean) as string[];
           setVariableCategories(cats);
           // Merge so edit-mode / loaded booking values are not wiped when params arrive
           setCategoryValues((prev) => {
-            const next: Record<string, string> = Object.fromEntries(
-              Object.entries(prev).filter(([k]) => k.startsWith("__form4_")),
-            );
+            const next: Record<string, string> = { ...prev };
             for (const c of cats) {
               const existing = prev[c];
               next[c] = existing != null && String(existing).trim() !== '' ? String(existing).trim() : '';
@@ -1617,11 +1611,17 @@ const handleAddBooking = async (status: string = 'pending') => {
           // Form 2 should only persist selected package rows (by id->name),
           // avoiding stale Form 1-style category maps after industry switches.
           const byId: Record<string, string> = {};
-          for (const [_, rawValue] of Object.entries(categoryValues)) {
+          for (const [rawKey, rawValue] of Object.entries(categoryValues)) {
             const value = String(rawValue ?? "").trim();
             if (!value || value.toLowerCase() === "none") continue;
-            const pkg = pricingParameters.find((p) => String(p.name ?? "").trim() === value);
-            if (pkg?.id) byId[String(pkg.id)] = value;
+            const item = pricingVariables.find((v) => String(v.id) === String(rawKey));
+            const pkg = resolveForm2PackageSelection(
+              pricingParameters,
+              value,
+              String(item?.category ?? rawKey),
+              item?.id ?? null,
+            );
+            if (pkg?.id) byId[String(pkg.id)] = String(pkg.name ?? value);
           }
           return byId;
         })()
@@ -2363,28 +2363,29 @@ const handleAddBooking = async (status: string = 'pending') => {
       const form2Item = isForm2Catalog ? pricingVariables.find((v) => v.id === categoryKey) : null;
       const effectiveCategoryKey = form2Item ? String(form2Item.category ?? "").trim() : categoryKey;
       const form2ItemId = form2Item ? String(form2Item.id) : null;
-      const param = pricingParameters.find(
-        (p) =>
-          p.variable_category === effectiveCategoryKey &&
-          (form2ItemId
-            ? (String(p.pricing_variable_id ?? "").trim() === form2ItemId ||
-               String(p.pricing_variable_id ?? "").trim().length === 0)
-            : true) &&
-          p.name === optionName &&
-          pricingParamAppliesToSelection(
-            {
-              show_based_on_frequency: p.show_based_on_frequency,
-              frequency: p.frequency,
-              show_based_on_service_category: p.show_based_on_service_category,
-              service_category: p.service_category,
-              show_based_on_service_category2: Boolean(p.show_based_on_service_category2),
-              service_category2: p.service_category2 ?? null,
-            },
-            newBooking.frequency,
-            newBooking.service,
-            bedroomTier,
-          ),
+      const selectedParam = resolveForm2PackageSelection(
+        pricingParameters,
+        optionName,
+        effectiveCategoryKey,
+        form2ItemId,
       );
+      const param =
+        selectedParam &&
+        pricingParamAppliesToSelection(
+          {
+            show_based_on_frequency: selectedParam.show_based_on_frequency,
+            frequency: selectedParam.frequency,
+            show_based_on_service_category: selectedParam.show_based_on_service_category,
+            service_category: selectedParam.service_category,
+            show_based_on_service_category2: Boolean(selectedParam.show_based_on_service_category2),
+            service_category2: selectedParam.service_category2 ?? null,
+          },
+          newBooking.frequency,
+          newBooking.service,
+          bedroomTier,
+        )
+          ? selectedParam
+          : null;
       if (param?.time_minutes && param.time_minutes > 0) {
         totalMinutes += param.time_minutes;
       }
@@ -2464,28 +2465,29 @@ const handleAddBooking = async (status: string = 'pending') => {
       const form2Item = isForm2Catalog ? pricingVariables.find((v) => v.id === categoryKey) : null;
       const effectiveCategoryKey = form2Item ? String(form2Item.category ?? "").trim() : categoryKey;
       const form2ItemId = form2Item ? String(form2Item.id) : null;
-      const param = pricingParameters.find(
-        (p) =>
-          p.variable_category === effectiveCategoryKey &&
-          (form2ItemId
-            ? (String(p.pricing_variable_id ?? "").trim() === form2ItemId ||
-               String(p.pricing_variable_id ?? "").trim().length === 0)
-            : true) &&
-          p.name === optionName &&
-          pricingParamAppliesToSelection(
-            {
-              show_based_on_frequency: p.show_based_on_frequency,
-              frequency: p.frequency,
-              show_based_on_service_category: p.show_based_on_service_category,
-              service_category: p.service_category,
-              show_based_on_service_category2: Boolean(p.show_based_on_service_category2),
-              service_category2: p.service_category2 ?? null,
-            },
-            newBooking.frequency,
-            newBooking.service,
-            bedroomTierForPrice,
-          ),
+      const selectedParam = resolveForm2PackageSelection(
+        pricingParameters,
+        optionName,
+        effectiveCategoryKey,
+        form2ItemId,
       );
+      const param =
+        selectedParam &&
+        pricingParamAppliesToSelection(
+          {
+            show_based_on_frequency: selectedParam.show_based_on_frequency,
+            frequency: selectedParam.frequency,
+            show_based_on_service_category: selectedParam.show_based_on_service_category,
+            service_category: selectedParam.service_category,
+            show_based_on_service_category2: Boolean(selectedParam.show_based_on_service_category2),
+            service_category2: selectedParam.service_category2 ?? null,
+          },
+          newBooking.frequency,
+          newBooking.service,
+          bedroomTierForPrice,
+        )
+          ? selectedParam
+          : null;
       if (param) {
         const price = Number(param.price);
         if (!Number.isNaN(price) && price >= 0) optionsSum += price;
@@ -2907,12 +2909,30 @@ const handleAddBooking = async (status: string = 'pending') => {
 
   const form2PackageStripRows = useMemo((): Form2PackageRow[] => {
     if (!isForm2Catalog) return [];
-    if (pricingVariables.length > 0 && !selectedForm2VariableId) return [];
+    const selectedServiceCategory = serviceCategories.find((c) => c.name === newBooking.service);
+    const serviceUsesFrequencyDeps = Boolean(selectedServiceCategory?.service_category_frequency);
+    const form2ServicePackageDeps = Array.isArray(
+      (selectedServiceCategory as { variables?: Record<string, unknown> } | undefined)?.variables?.Packages,
+    )
+      ? (
+          (selectedServiceCategory as { variables?: Record<string, unknown> }).variables?.Packages as unknown[]
+        )
+          .map((x) => String(x).trim())
+          .filter((x) => x.length > 0)
+      : [];
+    const bedroomTier = String(categoryValues.Bedroom ?? "").trim() || null;
+
     return pricingParameters
-      .filter((p) => {
-        const categoryKey = String(p.variable_category || "").trim();
-        return categoryKey.length > 0;
-      })
+      .filter((p) =>
+        form2PackagePassesBookingVisibility(p, {
+          frequencyDeps: frequencyDependencies,
+          servicePackageAllowlist: form2ServicePackageDeps.length > 0 ? form2ServicePackageDeps : null,
+          selectedFrequency: newBooking.frequency,
+          selectedServiceName: newBooking.service,
+          selectedBedroomTier: bedroomTier,
+          serviceUsesFrequencyDeps,
+        }),
+      )
       .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name))
       .map((p) => ({
         id: p.id,
@@ -2923,16 +2943,26 @@ const handleAddBooking = async (status: string = 'pending') => {
         time_minutes: p.time_minutes ?? null,
         icon: (p as { icon?: string | null }).icon ?? null,
       }));
-  }, [isForm2Catalog, selectedForm2VariableId, pricingParameters, pricingVariables.length]);
+  }, [
+    isForm2Catalog,
+    pricingParameters,
+    frequencyDependencies,
+    serviceCategories,
+    newBooking.frequency,
+    newBooking.service,
+    categoryValues.Bedroom,
+  ]);
 
   const selectedForm2PackageHighlight = useMemo(() => {
     const v = pricingVariables.find((r) => r.id === selectedForm2VariableId);
     const itemKey = String(v?.id ?? "").trim();
     const cat = String(v?.category ?? "").trim();
     if (!itemKey && !cat) return null;
-    const n = categoryValues[itemKey] ?? categoryValues[cat];
-    return n && String(n).trim() ? String(n).trim() : null;
-  }, [pricingVariables, selectedForm2VariableId, categoryValues]);
+    const selected = String(categoryValues[itemKey] ?? categoryValues[cat] ?? "").trim();
+    if (!selected) return null;
+    const pkg = resolveForm2PackageSelection(pricingParameters, selected, cat, itemKey);
+    return pkg?.name ?? selected;
+  }, [pricingVariables, selectedForm2VariableId, categoryValues, pricingParameters]);
 
   const hasAnyForm2PackageSelected = useMemo(
     () => Object.values(categoryValues).some((v) => String(v ?? "").trim().length > 0),
@@ -2953,19 +2983,14 @@ const handleAddBooking = async (status: string = 'pending') => {
         const categoryKey = String(item.category ?? "").trim();
         const itemKey = String(item.id ?? "").trim();
         if (!categoryKey || !itemKey) return null;
-        const selectedPackageName = String(categoryValues[itemKey] ?? categoryValues[categoryKey] ?? "").trim();
-        if (!selectedPackageName) return null;
-        const pkg = pricingParameters.find((p) => {
-          if (String(p.name ?? "").trim() !== selectedPackageName) return false;
-          const linkedVariableId = String(p.pricing_variable_id ?? "").trim();
-          if (linkedVariableId) return linkedVariableId === itemKey;
-          return String(p.variable_category ?? "").trim() === categoryKey;
-        });
+        const selectedPackageRef = String(categoryValues[itemKey] ?? categoryValues[categoryKey] ?? "").trim();
+        if (!selectedPackageRef) return null;
+        const pkg = resolveForm2PackageSelection(pricingParameters, selectedPackageRef, categoryKey, itemKey);
         return {
           itemId: itemKey,
           itemName: item.name,
           categoryKey: itemKey,
-          packageName: selectedPackageName,
+          packageName: pkg?.name ?? selectedPackageRef,
           packageId: pkg?.id ?? null,
         };
       })
@@ -4042,7 +4067,7 @@ const handleAddBooking = async (status: string = 'pending') => {
                 <div>
                   <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">What Needs To Be Done?</h3>
                   <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-                    Select an item, then choose a package. Use Add to apply that tier to this booking.
+                    Select an item, then choose a package (packages are listed from dependency settings, not by item). Use Add to apply that tier to this booking.
                   </p>
                 </div>
                 {pricingVariables.length === 0 ? (
@@ -4087,7 +4112,7 @@ const handleAddBooking = async (status: string = 'pending') => {
                             const categoryKey = itemKey || activeCategory || pkg.variable_category;
                             setCategoryValues((prev) => ({
                               ...prev,
-                              [categoryKey]: pkg.name,
+                              [categoryKey]: String(pkg.id),
                             }));
                           }}
                         />
