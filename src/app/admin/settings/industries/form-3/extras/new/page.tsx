@@ -32,6 +32,19 @@ import {
   bookingFormScopeFromSearchParams,
   parseListingKindParam,
 } from "@/lib/bookingFormScope";
+import { Form3AddonDetailsFields } from "@/app/admin/settings/industries/form-3/extras/Form3AddonDetailsFields";
+import { Form3ExtraDetailsFields } from "@/app/admin/settings/industries/form-3/extras/Form3ExtraDetailsFields";
+import { Form3ExtraDependenciesFields } from "@/app/admin/settings/industries/form-3/extras/Form3ExtraDependenciesFields";
+import { Form3AddonDependenciesFields } from "@/app/admin/settings/industries/form-3/extras/Form3AddonDependenciesFields";
+import {
+  form3ItemManualTierCount,
+  parseForm3AddonItemPrices,
+  primaryForm3AddonItemRow,
+  reconcileForm3AddonItemPrices,
+  serializeForm3AddonItemPrices,
+  type Form3AddonItemPricesByItem,
+  type Form3ItemCatalogMeta,
+} from "@/lib/form3AddonItemPrices";
 
 const FORM2_HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => String(i));
 const FORM2_MINUTE_OPTIONS = Array.from({ length: 60 }, (_, i) => String(i));
@@ -106,9 +119,16 @@ export default function ExtraNewPage() {
   const isForm2 = bookingFormScope === "form2";
   const isForm3 = bookingFormScope === "form3";
   const isSinglePageCatalog = isForm2 || isForm3;
-  const isSinglePageAddon = isSinglePageCatalog && listingKindFilter === "addon";
+  const isForm2Addon = isForm2 && listingKindFilter === "addon";
+  const isForm3Addon = isForm3 && listingKindFilter === "addon";
+  const isForm3Extra = isForm3 && listingKindFilter === "extra";
+  const isSinglePageAddon = isForm2Addon || isForm3Addon;
+  const hasForm3AddonWizard = isForm3Addon;
+  const hasForm3ExtraWizard = isForm3Extra;
+  const hasForm3Wizard = hasForm3AddonWizard || hasForm3ExtraWizard;
   const { currentBusiness } = useBusiness();
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState("details");
   
   const [form, setForm] = useState({
     name: "",
@@ -133,17 +153,27 @@ export default function ExtraNewPage() {
     exemptFromDiscount: false,
     maximum: "",
     pricingStructure: "multiply" as "manual" | "multiply",
-    manualPrices: [] as { price: string; timeHours: string; timeMinutes: string }[],
+    manualPrices: [] as {
+      price: string;
+      timeHours: string;
+      timeMinutes: string;
+      priceMerchant: string;
+      hoursMerchant: string;
+      minutesMerchant: string;
+    }[],
     applyToAllBookings: true as boolean,
     overrideTimePricing: false as boolean,
     exemptExtraTime: false as boolean,
     // Dependencies
     showBasedOnFrequency: false,
     frequencyOptions: [] as string[],
+    showBasedOnLocation: false,
+    locationOptions: [] as string[],
     showBasedOnServiceCategory: false,
     serviceCategoryOptions: [] as string[],
     showBasedOnVariables: false,
     variableOptions: [] as string[],
+    itemPrices: {} as Form3AddonItemPricesByItem,
     // Providers
     excludedProviders: [] as string[],
   });
@@ -164,8 +194,46 @@ export default function ExtraNewPage() {
   // Load available frequencies, service categories, and variables
   const [availableFrequencies, setAvailableFrequencies] = useState<string[]>([]);
   const [availableServiceCategories, setAvailableServiceCategories] = useState<string[]>([]);
+  const [availableLocations, setAvailableLocations] = useState<string[]>([]);
   const [availableVariables, setAvailableVariables] = useState<{ [key: string]: any[] }>({});
   const [availablePackages, setAvailablePackages] = useState<string[]>([]);
+  const [form3ItemCatalog, setForm3ItemCatalog] = useState<Record<string, Form3ItemCatalogMeta>>({});
+
+  const form3ItemsNewHref = `/admin/settings/industries/form-3/items/new?industry=${encodeURIComponent(industry)}&industryId=${encodeURIComponent(industryId ?? "")}&bookingFormScope=form3`;
+
+  useEffect(() => {
+    if (isForm3Addon && !editId) {
+      setForm((p) => ({
+        ...p,
+        qtyBased: true,
+        pricingStructure: "multiply",
+        icon: p.icon || "layers",
+      }));
+    }
+    if (isForm3Extra && !editId) {
+      setForm((p) => ({
+        ...p,
+        qtyBased: true,
+        pricingStructure: "multiply",
+        icon: p.icon || "layers",
+      }));
+    }
+  }, [isForm3Addon, isForm3Extra, editId]);
+
+  useEffect(() => {
+    if (!isForm3Addon || Object.keys(form3ItemCatalog).length === 0) return;
+    setForm((p) => {
+      if (p.variableOptions.length === 0) return p;
+      const manualMode = p.qtyBased && p.pricingStructure === "manual";
+      return {
+        ...p,
+        itemPrices: reconcileForm3AddonItemPrices(p.variableOptions, p.itemPrices, {
+          manualMode,
+          itemCatalog: form3ItemCatalog,
+        }),
+      };
+    });
+  }, [form3ItemCatalog, isForm3Addon]);
 
   // Load providers from database
   useEffect(() => {
@@ -281,6 +349,31 @@ export default function ExtraNewPage() {
     fetchServiceCategories();
   }, [industryId, bookingFormScope, listingKindFilter]);
 
+  useEffect(() => {
+    const fetchLocations = async () => {
+      if (!isForm3Extra || !currentBusiness?.id) {
+        setAvailableLocations([]);
+        return;
+      }
+      try {
+        const response = await fetch(
+          `/api/locations?business_id=${encodeURIComponent(currentBusiness.id)}`,
+        );
+        if (!response.ok) throw new Error("Failed to fetch locations");
+        const data = await response.json();
+        const names = (Array.isArray(data.locations) ? data.locations : [])
+          .map((loc: { name?: string }) => String(loc.name ?? "").trim())
+          .filter(Boolean);
+        setAvailableLocations(Array.from(new Set(names)));
+      } catch (error) {
+        console.error("Error fetching locations for Form 3 extras:", error);
+        setAvailableLocations([]);
+      }
+    };
+
+    fetchLocations();
+  }, [isForm3Extra, currentBusiness?.id]);
+
   // Load variables from database
   useEffect(() => {
     const fetchVariables = async () => {
@@ -294,17 +387,36 @@ export default function ExtraNewPage() {
           if (!vRes.ok) throw new Error("Failed to fetch pricing variables");
           const vData = await vRes.json();
           const vs = vData.variables ?? [];
+          const catalog: Record<string, Form3ItemCatalogMeta> = {};
           const itemNames = vs
-            .map((v: { name?: string; customer_end_name?: string | null }) =>
-              String((v.customer_end_name && String(v.customer_end_name).trim()) || v.name || "")
-                .trim(),
-            )
+            .map((v: {
+              name?: string;
+              customer_end_name?: string | null;
+              qty_based?: boolean;
+              maximum_quantity?: number | null;
+            }) => {
+              const displayName = String(
+                (v.customer_end_name && String(v.customer_end_name).trim()) || v.name || "",
+              ).trim();
+              if (displayName.length > 0) {
+                catalog[displayName] = {
+                  qtyBased: Boolean(v.qty_based),
+                  maximumQuantity:
+                    v.maximum_quantity != null && !Number.isNaN(Number(v.maximum_quantity))
+                      ? Number(v.maximum_quantity)
+                      : 0,
+                };
+              }
+              return displayName;
+            })
             .filter((name: string) => name.length > 0);
+          setForm3ItemCatalog(catalog);
           setAvailablePackages(Array.from(new Set(itemNames)));
           setAvailableVariables({});
         } catch (error) {
           console.error("Error fetching Form 3 items for add-ons:", error);
           setAvailableVariables({});
+          setForm3ItemCatalog({});
           setAvailablePackages([]);
         }
         return;
@@ -443,6 +555,9 @@ export default function ExtraNewPage() {
             price: String(t?.price ?? ""),
             timeHours: String(Math.floor(tm / 60)),
             timeMinutes: String(tm % 60),
+            priceMerchant: "",
+            hoursMerchant: "",
+            minutesMerchant: "",
           };
         });
         setForm({
@@ -476,10 +591,31 @@ export default function ExtraNewPage() {
           exemptExtraTime: false,
           showBasedOnFrequency: extra.show_based_on_frequency || false,
           frequencyOptions: extra.frequency_options || [],
+          showBasedOnLocation: Boolean((ex as { show_based_on_location?: boolean }).show_based_on_location),
+          locationOptions: Array.isArray((ex as { location_options?: string[] }).location_options)
+            ? [...((ex as { location_options?: string[] }).location_options as string[])]
+            : [],
           showBasedOnServiceCategory: extra.show_based_on_service_category || false,
           serviceCategoryOptions: extra.service_category_options || [],
           showBasedOnVariables: extra.show_based_on_variables || false,
           variableOptions: extra.variable_options || [],
+          itemPrices: parseForm3AddonItemPrices(
+            (ex as { item_prices?: unknown }).item_prices,
+            extra.variable_options || [],
+            {
+              price: String(extra.price ?? 0),
+              priceMerchant:
+                ex.price_merchant_location != null ? String(ex.price_merchant_location) : "",
+              timeHours: String(hours),
+              timeMinutes: String(minutes),
+              hoursMerchant: mlTm != null ? String(mlHours) : "",
+              minutesMerchant: mlTm != null ? String(mlMinutes) : "",
+            },
+            {
+              manualMode: structure === "manual",
+              itemCatalog: form3ItemCatalog,
+            },
+          ),
           excludedProviders: extra.excluded_providers || [],
         });
         
@@ -514,28 +650,50 @@ export default function ExtraNewPage() {
       return;
     }
 
-    const hours = Number(form.timeHours) || 0;
-    const minutes = Number(form.timeMinutes) || 0;
+    const legacyRow = {
+      price: form.price,
+      priceMerchant: form.priceMerchant,
+      timeHours: form.timeHours,
+      timeMinutes: form.timeMinutes,
+      hoursMerchant: form.hoursMerchant,
+      minutesMerchant: form.minutesMerchant,
+    };
+    const primaryRow =
+      isForm3Addon && form.variableOptions.length > 0
+        ? primaryForm3AddonItemRow(form.itemPrices, form.variableOptions, legacyRow)
+        : legacyRow;
+    const hours = Number(primaryRow.timeHours) || 0;
+    const minutes = Number(primaryRow.timeMinutes) || 0;
     let time_minutes = hours * 60 + minutes;
-    let price = Number(form.price) || 0;
+    let price = Number(primaryRow.price) || 0;
 
     const maxParsed = form.maximum ? parseInt(form.maximum, 10) : NaN;
-    const maximum_quantity =
-      form.qtyBased && !Number.isNaN(maxParsed) && maxParsed > 0
-        ? maxParsed
-        : undefined;
-
     const pricing_structure: "multiply" | "manual" = form.qtyBased
       ? form.pricingStructure === "manual"
         ? "manual"
         : "multiply"
       : "multiply";
 
+    const form3ManualWithItems =
+      isForm3Addon && pricing_structure === "manual" && form.variableOptions.length > 0;
+
+    let maximum_quantity: number | undefined =
+      form.qtyBased && !Number.isNaN(maxParsed) && maxParsed > 0 ? maxParsed : undefined;
+
+    if (form3ManualWithItems) {
+      const tierMax = Math.max(
+        ...form.variableOptions.map((name) => form3ItemManualTierCount(form3ItemCatalog[name])),
+        1,
+      );
+      maximum_quantity = tierMax;
+    }
+
     let manual_prices: Array<{ price: number; time_minutes: number }> = [];
     if (
       form.qtyBased &&
       pricing_structure === "manual" &&
-      maximum_quantity != null
+      maximum_quantity != null &&
+      !form3ManualWithItems
     ) {
       manual_prices = Array.from({ length: maximum_quantity }, (_, i) => {
         const row = form.manualPrices[i];
@@ -552,11 +710,11 @@ export default function ExtraNewPage() {
       }
     }
 
-    const mlHours = Number(form.hoursMerchant) || 0;
-    const mlMinutes = Number(form.minutesMerchant) || 0;
+    const mlHours = Number(primaryRow.hoursMerchant) || 0;
+    const mlMinutes = Number(primaryRow.minutesMerchant) || 0;
     const timeMinutesMerchant = mlHours * 60 + mlMinutes;
-    const hasMlPrice = form.priceMerchant.trim() !== "";
-    const hasMlTime = Boolean(form.hoursMerchant.trim() || form.minutesMerchant.trim());
+    const hasMlPrice = primaryRow.priceMerchant.trim() !== "";
+    const hasMlTime = Boolean(primaryRow.hoursMerchant.trim() || primaryRow.minutesMerchant.trim());
 
     const extraData: Record<string, unknown> = {
       business_id: currentBusiness.id,
@@ -592,20 +750,43 @@ export default function ExtraNewPage() {
       exempt_from_discount: form.exemptFromDiscount,
       show_based_on_frequency: form.showBasedOnFrequency,
       frequency_options: form.showBasedOnFrequency ? form.frequencyOptions : [],
-      show_based_on_service_category: form.showBasedOnServiceCategory,
-      service_category_options: form.showBasedOnServiceCategory
-        ? form.serviceCategoryOptions
-        : [],
-      show_based_on_variables: form.showBasedOnVariables,
-      variable_options: form.showBasedOnVariables ? form.variableOptions : [],
+      ...(isForm3Extra
+        ? {
+            show_based_on_location: form.showBasedOnLocation,
+            location_options: form.showBasedOnLocation ? form.locationOptions : [],
+            show_based_on_service_category: form.showBasedOnServiceCategory,
+            service_category_options: form.showBasedOnServiceCategory
+              ? form.serviceCategoryOptions
+              : [],
+            show_based_on_variables: form.showBasedOnVariables,
+            variable_options: form.showBasedOnVariables ? form.variableOptions : [],
+          }
+        : {
+            show_based_on_service_category: form.showBasedOnServiceCategory,
+            service_category_options: form.showBasedOnServiceCategory
+              ? form.serviceCategoryOptions
+              : [],
+            show_based_on_variables: form.showBasedOnVariables,
+            variable_options: form.showBasedOnVariables ? form.variableOptions : [],
+          }),
       excluded_providers: form.excludedProviders,
       booking_form_scope: bookingFormScope,
       listing_kind,
     };
 
-    if (isSinglePageAddon) {
-      extraData.price_merchant_location = hasMlPrice ? Number(form.priceMerchant) : null;
+    if (isForm2Addon || isForm3Addon || isForm3Extra) {
+      extraData.price_merchant_location = hasMlPrice ? Number(primaryRow.priceMerchant) : null;
       extraData.time_minutes_merchant_location = hasMlTime ? timeMinutesMerchant : null;
+    }
+
+    if (isForm3Addon && form.variableOptions.length > 0) {
+      extraData.item_prices = serializeForm3AddonItemPrices(
+        form.itemPrices,
+        form.variableOptions,
+        pricing_structure === "manual",
+      );
+      extraData.show_based_on_variables = true;
+      extraData.variable_options = form.variableOptions;
     }
 
     try {
@@ -652,27 +833,63 @@ export default function ExtraNewPage() {
     }
   };
 
+  const goBackTab = () => {
+    if (activeTab === "providers") setActiveTab("dependencies");
+    else if (activeTab === "dependencies") setActiveTab("details");
+  };
+
+  const goNextOrSave = async () => {
+    if (!hasForm3Wizard) {
+      await save();
+      return;
+    }
+    if (activeTab === "details") {
+      if (!form.name.trim()) {
+        toast.error(
+          isForm3Addon ? "Please enter a name for the add-on" : "Please enter a name for the extra",
+        );
+        return;
+      }
+      setActiveTab("dependencies");
+      return;
+    }
+    if (hasForm3ExtraWizard && activeTab === "dependencies") {
+      setActiveTab("providers");
+      return;
+    }
+    await save();
+  };
+
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle>
-            {isSinglePageAddon
+            {isForm3Addon
               ? editId
                 ? "Edit add-on"
                 : "Add add-ons"
-              : editId
-                ? "Edit Extra"
-                : "Add Extra"}
+              : isForm3Extra
+                ? editId
+                  ? "Edit extras"
+                  : "Add extras"
+                : editId
+                  ? "Edit Extra"
+                  : "Add Extra"}
           </CardTitle>
           <CardDescription>
-            {isSinglePageAddon
+            {isForm3Addon
               ? `If you want to allow customers to customize their purchases you can create add-ons that can make their requests very specific. For example if you offer car washing services, you can make add-ons such as "interior", "exterior", "waxing", "tire shine", etc., and they will be able to add those to their booking. Configure these for ${industry}.`
-              : `Extras can be attached to a service and a variable (things like inside fridge for a cleaning service or wax for a car wash). Configure one for ${industry}.`}
+              : `Extras can be attached to a service and a variable (things like inside fridge for a cleaning services or wax for a car wash).`}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="details" className="w-full">
+          <Tabs
+            value={hasForm3Wizard ? activeTab : undefined}
+            defaultValue={hasForm3Wizard ? undefined : "details"}
+            onValueChange={hasForm3Wizard ? setActiveTab : undefined}
+            className="w-full"
+          >
             <TabsList
               className={cn(
                 "mb-6 w-full",
@@ -699,1258 +916,169 @@ export default function ExtraNewPage() {
               >
                 Dependencies
               </TabsTrigger>
-              {!isSinglePageAddon ? (
-                <TabsTrigger value="providers">Providers</TabsTrigger>
-              ) : null}
+            {hasForm3ExtraWizard ? (
+              <TabsTrigger value="providers">Providers</TabsTrigger>
+            ) : !isSinglePageAddon ? (
+              <TabsTrigger value="providers">Providers</TabsTrigger>
+            ) : null}
             </TabsList>
 
             {/* DETAILS TAB */}
-            <TabsContent value="details" className={cn("mt-4 space-y-5", isSinglePageAddon && "space-y-8")}>
-              <TooltipProvider delayDuration={200}>
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Label htmlFor="extra-name">Name</Label>
-                  {isSinglePageAddon ? (
-                    <OrangeInfoTip text='Internal name for this add-on. Customers see the customer end name when "Different on customer end" is enabled.' />
-                  ) : (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About name">
-                          <Info className="h-4 w-4" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="max-w-xs text-sm">
-                        Internal name for this extra. Customers see the customer end name when &quot;Different on customer end&quot; is enabled.
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                </div>
-                <Input
-                  id="extra-name"
-                  value={form.name}
-                  onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))}
-                  placeholder={isSinglePageAddon ? "Enter name" : "Ex: Deep Cleaning"}
-                />
-              </div>
-
-              <div className="space-y-2 rounded-lg border bg-muted/30 p-4">
-                <div className="flex items-start gap-2">
-                  <Checkbox
-                    id="extra-diff-customer"
-                    checked={form.differentOnCustomerEnd}
-                    onCheckedChange={(checked) =>
-                      setForm((p) => ({
-                        ...p,
-                        differentOnCustomerEnd: !!checked,
-                        ...(!checked ? { customerEndName: "" } : {}),
-                      }))
-                    }
-                  />
-                  <div className="flex-1 space-y-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <Label htmlFor="extra-diff-customer" className="text-sm font-medium cursor-pointer">
-                        Different on customer end
-                      </Label>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About different on customer end">
-                            <Info className="h-4 w-4" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="right" className="max-w-xs text-sm">
-                          When enabled, customers see the customer end name on book-now instead of the internal name above.
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                    {form.differentOnCustomerEnd && (
-                      <Input
-                        placeholder="Enter Customer End Name"
-                        value={form.customerEndName}
-                        onChange={(e) => setForm((p) => ({ ...p, customerEndName: e.target.value }))}
-                        className="mt-2 bg-background"
-                      />
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <Label htmlFor="extra-desc">Description</Label>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About description">
-                        <Info className="h-4 w-4" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="max-w-xs text-sm">
-                      Optional notes for staff; use customer end name for the label customers see on the booking form.
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-                <Textarea
-                  id="extra-desc"
-                  rows={3}
-                  value={form.description}
-                  onChange={(e) => setForm(p => ({ ...p, description: e.target.value }))}
-                  placeholder="Add Description"
-                />
-              </div>
-
-              <div className="space-y-2 rounded-lg border bg-muted/30 p-4">
-                <div className="flex items-start gap-2">
-                  <Checkbox
-                    id="extra-show-explanation"
-                    checked={form.showExplanationIconOnForm}
-                    onCheckedChange={(checked) =>
-                      setForm((p) => ({
-                        ...p,
-                        showExplanationIconOnForm: !!checked,
-                        ...(!checked ? { explanationTooltipText: "" } : {}),
-                      }))
-                    }
-                  />
-                  <div className="flex-1 space-y-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <Label htmlFor="extra-show-explanation" className="text-sm font-medium cursor-pointer">
-                        Show explanation icon on form
-                      </Label>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About explanation icon">
-                            <Info className="h-4 w-4" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="right" className="max-w-xs text-sm">
-                          When enabled, an info icon appears next to this extra on booking forms with the tooltip text below.
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                    {form.showExplanationIconOnForm && (
-                      <Textarea
-                        placeholder="Add Tooltip Text"
-                        value={form.explanationTooltipText}
-                        onChange={(e) => setForm((p) => ({ ...p, explanationTooltipText: e.target.value }))}
-                        className="min-h-[80px] resize-y bg-background mt-2"
-                      />
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-sky-200/90 bg-sky-50/90 p-4 dark:border-sky-900/55 dark:bg-sky-950/30">
-                <div className="flex items-start gap-2">
-                  <Checkbox
-                    id="extra-enable-popup"
-                    className="mt-0.5"
-                    checked={form.enablePopupOnSelection}
-                    onCheckedChange={(checked) =>
-                      setForm((p) => ({
-                        ...p,
-                        enablePopupOnSelection: !!checked,
-                        ...(!checked ? { popupContent: "" } : {}),
-                      }))
-                    }
-                  />
-                  <div className="min-w-0 flex-1 space-y-4">
-                    <div className="flex items-center gap-1.5">
-                      <Label htmlFor="extra-enable-popup" className="text-sm font-medium cursor-pointer">
-                        Enable popup on selection
-                      </Label>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About popup on selection">
-                            <Info className="h-4 w-4" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="right" className="max-w-sm text-sm leading-snug">
-                          When enabled, a popup with the content below is shown when this extra is added on a booking (where visibility allows).
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                    {form.enablePopupOnSelection && (
-                      <div className="space-y-4">
-                        <Form1RichTextEditor
-                          value={form.popupContent}
-                          onChange={(html) => setForm((p) => ({ ...p, popupContent: html }))}
-                        />
-                        <div className="space-y-3 border-t border-sky-200/80 pt-4 dark:border-sky-800/60">
-                          <div className="flex items-center gap-1.5">
-                            <Label className="text-sm font-medium">Display popup on</Label>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About where popup appears">
-                                  <Info className="h-4 w-4" />
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent side="right" className="max-w-xs text-sm leading-snug">
-                                Public book-now, logged-in customer booking, and/or admin booking.
-                              </TooltipContent>
-                            </Tooltip>
-                          </div>
-                          <RadioGroup
-                            value={form.popupDisplay}
-                            onValueChange={(val) =>
-                              setForm((p) => ({ ...p, popupDisplay: val as FrequencyPopupDisplay }))
-                            }
-                            className="grid gap-2"
-                          >
-                            <label className="flex cursor-pointer items-center gap-2 text-sm">
-                              <RadioGroupItem value="customer_frontend_backend_admin" />
-                              Customer frontend, backend &amp; admin
-                            </label>
-                            <label className="flex cursor-pointer items-center gap-2 text-sm">
-                              <RadioGroupItem value="customer_backend_admin" />
-                              Customer backend &amp; admin
-                            </label>
-                            <label className="flex cursor-pointer items-center gap-2 text-sm">
-                              <RadioGroupItem value="customer_frontend_backend" />
-                              Customer only (frontend &amp; backend)
-                            </label>
-                            <label className="flex cursor-pointer items-center gap-2 text-sm">
-                              <RadioGroupItem value="admin_only" />
-                              Admin only
-                            </label>
-                          </RadioGroup>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <h4 className="text-sm font-medium">Display</h4>
-                <p className="text-xs text-muted-foreground">
-                  Where do you want this extra to show up? Do you want customers to be able to see it? Do you want them to
-                  see it when they are booking when logged out or only when they have an account and are logged in or do
-                  you want only admin/staff to see this extra when booking, meaning customers can&apos;t book for this
-                  extra and only you can.
-                </p>
-                <RadioGroup
-                  value={form.display}
-                  onValueChange={(v: ExtraDisplay) => setForm(p => ({ ...p, display: v }))}
-                  className="grid gap-2"
-                >
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <RadioGroupItem value="frontend-backend-admin" /> Customer frontend, backend &amp; admin
-                  </label>
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <RadioGroupItem value="backend-admin" /> Customer backend &amp; admin
-                  </label>
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <RadioGroupItem value="admin-only" /> Admin only
-                  </label>
-                </RadioGroup>
-              </div>
-
-              {isSinglePageAddon ? (
-                <>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Label>Quantity based</Label>
-                      <OrangeInfoTip text="Allow customers to choose more than one of this add-on (with an optional maximum)." />
-                    </div>
-                    <RadioGroup
-                      value={form.qtyBased ? "yes" : "no"}
-                      onValueChange={(v) => setForm(p => ({ ...p, qtyBased: v === "yes" }))}
-                      className="flex gap-4"
-                    >
-                      <label className="flex items-center gap-2 text-sm">
-                        <RadioGroupItem value="yes" /> Yes
-                      </label>
-                      <label className="flex items-center gap-2 text-sm">
-                        <RadioGroupItem value="no" /> No
-                      </label>
-                    </RadioGroup>
-                  </div>
-
-                  {form.qtyBased ? (
-                    <div className="space-y-2">
-                      <Label htmlFor="maximum-f2-addon">Maximum</Label>
-                      <Input
-                        id="maximum-f2-addon"
-                        type="number"
-                        value={form.maximum}
-                        onChange={(e) => setForm((p) => ({ ...p, maximum: e.target.value }))}
-                        placeholder="Number"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Per-unit price and time use the S.A. / M.L. row below (multiply pricing).
-                      </p>
-                    </div>
-                  ) : null}
-
-                  {(
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-medium">Price &amp; Time</h4>
-                        <OrangeInfoTip text="S.A. is service area (at the customer's location). M.L. is merchant location (at your store). Leave M.L. empty to use the same price and duration as S.A." />
-                      </div>
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <div className="space-y-3 rounded-lg border p-4">
-                          <div className="flex items-center gap-2 text-sm font-medium">
-                            S.A.
-                            <OrangeInfoTip text="Service area — work performed at the customer's location." />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="addon-sa-price">Pricing</Label>
-                            <div className="relative w-28">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                              <Input
-                                id="addon-sa-price"
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={form.price}
-                                onChange={(e) => setForm((p) => ({ ...p, price: e.target.value }))}
-                                placeholder="0"
-                                className="pl-7"
-                              />
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Time</Label>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Select
-                                value={form.timeHours === "" ? "0" : form.timeHours}
-                                onValueChange={(v) => setForm((p) => ({ ...p, timeHours: v }))}
-                              >
-                                <SelectTrigger className="w-[88px]">
-                                  <SelectValue placeholder="Hours" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {FORM2_HOUR_OPTIONS.map((h) => (
-                                    <SelectItem key={h} value={h}>
-                                      {h} hr
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <Select
-                                value={form.timeMinutes === "" ? "0" : form.timeMinutes}
-                                onValueChange={(v) => setForm((p) => ({ ...p, timeMinutes: v }))}
-                              >
-                                <SelectTrigger className="w-[88px]">
-                                  <SelectValue placeholder="Min" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {FORM2_MINUTE_OPTIONS.map((m) => (
-                                    <SelectItem key={m} value={m}>
-                                      {m} min
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="space-y-3 rounded-lg border p-4">
-                          <div className="flex items-center gap-2 text-sm font-medium">
-                            M.L.
-                            <OrangeInfoTip text="Merchant location — work performed at your business location." />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="addon-ml-price">Pricing</Label>
-                            <div className="relative w-28">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                              <Input
-                                id="addon-ml-price"
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={form.priceMerchant}
-                                onChange={(e) => setForm((p) => ({ ...p, priceMerchant: e.target.value }))}
-                                placeholder="0"
-                                className="pl-7"
-                              />
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Time</Label>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Select
-                                value={form.hoursMerchant === "" ? "0" : form.hoursMerchant}
-                                onValueChange={(v) => setForm((p) => ({ ...p, hoursMerchant: v }))}
-                              >
-                                <SelectTrigger className="w-[88px]">
-                                  <SelectValue placeholder="Hours" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {FORM2_HOUR_OPTIONS.map((h) => (
-                                    <SelectItem key={`ml-h-${h}`} value={h}>
-                                      {h} hr
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <Select
-                                value={form.minutesMerchant === "" ? "0" : form.minutesMerchant}
-                                onValueChange={(v) => setForm((p) => ({ ...p, minutesMerchant: v }))}
-                              >
-                                <SelectTrigger className="w-[88px]">
-                                  <SelectValue placeholder="Min" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {FORM2_MINUTE_OPTIONS.map((m) => (
-                                    <SelectItem key={`ml-m-${m}`} value={m}>
-                                      {m} min
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Label>Select icon</Label>
-                      <OrangeInfoTip text="Pick a preset icon or upload a square image (recommended max 300×300 px)." />
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="flex gap-2">
-                        {(
-                          [
-                            { id: "layers", Icon: Layers },
-                            { id: "package", Icon: Package },
-                            { id: "sparkles", Icon: Sparkles },
-                          ] as const
-                        ).map(({ id, Icon }) => (
-                          <Button
-                            key={id}
-                            type="button"
-                            variant={form.icon === id ? "default" : "outline"}
-                            size="icon"
-                            className="h-11 w-11"
-                            onClick={() => {
-                              setForm((p) => ({ ...p, icon: id }));
-                              setUploadedIcon(null);
-                              setShowIconPicker(false);
-                            }}
-                            aria-label={`Icon ${id}`}
-                          >
-                            <Icon className="h-5 w-5" />
-                          </Button>
-                        ))}
-                      </div>
-                      <span className="text-sm text-muted-foreground">Or</span>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          id="f2-addon-icon-upload"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                const base64String = reader.result as string;
-                                setUploadedIcon(base64String);
-                                setForm((p) => ({ ...p, icon: "" }));
-                                toast.success("Icon uploaded successfully");
-                              };
-                              reader.readAsDataURL(file);
-                            }
-                          }}
-                        />
-                        <Button type="button" variant="default" className="bg-blue-600 hover:bg-blue-700" asChild>
-                          <label htmlFor="f2-addon-icon-upload" className="cursor-pointer">
-                            Browse
-                          </label>
-                        </Button>
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Image size should not be more than 300px by 300px.</p>
-                  </div>
-                </>
-              ) : null}
-
-              </TooltipProvider>
-
-              {!isSinglePageAddon ? (
-              <>
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Checkbox 
-                    id="override-time-pricing" 
-                    checked={form.overrideTimePricing} 
-                    onCheckedChange={(v) => setForm(p => ({ ...p, overrideTimePricing: !!v }))} 
-                  />
-                  <Label htmlFor="override-time-pricing" className="text-sm">Override time-based pricing parameters and add extra as separate charge?</Label>
-                  <TooltipProvider delayDuration={200}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About override time-based pricing">
-                          <Info className="h-4 w-4" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="max-w-xs text-sm">
-                        Only applies when the service uses hourly pricing with time-based parameters.
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-                <p className="text-xs rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-rose-900 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-100">
-                  Note: This option will work only in case of hourly service (Pricing parameters time based).
-                </p>
-                {form.overrideTimePricing && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Checkbox 
-                        id="exempt-extra-time" 
-                        checked={form.exemptExtraTime} 
-                        onCheckedChange={(v) => setForm(p => ({ ...p, exemptExtraTime: !!v }))} 
-                      />
-                      <Label htmlFor="exempt-extra-time" className="text-sm">Exempt extra's time from hourly service price calculation</Label>
-                      <div className="relative group">
-                        <Info className="h-4 w-4 text-muted-foreground cursor-help" />
-                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                          Check this box to exclude the extra's time from the hourly service price calculation.
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Checkbox 
-                  id="exempt-discount" 
-                  checked={form.exemptFromDiscount} 
-                  onCheckedChange={(v) => setForm(p => ({ ...p, exemptFromDiscount: !!v }))} 
-                />
-                <Label htmlFor="exempt-discount" className="text-sm">Exempt extra from frequency discount?</Label>
-                <TooltipProvider delayDuration={200}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About frequency discount exemption">
-                        <Info className="h-4 w-4" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="max-w-xs text-sm">
-                      When enabled, frequency-based discounts do not reduce the price of this extra.
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <Label>Quantity based</Label>
-                  <TooltipProvider delayDuration={200}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button type="button" className="inline-flex text-orange-500 hover:text-orange-600 focus:outline-none rounded-sm" aria-label="About quantity based">
-                          <Info className="h-4 w-4" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="max-w-xs text-sm">
-                        Allow customers to choose more than one of this extra (with an optional maximum).
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-                <RadioGroup
-                  value={form.qtyBased ? "yes" : "no"}
-                  onValueChange={(v) => setForm(p => ({ ...p, qtyBased: v === "yes" }))}
-                  className="flex gap-4"
-                >
-                  <label className="flex items-center gap-2 text-sm">
-                    <RadioGroupItem value="yes" /> Yes
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <RadioGroupItem value="no" /> No
-                  </label>
-                </RadioGroup>
-              </div>
-
-              {form.qtyBased && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="maximum">Maximum</Label>
-                    <Input 
-                      id="maximum" 
-                      type="number" 
-                      value={form.maximum} 
-                      onChange={(e) => {
-                        const newMaximum = e.target.value;
-                        if (form.pricingStructure !== "manual") {
-                          setForm((p) => ({ ...p, maximum: newMaximum }));
-                          return;
-                        }
-                        const maxNum = Number(newMaximum) || 0;
-                        const currentManualPrices = form.manualPrices || [];
-                        if (maxNum > currentManualPrices.length) {
-                          const newEntries = Array.from(
-                            { length: maxNum - currentManualPrices.length },
-                            () => ({
-                              price: "0",
-                              timeHours: "0",
-                              timeMinutes: "0",
-                            }),
-                          );
-                          setForm((p) => ({
-                            ...p,
-                            maximum: newMaximum,
-                            manualPrices: [...currentManualPrices, ...newEntries],
-                          }));
-                        } else if (maxNum < currentManualPrices.length) {
-                          setForm((p) => ({
-                            ...p,
-                            maximum: newMaximum,
-                            manualPrices: currentManualPrices.slice(0, maxNum),
-                          }));
-                        } else {
-                          setForm((p) => ({ ...p, maximum: newMaximum }));
-                        }
-                      }} 
-                      placeholder="Number"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Manual Or Multiply structure?</Label>
-                    <RadioGroup
-                      value={form.pricingStructure}
-                      onValueChange={(value: "manual" | "multiply") => {
-                        setForm((p) => {
-                          if (value !== "manual") {
-                            return { ...p, pricingStructure: value };
-                          }
-                          const maxNum = Number(p.maximum) || 0;
-                          const cur = p.manualPrices || [];
-                          if (maxNum > cur.length) {
-                            const newEntries = Array.from(
-                              { length: maxNum - cur.length },
-                              () => ({
-                                price: "0",
-                                timeHours: "0",
-                                timeMinutes: "0",
-                              }),
-                            );
-                            return {
-                              ...p,
-                              pricingStructure: value,
-                              manualPrices: [...cur, ...newEntries],
-                            };
-                          }
-                          if (maxNum > 0 && maxNum < cur.length) {
-                            return {
-                              ...p,
-                              pricingStructure: value,
-                              manualPrices: cur.slice(0, maxNum),
-                            };
-                          }
-                          return { ...p, pricingStructure: value };
-                        });
-                      }}
-                      className="flex gap-4"
-                    >
-                      <label className="flex items-center gap-2 text-sm">
-                        <RadioGroupItem value="multiply" /> Multiply
-                      </label>
-                      <label className="flex items-center gap-2 text-sm">
-                        <RadioGroupItem value="manual" /> Manual
-                      </label>
-                    </RadioGroup>
-                    {form.pricingStructure === "multiply" && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Price and time above are per unit. Totals use per-unit × quantity (up to maximum).
-                      </p>
-                    )}
-                  </div>
-                </>
-              )}
-
-              <div className="space-y-4">
-                {form.qtyBased && form.pricingStructure === "manual" && Number(form.maximum) > 0 ? (
-                  <div className="space-y-4">
-                    <Label>Price & Time</Label>
-                    {Array.from({ length: Number(form.maximum) }, (_, index) => (
-                      <div key={index} className="space-y-2 p-4 border rounded-lg">
-                        <div className="text-sm font-medium text-muted-foreground mb-3">
-                          Pricing {index + 1}
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex gap-2">
-                            <div className="space-y-2">
-                              <Label htmlFor={`price-${index}`}>Pricing</Label>
-                              <div className="relative w-24">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                                <Input 
-                                  id={`price-${index}`}
-                                  type="number" 
-                                  step="0.01"
-                                  min="0"
-                                  value={form.manualPrices[index]?.price || ""}
-                                  onChange={(e) => {
-                                    const newManualPrices = [...(form.manualPrices || [])];
-                                    if (!newManualPrices[index]) {
-                                      newManualPrices[index] = { price: "", timeHours: "", timeMinutes: "" };
-                                    }
-                                    newManualPrices[index].price = e.target.value;
-                                    setForm(p => ({ ...p, manualPrices: newManualPrices }));
-                                  }}
-                                  placeholder=""
-                                  className="pl-7"
-                                />
-                              </div>
-                            </div>
-                            
-                            <div className="space-y-2">
-                              <Label>Time</Label>
-                              <div className="flex gap-1 w-auto">
-                                <div className="w-24">
-                                  <Input 
-                                    id={`hours-${index}`}
-                                    type="number" 
-                                    min="0"
-                                    value={form.manualPrices[index]?.timeHours || ""}
-                                    onChange={(e) => {
-                                      const newManualPrices = [...(form.manualPrices || [])];
-                                      if (!newManualPrices[index]) {
-                                        newManualPrices[index] = { price: "", timeHours: "", timeMinutes: "" };
-                                      }
-                                      newManualPrices[index].timeHours = e.target.value;
-                                      setForm(p => ({ ...p, manualPrices: newManualPrices }));
-                                    }}
-                                    placeholder=""
-                                    className="text-center"
-                                  />
-                                </div>
-                                <div className="flex items-center text-sm text-muted-foreground px-1">hours</div>
-                                <div className="w-24">
-                                  <Input 
-                                    id={`minutes-${index}`}
-                                    type="number" 
-                                    min="0"
-                                    max="59"
-                                    value={form.manualPrices[index]?.timeMinutes || ""}
-                                    onChange={(e) => {
-                                      const newManualPrices = [...(form.manualPrices || [])];
-                                      if (!newManualPrices[index]) {
-                                        newManualPrices[index] = { price: "", timeHours: "", timeMinutes: "" };
-                                      }
-                                      newManualPrices[index].timeMinutes = e.target.value;
-                                      setForm(p => ({ ...p, manualPrices: newManualPrices }));
-                                    }}
-                                    placeholder=""
-                                    className="text-center"
-                                  />
-                                </div>
-                                <div className="flex items-center text-sm text-muted-foreground px-1">minutes</div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <>
-                    <div className="space-y-2">
-                      <div className="flex gap-2">
-                        <div className="space-y-2">
-                          <Label htmlFor="extra-price">Price</Label>
-                          <div className="relative w-24">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                            <Input 
-                              id="extra-price" 
-                              type="number" 
-                              step="0.01"
-                              min="0"
-                              value={form.price} 
-                              onChange={(e) => setForm(p => ({ ...p, price: e.target.value }))} 
-                              placeholder=""
-                              className="pl-7"
-                            />
-                          </div>
-                        </div>
-                        
-                        <div className="space-y-2">
-                          <Label>Time</Label>
-                          <div className="flex gap-1 w-auto">
-                            <div className="w-24">
-                              <Input 
-                                id="time-hours" 
-                                type="number" 
-                                min="0"
-                                value={form.timeHours} 
-                                onChange={(e) => setForm(p => ({ ...p, timeHours: e.target.value }))} 
-                                placeholder=""
-                                className="text-center"
-                              />
-                            </div>
-                            <div className="flex items-center text-sm text-muted-foreground px-1">hours</div>
-                            <div className="w-24">
-                              <Input 
-                                id="time-minutes" 
-                                type="number" 
-                                min="0"
-                                max="59"
-                                value={form.timeMinutes} 
-                                onChange={(e) => setForm(p => ({ ...p, timeMinutes: e.target.value }))} 
-                                placeholder=""
-                                className="text-center"
-                              />
-                            </div>
-                            <div className="flex items-center text-sm text-muted-foreground px-1">minutes</div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label>Select icon</Label>
-                <p className="text-xs text-muted-foreground">Image size should not be more than 300px by 300px.</p>
-                <div className="space-y-3">
-                  {(form.icon || uploadedIcon) && (
-                    <div className="flex items-center gap-3 p-3 border rounded-md bg-muted/50">
-                      <div className="flex items-center justify-center w-12 h-12 border rounded-md bg-background">
-                        {uploadedIcon ? (
-                          <img src={uploadedIcon} alt="Custom icon" className="w-8 h-8 object-contain" />
-                        ) : (
-                          (() => {
-                            const IconComponent = predefinedIcons.find(i => i.value === form.icon)?.icon;
-                            return IconComponent ? <IconComponent className="w-6 h-6" /> : null;
-                          })()
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">
-                          {uploadedIcon ? "Custom Icon" : predefinedIcons.find(i => i.value === form.icon)?.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">Current icon</p>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setForm(p => ({ ...p, icon: "" }));
-                          setUploadedIcon(null);
-                        }}
-                      >
-                        <X className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  )}
-
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setShowIconPicker(!showIconPicker)}
-                      className="flex-1"
-                    >
-                      Select Icon
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="flex-1"
-                    >
-                      <Upload className="w-4 h-4 mr-2" />
-                      Browse
-                    </Button>
-                  </div>
-
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                          const base64String = reader.result as string;
-                          setUploadedIcon(base64String);
-                          setForm(p => ({ ...p, icon: "" }));
-                          toast.success("Icon uploaded successfully");
-                        };
-                        reader.readAsDataURL(file);
+            <TabsContent value="details" className={cn("mt-4 space-y-5", (isSinglePageAddon || hasForm3ExtraWizard) && "space-y-8")}>
+              {isForm3Addon ? (
+                <Form3AddonDetailsFields
+                  form={{
+                    name: form.name,
+                    description: form.description,
+                    differentOnCustomerEnd: form.differentOnCustomerEnd,
+                    customerEndName: form.customerEndName,
+                    showExplanationIconOnForm: form.showExplanationIconOnForm,
+                    explanationTooltipText: form.explanationTooltipText,
+                    enablePopupOnSelection: form.enablePopupOnSelection,
+                    display: form.display,
+                    qtyBased: form.qtyBased,
+                    pricingStructure: form.pricingStructure,
+                    maximum: form.maximum,
+                    selectedItems: form.variableOptions,
+                    itemPrices: form.itemPrices,
+                    icon: form.icon,
+                  }}
+                  onChange={(patch) =>
+                    setForm((p) => {
+                      const pricingStructure = patch.pricingStructure ?? p.pricingStructure;
+                      const qtyBased = patch.qtyBased ?? p.qtyBased;
+                      const manualMode = qtyBased && pricingStructure === "manual";
+                      const next = { ...p, ...patch };
+                      if (patch.selectedItems !== undefined) {
+                        next.variableOptions = patch.selectedItems;
+                        next.showBasedOnVariables = patch.selectedItems.length > 0;
+                        next.itemPrices = reconcileForm3AddonItemPrices(
+                          patch.selectedItems,
+                          patch.itemPrices ?? p.itemPrices,
+                          { manualMode, itemCatalog: form3ItemCatalog },
+                        );
+                      } else if (
+                        patch.pricingStructure !== undefined ||
+                        patch.qtyBased !== undefined
+                      ) {
+                        next.itemPrices = reconcileForm3AddonItemPrices(
+                          next.variableOptions,
+                          next.itemPrices,
+                          { manualMode, itemCatalog: form3ItemCatalog },
+                        );
                       }
-                    }}
-                  />
-
-                  {showIconPicker && (
-                    <div className="border rounded-md p-4 bg-background">
-                      <div className="flex items-center justify-between mb-3">
-                        <Label className="text-sm font-medium">Select an icon</Label>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setShowIconPicker(false)}
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </div>
-                      <div className="grid grid-cols-5 gap-2">
-                        {predefinedIcons.map((iconItem) => {
-                          const IconComponent = iconItem.icon;
-                          return (
-                            <button
-                              key={iconItem.value}
-                              type="button"
-                              onClick={() => {
-                                setForm(p => ({ ...p, icon: iconItem.value }));
-                                setUploadedIcon(null);
-                                setShowIconPicker(false);
-                                toast.success(`${iconItem.name} icon selected`);
-                              }}
-                              className={`flex flex-col items-center justify-center p-3 border rounded-md hover:bg-muted transition-colors ${
-                                form.icon === iconItem.value ? "border-primary bg-primary/10" : ""
-                              }`}
-                            >
-                              <IconComponent className="w-6 h-6 mb-1" />
-                              <span className="text-xs text-center">{iconItem.name}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Apply to</Label>
-                <RadioGroup
-                  value={form.applyToAllBookings ? "all" : "first"}
-                  onValueChange={(value) => setForm(p => ({ ...p, applyToAllBookings: value === "all" }))}
-                  className="flex gap-4"
-                >
-                  <label className="flex items-center gap-2 text-sm">
-                    <RadioGroupItem value="all" /> Apply to all bookings
-                    <div className="relative group">
-                      <Info className="h-4 w-4 text-muted-foreground cursor-help" />
-                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                        This extra will be applied to all bookings in the service
-                      </div>
-                    </div>
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <RadioGroupItem value="first" /> Apply only to the first appointment
-                    <div className="relative group">
-                      <Info className="h-4 w-4 text-muted-foreground cursor-help" />
-                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                        This extra will only be applied to the first appointment in the service
-                      </div>
-                    </div>
-                  </label>
-                </RadioGroup>
-              </div>
-              </>
-              ) : null}
-
+                      if (patch.itemPrices !== undefined) {
+                        next.itemPrices = patch.itemPrices;
+                      }
+                      return next;
+                    })
+                  }
+                  availableItemNames={availablePackages}
+                  itemCatalog={form3ItemCatalog}
+                  itemsNewHref={form3ItemsNewHref}
+                  selectedIconId={form.icon || "layers"}
+                  onSelectIcon={(id) => {
+                    setForm((p) => ({ ...p, icon: id }));
+                    setUploadedIcon(null);
+                  }}
+                />
+              ) : (
+                <Form3ExtraDetailsFields
+                  form={{
+                    name: form.name,
+                    description: form.description,
+                    differentOnCustomerEnd: form.differentOnCustomerEnd,
+                    customerEndName: form.customerEndName,
+                    showExplanationIconOnForm: form.showExplanationIconOnForm,
+                    explanationTooltipText: form.explanationTooltipText,
+                    enablePopupOnSelection: form.enablePopupOnSelection,
+                    popupContent: form.popupContent,
+                    popupDisplay: form.popupDisplay,
+                    display: form.display,
+                    overrideTimePricing: form.overrideTimePricing,
+                    exemptExtraTime: form.exemptExtraTime,
+                    exemptFromDiscount: form.exemptFromDiscount,
+                    qtyBased: form.qtyBased,
+                    maximum: form.maximum,
+                    pricingStructure: form.pricingStructure,
+                    manualPrices: form.manualPrices,
+                    price: form.price,
+                    priceMerchant: form.priceMerchant,
+                    timeHours: form.timeHours,
+                    timeMinutes: form.timeMinutes,
+                    hoursMerchant: form.hoursMerchant,
+                    minutesMerchant: form.minutesMerchant,
+                    applyToAllBookings: form.applyToAllBookings,
+                    icon: form.icon,
+                  }}
+                  onChange={(patch) => setForm((p) => ({ ...p, ...patch }))}
+                  uploadedIcon={uploadedIcon}
+                  onUploadedIconChange={setUploadedIcon}
+                  showIconPicker={showIconPicker}
+                  onShowIconPickerChange={setShowIconPicker}
+                  onBrowseUpload={() => fileInputRef.current?.click()}
+                  fileInputRef={fileInputRef}
+                  onFileSelected={(file) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                      setUploadedIcon(reader.result as string);
+                      setForm((p) => ({ ...p, icon: "" }));
+                      toast.success("Icon uploaded successfully");
+                    };
+                    reader.readAsDataURL(file);
+                  }}
+                />
+              )}
             </TabsContent>
 
             {/* DEPENDENCIES TAB */}
             <TabsContent value="dependencies" className="mt-4 space-y-6">
-              <div className="space-y-4">
-                
-                <div className="space-y-2">
-                  <Label>Should the extras show based on the frequency?</Label>
-                  <RadioGroup
-                    value={form.showBasedOnFrequency ? "yes" : "no"}
-                    onValueChange={(v) => setForm(p => ({ ...p, showBasedOnFrequency: v === "yes" }))}
-                    className="flex gap-4"
-                  >
-                    <label className="flex items-center gap-2 text-sm">
-                      <RadioGroupItem value="yes" /> Yes
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <RadioGroupItem value="no" /> No
-                    </label>
-                  </RadioGroup>
-                  
-                  {form.showBasedOnFrequency && (
-                    <div className="ml-6 mt-3">
-                      <div className="bg-white rounded-lg border p-4 shadow-sm">
-                        <Label className="text-sm font-medium mb-3 block">Select frequency options</Label>
-                        <div className="space-y-3">
-                          {availableFrequencies.length === 0 ? (
-                            <p className="text-xs text-muted-foreground italic">No frequencies available. Add frequencies from the pricing parameters section.</p>
-                          ) : (
-                            <>
-                              <div className="flex items-center gap-2">
-                                <Checkbox
-                                  id="select-all-frequencies"
-                                  checked={form.frequencyOptions.length === availableFrequencies.length && availableFrequencies.length > 0}
-                                  onCheckedChange={(checked) => {
-                                    if (checked) {
-                                      setForm(p => ({ ...p, frequencyOptions: [...availableFrequencies] }));
-                                    } else {
-                                      setForm(p => ({ ...p, frequencyOptions: [] }));
-                                    }
-                                  }}
-                                />
-                                <Label htmlFor="select-all-frequencies" className="text-sm font-medium cursor-pointer">Select All</Label>
-                              </div>
-                              <div className="grid grid-cols-6 gap-2">
-                                {availableFrequencies.map((frequency) => {
-                                  const isMonthly = frequency.toLowerCase().includes('monthly') || frequency.toLowerCase().includes('4 weeks');
-                                  const isTwicePerWeek = frequency.toLowerCase().includes('2x') || frequency.toLowerCase().includes('twice') || frequency.toLowerCase().includes('2 per');
-                                  
-                                  return (
-                                    <div key={frequency} className="flex items-center gap-2">
-                                      <Checkbox
-                                        id={`frequency-${frequency}`}
-                                        checked={form.frequencyOptions.includes(frequency)}
-                                        onCheckedChange={(checked) => {
-                                          if (checked) {
-                                            setForm(p => ({ ...p, frequencyOptions: [...p.frequencyOptions, frequency] }));
-                                          } else {
-                                            setForm(p => ({ ...p, frequencyOptions: p.frequencyOptions.filter(f => f !== frequency) }));
-                                          }
-                                        }}
-                                      />
-                                      <Label 
-                                        htmlFor={`frequency-${frequency}`} 
-                                        className={`text-sm font-normal cursor-pointer ${
-                                          isMonthly ? 'text-blue-600' : 
-                                          isTwicePerWeek ? 'text-green-600' : 
-                                          ''
-                                        }`}
-                                      >
-                                        {frequency}
-                                      </Label>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
+              {isForm3Addon ? (
+                <Form3AddonDependenciesFields
+                  form={{
+                    showBasedOnFrequency: form.showBasedOnFrequency,
+                    frequencyOptions: form.frequencyOptions,
+                    showBasedOnServiceCategory: form.showBasedOnServiceCategory,
+                    serviceCategoryOptions: form.serviceCategoryOptions,
+                    showBasedOnVariables: form.showBasedOnVariables,
+                    variableOptions: form.variableOptions,
+                  }}
+                  onChange={(patch) => setForm((p) => ({ ...p, ...patch }))}
+                  frequencyNames={availableFrequencies}
+                  serviceCategoryNames={availableServiceCategories}
+                  itemNames={availablePackages}
+                />
+              ) : isForm3Extra ? (
+                <Form3ExtraDependenciesFields
+                  form={{
+                    showBasedOnFrequency: form.showBasedOnFrequency,
+                    frequencyOptions: form.frequencyOptions,
+                    showBasedOnLocation: form.showBasedOnLocation,
+                    locationOptions: form.locationOptions,
+                    showBasedOnServiceCategory: form.showBasedOnServiceCategory,
+                    serviceCategoryOptions: form.serviceCategoryOptions,
+                    showBasedOnItems: form.showBasedOnVariables,
+                    itemOptions: form.variableOptions,
+                  }}
+                  onChange={(patch) =>
+                    setForm((p) => ({
+                      ...p,
+                      ...patch,
+                      ...(patch.showBasedOnItems !== undefined
+                        ? { showBasedOnVariables: patch.showBasedOnItems }
+                        : {}),
+                      ...(patch.itemOptions !== undefined
+                        ? { variableOptions: patch.itemOptions }
+                        : {}),
+                    }))
+                  }
+                  frequencyNames={availableFrequencies}
+                  locationNames={availableLocations}
+                  serviceCategoryNames={availableServiceCategories}
+                  itemNames={availablePackages}
+                />
+              ) : null}
 
-                <div className="space-y-2">
-                  <Label>Should the extras show based on the service category?</Label>
-                  <RadioGroup
-                    value={form.showBasedOnServiceCategory ? "yes" : "no"}
-                    onValueChange={(v) => setForm(p => ({ ...p, showBasedOnServiceCategory: v === "yes" }))}
-                    className="flex gap-4"
-                  >
-                    <label className="flex items-center gap-2 text-sm">
-                      <RadioGroupItem value="yes" /> Yes
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <RadioGroupItem value="no" /> No
-                    </label>
-                  </RadioGroup>
-                  
-                  {form.showBasedOnServiceCategory && (
-                    <div className="ml-6 mt-3">
-                      <div className="bg-white rounded-lg border p-4 shadow-sm">
-                        <Label className="text-sm font-medium mb-3 block">Select service category options</Label>
-                        <div className="space-y-3">
-                          {availableServiceCategories.length === 0 ? (
-                            <p className="text-xs text-muted-foreground italic">No service categories available. Add service categories from the service category section.</p>
-                          ) : (
-                            <>
-                              <div className="flex items-center gap-2">
-                                <Checkbox
-                                  id="select-all-service-categories"
-                                  checked={form.serviceCategoryOptions.length === availableServiceCategories.length && availableServiceCategories.length > 0}
-                                  onCheckedChange={(checked) => {
-                                    if (checked) {
-                                      setForm(p => ({ ...p, serviceCategoryOptions: [...availableServiceCategories] }));
-                                    } else {
-                                      setForm(p => ({ ...p, serviceCategoryOptions: [] }));
-                                    }
-                                  }}
-                                />
-                                <Label htmlFor="select-all-service-categories" className="text-sm font-medium cursor-pointer">Select All</Label>
-                              </div>
-                              <div className="grid grid-cols-6 gap-2">
-                                {availableServiceCategories.map((category) => (
-                                  <div key={category} className="flex items-center gap-2">
-                                    <Checkbox
-                                      id={`service-category-${category}`}
-                                      checked={form.serviceCategoryOptions.includes(category)}
-                                      onCheckedChange={(checked) => {
-                                        if (checked) {
-                                          setForm(p => ({ ...p, serviceCategoryOptions: [...p.serviceCategoryOptions, category] }));
-                                        } else {
-                                          setForm(p => ({ ...p, serviceCategoryOptions: p.serviceCategoryOptions.filter(c => c !== category) }));
-                                        }
-                                      }}
-                                    />
-                                    <Label htmlFor={`service-category-${category}`} className="text-sm font-normal cursor-pointer">{category}</Label>
-                                  </div>
-                                ))}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {!(bookingFormScope === "form2" && listing_kind === "extra") && (
-                  <div className="space-y-2">
-                    <Label>
-                      {listing_kind === "addon"
-                        ? isForm3
-                          ? "Should the add-ons show based on the items?"
-                          : isForm2
-                            ? "Should the add-ons show based on the packages?"
-                            : "Should the add-ons show based on the variables?"
-                        : "Should the extras show based on the variables?"}
-                    </Label>
-                    <RadioGroup
-                      value={form.showBasedOnVariables ? "yes" : "no"}
-                      onValueChange={(v) => setForm(p => ({ ...p, showBasedOnVariables: v === "yes" }))}
-                      className="flex gap-4"
-                    >
-                      <label className="flex items-center gap-2 text-sm">
-                        <RadioGroupItem value="yes" /> Yes
-                      </label>
-                      <label className="flex items-center gap-2 text-sm">
-                        <RadioGroupItem value="no" /> No
-                      </label>
-                    </RadioGroup>
-                    
-                    {form.showBasedOnVariables && (
-                      <div className="ml-6 mt-3 space-y-2">
-                        <Label className="text-sm">
-                          {isForm3 ? "Select item options" : isForm2 ? "Select package options" : "Select variable options"}
-                        </Label>
-                        {listing_kind === "addon" && (isForm2 || isForm3) ? (
-                          <div className="space-y-2">
-                            {availablePackages.length === 0 ? (
-                              <p className="text-xs text-muted-foreground italic">
-                                {isForm3
-                                  ? "No items available. Add items from the items section."
-                                  : "No packages available. Add packages from the packages section."}
-                              </p>
-                            ) : (
-                              <div className="bg-white rounded-lg border p-4 shadow-sm space-y-3">
-                                <div className="flex items-center gap-2">
-                                  <Checkbox
-                                    id="select-all-addon-packages"
-                                    checked={form.variableOptions.length === availablePackages.length && availablePackages.length > 0}
-                                    onCheckedChange={(checked) => {
-                                      if (checked) {
-                                        setForm((p) => ({ ...p, variableOptions: [...availablePackages] }));
-                                      } else {
-                                        setForm((p) => ({ ...p, variableOptions: [] }));
-                                      }
-                                    }}
-                                  />
-                                  <Label htmlFor="select-all-addon-packages" className="text-sm font-medium cursor-pointer">Select All</Label>
-                                </div>
-                                <div className="grid grid-cols-6 gap-2">
-                                  {availablePackages.map((pkg) => (
-                                    <div key={pkg} className="flex items-center gap-2">
-                                      <Checkbox
-                                        id={`addon-package-${pkg}`}
-                                        checked={form.variableOptions.includes(pkg)}
-                                        onCheckedChange={(checked) => {
-                                          if (checked) {
-                                            setForm((p) => ({ ...p, variableOptions: [...p.variableOptions, pkg] }));
-                                          } else {
-                                            setForm((p) => ({
-                                              ...p,
-                                              variableOptions: p.variableOptions.filter((v) => v !== pkg),
-                                            }));
-                                          }
-                                        }}
-                                      />
-                                      <Label htmlFor={`addon-package-${pkg}`} className="text-sm cursor-pointer">
-                                        {pkg}
-                                      </Label>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            {Object.keys(availableVariables).length === 0 ? (
-                              <p className="text-xs text-muted-foreground italic">No variables available. Add variables from the pricing parameters section.</p>
-                            ) : (
-                              <div className="space-y-4">
-                                {/* Group variables by category */}
-                                {['Bathroom', 'Sq Ft', 'Bedroom'].map(category => {
-                                  const categoryParams = availableVariables[category] || [];
-                                  if (categoryParams.length === 0) return null;
-                                  
-                                  return (
-                                    <div key={category} className="space-y-2">
-                                      <Label className="text-sm font-semibold">{category}</Label>
-                                      <div className="flex items-center gap-2">
-                                        <Checkbox
-                                          id={`select-all-extra-${category.toLowerCase().replace(' ', '-')}`}
-                                          checked={form.variableOptions.filter(v => v.startsWith(`${category}:`)).length === categoryParams.length && categoryParams.length > 0}
-                                          onCheckedChange={(checked) => {
-                                            if (checked) {
-                                              const categoryVariableOptions = categoryParams.map(param => `${category}:${param.name}`);
-                                              setForm(p => ({ 
-                                                ...p, 
-                                                variableOptions: [...p.variableOptions.filter(v => !v.startsWith(`${category}:`)), ...categoryVariableOptions]
-                                              }));
-                                            } else {
-                                              setForm(p => ({ 
-                                                ...p, 
-                                                variableOptions: p.variableOptions.filter(v => !v.startsWith(`${category}:`))
-                                              }));
-                                            }
-                                          }}
-                                        />
-                                        <Label htmlFor={`select-all-extra-${category.toLowerCase().replace(' ', '-')}`} className="text-sm cursor-pointer">Select All</Label>
-                                      </div>
-                                      <div className="grid grid-cols-6 gap-2">
-                                        {categoryParams.map((param) => (
-                                          <div key={param.id} className="flex items-center gap-2">
-                                            <Checkbox
-                                              id={`extra-variable-${param.id}`}
-                                              checked={form.variableOptions.includes(`${category}:${param.name}`)}
-                                              onCheckedChange={(checked) => {
-                                                const variableOption = `${category}:${param.name}`;
-                                                if (checked) {
-                                                  setForm(p => ({ ...p, variableOptions: [...p.variableOptions, variableOption] }));
-                                                } else {
-                                                  setForm(p => ({ ...p, variableOptions: p.variableOptions.filter(v => v !== variableOption) }));
-                                                }
-                                              }}
-                                            />
-                                            <Label htmlFor={`extra-variable-${param.id}`} className="text-sm cursor-pointer">
-                                              {param.name}
-                                            </Label>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-              </div>
             </TabsContent>
 
             {/* PROVIDERS TAB */}
@@ -2008,23 +1136,41 @@ export default function ExtraNewPage() {
           </Tabs>
           
           <div className="mt-6 flex gap-2 justify-end">
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() =>
                 router.push(
-                  `/admin/settings/industries/form-3/extras?industry=${encodeURIComponent(industry)}&industryId=${industryId ?? ""}${scopeQs}`,
+                  isForm3Addon
+                    ? `/admin/settings/industries/form-3/add-ons?industry=${encodeURIComponent(industry)}&industryId=${industryId ?? ""}${scopeQs}`
+                    : `/admin/settings/industries/form-3/extras?industry=${encodeURIComponent(industry)}&industryId=${industryId ?? ""}${scopeQs}`,
                 )
               }
             >
               Cancel
             </Button>
-            <Button 
-              onClick={save}
+            {hasForm3Wizard && activeTab !== "details" ? (
+              <Button variant="outline" onClick={goBackTab}>
+                Back
+              </Button>
+            ) : null}
+            <Button
+              onClick={hasForm3Wizard ? goNextOrSave : save}
               disabled={saving}
-              className="text-white" 
+              className="text-white"
               style={{ background: "linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)" }}
             >
-              {saving ? "Saving..." : editId ? "Save" : "Create"}
+              {saving
+                ? "Saving..."
+                : hasForm3Wizard
+                  ? (hasForm3ExtraWizard && activeTab === "providers") ||
+                    (hasForm3AddonWizard && activeTab === "dependencies")
+                    ? editId
+                      ? "Save"
+                      : "Create"
+                    : "Next"
+                  : editId
+                    ? "Save"
+                    : "Create"}
             </Button>
           </div>
         </CardContent>

@@ -145,21 +145,28 @@ function packageFeatureLines(pkg: Form2PackageRow): string[] {
 
 export function Form2ItemPickerGrid({
   items,
-  selectedId,
+  selectedId = null,
+  selectedIds,
   onSelect,
   className,
+  title = "Select item(s)",
+  multiSelect = false,
   uiVariant = "customer",
 }: {
   items: Form2CatalogItem[];
-  selectedId: string | null;
+  selectedId?: string | null;
+  selectedIds?: string[];
   onSelect: (id: string) => void;
   className?: string;
+  title?: string;
+  multiSelect?: boolean;
   uiVariant?: "customer" | "admin";
 }) {
   if (items.length === 0) return null;
+  const activeIds = multiSelect ? (selectedIds ?? []) : selectedId ? [selectedId] : [];
   return (
     <div className={cn("mb-6", className)}>
-      <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-3">Select item(s)</h3>
+      <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-3">{title}</h3>
       <div
         className={cn(
           uiVariant === "admin"
@@ -168,7 +175,7 @@ export function Form2ItemPickerGrid({
         )}
       >
         {items.map((item) => {
-          const active = selectedId === item.id;
+          const active = activeIds.includes(item.id);
           return (
             <button
               key={item.id}

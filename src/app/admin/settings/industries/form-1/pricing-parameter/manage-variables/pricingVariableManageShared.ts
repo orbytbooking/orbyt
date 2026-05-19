@@ -17,8 +17,12 @@ export const VARIABLE_UI_DEFAULTS = {
   display: "customer_frontend_backend_admin" as PricingVariableDisplay,
   showBasedOnFrequency: false,
   frequencyOptions: [] as string[],
+  showBasedOnLocation: false,
+  locationOptions: [] as string[],
   showBasedOnServiceCategory: false,
   serviceCategoryOptions: [] as string[],
+  qtyBased: false,
+  maximumQuantity: "",
 };
 
 export type ManagePricingVariableUI = {
@@ -37,8 +41,12 @@ export type ManagePricingVariableUI = {
   display: PricingVariableDisplay;
   showBasedOnFrequency: boolean;
   frequencyOptions: string[];
+  showBasedOnLocation: boolean;
+  locationOptions: string[];
   showBasedOnServiceCategory: boolean;
   serviceCategoryOptions: string[];
+  qtyBased: boolean;
+  maximumQuantity: string;
 };
 
 export function pricingVariableDisplayLabel(display: PricingVariableDisplay): string {
@@ -53,12 +61,16 @@ export function pricingVariableDependenciesSummary(v: ManagePricingVariableUI): 
     v.showBasedOnFrequency && v.frequencyOptions.length > 0
       ? `Frequencies: ${v.frequencyOptions.join(", ")}`
       : "";
+  const locPart =
+    v.showBasedOnLocation && v.locationOptions.length > 0
+      ? `Locations: ${v.locationOptions.join(", ")}`
+      : "";
   const catPart =
     v.showBasedOnServiceCategory && v.serviceCategoryOptions.length > 0
       ? `Categories: ${v.serviceCategoryOptions.join(", ")}`
       : "";
-  if (!freqPart && !catPart) return "All";
-  return [freqPart, catPart].filter(Boolean).join(" · ");
+  if (!freqPart && !locPart && !catPart) return "All";
+  return [freqPart, locPart, catPart].filter(Boolean).join(" · ");
 }
 
 export function mapApiPricingVariables(raw: unknown[]): ManagePricingVariableUI[] {
@@ -78,16 +90,33 @@ export function mapApiPricingVariables(raw: unknown[]): ManagePricingVariableUI[
     display: normalizePricingVariableDisplay(v.display as string | null | undefined),
     showBasedOnFrequency: Boolean(v.show_based_on_frequency),
     frequencyOptions: Array.isArray(v.frequency_options) ? [...(v.frequency_options as string[])] : [],
+    showBasedOnLocation: Boolean(v.show_based_on_location),
+    locationOptions: Array.isArray(v.location_options) ? [...(v.location_options as string[])] : [],
     showBasedOnServiceCategory: Boolean(v.show_based_on_service_category),
     serviceCategoryOptions: Array.isArray(v.service_category_options)
       ? [...(v.service_category_options as string[])]
       : [],
+    qtyBased: Boolean(v.qty_based),
+    maximumQuantity:
+      v.maximum_quantity != null && v.maximum_quantity !== ""
+        ? String(v.maximum_quantity)
+        : "",
   }));
 }
 
-export function mapPricingVariableToPostBody(v: ManagePricingVariableUI) {
-  return {
-    id: v.id.startsWith("temp-") ? undefined : v.id,
+/** True when the row exists in the database (not a local-only draft). */
+export function isPersistedCatalogItemId(id: string | null | undefined): boolean {
+  const t = String(id ?? "").trim();
+  if (!t || t.startsWith("temp-")) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(t);
+}
+
+export function mapPricingVariableToPostBody(
+  v: ManagePricingVariableUI,
+  bookingFormScope?: BookingFormScope,
+) {
+  const base = {
+    id: isPersistedCatalogItemId(v.id) ? v.id : undefined,
     name: v.name,
     category: v.category,
     description: v.description || "",
@@ -104,6 +133,20 @@ export function mapPricingVariableToPostBody(v: ManagePricingVariableUI) {
     frequency_options: v.showBasedOnFrequency ? v.frequencyOptions : [],
     show_based_on_service_category: v.showBasedOnServiceCategory,
     service_category_options: v.showBasedOnServiceCategory ? v.serviceCategoryOptions : [],
+  };
+  if (bookingFormScope !== "form3") {
+    return base;
+  }
+  return {
+    ...base,
+    show_based_on_location: v.showBasedOnLocation,
+    location_options: v.showBasedOnLocation ? v.locationOptions : [],
+    qty_based: v.qtyBased,
+    maximum_quantity: (() => {
+      if (!v.qtyBased || v.maximumQuantity.trim() === "") return null;
+      const n = parseInt(v.maximumQuantity, 10);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    })(),
   };
 }
 
@@ -133,7 +176,9 @@ export function getManageVariableLabels(bookingFormScope: BookingFormScope, indu
         ? "Define items customers pick on Form 3 (for example vehicle type or home size). Add-ons can attach to these items."
         : "You can place an item here such as sedan or motorcycle for a car washing service and later when someone selects the sedan they will be shown packages for that item.",
       emptyLine1: "No items defined.",
-      emptyLine2: 'Click "Add New" above to create one, or add common defaults below.',
+      emptyLine2: isForm3
+        ? 'Click "Add New" above to create an item.'
+        : 'Click "Add New" above to create one, or add common defaults below.',
       defaultsBtn: "Add default items (Sq Ft, Bedroom, Bathroom, Hours, Rooms)",
       addDialogTitle: "Add new item",
       addField: "Item name",

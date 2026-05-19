@@ -5,6 +5,7 @@ import { scopedIndustryTable } from '@/lib/formScopeTables';
 import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
 import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
 import { requireIndustryBelongsToBusiness } from '@/lib/industryTenantGuard';
+import { repairLegacyForm3DefaultServiceCategoryName } from '@/lib/seedForm3DefaultServiceCategories';
 
 function queryBusinessId(request: NextRequest, searchParams: URLSearchParams): string | null {
   return (
@@ -99,6 +100,21 @@ export async function GET(request: NextRequest) {
       if (!tenant.ok) {
         return NextResponse.json({ error: 'Service categories not found' }, { status: 404 });
       }
+    }
+
+    if (bookingFormScope === 'form3' && industryId && businessId?.trim()) {
+      const { data: industryRow } = await supabase
+        .from('industries')
+        .select('name')
+        .eq('id', industryId)
+        .eq('business_id', businessId.trim())
+        .maybeSingle();
+      await repairLegacyForm3DefaultServiceCategoryName(
+        supabase,
+        businessId.trim(),
+        industryId,
+        String(industryRow?.name ?? ''),
+      );
     }
 
     let query = supabase

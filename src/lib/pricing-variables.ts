@@ -49,6 +49,10 @@ export interface PricingVariableRow {
   frequency_options?: string[] | null;
   show_based_on_service_category?: boolean;
   service_category_options?: string[] | null;
+  show_based_on_location?: boolean;
+  location_options?: string[] | null;
+  qty_based?: boolean;
+  maximum_quantity?: number | null;
 }
 
 export interface CreatePricingVariableData {
@@ -72,6 +76,10 @@ export interface CreatePricingVariableData {
   frequency_options?: string[];
   show_based_on_service_category?: boolean;
   service_category_options?: string[];
+  show_based_on_location?: boolean;
+  location_options?: string[];
+  qty_based?: boolean;
+  maximum_quantity?: number | null;
 }
 
 export interface UpdatePricingVariableData {
@@ -92,6 +100,10 @@ export interface UpdatePricingVariableData {
   frequency_options?: string[];
   show_based_on_service_category?: boolean;
   service_category_options?: string[];
+  show_based_on_location?: boolean;
+  location_options?: string[];
+  qty_based?: boolean;
+  maximum_quantity?: number | null;
 }
 
 /** Variable payload from frontend (id optional for new) */
@@ -113,6 +125,10 @@ export interface PricingVariablePayload {
   frequency_options?: string[];
   show_based_on_service_category?: boolean;
   service_category_options?: string[];
+  show_based_on_location?: boolean;
+  location_options?: string[];
+  qty_based?: boolean;
+  maximum_quantity?: number | null;
 }
 
 class PricingVariablesService {
@@ -122,17 +138,19 @@ class PricingVariablesService {
     this.supabase = (typeof window === 'undefined' && supabaseAdmin) ? supabaseAdmin : supabase;
   }
 
-  private sanitizeForScope<T extends object>(
+  private sanitizeForScope<T extends Record<string, unknown>>(
     payload: T,
     bookingFormScope: BookingFormScope,
   ): T {
-    if (bookingFormScope !== 'form2' && bookingFormScope !== 'form3') return payload;
-    const next = { ...(payload as Record<string, unknown>) };
-    delete next.show_based_on_frequency;
-    delete next.frequency_options;
-    delete next.show_based_on_service_category;
-    delete next.service_category_options;
-    return next as T;
+    if (bookingFormScope === 'form3') {
+      return payload;
+    }
+    const next = { ...payload };
+    delete next.show_based_on_location;
+    delete next.location_options;
+    delete next.qty_based;
+    delete next.maximum_quantity;
+    return next;
   }
 
   async getByIndustry(
@@ -159,7 +177,27 @@ class PricingVariablesService {
       console.error('Error fetching pricing variables:', error);
       throw error;
     }
-    return data || [];
+
+    let rows = data || [];
+    // Legacy rows may still live on industry_pricing_variable before migration 146 backfill.
+    if (bookingFormScope === 'form3' && rows.length === 0) {
+      let legacyQ = this.supabase
+        .from('industry_pricing_variable')
+        .select('*')
+        .eq('industry_id', industryId)
+        .eq('booking_form_scope', 'form3');
+      if (businessId?.trim()) {
+        legacyQ = legacyQ.eq('business_id', businessId.trim());
+      }
+      const { data: legacy, error: legacyErr } = await legacyQ
+        .order('sort_order', { ascending: true })
+        .order('name', { ascending: true });
+      if (!legacyErr && legacy?.length) {
+        rows = legacy;
+      }
+    }
+
+    return rows;
   }
 
   async create(payload: CreatePricingVariableData): Promise<PricingVariableRow> {
@@ -178,8 +216,35 @@ class PricingVariablesService {
     return data;
   }
 
-  async update(id: string, payload: UpdatePricingVariableData, bookingFormScope: BookingFormScope = 'form1'): Promise<PricingVariableRow> {
+  private async scopedTableForRow(
+    id: string,
+    bookingFormScope: BookingFormScope,
+  ): Promise<string> {
     const table = scopedIndustryTable('industry_pricing_variable', bookingFormScope);
+    const { data, error } = await this.supabase.from(table).select('id').eq('id', id).maybeSingle();
+    if (error) {
+      console.error('Error resolving pricing variable table:', error);
+      throw error;
+    }
+    if (data?.id) return table;
+    if (bookingFormScope === 'form3') {
+      const { data: legacy, error: legacyErr } = await this.supabase
+        .from('industry_pricing_variable')
+        .select('id')
+        .eq('id', id)
+        .eq('booking_form_scope', 'form3')
+        .maybeSingle();
+      if (legacyErr) {
+        console.error('Error resolving legacy Form 3 item:', legacyErr);
+        throw legacyErr;
+      }
+      if (legacy?.id) return 'industry_pricing_variable';
+    }
+    return table;
+  }
+
+  async update(id: string, payload: UpdatePricingVariableData, bookingFormScope: BookingFormScope = 'form1'): Promise<PricingVariableRow> {
+    const table = await this.scopedTableForRow(id, bookingFormScope);
     const sanitized = this.sanitizeForScope(payload, bookingFormScope);
     const { data, error } = await this.supabase
       .from(table)
@@ -196,15 +261,20 @@ class PricingVariablesService {
   }
 
   async delete(id: string, bookingFormScope: BookingFormScope = 'form1'): Promise<void> {
-    const table = scopedIndustryTable('industry_pricing_variable', bookingFormScope);
-    const { error } = await this.supabase
-      .from(table)
-      .delete()
-      .eq('id', id);
+    const table = await this.scopedTableForRow(id, bookingFormScope);
+    const { error } = await this.supabase.from(table).delete().eq('id', id);
 
     if (error) {
       console.error('Error deleting pricing variable:', error);
       throw error;
+    }
+
+    if (bookingFormScope === 'form3' && table === 'industry_form3_items') {
+      await this.supabase
+        .from('industry_pricing_variable')
+        .delete()
+        .eq('id', id)
+        .eq('booking_form_scope', 'form3');
     }
   }
 
@@ -256,6 +326,20 @@ class PricingVariablesService {
           v.show_based_on_service_category && Array.isArray(v.service_category_options)
             ? v.service_category_options.map((x) => String(x).trim()).filter(Boolean)
             : [],
+        ...(bookingFormScope === 'form3'
+          ? {
+              show_based_on_location: Boolean(v.show_based_on_location),
+              location_options:
+                v.show_based_on_location && Array.isArray(v.location_options)
+                  ? v.location_options.map((x) => String(x).trim()).filter(Boolean)
+                  : [],
+              qty_based: Boolean(v.qty_based),
+              maximum_quantity:
+                v.qty_based && v.maximum_quantity != null && !Number.isNaN(Number(v.maximum_quantity))
+                  ? Number(v.maximum_quantity)
+                  : null,
+            }
+          : {}),
       };
       const scopedFields = this.sanitizeForScope(sharedFields, bookingFormScope);
       if (v.id && existingIds.has(v.id)) {

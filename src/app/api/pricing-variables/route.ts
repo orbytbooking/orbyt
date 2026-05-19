@@ -8,6 +8,38 @@ function queryBusinessId(searchParams: URLSearchParams): string | null {
   return searchParams.get('businessId') || searchParams.get('business_id');
 }
 
+function messageFromUnknownError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return 'Unknown error';
+}
+
+function pricingVariableSaveErrorMessage(
+  error: unknown,
+  bookingFormScope?: BookingFormScope,
+): string {
+  const message = messageFromUnknownError(error);
+  const code =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code: unknown }).code)
+      : undefined;
+
+  if (
+    code === 'PGRST204' ||
+    /schema cache/i.test(message) ||
+    /Could not find the '[^']+' column/i.test(message)
+  ) {
+    if (bookingFormScope === 'form3') {
+      return `${message} Run Form 3 item migrations in Supabase SQL Editor: database/migrations/154_pricing_variable_location_dependencies.sql and 156_pricing_variable_qty_based.sql (both alter industry_form3_items), then reload the schema or wait for the API cache to refresh.`;
+    }
+    return `${message} Run pending SQL in database/migrations on your Supabase DB, then reload the schema or wait for the API cache to refresh.`;
+  }
+
+  return message || 'Failed to save pricing variables';
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -105,6 +137,19 @@ export async function POST(request: NextRequest) {
         service_category_options: Array.isArray(v.service_category_options)
           ? v.service_category_options.map((x) => String(x).trim()).filter(Boolean)
           : [],
+        ...(bookingFormScope === 'form3'
+          ? {
+              show_based_on_location: Boolean(v.show_based_on_location),
+              location_options: Array.isArray(v.location_options)
+                ? v.location_options.map((x) => String(x).trim()).filter(Boolean)
+                : [],
+              qty_based: Boolean(v.qty_based),
+              maximum_quantity:
+                v.qty_based && v.maximum_quantity != null && !Number.isNaN(Number(v.maximum_quantity))
+                  ? Number(v.maximum_quantity)
+                  : null,
+            }
+          : {}),
       });
       return NextResponse.json({ variable: created });
     }
@@ -125,15 +170,47 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ variables });
   } catch (error) {
     console.error('Error saving pricing variables:', error);
+    return NextResponse.json(
+      { error: pricingVariableSaveErrorMessage(error, bookingFormScope) },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    const industryId = searchParams.get('industryId');
+    const businessId = queryBusinessId(searchParams);
+    const bookingFormScope =
+      parseBookingFormScopeParam(searchParams.get('bookingFormScope')) ?? 'form1';
+
+    if (!id?.trim()) {
+      return NextResponse.json({ error: 'id is required' }, { status: 400 });
+    }
+    if (!industryId || !businessId?.trim()) {
+      return NextResponse.json(
+        { error: 'industryId and businessId are required' },
+        { status: 400 },
+      );
+    }
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
+    }
+    const tenant = await requireIndustryBelongsToBusiness(supabaseAdmin, businessId, industryId);
+    if (!tenant.ok) {
+      return NextResponse.json({ error: 'Item not found' }, { status: 404 });
+    }
+
+    await pricingVariablesService.delete(id.trim(), bookingFormScope);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting pricing variable:', error);
     const message =
       error instanceof Error
         ? error.message
-        : (error && typeof error === 'object' && 'message' in error)
-          ? String((error as { message?: unknown }).message)
-          : 'Failed to save pricing variables';
-    return NextResponse.json(
-      { error: message || 'Failed to save pricing variables' },
-      { status: 500 }
-    );
+        : 'Failed to delete item';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

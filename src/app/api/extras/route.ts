@@ -36,7 +36,14 @@ function supabaseErrorPayload(error: unknown) {
 
   let userMessage = message;
   if (code === 'PGRST204') {
-    userMessage += ` Run pending SQL in database/migrations on your Supabase DB (e.g. 095_industry_extras_manual_multiply_pricing.sql, 116_industry_extras_customer_end_popup_apply_bookings.sql), then reload the schema or wait for the API cache to refresh.`;
+    const migrationHints = [
+      '095_industry_extras_manual_multiply_pricing.sql',
+      '116_industry_extras_customer_end_popup_apply_bookings.sql',
+    ];
+    if (/location_options|show_based_on_location/i.test(message)) {
+      migrationHints.push('157_form3_extra_location_dependencies.sql');
+    }
+    userMessage += ` Run pending SQL in database/migrations on your Supabase DB (e.g. ${migrationHints.join(', ')}), then reload the schema or wait for the API cache to refresh.`;
   }
 
   return { userMessage, code, details, hint };

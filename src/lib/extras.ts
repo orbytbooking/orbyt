@@ -21,6 +21,8 @@ export const INDUSTRY_EXTRAS_WRITABLE_KEYS = [
   'exempt_from_discount',
   'show_based_on_frequency',
   'frequency_options',
+  'show_based_on_location',
+  'location_options',
   'show_based_on_service_category',
   'service_category_options',
   'show_based_on_variables',
@@ -39,6 +41,7 @@ export const INDUSTRY_EXTRAS_WRITABLE_KEYS = [
   'listing_kind',
   'price_merchant_location',
   'time_minutes_merchant_location',
+  'item_prices',
 ] as const;
 
 function scopeFromExtraPayload(row: Record<string, unknown>): BookingFormScope {
@@ -126,6 +129,16 @@ export interface Extra {
   price_merchant_location?: number | null;
   /** Form 2 add-on: M.L. duration; null = same as S.A. */
   time_minutes_merchant_location?: number | null;
+  /** Form 3 add-on: per-item S.A. / M.L. pricing keyed by item name. */
+  item_prices?: Record<
+    string,
+    {
+      price: number;
+      time_minutes: number;
+      price_merchant_location?: number | null;
+      time_minutes_merchant_location?: number | null;
+    }
+  >;
   display: 'frontend-backend-admin' | 'backend-admin' | 'admin-only';
   qty_based: boolean;
   maximum_quantity?: number | null;
@@ -134,6 +147,8 @@ export interface Extra {
   exempt_from_discount: boolean;
   show_based_on_frequency: boolean;
   frequency_options?: string[];
+  show_based_on_location?: boolean;
+  location_options?: string[];
   show_based_on_service_category: boolean;
   service_category_options?: string[];
   show_based_on_variables: boolean;
@@ -173,6 +188,8 @@ export interface CreateExtraData {
   exempt_from_discount: boolean;
   show_based_on_frequency?: boolean;
   frequency_options?: string[];
+  show_based_on_location?: boolean;
+  location_options?: string[];
   show_based_on_service_category?: boolean;
   service_category_options?: string[];
   show_based_on_variables?: boolean;

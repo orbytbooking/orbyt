@@ -64,6 +64,8 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Minus,
+  Plus,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -112,6 +114,7 @@ import {
   resolveForm2PackageSelection,
 } from "@/lib/form2BookingCatalog";
 import {
+  getExtraCustomerDisplayName,
   getServiceCategoryCustomerDisplayName,
   isIndustryExtraDisplayVisibleOnBookingSurface,
   isServiceCategoryVisibleOnPublicBooking,
@@ -559,12 +562,25 @@ const normalizeExtrasArray = (extras: string[] | { name: string; quantity: numbe
   });
 };
 
+const FORM3_ITEM_LINE_VALUE = "__form3_line__";
+
 const makeForm2ExtraSelectionKey = (itemId: string, extraId: string) => `f2:${itemId}:${extraId}`;
+const makeForm3ExtraSelectionKey = (itemId: string, extraId: string) => `f3:${itemId}:${extraId}`;
 const parseForm2ExtraSelectionKey = (raw: string): { itemId: string; extraId: string } | null => {
-  const m = String(raw ?? "").trim().match(/^f2:([^:]+):(.+)$/);
+  const m = String(raw ?? "").trim().match(/^f[23]:([^:]+):(.+)$/);
   if (!m) return null;
   return { itemId: m[1], extraId: m[2] };
 };
+
+function normalizeForm3ItemQuantity(
+  item: { qty_based?: boolean; maximum_quantity?: number | null } | null | undefined,
+  qty: number,
+): number {
+  if (!item?.qty_based) return 1;
+  const max =
+    item.maximum_quantity != null && item.maximum_quantity > 0 ? item.maximum_quantity : 999;
+  return Math.max(1, Math.min(Math.round(Number(qty) || 1), max));
+}
 
 /** Resolve add-on/extra row by id or legacy name key (admin Form 2 uses ids in selection keys). */
 function findAvailableExtraByRef(
@@ -667,6 +683,11 @@ export default function BookingPageContent() {
   const [form2ActiveItemId, setForm2ActiveItemId] = useState<string | null>(null);
   /** Form 3: selected item ids shown as booking line cards. */
   const [form3SelectedItemIds, setForm3SelectedItemIds] = useState<string[]>([]);
+  const [form3DraftAddonIds, setForm3DraftAddonIds] = useState<string[]>([]);
+  const [form3ItemQuantities, setForm3ItemQuantities] = useState<Record<string, number>>({});
+  const [form3ItemsMeta, setForm3ItemsMeta] = useState<
+    Record<string, { qty_based?: boolean; maximum_quantity?: number | null }>
+  >({});
   /** Form 2 items from admin (same source as admin booking form). */
   const [form2CatalogItems, setForm2CatalogItems] = useState<
     { id: string; name: string; category: string | null }[]
@@ -1035,14 +1056,17 @@ export default function BookingPageContent() {
     bookingFormScopeForCatalog === "form2" || bookingFormScopeForCatalog === "form3" ? "addon" : "extra";
   const catalogScopeQs = `&bookingFormScope=${bookingFormScopeForCatalog}&listingKind=${catalogListingKind}`;
 
-  /** Form 2 customer: item grid + horizontal package strip (admin Add Booking style). Form 3: same when items exist. */
+  const isForm3Catalog = bookingFormScopeForCatalog === "form3";
+
+  /** Form 2 customer: item grid + horizontal package strip (admin Add Booking style). */
   const form2AdminStyleItemPackageUi = useMemo(
-    () =>
-      Boolean(
-        (useForm2Layout && bookingFormScopeForCatalog === "form2") ||
-          (bookingFormScopeForCatalog === "form3" && form2CatalogItems.length > 0),
-      ),
-    [useForm2Layout, bookingFormScopeForCatalog, form2CatalogItems.length],
+    () => Boolean(useForm2Layout && bookingFormScopeForCatalog === "form2"),
+    [useForm2Layout, bookingFormScopeForCatalog],
+  );
+
+  const form3AdminStyleItemUi = useMemo(
+    () => Boolean(isForm3Catalog && form2CatalogItems.length > 0),
+    [isForm3Catalog, form2CatalogItems.length],
   );
 
   // Form 2 frequency deps for items/packages — same source as admin `newBooking.frequency`.
@@ -1540,8 +1564,29 @@ export default function BookingPageContent() {
               frequencyDeps: pricingFrequencyDeps,
             });
             setForm2CatalogItems(filteredItems);
+            if (bookingFormScopeForCatalog === "form3") {
+              const meta: Record<string, { qty_based?: boolean; maximum_quantity?: number | null }> =
+                {};
+              for (const row of list) {
+                const id = String(row.id ?? "").trim();
+                if (!id) continue;
+                meta[id] = {
+                  qty_based: Boolean(row.qty_based),
+                  maximum_quantity:
+                    row.qty_based &&
+                    row.maximum_quantity != null &&
+                    !Number.isNaN(Number(row.maximum_quantity))
+                      ? Number(row.maximum_quantity)
+                      : null,
+                };
+              }
+              setForm3ItemsMeta(meta);
+            } else {
+              setForm3ItemsMeta({});
+            }
           } else {
             setForm2CatalogItems([]);
+            setForm3ItemsMeta({});
           }
         } else {
           setIndustryPricingVariables([]);
@@ -2523,6 +2568,234 @@ export default function BookingPageContent() {
     ],
   );
 
+  const getForm3VisibleRowsForItem = useCallback(
+    (item: { id: string; name: string; category?: string | null }) => {
+      const serviceForRows = selectedService ?? categoryServicesForForm[0] ?? null;
+      return getForm2VisibleRowsForItem({
+        category: item.category,
+        packageName: item.name,
+        service: serviceForRows,
+      });
+    },
+    [getForm2VisibleRowsForItem, selectedService, categoryServicesForForm],
+  );
+
+  const form3SelectedItemCards = useMemo(() => {
+    if (!isForm3Catalog) return [] as { itemId: string; itemName: string; category: string | null }[];
+    return form3SelectedItemIds
+      .map((itemId) => {
+        const item = form2ItemPickerItems.find((v) => String(v.id) === String(itemId));
+        if (!item) return null;
+        return {
+          itemId: String(item.id),
+          itemName: item.name,
+          category: item.category ?? null,
+        };
+      })
+      .filter((x): x is { itemId: string; itemName: string; category: string | null } => x != null);
+  }, [isForm3Catalog, form3SelectedItemIds, form2ItemPickerItems]);
+
+  const form3ActiveItem = useMemo(() => {
+    if (!form2ActiveItemId) return null;
+    return form2ItemPickerItems.find((v) => String(v.id) === String(form2ActiveItemId)) ?? null;
+  }, [form2ItemPickerItems, form2ActiveItemId]);
+
+  const form3DraftVisibleRows = useMemo(() => {
+    if (!form3ActiveItem) return { addons: [] as any[], extras: [] as any[] };
+    return getForm3VisibleRowsForItem(form3ActiveItem);
+  }, [form3ActiveItem, getForm3VisibleRowsForItem]);
+
+  const form3BookingExtraRows = useMemo(() => {
+    if (!isForm3Catalog) return [] as any[];
+    const seen = new Set<string>();
+    const rows: any[] = [];
+    for (const card of form3SelectedItemCards) {
+      const item = form2ItemPickerItems.find((v) => String(v.id) === card.itemId);
+      if (!item) continue;
+      for (const extra of getForm3VisibleRowsForItem(item).extras) {
+        const id = String(extra?.id ?? "");
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        rows.push(extra);
+      }
+    }
+    return rows.sort((a, b) => String(a?.name ?? "").localeCompare(String(b?.name ?? "")));
+  }, [isForm3Catalog, form3SelectedItemCards, form2ItemPickerItems, getForm3VisibleRowsForItem]);
+
+  const getForm3CommittedLineExtras = useCallback(
+    (itemId: string, listingKind: "addon" | "extra") => {
+      const prefix = `f3:${itemId}:`;
+      const lines: { id: string; name: string }[] = [];
+      for (const entry of serviceCustomization?.extras ?? []) {
+        const key = String(entry.name ?? "");
+        if (!key.startsWith(prefix)) continue;
+        const parsed = parseForm2ExtraSelectionKey(key);
+        if (!parsed) continue;
+        const qty = Math.max(0, Number(entry.quantity) || 0);
+        if (qty <= 0) continue;
+        const row = findAvailableExtraByRef(availableExtras, parsed.extraId);
+        if (!row) continue;
+        const kind = String(row.listing_kind ?? "extra") === "addon" ? "addon" : "extra";
+        if (kind !== listingKind) continue;
+        lines.push({ id: String(row.id ?? parsed.extraId), name: String(row.name ?? "") });
+      }
+      return lines;
+    },
+    [serviceCustomization?.extras, availableExtras],
+  );
+
+  const toggleForm3DraftAddon = useCallback((addonId: string) => {
+    const id = String(addonId ?? "").trim();
+    if (!id) return;
+    setForm3DraftAddonIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }, []);
+
+  const commitForm3DraftToBooking = useCallback(() => {
+    const itemId = String(form2ActiveItemId ?? "").trim();
+    if (!itemId) return;
+    if (form3SelectedItemIds.includes(itemId)) return;
+    const svc = selectedService ?? categoryServicesForForm[0];
+    if (!svc) return;
+    const base = serviceCustomization ?? getCardCustomization(svc.id);
+    const itemMeta = form3ItemsMeta[itemId];
+    const itemQty = normalizeForm3ItemQuantity(itemMeta, 1);
+    const vc = { ...(base.variableCategories ?? {}), [itemId]: FORM3_ITEM_LINE_VALUE };
+    let nextExtras = [...(base.extras ?? [])];
+    for (const addonId of form3DraftAddonIds) {
+      const key = makeForm3ExtraSelectionKey(itemId, addonId);
+      nextExtras = nextExtras.filter((e) => String(e.name) !== key);
+      nextExtras.push({ name: key, quantity: itemQty });
+    }
+    const next: ServiceCustomization = {
+      ...base,
+      variableCategories: vc,
+      extras: nextExtras,
+    };
+    setForm3ItemQuantities((prev) => ({ ...prev, [itemId]: itemQty }));
+    setServiceCustomization(next);
+    setCardCustomizations((prev) => ({ ...prev, [cardKey(svc.id)]: next }));
+    if (!selectedService || cardKey(selectedService.id) !== cardKey(svc.id)) {
+      setSelectedService(svc);
+    }
+    form.setValue("customization", toFormCustomization(next), { shouldValidate: true });
+    setForm3DraftAddonIds([]);
+    setForm2ActiveItemId(null);
+  }, [
+    form2ActiveItemId,
+    form3SelectedItemIds,
+    form3DraftAddonIds,
+    form3ItemsMeta,
+    selectedService,
+    categoryServicesForForm,
+    serviceCustomization,
+    form,
+  ]);
+
+  const removeForm3ItemFromBooking = useCallback(
+    (itemId: string) => {
+      const itemKey = String(itemId ?? "").trim();
+      if (!itemKey || !serviceCustomization) return;
+      const vc = { ...(serviceCustomization.variableCategories ?? {}) };
+      delete vc[itemKey];
+      delete vc[`__f2pkgid:${itemKey}`];
+      const nextExtras = (serviceCustomization.extras ?? []).filter((entry) => {
+        const parsed = parseForm2ExtraSelectionKey(String(entry.name ?? ""));
+        return !parsed || parsed.itemId !== itemKey;
+      });
+      const next: ServiceCustomization = {
+        ...serviceCustomization,
+        variableCategories: vc,
+        extras: nextExtras,
+      };
+      setForm3ItemQuantities((prev) => {
+        const copy = { ...prev };
+        delete copy[itemKey];
+        return copy;
+      });
+      setServiceCustomization(next);
+      if (selectedService?.id) {
+        setCardCustomizations((prev) => ({ ...prev, [String(selectedService.id)]: next }));
+      }
+      form.setValue("customization", toFormCustomization(next), { shouldValidate: true });
+    },
+    [serviceCustomization, selectedService?.id, form],
+  );
+
+  const setForm3ItemQty = useCallback(
+    (itemId: string, qty: number) => {
+      const itemKey = String(itemId ?? "").trim();
+      if (!itemKey || !serviceCustomization) return;
+      const normalized = normalizeForm3ItemQuantity(form3ItemsMeta[itemKey], qty);
+      setForm3ItemQuantities((prev) => ({ ...prev, [itemKey]: normalized }));
+      const prefix = `f3:${itemKey}:`;
+      const nextExtras = (serviceCustomization.extras ?? []).map((entry) => {
+        const key = String(entry.name ?? "");
+        if (!key.startsWith(prefix)) return entry;
+        return { ...entry, quantity: normalized };
+      });
+      const next: ServiceCustomization = { ...serviceCustomization, extras: nextExtras };
+      setServiceCustomization(next);
+      if (selectedService?.id) {
+        setCardCustomizations((prev) => ({ ...prev, [String(selectedService.id)]: next }));
+      }
+      form.setValue("customization", toFormCustomization(next), { shouldValidate: true });
+    },
+    [serviceCustomization, form3ItemsMeta, selectedService?.id, form],
+  );
+
+  const getForm3BookingExtraQty = useCallback(
+    (extraId: string): number => {
+      const id = String(extraId ?? "").trim();
+      if (!id) return 0;
+      const extras = serviceCustomization?.extras ?? [];
+      const direct = extras.find((e) => String(e.name) === id);
+      if (direct) return Math.max(0, Number(direct.quantity) || 0);
+      for (const card of form3SelectedItemCards) {
+        const key = makeForm3ExtraSelectionKey(card.itemId, id);
+        const hit = extras.find((e) => String(e.name) === key);
+        const q = hit ? Number(hit.quantity) || 0 : 0;
+        if (q > 0) return q;
+      }
+      return 0;
+    },
+    [serviceCustomization?.extras, form3SelectedItemCards],
+  );
+
+  const setForm3BookingExtraQty = useCallback(
+    (extraId: string, qty: number) => {
+      const id = String(extraId ?? "").trim();
+      if (!id) return;
+      const svc = selectedService ?? categoryServicesForForm[0];
+      if (!svc) return;
+      const base = serviceCustomization ?? getCardCustomization(svc.id);
+      const normalizedQty = Math.max(0, Number(qty) || 0);
+      const primaryItemId = form3SelectedItemCards[0]?.itemId;
+      let nextExtras = (base.extras ?? []).filter((e) => {
+        const n = String(e.name ?? "");
+        if (n === id) return false;
+        if (primaryItemId && n === makeForm3ExtraSelectionKey(primaryItemId, id)) return false;
+        const parsed = parseForm2ExtraSelectionKey(n);
+        return !(parsed && parsed.extraId === id);
+      });
+      if (normalizedQty > 0) {
+        const key = primaryItemId
+          ? makeForm3ExtraSelectionKey(primaryItemId, id)
+          : id;
+        nextExtras.push({ name: key, quantity: normalizedQty });
+      }
+      const next: ServiceCustomization = { ...base, extras: nextExtras };
+      setServiceCustomization(next);
+      setCardCustomizations((prev) => ({ ...prev, [cardKey(svc.id)]: next }));
+      if (!selectedService || cardKey(selectedService.id) !== cardKey(svc.id)) {
+        setSelectedService(svc);
+      }
+      form.setValue("customization", toFormCustomization(next), { shouldValidate: true });
+    },
+    [selectedService, categoryServicesForForm, serviceCustomization, form3SelectedItemCards, form],
+  );
+
   const formatForm2TimeLabel = useCallback((minutesRaw: unknown): string => {
     const mins = Math.max(0, Number(minutesRaw) || 0);
     if (!mins) return "";
@@ -2583,13 +2856,18 @@ export default function BookingPageContent() {
   }, [form2ItemPickerItems, form2ActiveItemId]);
 
   useEffect(() => {
-    if (bookingFormScopeForCatalog !== "form3") {
+    if (!isForm3Catalog) {
       setForm3SelectedItemIds([]);
+      setForm3DraftAddonIds([]);
+      setForm3ItemQuantities({});
       return;
     }
-    const allowed = new Set(categoryServicesForForm.map((s) => String(s.id)));
-    setForm3SelectedItemIds((prev) => prev.filter((id) => allowed.has(String(id))));
-  }, [bookingFormScopeForCatalog, categoryServicesForForm]);
+    const vc = serviceCustomization?.variableCategories ?? {};
+    const ids = form2ItemPickerItems
+      .map((item) => String(item.id ?? "").trim())
+      .filter((id) => id.length > 0 && String(vc[id] ?? "").trim() === FORM3_ITEM_LINE_VALUE);
+    setForm3SelectedItemIds(ids);
+  }, [isForm3Catalog, serviceCustomization?.variableCategories, form2ItemPickerItems]);
 
   useEffect(() => {
     if (!form2AdminStyleItemPackageUi || limitedEditMode) return;
@@ -3967,10 +4245,11 @@ export default function BookingPageContent() {
     const rawSvc = selectedService?.raw as { service_category_frequency?: boolean } | undefined;
     const useFreqVarDeps = Boolean(rawSvc?.service_category_frequency);
     const vc = serviceCustomization?.variableCategories ?? {};
-    if (
-      (bookingFormScopeForCatalog === "form2" || bookingFormScopeForCatalog === "form3") &&
-      form2AdminStyleItemPackageUi
-    ) {
+    if (isForm3Catalog && form3AdminStyleItemUi) {
+      // Form 3 lines are item markers; service total comes from category base + extras.
+      return 0;
+    }
+    if (bookingFormScopeForCatalog === "form2" && form2AdminStyleItemPackageUi) {
       const selectedRowsSubtotal = form2SelectedItemRows.reduce(
         (acc, row) => acc + (Number.isFinite(Number(row.packagePrice)) ? Number(row.packagePrice) : 0),
         0,
@@ -4207,13 +4486,17 @@ export default function BookingPageContent() {
   function calculateTotal() {
     // Coupon + summary can run on the details step before `bookingData` exists (set only after Confirm Booking).
     // Pricing only needs the selected service + customization, same as the payment step.
+    const hasForm3ItemSelection =
+      isForm3Catalog &&
+      form3AdminStyleItemUi &&
+      form3SelectedItemCards.length > 0;
     const hasForm2PackageSelection =
       useForm2Layout &&
-      (bookingFormScopeForCatalog === "form2" || bookingFormScopeForCatalog === "form3") &&
+      bookingFormScopeForCatalog === "form2" &&
       form2AdminStyleItemPackageUi &&
       (form2SelectedItemRows.length > 0 ||
         String(serviceCustomization?.variableCategories?.[FORM2_STANDALONE_PACKAGE_CATEGORY] ?? "").trim().length > 0);
-    if (!serviceCustomization || (!selectedService && !hasForm2PackageSelection)) {
+    if (!serviceCustomization || (!selectedService && !hasForm2PackageSelection && !hasForm3ItemSelection)) {
       const z = {
         lineSubtotal: 0,
         effectiveServiceTotal: 0,
@@ -5603,36 +5886,35 @@ export default function BookingPageContent() {
               <h2 className={cn(styles.form2SectionTitle, "text-2xl mb-1 text-slate-800 dark:text-slate-100")}>
                 {useForm2Layout || bookingFormScopeForCatalog === "form3" ? "What Needs To Be Done?" : "Select Services"}
               </h2>
-              {useForm2Layout || bookingFormScopeForCatalog === "form3" ? (
+              {useForm2Layout || isForm3Catalog ? (
                 <p className="text-sm text-muted-foreground mb-6 max-w-2xl">
-                  {form2AdminStyleItemPackageUi
-                    ? "Select an item (for example bedroom range or square footage), then choose a package and tap Add to include it in your booking."
-                    : "Select a service line below, then customize your package on the card. Add extras from the card when needed."}
+                  {form3AdminStyleItemUi
+                    ? "Select an item, choose add-ons, then click Add. Use the section below to choose extras for this booking."
+                    : form2AdminStyleItemPackageUi
+                      ? "Select an item (for example bedroom range or square footage), then choose a package and tap Add to include it in your booking."
+                      : "Select a service line below, then customize your package on the card. Add extras from the card when needed."}
                 </p>
               ) : null}
-              {(useForm2Layout || bookingFormScopeForCatalog === "form3") &&
-              !serviceCategoriesLoading &&
-              form2AdminStyleItemPackageUi ? (
+              {(form2AdminStyleItemPackageUi || form3AdminStyleItemUi) &&
+              !serviceCategoriesLoading ? (
                 <Form2ItemPickerGrid
                   items={form2ItemPickerItems}
                   selectedId={form2ActiveItemId}
                   onSelect={(id) => {
                     setForm2ActiveItemId(id);
-                    if (bookingFormScopeForCatalog === "form3") {
-                      setForm3SelectedItemIds((prev) =>
-                        prev.includes(String(id)) ? prev : [...prev, String(id)],
-                      );
+                    if (isForm3Catalog) {
+                      setForm3DraftAddonIds([]);
                     }
                     requestAnimationFrame(() => {
                       document
-                        .getElementById("form2-packages-row")
+                        .getElementById(isForm3Catalog ? "form3-booking-rows" : "form2-packages-row")
                         ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
                     });
                   }}
                   className="mb-2"
                   uiVariant="admin"
                 />
-              ) : (useForm2Layout || bookingFormScopeForCatalog === "form3") &&
+              ) : useForm2Layout &&
                 !form2AdminStyleItemPackageUi &&
                 !serviceCategoriesLoading &&
                 categoryServicesForForm.length > 0 ? (
@@ -5692,142 +5974,206 @@ export default function BookingPageContent() {
                 </div>
               ) : categoryServicesForForm.length > 0 ||
                 form2AdminStyleItemPackageUi ||
+                form3AdminStyleItemUi ||
                 form2VisiblePackages.length > 0 ? (
-                useForm2Layout || bookingFormScopeForCatalog === "form3" ? (
+                isForm3Catalog && form3AdminStyleItemUi ? (
+                  <div id="form3-booking-rows" className="space-y-4">
+                    {form3ActiveItem ? (
+                      <div className="space-y-4 border-t border-slate-200 pt-4 dark:border-slate-700">
+                        {form3DraftVisibleRows.addons.length > 0 ? (
+                          <Form2ItemPickerGrid
+                            className="mb-0"
+                            title="Choose Add-ons"
+                            items={form3DraftVisibleRows.addons.map((a: any) => ({
+                              id: String(a.id ?? ""),
+                              name: String(a.name ?? ""),
+                              category: null,
+                            }))}
+                            multiSelect
+                            selectedIds={form3DraftAddonIds}
+                            onSelect={toggleForm3DraftAddon}
+                            uiVariant="admin"
+                          />
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No add-ons available for this item.</p>
+                        )}
+                        <Button
+                          type="button"
+                          disabled={!form2ActiveItemId}
+                          onClick={commitForm3DraftToBooking}
+                          className="w-full bg-cyan-500 hover:bg-cyan-600 text-white"
+                        >
+                          Add
+                        </Button>
+                      </div>
+                    ) : null}
+                    {form3SelectedItemCards.length > 0 ? (
+                      <div className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-700">
+                        <h4 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+                          Selected Items
+                        </h4>
+                        {form3SelectedItemCards.map((card) => {
+                          const itemMeta = form3ItemsMeta[card.itemId];
+                          const itemQtyBased = Boolean(itemMeta?.qty_based);
+                          const itemQty = normalizeForm3ItemQuantity(
+                            itemMeta,
+                            form3ItemQuantities[card.itemId] ?? 1,
+                          );
+                          const maxItemQty = itemQtyBased
+                            ? itemMeta?.maximum_quantity != null && itemMeta.maximum_quantity > 0
+                              ? itemMeta.maximum_quantity
+                              : 999
+                            : 1;
+                          const committedAddons = getForm3CommittedLineExtras(card.itemId, "addon");
+                          return (
+                            <div key={card.itemId} className="rounded-lg border overflow-hidden">
+                              <div className="flex items-center justify-between gap-3 bg-slate-100/80 px-4 py-3">
+                                <p className="font-semibold text-slate-900">{card.itemName}</p>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {itemQtyBased ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => setForm3ItemQty(card.itemId, itemQty - 1)}
+                                        disabled={itemQty <= 1}
+                                        className="w-8 h-8 rounded-md border border-slate-300 bg-white flex items-center justify-center hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-card"
+                                      >
+                                        <Minus className="h-4 w-4" />
+                                      </button>
+                                      <span className="w-10 text-center text-sm font-semibold tabular-nums">
+                                        {itemQty}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setForm3ItemQty(card.itemId, itemQty + 1)}
+                                        disabled={itemQty >= maxItemQty}
+                                        className="w-8 h-8 rounded-md border border-slate-300 bg-white flex items-center justify-center hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-card"
+                                      >
+                                        <Plus className="h-4 w-4" />
+                                      </button>
+                                    </>
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    onClick={() => removeForm3ItemFromBooking(card.itemId)}
+                                    className="text-red-500 hover:text-red-600"
+                                    aria-label={`Remove ${card.itemName}`}
+                                  >
+                                    <X className="h-5 w-5" />
+                                  </button>
+                                </div>
+                              </div>
+                              {committedAddons.length > 0 ? (
+                                <div className="divide-y divide-slate-200 border-t border-slate-200 bg-white dark:divide-slate-700 dark:border-slate-700">
+                                  {committedAddons.map((addon) => (
+                                    <div
+                                      key={addon.id}
+                                      className="px-4 py-3 text-sm font-medium text-slate-800 dark:text-slate-100"
+                                    >
+                                      {addon.name}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        setForm2ActiveItemId(null);
+                        setForm3DraftAddonIds([]);
+                      }}
+                      className="w-full bg-cyan-500 hover:bg-cyan-600 text-white"
+                    >
+                      + Add Another Item
+                    </Button>
+                    <div className="space-y-4 rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-card">
+                      <div>
+                        <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">Select Extras</h3>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Optional extras for this booking. Adjust quantity as needed.
+                        </p>
+                      </div>
+                      {form3BookingExtraRows.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No extras available for your current selections.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {form3BookingExtraRows.map((extra: any) => {
+                            const qty = getForm3BookingExtraQty(String(extra.id ?? ""));
+                            const maxQty =
+                              extra.maximum_quantity && extra.maximum_quantity > 0
+                                ? extra.maximum_quantity
+                                : 999;
+                            const extraDisplayLabel = getExtraCustomerDisplayName({
+                              name: String(extra.name ?? ""),
+                              different_on_customer_end: Boolean(extra.different_on_customer_end),
+                              customer_end_name: extra.customer_end_name ?? null,
+                            });
+                            return (
+                              <div
+                                key={extra.id}
+                                className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2.5 dark:border-slate-600 dark:bg-slate-900/30"
+                              >
+                                <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                  {extraDisplayLabel}
+                                </span>
+                                {extra.qty_based ? (
+                                  <div className="flex shrink-0 items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setForm3BookingExtraQty(String(extra.id ?? ""), qty - 1)
+                                      }
+                                      disabled={qty === 0}
+                                      className="w-8 h-8 rounded-md border border-gray-300 bg-white flex items-center justify-center hover:bg-gray-100 disabled:opacity-50 dark:border-slate-600 dark:bg-card"
+                                    >
+                                      <Minus className="h-3.5 w-3.5" />
+                                    </button>
+                                    <span className="w-8 text-center text-sm font-semibold tabular-nums">
+                                      {qty}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setForm3BookingExtraQty(
+                                          String(extra.id ?? ""),
+                                          Math.min(qty + 1, maxQty),
+                                        )
+                                      }
+                                      disabled={qty >= maxQty}
+                                      className="w-8 h-8 rounded-md border border-gray-300 bg-white flex items-center justify-center hover:bg-gray-100 disabled:opacity-50 dark:border-slate-600 dark:bg-card"
+                                    >
+                                      <Plus className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <Button
+                                    type="button"
+                                    variant={qty > 0 ? "default" : "outline"}
+                                    size="sm"
+                                    className="shrink-0"
+                                    onClick={() =>
+                                      setForm3BookingExtraQty(String(extra.id ?? ""), qty > 0 ? 0 : 1)
+                                    }
+                                  >
+                                    {qty > 0 ? "Remove" : "Add"}
+                                  </Button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : useForm2Layout ? (
                   form2AdminStyleItemPackageUi ? (
                     <>
                       <div id="form2-packages-row" className="space-y-3">
-                        {bookingFormScopeForCatalog === "form3" ? (
-                          (() => {
-                            const selectedItems = form3SelectedItemIds
-                              .map((itemId) =>
-                                form2CatalogItems.find((item) => String(item.id) === String(itemId)),
-                              )
-                              .filter(
-                                (
-                                  item,
-                                ): item is {
-                                  id: string;
-                                  name: string;
-                                  category: string | null;
-                                } => Boolean(item),
-                              );
-                            if (selectedItems.length === 0) {
-                              return (
-                                <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm text-muted-foreground dark:border-slate-600 dark:bg-slate-900/40">
-                                  Select an item above to add it to this booking.
-                                </div>
-                              );
-                            }
-                            const serviceForRows =
-                              selectedService ?? categoryServicesForForm[0] ?? null;
-                            return (
-                              <div className="space-y-3">
-                                {selectedItems.map((item) => {
-                                  const visibleRows = getForm2VisibleRowsForItem({
-                                    service: serviceForRows,
-                                    packageName: item.name,
-                                  });
-                                  const addonRows = visibleRows.addons;
-                                  const extraRows = visibleRows.extras;
-                                  const activeItemKey = String(item.id ?? "form3-item");
-                                  return (
-                                    <div key={activeItemKey} className="rounded-lg border overflow-hidden">
-                                      <div className="flex items-start justify-between gap-3 bg-slate-100/80 px-4 py-3">
-                                        <div className="min-w-0">
-                                          <p className="font-semibold text-slate-900">
-                                            {item.name}
-                                          </p>
-                                          <p className="text-sm text-muted-foreground">Item</p>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setForm3SelectedItemIds((prev) =>
-                                              prev.filter((id) => String(id) !== String(activeItemKey)),
-                                            );
-                                            removeForm2SelectedItem(activeItemKey, null, null);
-                                          }}
-                                          className="text-red-500 hover:text-red-600"
-                                        >
-                                          <X className="h-5 w-5" />
-                                        </button>
-                                      </div>
-                                      <div className="p-4">
-                                        <p className="text-sm font-medium mb-2">Any Add-ons for this item?</p>
-                                        {addonRows.length === 0 ? (
-                                          <p className="text-xs text-muted-foreground">No add-ons configured for this industry.</p>
-                                        ) : (
-                                          <div className="flex flex-wrap gap-2">
-                                            {addonRows.map((addon: any) => {
-                                              const qty = getForm2ExtraQtyForItem(activeItemKey, String(addon.id ?? ""));
-                                              const selected = qty > 0;
-                                              return (
-                                                <Button
-                                                  key={`${activeItemKey}-${addon.id}`}
-                                                  type="button"
-                                                  variant={selected ? "default" : "outline"}
-                                                  size="sm"
-                                                  onClick={() =>
-                                                    setForm2ExtraQtyForItem(
-                                                      activeItemKey,
-                                                      String(addon.id ?? ""),
-                                                      selected ? 0 : 1,
-                                                    )
-                                                  }
-                                                >
-                                                  {String(addon.name ?? "")}
-                                                </Button>
-                                              );
-                                            })}
-                                          </div>
-                                        )}
-                                      </div>
-                                      {extraRows.length > 0 ? (
-                                        <div className="px-4 pb-4">
-                                          <p className="text-sm font-medium mb-2">Extras</p>
-                                          <div className="flex flex-wrap gap-2">
-                                            {extraRows.map((extra: any) => {
-                                              const qty = getForm2ExtraQtyForItem(
-                                                activeItemKey,
-                                                String(extra.id ?? ""),
-                                              );
-                                              const selected = qty > 0;
-                                              return (
-                                                <Button
-                                                  key={`${activeItemKey}-${extra.id}`}
-                                                  type="button"
-                                                  variant={selected ? "default" : "outline"}
-                                                  size="sm"
-                                                  onClick={() =>
-                                                    setForm2ExtraQtyForItem(
-                                                      activeItemKey,
-                                                      String(extra.id ?? ""),
-                                                      selected ? 0 : 1,
-                                                    )
-                                                  }
-                                                >
-                                                  {String(extra.name ?? "")}
-                                                </Button>
-                                              );
-                                            })}
-                                          </div>
-                                        </div>
-                                      ) : null}
-                                    </div>
-                                  );
-                                })}
-                                <Button
-                                  type="button"
-                                  onClick={() => setForm2ActiveItemId(null)}
-                                  className="w-full bg-cyan-500 hover:bg-cyan-600 text-white"
-                                >
-                                  + Add Another Item
-                                </Button>
-                                </div>
-                              );
-                          })()
-                        ) : form2VisiblePackages.length === 0 ? (
+                        {form2VisiblePackages.length === 0 ? (
                           <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm text-muted-foreground dark:border-slate-600 dark:bg-slate-900/40">
                             {form2ActiveItemId
                               ? "No packages match your current frequency and service settings."

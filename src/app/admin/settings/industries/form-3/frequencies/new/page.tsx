@@ -189,6 +189,7 @@ export default function FrequencyNewPage() {
   const bookingFormScope = bookingFormScopeFromSearchParams(params.get("bookingFormScope"), pathname);
   const scopeQs = `&bookingFormScope=${bookingFormScope}`;
   const isSinglePageScope = bookingFormScope === "form2" || bookingFormScope === "form3";
+  const isForm3Scope = bookingFormScope === "form3";
   const { currentBusiness } = useBusiness();
 
   type LocationRow = {
@@ -570,8 +571,9 @@ export default function FrequencyNewPage() {
   // Load pricing parameters from API
   useEffect(() => {
     const fetchPricingParameters = async () => {
-      if (!industryId || !currentBusiness?.id) {
+      if (isForm3Scope || !industryId || !currentBusiness?.id) {
         setLoadingPricingParams(false);
+        if (isForm3Scope) setPricingParameters([]);
         return;
       }
 
@@ -593,7 +595,7 @@ export default function FrequencyNewPage() {
     };
 
     fetchPricingParameters();
-  }, [industryId, currentBusiness?.id, bookingFormScope]);
+  }, [industryId, currentBusiness?.id, bookingFormScope, isForm3Scope]);
 
   // Load exclude parameters from API
   useEffect(() => {
@@ -702,9 +704,11 @@ export default function FrequencyNewPage() {
     const normalizedItems = isSinglePageScope
       ? normalizeToIds(form.bathroomVariables, pricingVariables)
       : form.bathroomVariables;
-    const normalizedPackages = isSinglePageScope
-      ? normalizeToIds(form.sqftVariables, pricingParameters)
-      : form.sqftVariables;
+    const normalizedPackages = isForm3Scope
+      ? []
+      : isSinglePageScope
+        ? normalizeToIds(form.sqftVariables, pricingParameters)
+        : form.sqftVariables;
     const normalizedExtras = isSinglePageScope
       ? normalizeToIds(form.extras, extras)
       : form.extras;
@@ -1370,7 +1374,7 @@ export default function FrequencyNewPage() {
                   )}
                 </div>
 
-                {/* Form 2/3 Items and Packages dependencies */}
+                {/* Form 2/3 Items (and Form 2 packages) dependencies */}
                 {isSinglePageScope ? (
                   <>
                     <div className="space-y-3 mb-6 border p-4 rounded-md bg-white">
@@ -1420,6 +1424,7 @@ export default function FrequencyNewPage() {
                       )}
                     </div>
 
+                    {!isForm3Scope && (
                     <div className="space-y-3 mb-6 border p-4 rounded-md bg-white">
                       <Label className="text-base font-semibold">Packages</Label>
                       <p className="text-sm text-muted-foreground">
@@ -1468,6 +1473,7 @@ export default function FrequencyNewPage() {
                         </div>
                       )}
                     </div>
+                    )}
                   </>
                 ) : (
                 <div className="space-y-4 mb-6 border p-4 rounded-md bg-white">

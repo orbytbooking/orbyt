@@ -25,6 +25,7 @@ import {
   pricingVariableDisplayLabel,
   pricingVariableDependenciesSummary,
   getManageVariableLabels,
+  isPersistedCatalogItemId,
 } from "@/app/admin/settings/industries/form-1/pricing-parameter/manage-variables/pricingVariableManageShared";
 
 export default function ManageVariablesPage() {
@@ -64,58 +65,64 @@ export default function ManageVariablesPage() {
   const [newVariableCategory, setNewVariableCategory] = useState("");
   const [addingDefaults, setAddingDefaults] = useState(false);
 
-  const defaultVariables: ManagePricingVariableUI[] = [
-    {
-      id: "temp-sqft",
-      name: "Sq Ft",
-      category: "Sq Ft",
-      description: "Square footage tiers",
-      isActive: true,
-      differentOnCustomerEnd: false,
-      customerEndName: "",
-      ...VARIABLE_UI_DEFAULTS,
-    },
-    {
-      id: "temp-bedroom",
-      name: "Bedroom",
-      category: "Bedroom",
-      description: "Number of bedrooms",
-      isActive: false,
-      differentOnCustomerEnd: false,
-      customerEndName: "",
-      ...VARIABLE_UI_DEFAULTS,
-    },
-    {
-      id: "temp-bathroom",
-      name: "Bathroom",
-      category: "Bathroom",
-      description: "Number of bathrooms",
-      isActive: false,
-      differentOnCustomerEnd: false,
-      customerEndName: "",
-      ...VARIABLE_UI_DEFAULTS,
-    },
-    {
-      id: "temp-hours",
-      name: "Hours",
-      category: "Hours",
-      description: "Service duration in hours",
-      isActive: false,
-      differentOnCustomerEnd: false,
-      customerEndName: "",
-      ...VARIABLE_UI_DEFAULTS,
-    },
-    {
-      id: "temp-rooms",
-      name: "Rooms",
-      category: "Rooms",
-      description: "Number of rooms",
-      isActive: false,
-      differentOnCustomerEnd: false,
-      customerEndName: "",
-      ...VARIABLE_UI_DEFAULTS,
-    },
-  ];
+  const defaultVariables: ManagePricingVariableUI[] = useMemo(
+    () =>
+      isForm3
+        ? []
+        : [
+            {
+              id: "temp-sqft",
+              name: "Sq Ft",
+              category: "Sq Ft",
+              description: "Square footage tiers",
+              isActive: true,
+              differentOnCustomerEnd: false,
+              customerEndName: "",
+              ...VARIABLE_UI_DEFAULTS,
+            },
+            {
+              id: "temp-bedroom",
+              name: "Bedroom",
+              category: "Bedroom",
+              description: "Number of bedrooms",
+              isActive: false,
+              differentOnCustomerEnd: false,
+              customerEndName: "",
+              ...VARIABLE_UI_DEFAULTS,
+            },
+            {
+              id: "temp-bathroom",
+              name: "Bathroom",
+              category: "Bathroom",
+              description: "Number of bathrooms",
+              isActive: false,
+              differentOnCustomerEnd: false,
+              customerEndName: "",
+              ...VARIABLE_UI_DEFAULTS,
+            },
+            {
+              id: "temp-hours",
+              name: "Hours",
+              category: "Hours",
+              description: "Service duration in hours",
+              isActive: false,
+              differentOnCustomerEnd: false,
+              customerEndName: "",
+              ...VARIABLE_UI_DEFAULTS,
+            },
+            {
+              id: "temp-rooms",
+              name: "Rooms",
+              category: "Rooms",
+              description: "Number of rooms",
+              isActive: false,
+              differentOnCustomerEnd: false,
+              customerEndName: "",
+              ...VARIABLE_UI_DEFAULTS,
+            },
+          ],
+    [isForm3],
+  );
 
   const loadVariables = useCallback(async () => {
     if (!currentBusiness?.id || !industry) {
@@ -171,7 +178,7 @@ export default function ManageVariablesPage() {
           industryId,
           businessId: currentBusiness.id,
           bookingFormScope,
-          variables: variables.map(mapPricingVariableToPostBody),
+          variables: variables.map((v) => mapPricingVariableToPostBody(v, "form3")),
         }),
       });
       const data = await res.json();
@@ -187,6 +194,7 @@ export default function ManageVariablesPage() {
   };
 
   const addDefaultVariables = async () => {
+    if (isForm3) return;
     if (!industryId || !currentBusiness?.id) return;
     setAddingDefaults(true);
     try {
@@ -246,11 +254,43 @@ export default function ManageVariablesPage() {
     });
   };
 
-  const removeVariable = (id: string) => {
+  const removeVariable = async (id: string) => {
+    if (isPersistedCatalogItemId(id)) {
+      if (!industryId || !currentBusiness?.id) {
+        toast({
+          title: "Error",
+          description: "Industry or business not loaded.",
+          variant: "destructive",
+        });
+        return;
+      }
+      try {
+        const res = await fetch(
+          `/api/pricing-variables?id=${encodeURIComponent(id)}&industryId=${encodeURIComponent(industryId)}&businessId=${encodeURIComponent(currentBusiness.id)}&bookingFormScope=${bookingFormScope}`,
+          { method: "DELETE" },
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || labels.saveFail);
+        setVariables((prev) => prev.filter((v) => v.id !== id));
+        toast({
+          title: labels.removeTitle,
+          description: "The item has been deleted.",
+        });
+      } catch (e) {
+        console.error(e);
+        toast({
+          title: "Error",
+          description: e instanceof Error ? e.message : labels.saveFail,
+          variant: "destructive",
+        });
+      }
+      return;
+    }
+
     setVariables(variables.filter((v) => v.id !== id));
     toast({
       title: labels.removeTitle,
-      description: labels.removeDesc,
+      description: labels.addPersistHint,
     });
   };
 
@@ -319,16 +359,18 @@ export default function ManageVariablesPage() {
                     <TableCell colSpan={5} className="text-center py-8">
                       <p className="text-sm text-muted-foreground mb-4">{labels.emptyLine1}</p>
                       <p className="text-xs text-muted-foreground mb-4">{labels.emptyLine2}</p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={addDefaultVariables}
-                        disabled={!industryId || addingDefaults}
-                      >
-                        {addingDefaults ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                        {labels.defaultsBtn}
-                      </Button>
+                      {!isForm3 ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={addDefaultVariables}
+                          disabled={!industryId || addingDefaults}
+                        >
+                          {addingDefaults ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                          {labels.defaultsBtn}
+                        </Button>
+                      ) : null}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -348,7 +390,7 @@ export default function ManageVariablesPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            {variable.id.startsWith("temp-") ? (
+                            {!isPersistedCatalogItemId(variable.id) ? (
                               <DropdownMenuItem disabled>Save changes first to edit</DropdownMenuItem>
                             ) : (
                               <DropdownMenuItem

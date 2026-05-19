@@ -1,7 +1,7 @@
 "use client";
 
 import { supabase } from '@/lib/supabaseClient';
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ServiceCategory } from '@/lib/serviceCategories';
 import { frequencyDepOptionNamesForCategory, getFrequencyDependencies } from '@/lib/frequencyFilter';
@@ -113,6 +113,28 @@ function parsePerItemAddonSelectionKey(value: string): { itemId: string; addonId
   return { itemId, addonId };
 }
 
+/** Package ids + resolved names for item-based add-on/extra rules. */
+function buildForm2ExtraDependencyTokensForBooking(
+  categoryValues: Record<string, string>,
+  pricingParameters: PricingParameter[],
+  rowTokens: string[],
+): string[] {
+  const tokens = new Set<string>();
+  for (const raw of Object.values(categoryValues)) {
+    const v = String(raw ?? "").trim();
+    if (!v || v.startsWith("__")) continue;
+    tokens.add(v);
+    const pkg = resolveForm2PackageSelection(pricingParameters, v, "");
+    if (pkg?.name) tokens.add(String(pkg.name).trim());
+    if (pkg?.id) tokens.add(String(pkg.id).trim());
+  }
+  for (const t of rowTokens) {
+    const v = String(t ?? "").trim();
+    if (v) tokens.add(v);
+  }
+  return Array.from(tokens);
+}
+
 function resolveForm2PackageSelection(
   pricingParameters: PricingParameter[],
   rawSelection: string,
@@ -136,6 +158,16 @@ function resolveForm2PackageSelection(
 
 /** Marker in `categoryValues[itemId]` meaning this item row is on the booking (Form 3 — no package). */
 const FORM3_ITEM_LINE_VALUE = "__form3_line__";
+
+function normalizeForm3ItemQuantity(
+  item: { qty_based?: boolean; maximum_quantity?: number | null } | null | undefined,
+  qty: number,
+): number {
+  if (!item?.qty_based) return 1;
+  const max =
+    item.maximum_quantity != null && item.maximum_quantity > 0 ? item.maximum_quantity : 999;
+  return Math.max(1, Math.min(Math.round(Number(qty) || 1), max));
+}
 
 type Extra = {
   id: string;
@@ -165,6 +197,37 @@ type Extra = {
   show_based_on_variables?: boolean;
   variable_options?: string[];
 };
+
+function BookingExtraIcon({
+  icon,
+  displayLabel,
+  className = "h-10 w-10",
+}: {
+  icon?: string;
+  displayLabel: string;
+  className?: string;
+}) {
+  const wrapClass = cn("flex shrink-0 items-center justify-center", className);
+  if (icon && industryFormIconIsImageSrc(icon)) {
+    return <img src={icon} alt="" className={cn(wrapClass, "object-contain")} />;
+  }
+  const rich = bookingFormPresetRichIconSrc(icon, displayLabel);
+  if (rich) {
+    return <img src={rich} alt="" className={cn(wrapClass, "object-contain drop-shadow-sm")} />;
+  }
+  const PresetIcon = resolveIndustryExtraPresetLucideIcon(icon);
+  if (PresetIcon) {
+    const colorClass = bookingFormPresetIconTextClass(icon, displayLabel);
+    return <PresetIcon className={cn(wrapClass, colorClass)} />;
+  }
+  return (
+    <img
+      src={DEFAULT_INDUSTRY_EXTRA_ICON_SRC}
+      alt=""
+      className={cn(wrapClass, "object-contain")}
+    />
+  );
+}
 
 type FrequencyRow = {
   id: string;
@@ -239,6 +302,8 @@ type PricingVariable = {
   name: string;
   category?: string | null;
   sort_order?: number | null;
+  qty_based?: boolean;
+  maximum_quantity?: number | null;
 };
 
 type Customer = {
@@ -454,6 +519,12 @@ export function AddBookingForm({
   const [pricingVariables, setPricingVariables] = useState<PricingVariable[]>([]);
   /** Form 2: selected catalog item (`industry_pricing_variable.id`). */
   const [selectedForm2VariableId, setSelectedForm2VariableId] = useState<string>("");
+  /** Form 3: items added to this booking (pricing variable ids). */
+  const [form3SelectedItemIds, setForm3SelectedItemIds] = useState<string[]>([]);
+  /** Form 3: add-on ids selected in the draft row before clicking Add. */
+  const [form3DraftAddonIds, setForm3DraftAddonIds] = useState<string[]>([]);
+  /** Form 3: quantity per committed item line. */
+  const [form3ItemQuantities, setForm3ItemQuantities] = useState<Record<string, number>>({});
   const [hasLocationBasedFrequencies, setHasLocationBasedFrequencies] = useState(false);
   const [resolvedIndustryLocationLabels, setResolvedIndustryLocationLabels] = useState<string[]>([]);
   const [industryHasLinkedLocations, setIndustryHasLinkedLocations] = useState(false);
@@ -850,11 +921,9 @@ export function AddBookingForm({
           }
         }
 
+        // Form 3: per-item cards filter add-ons/extras; skip global item-token filter here.
         const selectedVariableOptionTokens = isForm3Catalog
-          ? pricingVariables
-              .filter((v) => String(categoryValues[String(v.id ?? "")] ?? "").trim() === FORM3_ITEM_LINE_VALUE)
-              .map((v) => String(v.name ?? "").trim())
-              .filter((name) => name.length > 0)
+          ? []
           : Object.values(categoryValues)
               .map((v) => String(v ?? "").trim())
               .filter((v) => v.length > 0 && v !== FORM3_ITEM_LINE_VALUE);
@@ -1024,7 +1093,23 @@ export function AddBookingForm({
               frequencyDeps: frequencyDependencies,
             },
           ) as PricingVariable[];
-          setPricingVariables(rows);
+          setPricingVariables(
+            rows.map((row) => {
+              const raw = (data.variables as Array<Record<string, unknown>>).find(
+                (v) => String(v.id) === String(row.id),
+              );
+              return {
+                ...row,
+                qty_based: Boolean(raw?.qty_based),
+                maximum_quantity:
+                  raw?.qty_based &&
+                  raw.maximum_quantity != null &&
+                  !Number.isNaN(Number(raw.maximum_quantity))
+                    ? Number(raw.maximum_quantity)
+                    : null,
+              };
+            }),
+          );
           setSelectedForm2VariableId((prev) => {
             if (prev && rows.some((r) => r.id === prev)) return prev;
             return rows[0]?.id ?? "";
@@ -2955,21 +3040,383 @@ const handleAddBooking = async (status: string = 'pending') => {
 
   const selectedForm3ItemCards = useMemo(() => {
     if (!isForm3Catalog) return [];
-    const cards = pricingVariables
-      .map((item) => {
+    const cards = form3SelectedItemIds
+      .map((itemId) => {
+        const item = pricingVariables.find((v) => String(v.id ?? "") === String(itemId));
+        if (!item) return null;
         const itemKey = String(item.id ?? "").trim();
         if (!itemKey) return null;
-        const line = String(categoryValues[itemKey] ?? "").trim();
-        if (line !== FORM3_ITEM_LINE_VALUE) return null;
         return {
           itemId: itemKey,
           itemName: item.name,
           categoryKey: itemKey,
+          category: item.category,
         };
       })
-      .filter((x): x is { itemId: string; itemName: string; categoryKey: string } => x != null);
-    return cards.sort((a, b) => a.itemName.localeCompare(b.itemName));
-  }, [isForm3Catalog, pricingVariables, categoryValues]);
+      .filter(
+        (x): x is { itemId: string; itemName: string; categoryKey: string; category: string | null } =>
+          x != null,
+      );
+    return cards;
+  }, [isForm3Catalog, pricingVariables, form3SelectedItemIds]);
+
+  const getForm3VisibleRowsForItem = useCallback(
+    (item: { id?: string; name: string; category?: string | null }) => {
+      if (!allExtras.length) return { addons: [] as Extra[], extras: [] as Extra[] };
+      const selectedServiceCategory = serviceCategories.find((cat) => cat.name === newBooking.service);
+      if (!selectedServiceCategory) return { addons: [] as Extra[], extras: [] as Extra[] };
+
+      const useFreq = Boolean(selectedServiceCategory.service_category_frequency);
+      const depsLoaded = frequencyDependencies != null;
+      const formAllowIds = depsLoaded
+        ? (Array.isArray(frequencyDependencies.extras)
+            ? frequencyDependencies.extras.map((x: unknown) => String(x))
+            : [])
+        : [];
+      const form2AllowedExtraIds = isForm2Or3Catalog && depsLoaded
+        ? (Array.isArray(frequencyDependencies?.extras)
+            ? frequencyDependencies.extras.map((x: unknown) => String(x))
+            : [])
+        : [];
+
+      let scopedExtras = [...allExtras];
+      if (depsLoaded && form2AllowedExtraIds.length > 0) {
+        scopedExtras = scopedExtras.filter((e) => form2AllowedExtraIds.includes(String(e.id)));
+      }
+
+      const itemName = String(item.name ?? "").trim();
+      const selectedVariableOptionTokens = buildForm2ExtraDependencyTokensForBooking(
+        categoryValues,
+        pricingParameters,
+        [itemName],
+      );
+
+      const visible = scopedExtras.filter((e) =>
+        industryExtraPassesBookingDependencyRules(
+          {
+            id: String(e.id),
+            show_based_on_frequency: e.show_based_on_frequency,
+            frequency_options: e.frequency_options,
+            show_based_on_service_category: e.show_based_on_service_category,
+            service_category_options: e.service_category_options,
+            show_based_on_variables: e.show_based_on_variables,
+            variable_options: e.variable_options,
+          },
+          {
+            selectedFrequency: newBooking.frequency,
+            selectedServiceCategoryName: selectedServiceCategory.name,
+            selectedServiceCategoryId: String(selectedServiceCategory.id ?? ""),
+            categoryValues,
+            serviceCategoryUsesFrequencyDeps: useFreq,
+            frequencyDepsLoaded: depsLoaded,
+            frequencyFormAllowExtraIds: formAllowIds,
+            selectedVariableOptionTokens,
+          },
+        ),
+      );
+
+      return {
+        addons: visible.filter((e) => e.listing_kind === "addon"),
+        extras: visible.filter((e) => e.listing_kind !== "addon"),
+      };
+    },
+    [
+      allExtras,
+      serviceCategories,
+      newBooking.service,
+      newBooking.frequency,
+      frequencyDependencies,
+      isForm2Or3Catalog,
+      categoryValues,
+      pricingParameters,
+    ],
+  );
+
+  const getForm3PerItemExtraQty = useCallback(
+    (itemId: string, extraId: string): number => {
+      const key = makeForm3AddonSelectionKey(itemId, extraId);
+      return Math.max(0, Number(newBooking.extraQuantities[key] ?? 0) || 0);
+    },
+    [newBooking.extraQuantities],
+  );
+
+  const setForm3PerItemExtraQty = useCallback((itemId: string, extraId: string, qty: number) => {
+    const key = makeForm3AddonSelectionKey(itemId, extraId);
+    const normalizedQty = Math.max(0, Number(qty) || 0);
+    setNewBooking((prev) => {
+      const selectedExtras = [...(prev.selectedExtras || [])];
+      const extraQuantities = { ...prev.extraQuantities };
+      if (normalizedQty <= 0) {
+        return {
+          ...prev,
+          selectedExtras: selectedExtras.filter((id) => id !== key),
+          extraQuantities: Object.fromEntries(
+            Object.entries(extraQuantities).filter(([k]) => k !== key),
+          ),
+        };
+      }
+      if (!selectedExtras.includes(key)) selectedExtras.push(key);
+      extraQuantities[key] = normalizedQty;
+      return { ...prev, selectedExtras, extraQuantities };
+    });
+  }, []);
+
+  const addForm3ItemToBooking = useCallback((itemId: string) => {
+    const itemKey = String(itemId ?? "").trim();
+    if (!itemKey) return;
+    setCategoryValues((prev) => ({ ...prev, [itemKey]: FORM3_ITEM_LINE_VALUE }));
+    setForm3SelectedItemIds((prev) => (prev.includes(itemKey) ? prev : [...prev, itemKey]));
+  }, []);
+
+  const setForm3ItemQty = useCallback(
+    (itemId: string, qty: number) => {
+      const itemKey = String(itemId ?? "").trim();
+      if (!itemKey) return;
+      const item = pricingVariables.find((v) => String(v.id) === itemKey);
+      const normalized = normalizeForm3ItemQuantity(item, qty);
+      setForm3ItemQuantities((prev) => ({ ...prev, [itemKey]: normalized }));
+      const prefix = `f3:${itemKey}:`;
+      setNewBooking((prev) => {
+        const extraQuantities = { ...prev.extraQuantities };
+        for (const key of Object.keys(extraQuantities)) {
+          if (key.startsWith(prefix)) extraQuantities[key] = normalized;
+        }
+        return { ...prev, extraQuantities };
+      });
+    },
+    [pricingVariables],
+  );
+
+  const getForm3CommittedLineExtras = useCallback(
+    (itemId: string) => {
+      const prefix = `f3:${itemId}:`;
+      const lines: {
+        id: string;
+        name: string;
+        icon?: string;
+        differentOnCustomerEnd?: boolean;
+        customerEndName?: string | null;
+        listingKind: "addon" | "extra";
+      }[] = [];
+      for (const rawKey of newBooking.selectedExtras || []) {
+        const key = String(rawKey);
+        if (!key.startsWith(prefix)) continue;
+        const parsed = parsePerItemAddonSelectionKey(key);
+        if (!parsed) continue;
+        const qty = Math.max(0, Number(newBooking.extraQuantities[key] ?? 0) || 0);
+        if (qty <= 0) continue;
+        // Use allExtras: globally filtered `extras` omits item-scoped add-ons on Form 3.
+        const row = allExtras.find((e) => String(e.id) === parsed.addonId);
+        if (!row) continue;
+        lines.push({
+          id: String(row.id),
+          name: row.name,
+          icon: row.icon,
+          differentOnCustomerEnd: row.differentOnCustomerEnd,
+          customerEndName: row.customerEndName,
+          listingKind: row.listing_kind === "addon" ? "addon" : "extra",
+        });
+      }
+      return lines;
+    },
+    [newBooking.selectedExtras, newBooking.extraQuantities, allExtras],
+  );
+
+  const toggleForm3DraftAddon = useCallback((addonId: string) => {
+    const id = String(addonId ?? "").trim();
+    if (!id) return;
+    setForm3DraftAddonIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }, []);
+
+  const commitForm3DraftToBooking = useCallback(() => {
+    const itemId = String(selectedForm2VariableId ?? "").trim();
+    if (!itemId) return;
+    if (form3SelectedItemIds.includes(itemId)) return;
+
+    const item = pricingVariables.find((v) => String(v.id) === itemId);
+    const itemQty = normalizeForm3ItemQuantity(item, 1);
+    addForm3ItemToBooking(itemId);
+    setForm3ItemQuantities((prev) => ({ ...prev, [itemId]: itemQty }));
+
+    setNewBooking((prev) => {
+      const selectedExtras = [...(prev.selectedExtras || [])];
+      const extraQuantities = { ...prev.extraQuantities };
+      for (const addonId of form3DraftAddonIds) {
+        const key = makeForm3AddonSelectionKey(itemId, addonId);
+        if (!selectedExtras.includes(key)) selectedExtras.push(key);
+        extraQuantities[key] = itemQty;
+      }
+      return { ...prev, selectedExtras, extraQuantities };
+    });
+
+    setForm3DraftAddonIds([]);
+    setSelectedForm2VariableId("");
+  }, [selectedForm2VariableId, form3SelectedItemIds, form3DraftAddonIds, addForm3ItemToBooking, pricingVariables]);
+
+  const removeForm3ItemFromBooking = useCallback((itemId: string) => {
+    const itemKey = String(itemId ?? "").trim();
+    if (!itemKey) return;
+    const prefix = `f3:${itemKey}:`;
+    setCategoryValues((prev) => ({ ...prev, [itemKey]: "" }));
+    setForm3SelectedItemIds((prev) => prev.filter((id) => id !== itemKey));
+    setForm3ItemQuantities((prev) => {
+      const next = { ...prev };
+      delete next[itemKey];
+      return next;
+    });
+    setNewBooking((prev) => ({
+      ...prev,
+      selectedExtras: (prev.selectedExtras || []).filter((k) => !String(k).startsWith(prefix)),
+      extraQuantities: Object.fromEntries(
+        Object.entries(prev.extraQuantities || {}).filter(([k]) => !k.startsWith(prefix)),
+      ),
+    }));
+  }, []);
+
+  const form3ActiveItem = useMemo(() => {
+    if (!selectedForm2VariableId) return null;
+    return pricingVariables.find((v) => String(v.id) === String(selectedForm2VariableId)) ?? null;
+  }, [pricingVariables, selectedForm2VariableId]);
+
+  const form3DraftVisibleRows = useMemo(() => {
+    if (!form3ActiveItem) return { addons: [] as Extra[], extras: [] as Extra[] };
+    return getForm3VisibleRowsForItem(form3ActiveItem);
+  }, [form3ActiveItem, getForm3VisibleRowsForItem]);
+
+  /** Form 3 booking-level extras — admin always sees every configured extra (not item-scoped deps). */
+  const form3BookingExtraRows = useMemo(() => {
+    if (!isForm3Catalog) return [] as Extra[];
+    const seen = new Set<string>();
+    const rows: Extra[] = [];
+    for (const extra of allExtras) {
+      if (extra.listing_kind === "addon") continue;
+      const id = String(extra.id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      rows.push(extra);
+    }
+    return rows.sort((a, b) => a.name.localeCompare(b.name));
+  }, [isForm3Catalog, allExtras]);
+
+  const getForm3BookingExtraQty = useCallback(
+    (extraId: string): number => {
+      const id = String(extraId ?? "").trim();
+      if (!id) return 0;
+      if (newBooking.extraQuantities[id] != null) {
+        return Math.max(0, Number(newBooking.extraQuantities[id]) || 0);
+      }
+      for (const card of selectedForm3ItemCards) {
+        const key = makeForm3AddonSelectionKey(card.itemId, id);
+        const q = Number(newBooking.extraQuantities[key] ?? 0) || 0;
+        if (q > 0) return q;
+      }
+      return 0;
+    },
+    [newBooking.extraQuantities, selectedForm3ItemCards],
+  );
+
+  const setForm3BookingExtraQty = useCallback(
+    (extraId: string, qty: number) => {
+      const id = String(extraId ?? "").trim();
+      if (!id) return;
+      const normalizedQty = Math.max(0, Number(qty) || 0);
+      const primaryItemId = selectedForm3ItemCards[0]?.itemId;
+      setNewBooking((prev) => {
+        const selectedExtras = [...(prev.selectedExtras || [])];
+        const extraQuantities = { ...prev.extraQuantities };
+        delete extraQuantities[id];
+        for (const card of selectedForm3ItemCards) {
+          delete extraQuantities[makeForm3AddonSelectionKey(card.itemId, id)];
+        }
+        if (normalizedQty <= 0) {
+          return {
+            ...prev,
+            selectedExtras: selectedExtras.filter(
+              (k) => k !== id && !String(k).endsWith(`:${id}`),
+            ),
+            extraQuantities,
+          };
+        }
+        if (primaryItemId) {
+          const key = makeForm3AddonSelectionKey(primaryItemId, id);
+          if (!selectedExtras.includes(key)) selectedExtras.push(key);
+          extraQuantities[key] = normalizedQty;
+        } else {
+          if (!selectedExtras.includes(id)) selectedExtras.push(id);
+          extraQuantities[id] = normalizedQty;
+        }
+        return { ...prev, selectedExtras, extraQuantities };
+      });
+    },
+    [selectedForm3ItemCards],
+  );
+
+  useEffect(() => {
+    if (!isForm3Catalog) {
+      setForm3SelectedItemIds([]);
+      setForm3DraftAddonIds([]);
+      setForm3ItemQuantities({});
+      return;
+    }
+    const ids = pricingVariables
+      .filter((v) => String(categoryValues[String(v.id ?? "")] ?? "").trim() === FORM3_ITEM_LINE_VALUE)
+      .map((v) => String(v.id ?? "").trim())
+      .filter((id) => id.length > 0);
+
+    setForm3SelectedItemIds((prev) => {
+      if (prev.length === ids.length && prev.every((id, index) => id === ids[index])) return prev;
+      return ids;
+    });
+
+    const extraQuantities = newBooking.extraQuantities || {};
+    const normalizedByItem: Record<string, number> = {};
+    for (const id of ids) {
+      const item = pricingVariables.find((v) => String(v.id ?? "") === id);
+      let rawQty: number | undefined;
+      if (item?.qty_based) {
+        const prefix = `f3:${id}:`;
+        let derived = 0;
+        for (const [k, q] of Object.entries(extraQuantities)) {
+          if (k.startsWith(prefix)) derived = Math.max(derived, Number(q) || 0);
+        }
+        if (derived > 0) rawQty = derived;
+      }
+      normalizedByItem[id] = normalizeForm3ItemQuantity(item, rawQty ?? 1);
+    }
+
+    setForm3ItemQuantities((prev) => {
+      let changed = false;
+      const next: Record<string, number> = {};
+      for (const id of ids) {
+        const qty = normalizedByItem[id] ?? 1;
+        next[id] = qty;
+        if (prev[id] !== qty) changed = true;
+      }
+      if (Object.keys(prev).length !== ids.length) changed = true;
+      for (const key of Object.keys(prev)) {
+        if (!ids.includes(key)) changed = true;
+      }
+      return changed ? next : prev;
+    });
+
+    setNewBooking((prev) => {
+      const nextExtraQuantities = { ...prev.extraQuantities };
+      let changed = false;
+      for (const [itemId, qty] of Object.entries(normalizedByItem)) {
+        const prefix = `f3:${itemId}:`;
+        for (const key of Object.keys(nextExtraQuantities)) {
+          if (!key.startsWith(prefix)) continue;
+          if (nextExtraQuantities[key] !== qty) {
+            nextExtraQuantities[key] = qty;
+            changed = true;
+          }
+        }
+      }
+      return changed ? { ...prev, extraQuantities: nextExtraQuantities } : prev;
+    });
+  }, [isForm3Catalog, pricingVariables, categoryValues, newBooking.extraQuantities]);
 
   const showBookingForm = !bookingLoadError && !(editingBookingId && loadingBooking);
 
@@ -2990,7 +3437,7 @@ const handleAddBooking = async (status: string = 'pending') => {
               <div className="flex justify-between items-center gap-2">
                 <span className="text-muted-foreground">Industry</span>
                 {industries.length > 1 ? (
-                  <Select value={selectedIndustryId} onValueChange={(v) => { setSelectedIndustryId(v); setSelectedForm2VariableId(""); setNewBooking(prev => ({ ...prev, service: "", frequency: "", duration: "", selectedExtras: [], extraQuantities: {}, excludeQuantities: {}, categoryValues: {} })); setCategoryValues({}); }}>
+                  <Select value={selectedIndustryId} onValueChange={(v) => { setSelectedIndustryId(v); setSelectedForm2VariableId(""); setForm3SelectedItemIds([]); setForm3DraftAddonIds([]); setForm3ItemQuantities({}); setNewBooking(prev => ({ ...prev, service: "", frequency: "", duration: "", selectedExtras: [], extraQuantities: {}, excludeQuantities: {}, categoryValues: {} })); setCategoryValues({}); }}>
                     <SelectTrigger className="w-[180px] h-8">
                       <SelectValue placeholder="Select industry" />
                     </SelectTrigger>
@@ -4150,11 +4597,12 @@ const handleAddBooking = async (status: string = 'pending') => {
 
             {/* Form 3: items + add-ons (no packages) */}
             {isForm3Catalog && (
+              <div className="space-y-4">
               <div className="space-y-6 rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-card">
                 <div>
                   <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">What Needs To Be Done?</h3>
                   <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-                    Select an item, add it to this booking, then choose add-ons for that item. Repeat for multiple items.
+                    Select an item, choose add-ons, then click Add. Use the section below to choose extras for this booking.
                   </p>
                 </div>
                 {pricingVariables.length === 0 ? (
@@ -4173,90 +4621,135 @@ const handleAddBooking = async (status: string = 'pending') => {
                           category: v.category,
                         }))}
                       selectedId={selectedForm2VariableId || null}
-                      onSelect={setSelectedForm2VariableId}
+                      onSelect={(id) => {
+                        setSelectedForm2VariableId(id);
+                        setForm3DraftAddonIds([]);
+                      }}
                       uiVariant="admin"
                     />
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        disabled={!selectedForm2VariableId}
-                        onClick={() => {
-                          const activeItem = pricingVariables.find((v) => v.id === selectedForm2VariableId);
-                          const itemKey = String(activeItem?.id ?? "").trim();
-                          if (!itemKey) return;
-                          setCategoryValues((prev) => ({
-                            ...prev,
-                            [itemKey]: FORM3_ITEM_LINE_VALUE,
-                          }));
-                        }}
-                      >
-                        Add item to booking
-                      </Button>
-                    </div>
+                    {form3ActiveItem ? (
+                      <div className="space-y-4 border-t border-slate-200 pt-4 dark:border-slate-700">
+                        {form3DraftVisibleRows.addons.length > 0 ? (
+                          <Form2ItemPickerGrid
+                            className="mb-0"
+                            title="Choose Add-ons"
+                            items={form3DraftVisibleRows.addons.map((a) => ({
+                              id: a.id,
+                              name: a.name,
+                              category: null,
+                            }))}
+                            multiSelect
+                            selectedIds={form3DraftAddonIds}
+                            onSelect={toggleForm3DraftAddon}
+                            uiVariant="admin"
+                          />
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No add-ons available for this item.</p>
+                        )}
+                        <Button
+                          type="button"
+                          disabled={!selectedForm2VariableId}
+                          onClick={commitForm3DraftToBooking}
+                          className="w-full bg-cyan-500 hover:bg-cyan-600 text-white"
+                        >
+                          Add
+                        </Button>
+                      </div>
+                    ) : null}
                     {selectedForm3ItemCards.length > 0 ? (
-                      <div className="space-y-3">
-                        {selectedForm3ItemCards.map((card) => (
+                      <div className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-700">
+                        <h4 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+                          Selected Items
+                        </h4>
+                        {selectedForm3ItemCards.map((card) => {
+                          const itemRow = pricingVariables.find((v) => String(v.id) === card.itemId);
+                          const itemQtyBased = Boolean(itemRow?.qty_based);
+                          const itemQty = normalizeForm3ItemQuantity(
+                            itemRow,
+                            form3ItemQuantities[card.itemId] ?? 1,
+                          );
+                          const maxItemQty = itemQtyBased
+                            ? itemRow?.maximum_quantity != null && itemRow.maximum_quantity > 0
+                              ? itemRow.maximum_quantity
+                              : 999
+                            : 1;
+                          const committedAddons = getForm3CommittedLineExtras(card.itemId).filter(
+                            (line) => line.listingKind === "addon",
+                          );
+                          return (
                           <div key={card.itemId} className="rounded-lg border overflow-hidden">
-                            <div className="flex items-start justify-between gap-3 bg-slate-100/80 px-4 py-3">
-                              <div className="min-w-0">
-                                <p className="font-semibold text-slate-900">{card.itemName}</p>
-                                <p className="text-sm text-muted-foreground">Item</p>
+                            <div className="flex items-center justify-between gap-3 bg-slate-100/80 px-4 py-3">
+                              <p className="font-semibold text-slate-900">{card.itemName}</p>
+                              <div className="flex items-center gap-2 shrink-0">
+                                {itemQtyBased ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => setForm3ItemQty(card.itemId, itemQty - 1)}
+                                      disabled={itemQty <= 1}
+                                      className="w-8 h-8 rounded-md border border-slate-300 bg-white flex items-center justify-center hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-card"
+                                    >
+                                      <Minus className="h-4 w-4" />
+                                    </button>
+                                    <span className="w-10 text-center text-sm font-semibold tabular-nums">
+                                      {itemQty}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setForm3ItemQty(card.itemId, itemQty + 1)}
+                                      disabled={itemQty >= maxItemQty}
+                                      className="w-8 h-8 rounded-md border border-slate-300 bg-white flex items-center justify-center hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-card"
+                                    >
+                                      <Plus className="h-4 w-4" />
+                                    </button>
+                                  </>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  onClick={() => removeForm3ItemFromBooking(card.itemId)}
+                                  className={
+                                    itemQtyBased
+                                      ? "ml-1 text-red-500 hover:text-red-600"
+                                      : "text-red-500 hover:text-red-600"
+                                  }
+                                  aria-label={`Remove ${card.itemName}`}
+                                >
+                                  <X className="h-5 w-5" />
+                                </button>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setCategoryValues((prev) => ({ ...prev, [card.categoryKey]: "" }))
-                                }
-                                className="text-red-500 hover:text-red-600"
-                              >
-                                <X className="h-5 w-5" />
-                              </button>
                             </div>
-                            {form2AddonRows.length > 0 ? (
-                              <div className="p-4">
-                                <p className="text-sm font-medium mb-2">Any Add-ons for this item?</p>
-                                <div className="flex flex-wrap gap-2">
-                                  {form2AddonRows.map((addon) => {
-                                    const addonSelectionKey = makeForm3AddonSelectionKey(card.itemId, addon.id);
-                                    const selected = newBooking.selectedExtras?.includes(addonSelectionKey);
-                                    return (
-                                      <Button
-                                        key={`${card.itemId}-${addon.id}`}
-                                        type="button"
-                                        variant={selected ? "default" : "outline"}
-                                        size="sm"
-                                        onClick={() => {
-                                          setNewBooking((prev) => {
-                                            const exists = prev.selectedExtras?.includes(addonSelectionKey);
-                                            if (exists) {
-                                              const q = { ...prev.extraQuantities };
-                                              delete q[addonSelectionKey];
-                                              return {
-                                                ...prev,
-                                                selectedExtras: prev.selectedExtras?.filter((id) => id !== addonSelectionKey),
-                                                extraQuantities: q,
-                                              };
-                                            }
-                                            return {
-                                              ...prev,
-                                              selectedExtras: [...(prev.selectedExtras || []), addonSelectionKey],
-                                              extraQuantities: { ...prev.extraQuantities, [addonSelectionKey]: 1 },
-                                            };
-                                          });
-                                        }}
-                                      >
-                                        {addon.name}
-                                      </Button>
-                                    );
-                                  })}
-                                </div>
+                            {committedAddons.length > 0 ? (
+                              <div className="divide-y divide-slate-200 border-t border-slate-200 bg-white dark:divide-slate-700 dark:border-slate-700">
+                                {committedAddons.map((addon) => {
+                                  const addonLabel = getExtraCustomerDisplayName({
+                                    name: addon.name,
+                                    different_on_customer_end: addon.differentOnCustomerEnd,
+                                    customer_end_name: addon.customerEndName,
+                                  });
+                                  return (
+                                    <div
+                                      key={addon.id}
+                                      className="flex items-center gap-3 px-4 py-3"
+                                    >
+                                      <BookingExtraIcon
+                                        icon={addon.icon}
+                                        displayLabel={addonLabel}
+                                        className="h-8 w-8"
+                                      />
+                                      <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                                        {addonLabel}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             ) : null}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     ) : null}
+
                     <Button
                       type="button"
                       onClick={() => setSelectedForm2VariableId("")}
@@ -4266,6 +4759,86 @@ const handleAddBooking = async (status: string = 'pending') => {
                     </Button>
                   </>
                 )}
+              </div>
+
+              <div className="space-y-4 rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-card">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">Select Extras</h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Optional extras for this booking. Adjust quantity as needed.
+                  </p>
+                </div>
+                {form3BookingExtraRows.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No extras configured for this industry yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {form3BookingExtraRows.map((extra) => {
+                      const qty = getForm3BookingExtraQty(extra.id);
+                      const maxQty =
+                        extra.maximumQuantity && extra.maximumQuantity > 0
+                          ? extra.maximumQuantity
+                          : 999;
+                      const extraDisplayLabel = getExtraCustomerDisplayName({
+                        name: extra.name,
+                        different_on_customer_end: extra.differentOnCustomerEnd,
+                        customer_end_name: extra.customerEndName,
+                      });
+                      return (
+                        <div
+                          key={extra.id}
+                          className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2.5 dark:border-slate-600 dark:bg-slate-900/30"
+                        >
+                          <div className="flex min-w-0 items-center gap-3">
+                            <BookingExtraIcon
+                              icon={extra.icon}
+                              displayLabel={extraDisplayLabel}
+                              className="h-10 w-10"
+                            />
+                            <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                              {extraDisplayLabel}
+                            </span>
+                          </div>
+                          {extra.qtyBased ? (
+                            <div className="flex shrink-0 items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setForm3BookingExtraQty(extra.id, qty - 1)}
+                                disabled={qty === 0}
+                                className="w-8 h-8 rounded-md border border-gray-300 bg-white flex items-center justify-center hover:bg-gray-100 disabled:opacity-50 dark:border-slate-600 dark:bg-card"
+                              >
+                                <Minus className="h-3.5 w-3.5" />
+                              </button>
+                              <span className="w-8 text-center text-sm font-semibold tabular-nums">
+                                {qty}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setForm3BookingExtraQty(extra.id, Math.min(qty + 1, maxQty))
+                                }
+                                disabled={qty >= maxQty}
+                                className="w-8 h-8 rounded-md border border-gray-300 bg-white flex items-center justify-center hover:bg-gray-100 disabled:opacity-50 dark:border-slate-600 dark:bg-card"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant={qty > 0 ? "default" : "outline"}
+                              size="sm"
+                              className="shrink-0"
+                              onClick={() => setForm3BookingExtraQty(extra.id, qty > 0 ? 0 : 1)}
+                            >
+                              {qty > 0 ? "Remove" : "Add"}
+                            </Button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
               </div>
             )}
 
@@ -4776,8 +5349,8 @@ const handleAddBooking = async (status: string = 'pending') => {
               </TooltipProvider>
             )}
 
-            {/* Extras - Display filtered extras */}
-            {(isForm2Or3Catalog ? form2ExtraRows.length > 0 : extras.length > 0) && (
+            {/* Extras - Display filtered extras (Form 3 uses per-item extras on item cards) */}
+            {!isForm3Catalog && (isForm2Or3Catalog ? form2ExtraRows.length > 0 : extras.length > 0) && (
               <TooltipProvider delayDuration={200}>
               <div>
                 <Label className="text-sm font-medium mb-3 block">
@@ -5780,3 +6353,4 @@ const handleAddBooking = async (status: string = 'pending') => {
     </div>
   );
 }
+

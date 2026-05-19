@@ -17,19 +17,22 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Form1RichTextEditor } from "@/components/admin/Form1RichTextEditor";
-import { Droplets, Home, Info, Layers, Loader2, Package, Sparkles, Wrench } from "lucide-react";
+import { Droplets, Home, Info, Layers, Loader2, Package, Sparkles, Wrench, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useBusiness } from "@/contexts/BusinessContext";
 import type { FrequencyPopupDisplay } from "@/lib/frequencyPopupDisplay";
 import type { PricingVariableDisplay } from "@/lib/pricing-variables";
 import { bookingFormScopeFromSearchParams } from "@/lib/bookingFormScope";
+import { cn } from "@/lib/utils";
 import {
   VARIABLE_UI_DEFAULTS,
   type ManagePricingVariableUI,
   mapApiPricingVariables,
   mapPricingVariableToPostBody,
   getManageVariableLabels,
+  isPersistedCatalogItemId,
 } from "@/app/admin/settings/industries/form-1/pricing-parameter/manage-variables/pricingVariableManageShared";
+import { Form3ItemDependenciesFields } from "@/app/admin/settings/industries/form-3/items/Form3ItemDependenciesFields";
 
 type EditFormState = {
   name: string;
@@ -46,8 +49,12 @@ type EditFormState = {
   display: PricingVariableDisplay;
   showBasedOnFrequency: boolean;
   frequencyOptions: string[];
+  showBasedOnLocation: boolean;
+  locationOptions: string[];
   showBasedOnServiceCategory: boolean;
   serviceCategoryOptions: string[];
+  qtyBased: boolean;
+  maximumQuantity: string;
 };
 
 function formFromVariable(v: ManagePricingVariableUI): EditFormState {
@@ -66,8 +73,12 @@ function formFromVariable(v: ManagePricingVariableUI): EditFormState {
     display: v.display,
     showBasedOnFrequency: v.showBasedOnFrequency,
     frequencyOptions: [...v.frequencyOptions],
+    showBasedOnLocation: v.showBasedOnLocation,
+    locationOptions: [...v.locationOptions],
     showBasedOnServiceCategory: v.showBasedOnServiceCategory,
     serviceCategoryOptions: [...v.serviceCategoryOptions],
+    qtyBased: v.qtyBased,
+    maximumQuantity: v.maximumQuantity,
   };
 }
 
@@ -88,8 +99,12 @@ function variableFromForm(id: string, form: EditFormState): ManagePricingVariabl
     display: form.display,
     showBasedOnFrequency: form.showBasedOnFrequency,
     frequencyOptions: form.showBasedOnFrequency ? [...form.frequencyOptions] : [],
+    showBasedOnLocation: form.showBasedOnLocation,
+    locationOptions: form.showBasedOnLocation ? [...form.locationOptions] : [],
     showBasedOnServiceCategory: form.showBasedOnServiceCategory,
     serviceCategoryOptions: form.showBasedOnServiceCategory ? [...form.serviceCategoryOptions] : [],
+    qtyBased: form.qtyBased,
+    maximumQuantity: form.qtyBased ? form.maximumQuantity.trim() : "",
   };
 }
 
@@ -134,9 +149,10 @@ export default function EditPricingVariablePage() {
     ...VARIABLE_UI_DEFAULTS,
   });
   const [frequencyNames, setFrequencyNames] = useState<string[]>([]);
+  const [locationNames, setLocationNames] = useState<string[]>([]);
   const [serviceCategoryNames, setServiceCategoryNames] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState("details");
-  const hasWizardTabs = isItemsCatalog && isCreateMode;
+  const hasWizardTabs = isForm3;
   const [itemLayoutMode, setItemLayoutMode] = useState<"image" | "icon">("icon");
   const iconPresets = [
     { id: "layers", label: "Layers", Icon: Layers },
@@ -147,9 +163,22 @@ export default function EditPricingVariablePage() {
     { id: "wrench", label: "Wrench", Icon: Wrench },
   ] as const;
   const [selectedPresetIcon, setSelectedPresetIcon] = useState<string>(iconPresets[0].id);
+  const [maximumQuantityError, setMaximumQuantityError] = useState("");
+
+  const validateMaximumQuantity = (qtyBased: boolean, maximumQuantity: string): string => {
+    if (!qtyBased) return "";
+    if (!maximumQuantity.trim()) return "This field cannot be left empty.";
+    const n = parseInt(maximumQuantity, 10);
+    if (Number.isNaN(n) || n <= 0) return "Enter a valid number greater than 0.";
+    return "";
+  };
 
   const load = useCallback(async () => {
-    if (!currentBusiness?.id || !industry || itemId.startsWith("temp-")) {
+    if (!currentBusiness?.id || !industry) {
+      setLoading(false);
+      return;
+    }
+    if (!isCreateMode && !isPersistedCatalogItemId(itemId)) {
       setLoading(false);
       return;
     }
@@ -173,14 +202,18 @@ export default function EditPricingVariablePage() {
       setIndustryId(currentIndustry.id);
       const iid = encodeURIComponent(currentIndustry.id);
       const bid = encodeURIComponent(currentBusiness.id);
-      const [res, freqRes, catRes] = await Promise.all([
+      const [res, freqRes, catRes, locRes] = await Promise.all([
         fetch(`/api/pricing-variables?industryId=${iid}&businessId=${bid}${scopeQs}`),
         fetch(`/api/industry-frequency?industryId=${iid}&includeAll=true${scopeQs}`),
         fetch(`/api/service-categories?industryId=${iid}&businessId=${bid}${scopeQs}`),
+        currentBusiness?.id
+          ? fetch(`/api/locations?business_id=${encodeURIComponent(currentBusiness.id)}`)
+          : Promise.resolve(null),
       ]);
       const data = await res.json();
       const freqData = await freqRes.json().catch(() => ({}));
       const catData = await catRes.json().catch(() => ({}));
+      const locData = locRes ? await locRes.json().catch(() => ({})) : {};
       if (!res.ok) throw new Error(data.error || labels.loadFail);
       const rows = mapApiPricingVariables(data.variables ?? []);
       setAllRows(rows);
@@ -212,6 +245,13 @@ export default function EditPricingVariablePage() {
               .filter(Boolean)
           : [],
       );
+      setLocationNames(
+        Array.isArray(locData.locations)
+          ? locData.locations
+              .map((l: { name?: string }) => String(l.name ?? "").trim())
+              .filter(Boolean)
+          : [],
+      );
     } catch (e) {
       console.error(e);
       toast({ title: "Error", description: labels.loadFail, variant: "destructive" });
@@ -228,6 +268,14 @@ export default function EditPricingVariablePage() {
     if (!industryId || !currentBusiness?.id) {
       toast({ title: "Error", description: "Industry or business not loaded.", variant: "destructive" });
       return;
+    }
+    if (isForm3 && isItemsCatalog) {
+      const maxErr = validateMaximumQuantity(editForm.qtyBased, editForm.maximumQuantity);
+      if (maxErr) {
+        setMaximumQuantityError(maxErr);
+        toast({ title: "Error", description: maxErr, variant: "destructive" });
+        return;
+      }
     }
     const normalizedCategory = (editForm.category.trim() || (isItemsCatalog ? editForm.name.trim() : "")).trim();
     if (!normalizedCategory) {
@@ -249,11 +297,11 @@ export default function EditPricingVariablePage() {
           businessId: currentBusiness.id,
           bookingFormScope,
           ...(isCreateMode
-            ? { variable: mapPricingVariableToPostBody(variableFromForm(`temp-${Date.now()}`, formToSave)) }
+            ? { variable: mapPricingVariableToPostBody(variableFromForm(`temp-${Date.now()}`, formToSave), "form3") }
             : {
                 variables: allRows
                   .map((v) => (v.id === itemId ? variableFromForm(itemId, formToSave) : v))
-                  .map(mapPricingVariableToPostBody),
+                  .map((v) => mapPricingVariableToPostBody(v, "form3")),
               }),
         }),
       });
@@ -276,12 +324,24 @@ export default function EditPricingVariablePage() {
     }
   };
 
+  const goBack = () => {
+    if (activeTab === "providers") setActiveTab("dependencies");
+    else if (activeTab === "dependencies") setActiveTab("details");
+  };
+
   const goNextOrSave = async () => {
     if (!hasWizardTabs) {
       await save();
       return;
     }
     if (activeTab === "details") {
+      if (isForm3 && isItemsCatalog) {
+        const maxErr = validateMaximumQuantity(editForm.qtyBased, editForm.maximumQuantity);
+        if (maxErr) {
+          setMaximumQuantityError(maxErr);
+          return;
+        }
+      }
       setActiveTab("dependencies");
       return;
     }
@@ -292,7 +352,7 @@ export default function EditPricingVariablePage() {
     await save();
   };
 
-  if (itemId.startsWith("temp-")) {
+  if (!isCreateMode && !isPersistedCatalogItemId(itemId)) {
     return (
       <div className="space-y-6">
         <Card>
@@ -351,6 +411,7 @@ export default function EditPricingVariablePage() {
   const depsHintVisible =
     labels.depsTabHint &&
     !editForm.showBasedOnFrequency &&
+    !editForm.showBasedOnLocation &&
     !editForm.showBasedOnServiceCategory;
 
   return (
@@ -716,13 +777,119 @@ export default function EditPricingVariablePage() {
                   )}
                 </div>
               )}
+
+              {isForm3 && isItemsCatalog && (
+                <>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm font-medium">Quantity based</Label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="inline-flex rounded-sm text-orange-500 hover:text-orange-600 focus:outline-none"
+                            aria-label="About quantity based"
+                          >
+                            <Info className="h-4 w-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-sm text-sm leading-snug">
+                          When Yes, customers can choose how many of this item to book (up to the maximum you set).
+                          When No, the item is a single selection.
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    <RadioGroup
+                      value={editForm.qtyBased ? "yes" : "no"}
+                      onValueChange={(v) => {
+                        const yes = v === "yes";
+                        setEditForm((p) => ({
+                          ...p,
+                          qtyBased: yes,
+                          ...(!yes ? { maximumQuantity: "" } : {}),
+                        }));
+                        if (!yes) setMaximumQuantityError("");
+                      }}
+                      className="flex gap-6"
+                    >
+                      <label className="flex cursor-pointer items-center gap-2 text-sm">
+                        <RadioGroupItem value="yes" /> Yes
+                      </label>
+                      <label className="flex cursor-pointer items-center gap-2 text-sm">
+                        <RadioGroupItem value="no" /> No
+                      </label>
+                    </RadioGroup>
+                  </div>
+
+                  {editForm.qtyBased ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="form3-item-maximum">Maximum</Label>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="inline-flex rounded-sm text-orange-500 hover:text-orange-600 focus:outline-none"
+                              aria-label="About maximum quantity"
+                            >
+                              <Info className="h-4 w-4" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="max-w-sm text-sm leading-snug">
+                            The highest quantity a customer can select for this item.
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                      <Input
+                        id="form3-item-maximum"
+                        type="number"
+                        min="1"
+                        value={editForm.maximumQuantity}
+                        onChange={(e) => {
+                          const maximumQuantity = e.target.value;
+                          setEditForm((p) => ({ ...p, maximumQuantity }));
+                          setMaximumQuantityError(
+                            validateMaximumQuantity(true, maximumQuantity),
+                          );
+                        }}
+                        onBlur={() =>
+                          setMaximumQuantityError(
+                            validateMaximumQuantity(true, editForm.maximumQuantity),
+                          )
+                        }
+                        placeholder="Number"
+                        className={cn(
+                          "max-w-xs",
+                          maximumQuantityError ? "border-red-500 focus-visible:ring-red-500" : "",
+                        )}
+                      />
+                      {maximumQuantityError ? (
+                        <p className="flex items-center gap-1.5 text-sm text-red-600">
+                          <AlertCircle className="h-4 w-4 shrink-0" />
+                          {maximumQuantityError}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </>
+              )}
             </TooltipProvider>
         </TabsContent>
 
         <TabsContent value="dependencies" className="mt-4 space-y-5">
+            {isForm3 ? (
+              <Form3ItemDependenciesFields
+                form={editForm}
+                onChange={(patch) => setEditForm((p) => ({ ...p, ...patch }))}
+                frequencyNames={frequencyNames}
+                locationNames={locationNames}
+                serviceCategoryNames={serviceCategoryNames}
+              />
+            ) : (
+              <>
             {isItemsCatalog ? (
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                {isForm3 ? "Form 3" : "Form 2"}
+                Form 2
               </h3>
             ) : null}
             <p className="text-sm text-muted-foreground">{labels.depsIntro}</p>
@@ -872,6 +1039,8 @@ export default function EditPricingVariablePage() {
                   ))}
               </div>
             </div>
+              </>
+            )}
         </TabsContent>
         {hasWizardTabs && (
           <TabsContent value="providers" className="mt-4 space-y-5">
@@ -883,6 +1052,11 @@ export default function EditPricingVariablePage() {
       </Tabs>
 
           <div className="mt-6 flex gap-2 justify-end">
+            {hasWizardTabs && activeTab !== "details" ? (
+              <Button variant="outline" type="button" onClick={goBack}>
+                Back
+              </Button>
+            ) : null}
             <Button variant="outline" type="button" onClick={() => router.push(listHref)}>
               {labels.cancelBtn}
             </Button>
