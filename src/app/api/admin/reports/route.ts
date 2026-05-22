@@ -3,6 +3,10 @@ import {
   requireAdminTenantContext,
   assertBusinessIdMatchesContext,
 } from '@/lib/adminTenantContext';
+import {
+  extractMatchedLocationIdsFromCustomization,
+  extractPricingSummaryFromCustomization,
+} from '@/lib/customerBookingPricingDisplay';
 
 export async function GET(request: NextRequest) {
   try {
@@ -134,7 +138,19 @@ export async function GET(request: NextRequest) {
     const cancelled = cancelledBookings.length;
     
     // Calculate revenue from completed and confirmed bookings
-    const revenue = [...completedBookings, ...confirmedBookings].reduce((sum, booking) => sum + (booking.amount || 0), 0);
+    const revenueBookings = [...completedBookings, ...confirmedBookings];
+    const revenue = revenueBookings.reduce((sum, booking) => sum + (booking.amount || 0), 0);
+
+    const salesTaxByLocation: Record<string, number> = {};
+    let salesTax = 0;
+    for (const booking of filteredBookings) {
+      const tax = extractPricingSummaryFromCustomization(booking.customization)?.tax ?? 0;
+      if (tax <= 0) continue;
+      salesTax += tax;
+      const locIds = extractMatchedLocationIdsFromCustomization(booking.customization);
+      const locKey = locIds[0] ?? '_unassigned';
+      salesTaxByLocation[locKey] = (salesTaxByLocation[locKey] ?? 0) + tax;
+    }
 
     // Calculate revenue over time (grouped by date)
     const revenueByDateMap = new Map<string, number>();
@@ -164,7 +180,9 @@ export async function GET(request: NextRequest) {
           totalBookings,
           revenue,
           completed,
-          cancelled
+          cancelled,
+          salesTax,
+          salesTaxByLocation,
         },
         charts: {
           revenueByDate,

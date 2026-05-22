@@ -20,7 +20,7 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
       />
       
       {/* Modal */}
-      <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[75vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
@@ -32,8 +32,8 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
           </button>
         </div>
         
-        {/* Content */}
-        <div className="p-6">
+        {/* Content — slightly tighter bottom padding */}
+        <div className="px-6 pt-6 pb-4">
           {children}
         </div>
       </div>

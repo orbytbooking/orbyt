@@ -184,7 +184,7 @@ export function LeadForm({ lead, prefillFromBooking, onSubmit, onCancel, loading
         </p>
       </div>
 
-      <div className="flex gap-3 pt-4">
+      <div className="flex gap-3">
         <Button
           type="button"
           variant="outline"

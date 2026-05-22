@@ -16,6 +16,7 @@ import {
   evaluateMarketingCouponCustomerScope,
 } from '@/lib/marketingCouponCustomerScope';
 import { applyKeyAndJobNotesFromPayload } from '@/lib/bookingKeyJobNotes';
+import { resolveBookingTaxTotals } from '@/lib/bookingTax';
 
 type AdminBookingRow = {
   id: string;
@@ -231,35 +232,20 @@ export async function POST(request: Request) {
     // Base amount before tax (from pricing engine / form)
     const baseAmount = Number(bookingData.amount) || 0;
 
-    // Look up tax settings for this business and compute tax amount (BookingKoala-style flat tax)
-    let taxAmount = 0;
-    try {
-      const { data: taxRow } = await supabase
-        .from('business_tax_settings')
-        .select('settings')
-        .eq('business_id', businessId)
-        .maybeSingle();
+    const locationIdsRaw = bookingData.location_ids ?? bookingData.locationIds;
+    const matchedLocationIds = Array.isArray(locationIdsRaw)
+      ? locationIdsRaw.map((id: unknown) => String(id).trim()).filter(Boolean)
+      : undefined;
 
-      const settings = (taxRow?.settings as any) || {};
-      const taxesEnabled = !!settings.taxesEnabled;
-      const method = settings.method as 'taxify' | 'flat' | undefined;
-
-      if (taxesEnabled && method === 'flat') {
-        // For now we support the single global flat rate (when "different tax per location" = No)
-        const flatLocationMode = settings.flatLocationMode as 'single' | 'per_location' | undefined;
-        const rateStr = settings.flatRateGlobal as string | undefined;
-        const rate = rateStr != null ? Number(rateStr) : NaN;
-
-        if (flatLocationMode === 'single' && Number.isFinite(rate) && rate > 0) {
-          taxAmount = +(baseAmount * (rate / 100)).toFixed(2);
-        }
-      }
-    } catch (e) {
-      // If tax lookup fails, we still create the booking without tax; error is logged for debugging.
+    const { preTaxAmount, taxAmount, totalWithTax } = await resolveBookingTaxTotals(
+      supabase,
+      businessId,
+      baseAmount,
+      matchedLocationIds,
+    ).catch((e) => {
       console.error('Tax calculation error for booking:', e);
-    }
-
-    const totalWithTax = baseAmount + taxAmount;
+      return { preTaxAmount: baseAmount, taxAmount: 0, totalWithTax: baseAmount };
+    });
 
     const { data: storeWageOpts } = await supabase
       .from('business_store_options')
@@ -323,7 +309,7 @@ export async function POST(request: Request) {
       date: bookingData.date || null,
       time: bookingData.time || null,
       customer_id: customerId,
-      amount: baseAmount,
+      amount: preTaxAmount,
     };
     if (providerName) bookingWithBusiness.provider_name = providerName;
 

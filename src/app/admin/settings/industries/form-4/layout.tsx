@@ -201,7 +201,7 @@ export default function Form1Layout({
   return (
     <div className="space-y-6 px-4 sm:px-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">
+        <h2 className="text-2xl font-bold tracking-tight text-black dark:text-white">
           {industry} - {formLabel}
         </h2>
       </div>

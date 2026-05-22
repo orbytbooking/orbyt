@@ -142,6 +142,11 @@ import {
   normalizeFrequencyRepeatKey,
 } from "@/lib/frequencyRepeatWeekdayCalendar";
 import { serializePricingSummaryForCustomization } from "@/lib/customerBookingPricingDisplay";
+import { CustomerBookingCheckoutPaymentSummary } from "@/components/customer/CustomerBookingCheckoutPaymentSummary";
+import {
+  resolveBookingTaxConfig,
+  type PublicBookingTaxSettings,
+} from "@/lib/bookingTax";
 import {
   getMarketingCouponGateFailure,
   shouldEnforceMarketingCouponLocationSubset,
@@ -195,7 +200,7 @@ const FORM2_SAMPLE_REVIEWS = [
     author: "James R.",
   },
   {
-    quote: "We use them every month—consistent quality every visit.",
+    quote: "We use them every month?consistent quality every visit.",
     author: "Priya K.",
   },
 ] as const;
@@ -460,7 +465,7 @@ async function fetchServiceCategoriesMappedForRebook(
       const hours = sct?.hours ?? "0";
       const minutes = sct?.minutes ?? "0";
       const duration =
-        sct?.enabled ? `${hours}h ${minutes}m`.replace(/^0h /, "").replace(/ 0m$/, "m") : "—";
+        sct?.enabled ? `${hours}h ${minutes}m`.replace(/^0h /, "").replace(/ 0m$/, "m") : "?";
       const price =
         scp?.enabled && scp?.price ? parseFloat(String(scp.price)) || 0 : 0;
       const name = String(cat.name ?? "");
@@ -665,7 +670,7 @@ export default function BookingPageContent() {
   const editOnlyParam = searchParams.get("editOnly");
   const limitedEditMode = Boolean(bookingIdParam && editOnlyParam === "details-payment");
   const [businessName, setBusinessName] = useState<string>('');
-  /** From `GET /api/businesses` (`logo_url`) — fallback when website builder has no logo. */
+  /** From `GET /api/businesses` (`logo_url`) ? fallback when website builder has no logo. */
   const [businessLogoUrl, setBusinessLogoUrl] = useState<string>('');
   const [businessId, setBusinessId] = useState<string>('');
   const [currentStep, setCurrentStep] = useState<BookingStep>("category");
@@ -679,7 +684,7 @@ export default function BookingPageContent() {
   const [successFlowGuest, setSuccessFlowGuest] = useState<boolean | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [flippedCardId, setFlippedCardId] = useState<string | null>(null);
-  /** Form 2: active item — either `industry_pricing_variable.id` (preset catalog) or legacy service category id. */
+  /** Form 2: active item ? either `industry_pricing_variable.id` (preset catalog) or legacy service category id. */
   const [form2ActiveItemId, setForm2ActiveItemId] = useState<string | null>(null);
   /** Form 3: selected item ids shown as booking line cards. */
   const [form3SelectedItemIds, setForm3SelectedItemIds] = useState<string[]>([]);
@@ -768,7 +773,7 @@ export default function BookingPageContent() {
   const [availableExtras, setAvailableExtras] = useState<any[]>([]);
   /** Full industry_pricing_parameter rows; dropdowns are derived with admin-matching filters */
   const [pricingParametersFull, setPricingParametersFull] = useState<PricingParamRow[]>([]);
-  /** Manage Variables rows — used for customer-facing labels (different on customer end). */
+  /** Manage Variables rows ? used for customer-facing labels (different on customer end). */
   const [industryPricingVariables, setIndustryPricingVariables] = useState<
     Array<{
       category: string;
@@ -788,7 +793,7 @@ export default function BookingPageContent() {
   const [frequencyMetaByName, setFrequencyMetaByName] = useState<Record<string, CustomerFrequencyMeta>>({});
   const [bookingHtmlPopup, setBookingHtmlPopup] = useState<{ title: string; html: string } | null>(null);
   const [bookingPopupSurface, setBookingPopupSurface] = useState<BookingPopupSurface>("customer_public_frontend");
-  /** Same role as admin AddBookingForm `newBooking.frequency` — drives Form 1 dependency rules (service list, extras, etc.). */
+  /** Same role as admin AddBookingForm `newBooking.frequency` ? drives Form 1 dependency rules (service list, extras, etc.). */
   const [bookingFrequencyForFilters, setBookingFrequencyForFilters] = useState("");
   const [serviceListFrequencyDeps, setServiceListFrequencyDeps] =
     useState<FrequencyDependencies | null>(null);
@@ -823,6 +828,8 @@ export default function BookingPageContent() {
 
   const [publicBookingStoreOptions, setPublicBookingStoreOptions] = useState<PublicBookingStoreOptions | null>(null);
   const [publicBookingStoreLoaded, setPublicBookingStoreLoaded] = useState(false);
+  const [bookingTaxSettings, setBookingTaxSettings] = useState<PublicBookingTaxSettings | null>(null);
+  const [taxSettingsLoaded, setTaxSettingsLoaded] = useState(false);
   /** Form 2: pay on arrival vs Stripe checkout on the same page */
   const [form2PayMode, setForm2PayMode] = useState<"cash" | "online">("online");
    const [form2OpenFaqId, setForm2OpenFaqId] = useState<string | null>(null);
@@ -837,14 +844,14 @@ export default function BookingPageContent() {
     .trim()
     .toLowerCase();
 
-  /** Stable primitives for payment-return / redirect query handling (never put `searchParams` in effect deps — new ref each render). */
+  /** Stable primitives for payment-return / redirect query handling (never put `searchParams` in effect deps ? new ref each render). */
   const qpAnetSb = searchParams.get("anet_sb")?.trim() ?? "";
   const qpBookingIdReturn = searchParams.get("booking_id")?.trim() ?? "";
   const qpAuthorizeNet = searchParams.get("authorize_net")?.trim() ?? "";
   const qpAnetSuccess = searchParams.get("anet_success")?.trim() ?? "";
   const qpStripe = searchParams.get("stripe")?.trim() ?? "";
   const qpSessionId = searchParams.get("session_id")?.trim() ?? "";
-  /** Full query string (primitive) — safe in effect deps; object identity of `searchParams` is not. */
+  /** Full query string (primitive) ? safe in effect deps; object identity of `searchParams` is not. */
   const searchParamsSnapshot = searchParams.toString();
 
   /** Layout for the industry matching the current category step (key available before payment/details complete). */
@@ -928,6 +935,30 @@ export default function BookingPageContent() {
           setPublicBookingStoreOptions(null);
           setPublicBookingStoreLoaded(true);
         }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [businessIdFromUrl]);
+
+  useEffect(() => {
+    if (!businessIdFromUrl) {
+      setBookingTaxSettings(null);
+      setTaxSettingsLoaded(true);
+      return;
+    }
+    let cancelled = false;
+    setTaxSettingsLoaded(false);
+    fetch(`/api/public/booking-tax-settings?business_id=${encodeURIComponent(businessIdFromUrl)}`)
+      .then((r) => r.json())
+      .then((j: { settings?: PublicBookingTaxSettings }) => {
+        if (!cancelled) setBookingTaxSettings(j?.settings ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setBookingTaxSettings(null);
+      })
+      .finally(() => {
+        if (!cancelled) setTaxSettingsLoaded(true);
       });
     return () => {
       cancelled = true;
@@ -1069,7 +1100,7 @@ export default function BookingPageContent() {
     [isForm3Catalog, form2CatalogItems.length],
   );
 
-  // Form 2 frequency deps for items/packages — same source as admin `newBooking.frequency`.
+  // Form 2 frequency deps for items/packages ? same source as admin `newBooking.frequency`.
   useEffect(() => {
     if (!selectedIndustryId || !businessIdFromUrl.trim() || !bookingFrequencyForFilters.trim()) {
       setPricingFrequencyDeps(null);
@@ -1196,7 +1227,7 @@ export default function BookingPageContent() {
         return;
       }
 
-      // Only blank the page on initial load — not on 5s poll / industryChanged (avoids "reload" flicker).
+      // Only blank the page on initial load ? not on 5s poll / industryChanged (avoids "reload" flicker).
       if (!opts?.silent) setIndustryListLoaded(false);
       try {
         const response = await fetch(`/api/industries?business_id=${businessIdFromUrl}`);
@@ -1969,7 +2000,7 @@ export default function BookingPageContent() {
             const duration =
               cat.service_category_time?.enabled
                 ? `${hours}h ${minutes}m`.replace(/^0h /, "").replace(/ 0m$/, "m")
-                : "—";
+                : "?";
             const price =
               cat.service_category_price?.enabled && cat.service_category_price?.price
                 ? parseFloat(String(cat.service_category_price.price)) || 0
@@ -2007,7 +2038,7 @@ export default function BookingPageContent() {
                 const allowedIds = allowedIdsRaw
                   .map((x: unknown) => String(x).trim().toLowerCase())
                   .filter((x: string) => x.length > 0);
-                // Backward compatibility: no targeting stored — show everywhere.
+                // Backward compatibility: no targeting stored ? show everywhere.
                 if (allowedNames.length === 0 && allowedIds.length === 0) return true;
                 // Until the customer's zip/city resolves for the current industry, don't hide offerings.
                 const locationLookupPending =
@@ -2266,7 +2297,7 @@ export default function BookingPageContent() {
     };
   }, [selectedIndustryId, businessIdFromUrl, bookingFrequencyForFilters, bookingFormScopeForCatalog]);
 
-  /** Service cards: no frequency chosen yet → show full list; after a frequency is chosen, apply Form 1 deps. */
+  /** Service cards: no frequency chosen yet ? show full list; after a frequency is chosen, apply Form 1 deps. */
   const categoryServicesForForm = useMemo(() => {
     if (limitedEditMode) return serviceCategories;
     if (!bookingFrequencyForFilters.trim()) return serviceCategories;
@@ -2275,7 +2306,7 @@ export default function BookingPageContent() {
       const shouldApplyDeps =
         bookingFormScopeForCatalog === "form2" || Boolean(raw?.service_category_frequency);
       if (!shouldApplyDeps) return true;
-      // Match `filterServiceCategories` semantics: deps still loading — don't suppress catalog yet.
+      // Match `filterServiceCategories` semantics: deps still loading ? don't suppress catalog yet.
       if (!serviceListFrequencyDeps) return true;
       const allowed = Array.isArray(serviceListFrequencyDeps.serviceCategories)
         ? serviceListFrequencyDeps.serviceCategories.map((x) => String(x))
@@ -2949,7 +2980,7 @@ export default function BookingPageContent() {
   const isTimeSelected = Boolean(selectedTime);
   const isDateTimeSelected = isDateSelected && isTimeSelected;
 
-  // Fetch time slots from /api/time-slots (deps: stable `businessIdFromUrl` + watched date — not `searchParams`)
+  // Fetch time slots from /api/time-slots (deps: stable `businessIdFromUrl` + watched date ? not `searchParams`)
   useEffect(() => {
     const fetchTimeSlots = async () => {
       const dateVal = form.getValues("date");
@@ -3131,7 +3162,7 @@ export default function BookingPageContent() {
     };
   };
 
-  /** Stable customization + variables per service card — avoids new object refs every parent render (Form 2 mounts many cards). */
+  /** Stable customization + variables per service card ? avoids new object refs every parent render (Form 2 mounts many cards). */
   const frequencyAwareCardPropsByServiceId = useMemo(() => {
     type Vars = ReturnType<typeof buildCustomerAvailableVariables>;
     const custom: Record<string, ServiceCustomization> = {};
@@ -3208,7 +3239,7 @@ export default function BookingPageContent() {
     const run = async () => {
       if (rebookGiveUpRef.current === bookingIdParam) return;
 
-      // Phase 1 — fetch booking + match service (admin catalog), stash for phase 2
+      // Phase 1 ? fetch booking + match service (admin catalog), stash for phase 2
       if (!rebookSourceBooking && industryOptions.length > 0) {
         const sourceBooking = await fetchBookingById(currentBusinessId, bookingIdParam);
         if (cancelled) return;
@@ -3292,7 +3323,7 @@ export default function BookingPageContent() {
         return;
       }
 
-      // Phase 2 — full customization + form once tiers / categories are ready
+      // Phase 2 ? full customization + form once tiers / categories are ready
       if (!rebookSourceBooking || prefilledBookingId === bookingIdParam) return;
       if (!selectedService) return;
       if (serviceCategoriesLoading) return;
@@ -3550,7 +3581,7 @@ export default function BookingPageContent() {
     };
   }, [currentStep, router, businessIdFromUrl, qpAnetSb]);
 
-  /** Estimated job length: hourly custom time → card hours/min; else pricing-parameter sum (+extras, −partial) or duration label. */
+  /** Estimated job length: hourly custom time ? card hours/min; else pricing-parameter sum (+extras, -partial) or duration label. */
   const computeEstimatedMinutesForBooking = useCallback(
     (serviceName: string) => {
       if (!serviceCustomization || !selectedService) return null;
@@ -3761,6 +3792,9 @@ export default function BookingPageContent() {
             ...(newBooking.customization ?? {}),
             key_access: { primary_option: keyPrimary, keep_key: Boolean(keyAccessForm.keep_key) },
             ...(jobNoteForProvider ? { customer_note_for_provider: jobNoteForProvider } : {}),
+            ...(locationResolve.matchedLocationIds.length > 0
+              ? { matched_location_ids: locationResolve.matchedLocationIds }
+              : {}),
             pricing_summary: serializePricingSummaryForCustomization(tot),
             ...(appliedCoupon
               ? {
@@ -3840,7 +3874,7 @@ export default function BookingPageContent() {
       return null;
     }
 
-    // No business ID – must come from booking link
+    // No business ID ? must come from booking link
     if (!currentBusinessId) {
       toast({
         title: "Business required",
@@ -4142,7 +4176,7 @@ export default function BookingPageContent() {
       toast({
         title: "Services not live yet",
         description:
-          "This business has not published Form 1 services. You’re viewing the default starter layout for reference—checkout stays disabled until they configure categories in admin.",
+          "This business has not published Form 1 services. You?re viewing the default starter layout for reference?checkout stays disabled until they configure categories in admin.",
         variant: "destructive",
       });
       return;
@@ -4230,7 +4264,7 @@ export default function BookingPageContent() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  // Helper: admin may store "Deep Cleaning, Basic Cleaning" or "Weekly, Monthly" – treat as list
+  // Helper: admin may store "Deep Cleaning, Basic Cleaning" or "Weekly, Monthly" ? treat as list
   const listContains = (commaSeparated: string | null | undefined, value: string): boolean => {
     if (!value?.trim()) return false;
     if (!commaSeparated?.trim()) return true;
@@ -4391,7 +4425,7 @@ export default function BookingPageContent() {
     return sum;
   };
 
-  // Sum extra price × quantity for each selected extra (from industry extras, not hardcoded)
+  // Sum extra price ? quantity for each selected extra (from industry extras, not hardcoded)
   const getExtrasSubtotal = () => {
     if (!serviceCustomization?.extras?.length || availableExtras.length === 0) return 0;
     let sum = 0;
@@ -4448,7 +4482,7 @@ export default function BookingPageContent() {
       }
     }
 
-    // Hourly rate × duration (custom time from card; parameter time from estimated minutes)
+    // Hourly rate ? duration (custom time from card; parameter time from estimated minutes)
     const service = serviceCategories.find((s) => s.name === serviceName);
     const raw = service?.raw as
       | {
@@ -4482,7 +4516,12 @@ export default function BookingPageContent() {
     return service?.price ?? 0;
   };
 
-  /** Totals aligned with admin AddBookingForm: partial → frequency discount → coupon → tax */
+  const bookingTaxConfig = useMemo(
+    () => resolveBookingTaxConfig(bookingTaxSettings ?? undefined, locationResolve.matchedLocationIds),
+    [bookingTaxSettings, locationResolve.matchedLocationIds],
+  );
+
+  /** Totals aligned with admin AddBookingForm: partial ? frequency discount ? coupon ? tax */
   function calculateTotal() {
     // Coupon + summary can run on the details step before `bookingData` exists (set only after Confirm Booking).
     // Pricing only needs the selected service + customization, same as the payment step.
@@ -4507,6 +4546,7 @@ export default function BookingPageContent() {
         couponDiscount: 0,
         discountedSubtotal: 0,
         tax: 0,
+        taxLabel: bookingTaxConfig.label,
         total: 0,
         subtotal: 0,
       };
@@ -4549,11 +4589,16 @@ export default function BookingPageContent() {
       extrasSubtotal,
       partialCleaningDiscount,
       frequencyDiscount,
-      // Keep customer total aligned with admin Add Booking form (no hardcoded tax uplift in UI).
-      taxRate: 0,
+      taxRate: bookingTaxConfig.rateDecimal,
       getCouponDiscountAmount,
     });
-    return { ...out, subtotal: out.lineSubtotal, effectiveServiceTotal, extrasSubtotal };
+    return {
+      ...out,
+      subtotal: out.lineSubtotal,
+      effectiveServiceTotal,
+      extrasSubtotal,
+      taxLabel: bookingTaxConfig.label,
+    };
   }
 
   const applyCustomerCoupon = useCallback(async () => {
@@ -4625,7 +4670,7 @@ export default function BookingPageContent() {
         setAppliedCoupon(null);
         toast({
           title: "Email required",
-          description: "Enter your email before applying this coupon. It’s used to verify new/existing customer rules and one-time use.",
+          description: "Enter your email before applying this coupon. It?s used to verify new/existing customer rules and one-time use.",
           variant: "destructive",
         });
         return;
@@ -4667,7 +4712,7 @@ export default function BookingPageContent() {
       }
     }
 
-    // Local calendar date only (same idea as AddBookingForm YYYY-MM-DD → Date(y, m-1, d))
+    // Local calendar date only (same idea as AddBookingForm YYYY-MM-DD ? Date(y, m-1, d))
     const rawDate = bookingData?.date ?? form.getValues("date");
     let bookingDateForCoupon: Date | null = null;
     if (rawDate) {
@@ -4790,7 +4835,7 @@ export default function BookingPageContent() {
     }
   };
 
-  /** usePendingIntent: false when migration 093 is missing — falls back to creating the booking before Stripe. */
+  /** usePendingIntent: false when migration 093 is missing ? falls back to creating the booking before Stripe. */
   const createDraftBookingForStripe = useCallback(async (
     bookingValuesOverride?: z.infer<typeof formSchema> | null,
   ): Promise<{
@@ -4922,6 +4967,9 @@ export default function BookingPageContent() {
           ...(newBooking.customization ?? {}),
           key_access: { primary_option: keyPrimaryStripe, keep_key: Boolean(keyAccessStripe.keep_key) },
           ...(jobNoteStripe ? { customer_note_for_provider: jobNoteStripe } : {}),
+          ...(locationResolve.matchedLocationIds.length > 0
+            ? { matched_location_ids: locationResolve.matchedLocationIds }
+            : {}),
           pricing_summary: serializePricingSummaryForCustomization(tot),
           ...(appliedCoupon
             ? {
@@ -5062,14 +5110,14 @@ export default function BookingPageContent() {
               amountInCents,
               customerEmail: undefined,
               businessId: businessId || undefined,
-              lineItemDescription: `${selectedService?.customerDisplayName?.trim() || selectedService?.name || "Booking"} – ${lineDatePart}`,
+              lineItemDescription: `${selectedService?.customerDisplayName?.trim() || selectedService?.name || "Booking"} ? ${lineDatePart}`,
             }
           : {
               bookingId: draft.id,
               amountInCents,
               customerEmail: undefined,
               businessId: businessId || undefined,
-              lineItemDescription: `${selectedService?.customerDisplayName?.trim() || selectedService?.name || "Booking"} – ${lineDatePart}`,
+              lineItemDescription: `${selectedService?.customerDisplayName?.trim() || selectedService?.name || "Booking"} ? ${lineDatePart}`,
             };
       const res = await fetch("/api/payments/create-checkout", {
         method: "POST",
@@ -5078,7 +5126,7 @@ export default function BookingPageContent() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const desc = [json.error, json.details].filter(Boolean).join(" — ") || "Payment request failed. Please try again or pay on arrival.";
+        const desc = [json.error, json.details].filter(Boolean).join(" ? ") || "Payment request failed. Please try again or pay on arrival.";
         toast({
           title: "Payment setup failed",
           description: desc,
@@ -5116,7 +5164,7 @@ export default function BookingPageContent() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-3">
         <Loader2 className="h-10 w-10 animate-spin text-cyan-500" />
-        <p className="text-sm text-muted-foreground">Loading booking form…</p>
+        <p className="text-sm text-muted-foreground">Loading booking form?</p>
       </div>
     );
   }
@@ -5197,17 +5245,17 @@ export default function BookingPageContent() {
               </div>
               <h2 className={styles.successTitle}>Booking Confirmed!</h2>
               {successFlowGuest === null && (
-                <p className={styles.successText}>Thanks for booking with us. One moment…</p>
+                <p className={styles.successText}>Thanks for booking with us. One moment?</p>
               )}
               {successFlowGuest === false && (
                 <p className={styles.successText}>
-                  Thanks for booking with us. Taking you to your appointments…
+                  Thanks for booking with us. Taking you to your appointments?
                 </p>
               )}
               {successFlowGuest === true && (
                 <>
                   <p className={styles.successText}>
-                    Thanks for booking with us. You should receive a confirmation email shortly. You booked as a guest—you
+                    Thanks for booking with us. You should receive a confirmation email shortly. You booked as a guest?you
                     can create an account with the same email anytime to view and manage appointments online.
                   </p>
                   <div className="mt-6 flex flex-wrap justify-center gap-3">
@@ -5240,6 +5288,7 @@ export default function BookingPageContent() {
       frequencyDiscount,
       couponDiscount,
       tax,
+      taxLabel,
       total,
     } = calculateTotal();
     summaryTotalRef.current = total;
@@ -5250,7 +5299,7 @@ export default function BookingPageContent() {
     const paymentLengthMins = getEstimatedDurationMinutes();
     const paymentDisplayLength =
       paymentLengthMins == null
-        ? "—"
+        ? "?"
         : (() => {
             const m = Math.round(paymentLengthMins);
             const hrs = Math.floor(m / 60);
@@ -5292,7 +5341,7 @@ export default function BookingPageContent() {
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Industry</span>
                       <span className="font-medium text-right max-w-[180px]">
-                        {selectedIndustryLabel || "—"}
+                        {selectedIndustryLabel || "?"}
                       </span>
                     </div>
                     <div className="flex justify-between">
@@ -5345,55 +5394,35 @@ export default function BookingPageContent() {
                   <CardHeader>
                     <CardTitle className="text-base">Payment Summary</CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-3 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Service Total</span>
-                      <span className="font-medium">${effectiveServiceTotal.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Extras Total</span>
-                      <span className="font-medium">${extrasSubtotal.toFixed(2)}</span>
-                    </div>
-                    {partialCleaningDiscount > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Partial Cleaning Discount</span>
-                        <span className="font-medium text-green-600">-${partialCleaningDiscount.toFixed(2)}</span>
-                      </div>
-                    )}
-                    {frequencyDiscount > 0 ? (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Frequency Discount</span>
-                        <span className="font-medium text-green-600">-${frequencyDiscount.toFixed(2)}</span>
-                      </div>
-                    ) : paymentIsRecurring &&
-                      paymentFreqMeta?.frequency_discount === "exclude-first" &&
-                      paymentFreqMeta?.discount != null &&
-                      Number(paymentFreqMeta.discount) > 0 ? (
-                      <div className="flex justify-between text-xs">
-                        <span className="text-amber-600">Frequency Discount (Applied from 2nd booking)</span>
-                        <span className="text-amber-600">
-                          {(paymentFreqMeta.discount_type ?? "%") === "%" ||
-                          String(paymentFreqMeta.discount_type ?? "").toLowerCase() === "percentage"
-                            ? `${paymentFreqMeta.discount}%`
-                            : `$${Number(paymentFreqMeta.discount).toFixed(2)}`}
-                        </span>
-                      </div>
-                    ) : null}
-                    {couponDiscount > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Coupon Discount</span>
-                        <span className="font-medium text-green-600">-${couponDiscount.toFixed(2)}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Tax</span>
-                      <span className="font-medium">${tax.toFixed(2)}</span>
-                    </div>
-                    <div className="border-t pt-2 mt-2" />
-                    <div className="flex justify-between font-semibold text-base">
-                      <span>TOTAL</span>
-                      <span>${total.toFixed(2)}</span>
-                    </div>
+                  <CardContent>
+                    <CustomerBookingCheckoutPaymentSummary
+                      effectiveServiceTotal={effectiveServiceTotal}
+                      extrasSubtotal={extrasSubtotal}
+                      partialCleaningDiscount={partialCleaningDiscount}
+                      frequencyDiscount={frequencyDiscount}
+                      couponDiscount={couponDiscount}
+                      tax={tax}
+                      taxLabel={taxLabel ?? bookingTaxConfig.label}
+                      taxesEnabled={taxSettingsLoaded && bookingTaxConfig.taxesEnabled}
+                      total={total}
+                      frequencyDiscountPendingHint={
+                        frequencyDiscount <= 0 &&
+                        paymentIsRecurring &&
+                        paymentFreqMeta?.frequency_discount === "exclude-first" &&
+                        paymentFreqMeta?.discount != null &&
+                        Number(paymentFreqMeta.discount) > 0 ? (
+                          <div className="flex justify-between text-xs">
+                            <span className="text-amber-600">Frequency Discount (Applied from 2nd booking)</span>
+                            <span className="text-amber-600">
+                              {(paymentFreqMeta.discount_type ?? "%") === "%" ||
+                              String(paymentFreqMeta.discount_type ?? "").toLowerCase() === "percentage"
+                                ? `${paymentFreqMeta.discount}%`
+                                : `$${Number(paymentFreqMeta.discount).toFixed(2)}`}
+                            </span>
+                          </div>
+                        ) : undefined
+                      }
+                    />
                   </CardContent>
                 </Card>
 
@@ -5421,7 +5450,7 @@ export default function BookingPageContent() {
                   <div className={styles.securityBadge}>
                     <Lock className="h-4 w-4" />
                     <span>
-                      Secure payment – you&apos;ll complete payment on {paymentProvider === "authorize_net" ? "Authorize.net" : "Stripe"}&apos;s checkout page
+                      Secure payment ? you&apos;ll complete payment on {paymentProvider === "authorize_net" ? "Authorize.net" : "Stripe"}&apos;s checkout page
                     </span>
                   </div>
                   <p className="text-sm text-muted-foreground mt-2">
@@ -5471,9 +5500,21 @@ export default function BookingPageContent() {
 
   // Booking Details Form
   if (currentStep === "details" && selectedCategory) {
-    const showSummary = selectedService && serviceCustomization;
-    const { subtotal, tax, total } = showSummary ? calculateTotal() : { subtotal: 0, tax: 0, total: 0 };
-    const form2Totals = showSummary ? calculateTotal() : null;
+    const hasServiceSelection = Boolean(selectedService && serviceCustomization);
+    const summaryTotals = calculateTotal();
+    const detailsFreqLabel = serviceCustomization?.frequency?.trim() || "";
+    const detailsFreqMeta = detailsFreqLabel ? frequencyMetaByName[detailsFreqLabel] : undefined;
+    const detailsPaymentLines = {
+      effectiveServiceTotal: summaryTotals.effectiveServiceTotal,
+      extrasSubtotal: summaryTotals.extrasSubtotal,
+      partialCleaningDiscount: summaryTotals.partialCleaningDiscount,
+      frequencyDiscount: summaryTotals.frequencyDiscount,
+      couponDiscount: summaryTotals.couponDiscount,
+      tax: summaryTotals.tax,
+      taxLabel: summaryTotals.taxLabel ?? bookingTaxConfig.label,
+      taxesEnabled: taxSettingsLoaded && bookingTaxConfig.taxesEnabled,
+      total: summaryTotals.total,
+    };
     /** Form 2: date / time / provider at the start of the main form (after packages-added on the page). */
     const form2ScheduleAtFormStart =
       (useForm2Layout || bookingFormScopeForCatalog === "form3") && !limitedEditMode;
@@ -5551,7 +5592,7 @@ export default function BookingPageContent() {
                   {timeSlotsLoading ? (
                     <div className="flex items-center gap-2 py-6 text-muted-foreground text-sm">
                       <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                      Loading available times…
+                      Loading available times?
                     </div>
                   ) : dynamicTimeSlots.length > 0 ? (
                     <div className={styles.timeSlots}>
@@ -5586,7 +5627,7 @@ export default function BookingPageContent() {
                     ? "Finding available providers..."
                     : availableProviders.length > 0
                       ? selectedProvider
-                        ? `${availableProviders.length} provider${availableProviders.length === 1 ? "" : "s"} available • ${availableProviders.find((p) => p.id === selectedProvider)?.name || "Provider"} selected`
+                        ? `${availableProviders.length} provider${availableProviders.length === 1 ? "" : "s"} available ? ${availableProviders.find((p) => p.id === selectedProvider)?.name || "Provider"} selected`
                         : `${availableProviders.length} provider${availableProviders.length === 1 ? "" : "s"} available`
                       : "No providers available for the selected time"}
                 </span>
@@ -5616,7 +5657,7 @@ export default function BookingPageContent() {
                         <div className="flex items-center">
                           {showProviderScoreToCustomers && (
                             <div className="flex items-center mr-2">
-                              <span className="text-yellow-400">★</span>
+                              <span className="text-yellow-400">?</span>
                               <span className="text-sm text-gray-600 ml-1">
                                 {provider.rating ? provider.rating.toFixed(1) : "New"}
                               </span>
@@ -5646,7 +5687,7 @@ export default function BookingPageContent() {
                                 key={index}
                                 className="px-2 py-1 bg-cyan-50 text-cyan-700 text-xs rounded-full"
                               >
-                                {service.is_primary_service ? "⭐ " : ""}
+                                {service.is_primary_service ? "? " : ""}
                                 {service.service_name || service.service_id?.slice(0, 15)}...
                               </span>
                             ))}
@@ -5661,7 +5702,7 @@ export default function BookingPageContent() {
                           <div className="mt-2 pt-2 border-t border-gray-100">
                             <div className="text-xs text-gray-500">
                               {provider.reasons.slice(0, 2).map((reason: string, index: number) => (
-                                <div key={index}>• {reason}</div>
+                                <div key={index}>? {reason}</div>
                               ))}
                             </div>
                           </div>
@@ -5704,8 +5745,8 @@ export default function BookingPageContent() {
               <p className={styles.subtitle}>
                 {limitedEditMode
                   ? "You can only change your customer details and payment method. To reschedule date or time, please contact us."
-                  : showSummary
-                    ? `Complete your booking details for ${selectedService.customerDisplayName?.trim() || selectedService.name}`
+                  : hasServiceSelection
+                    ? `Complete your booking details for ${selectedService!.customerDisplayName?.trim() || selectedService!.name}`
                     : "Select a service type and fill out your booking details"
                 }
               </p>
@@ -5718,14 +5759,8 @@ export default function BookingPageContent() {
               />
             )}
 
-            <div
-              className={
-                useForm2Layout || bookingFormScopeForCatalog === "form3"
-                  ? "grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] lg:items-start lg:gap-10"
-                  : ""
-              }
-            >
-              <div className={useForm2Layout || bookingFormScopeForCatalog === "form3" ? "min-w-0 space-y-8 lg:col-span-1" : ""}>
+            <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] lg:items-start lg:gap-10">
+              <div className="min-w-0 space-y-8 lg:col-span-1">
                 {/* Location input - Zip/Postal code or City/Town (based on store location settings) */}
                 {!limitedEditMode && locationManagement !== "none" && (
                   <div
@@ -5879,7 +5914,7 @@ export default function BookingPageContent() {
                 <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-50">
                   <p className="font-medium">Default Form 1 layout (starter template)</p>
                   <p className="mt-1 text-amber-900/90 dark:text-amber-100/90">
-                    These service names match the seeded Form 1 preset (same as after “Include Form 1 starter template” when adding an industry). Published categories are not set up yet—you can browse the flow, but booking stays disabled until the business saves real services in Form 1.
+                    These service names match the seeded Form 1 preset (same as after ?Include Form 1 starter template? when adding an industry). Published categories are not set up yet?you can browse the flow, but booking stays disabled until the business saves real services in Form 1.
                   </p>
                 </div>
               ) : null}
@@ -6508,7 +6543,7 @@ export default function BookingPageContent() {
               ) : (
                 <div className="rounded-2xl border border-dashed border-cyan-300 bg-cyan-50/70 p-8 text-center">
                   <p className="text-base text-slate-600">
-                    Services for {selectedIndustryLabel || "this industry"} havenΓÇÖt been configured yet. Please add service offerings in the admin dashboard.
+                    Services for {selectedIndustryLabel || "this industry"} havenG??t been configured yet. Please add service offerings in the admin dashboard.
                   </p>
                   <Button variant="outline" className="mt-4" onClick={() => setCurrentStep("category")}>
                     Choose another industry
@@ -7192,8 +7227,7 @@ export default function BookingPageContent() {
               </div>
             )}
               </div>
-              {(useForm2Layout || bookingFormScopeForCatalog === "form3") && (
-                <aside className="min-w-0 space-y-4 lg:sticky lg:top-24 lg:z-10 lg:max-h-[calc(100vh-6.5rem)] lg:overflow-y-auto lg:overflow-x-hidden lg:overscroll-y-contain lg:self-start">
+              <aside className="min-w-0 space-y-4 lg:sticky lg:top-24 lg:z-10 lg:max-h-[calc(100vh-6.5rem)] lg:overflow-y-auto lg:overflow-x-hidden lg:overscroll-y-contain lg:self-start">
                   <Card>
                     <CardHeader>
                       <CardTitle className="text-base">Booking Summary</CardTitle>
@@ -7201,20 +7235,20 @@ export default function BookingPageContent() {
                     <CardContent className="space-y-2 text-sm">
                       <div className="flex justify-between gap-2">
                         <span className="text-muted-foreground">Industry</span>
-                        <span className="font-medium text-right max-w-[180px]">{selectedIndustryLabel || "ΓÇö"}</span>
+                        <span className="font-medium text-right max-w-[180px]">{selectedIndustryLabel || "?"}</span>
                       </div>
                       <div className="flex justify-between gap-2">
                         <span className="text-muted-foreground">Service</span>
                         <span className="font-medium text-right max-w-[180px]">
                           {selectedService
                             ? selectedService.customerDisplayName?.trim() || selectedService.name
-                            : "ΓÇö"}
+                            : "Not selected"}
                         </span>
                       </div>
                       <div className="flex justify-between gap-2">
                         <span className="text-muted-foreground">Frequency</span>
                         <span className="font-medium text-right max-w-[180px]">
-                          {serviceCustomization?.frequency || "ΓÇö"}
+                          {serviceCustomization?.frequency || "Not selected"}
                         </span>
                       </div>
                       {serviceCustomization?.bedroom != null && String(serviceCustomization.bedroom) !== "" && (
@@ -7243,14 +7277,38 @@ export default function BookingPageContent() {
                             <span className="font-medium text-right">{serviceCustomization.squareMeters}</span>
                           </div>
                         )}
-                      <div className="border-t pt-2 mt-2 flex justify-between font-semibold text-base">
-                        <span>TOTAL</span>
-                        <span className="text-amber-600 dark:text-amber-400">
-                          ${(form2Totals?.total ?? 0).toFixed(2)}
-                        </span>
-                      </div>
                     </CardContent>
                   </Card>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Payment Summary</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <CustomerBookingCheckoutPaymentSummary
+                        {...detailsPaymentLines}
+                        totalClassName="text-amber-600 dark:text-amber-400"
+                        frequencyDiscountPendingHint={
+                          detailsPaymentLines.frequencyDiscount <= 0 &&
+                          detailsFreqMeta?.occurrence_time === "recurring" &&
+                          detailsFreqMeta?.frequency_discount === "exclude-first" &&
+                          detailsFreqMeta?.discount != null &&
+                          Number(detailsFreqMeta.discount) > 0 ? (
+                            <div className="flex justify-between text-xs">
+                              <span className="text-amber-600">Frequency Discount (Applied from 2nd booking)</span>
+                              <span className="text-amber-600">
+                                {(detailsFreqMeta.discount_type ?? "%") === "%" ||
+                                String(detailsFreqMeta.discount_type ?? "").toLowerCase() === "percentage"
+                                  ? `${detailsFreqMeta.discount}%`
+                                  : `$${Number(detailsFreqMeta.discount).toFixed(2)}`}
+                              </span>
+                            </div>
+                          ) : undefined
+                        }
+                      />
+                    </CardContent>
+                  </Card>
+                  {(useForm2Layout || bookingFormScopeForCatalog === "form3") && (
+                  <>
                   <Card>
                     <CardHeader>
                       <CardTitle className="text-base">Live reviews</CardTitle>
@@ -7271,7 +7329,7 @@ export default function BookingPageContent() {
                         >
                           <ChevronLeft className="h-4 w-4" />
                         </Button>
-                        <p className="text-amber-500 text-center">ΓÿàΓÿàΓÿàΓÿàΓÿà</p>
+                        <p className="text-amber-500 text-center">G??G??G??G??G??</p>
                         <Button
                           type="button"
                           variant="outline"
@@ -7289,7 +7347,7 @@ export default function BookingPageContent() {
                         &ldquo;{FORM2_SAMPLE_REVIEWS[form2ReviewIdx]?.quote}&rdquo;
                       </blockquote>
                       <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                        ΓÇö {FORM2_SAMPLE_REVIEWS[form2ReviewIdx]?.author}
+                        G?? {FORM2_SAMPLE_REVIEWS[form2ReviewIdx]?.author}
                       </p>
                     </CardContent>
                   </Card>
@@ -7321,12 +7379,13 @@ export default function BookingPageContent() {
                       )}
                     </CardContent>
                   </Card>
+                  </>
+                  )}
                   <div className="rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground">
                     {cancellationPolicyDisclaimer ??
                       "Based on our cancellation policy, a fee may apply if you cancel within the policy window."}
                   </div>
                 </aside>
-              )}
             </div>
           </div>
         </div>
@@ -7357,3 +7416,5 @@ export default function BookingPageContent() {
   // Fallback - redirect to service selection if accessed directly
   return null;
 }
+
+

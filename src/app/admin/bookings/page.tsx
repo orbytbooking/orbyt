@@ -3,15 +3,6 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
-const TAB_DESCRIPTIONS: Record<string, string> = {
-  all: "All your bookings are shown here.",
-  today: "Bookings scheduled for today are shown here.",
-  upcoming: "Any bookings that have not started yet are shown here. The topmost booking is the next job to run.",
-  unassigned: "Bookings that do not have a provider assigned yet.",
-  draft: "Draft and quote bookings that have not been confirmed.",
-  cancelled: "Cancelled bookings are shown here.",
-  history: "Past and completed bookings.",
-};
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1246,28 +1237,8 @@ export default function BookingsPage() {
     </div>
   );
 
-  const tabLabels: Record<string, string> = {
-    all: "All bookings",
-    today: "Today's bookings",
-    upcoming: "Upcoming bookings",
-    unassigned: "Unassigned",
-    draft: "Draft/Quote",
-    cancelled: "Cancelled",
-    history: "History",
-  };
-
   return (
     <div className="space-y-6">
-      {/* Page Title & Description */}
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">
-          {tabLabels[activeTab] || "Bookings"}
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {TAB_DESCRIPTIONS[activeTab] || TAB_DESCRIPTIONS.all}
-        </p>
-      </div>
-
       {/* Header Actions */}
       <div className="flex flex-col sm:flex-row gap-4 justify-between">
         <div className="flex-1 flex gap-3 flex-wrap">
@@ -1374,7 +1345,7 @@ export default function BookingsPage() {
         }}
         className="space-y-4"
       >
-        <TabsList className="grid w-full grid-cols-7 bg-muted/50">
+        <TabsList className="grid h-auto min-h-0 w-full grid-cols-7">
           <TabsTrigger value="all" className="flex items-center gap-2">
             <List className="h-4 w-4" />
             All

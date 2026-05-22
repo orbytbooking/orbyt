@@ -10,6 +10,7 @@ export type CustomerPortalPricingSummary = {
   frequencyDiscount: number;
   couponDiscount: number;
   tax: number;
+  taxLabel?: string;
   total: number;
   lineSubtotal?: number;
   discountedSubtotal?: number;
@@ -18,6 +19,14 @@ export type CustomerPortalPricingSummary = {
 function num(v: unknown): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+/** Location ids resolved at checkout (zip/city → service area). Used for per-location tax reporting. */
+export function extractMatchedLocationIdsFromCustomization(customization: unknown): string[] {
+  if (!customization || typeof customization !== "object" || Array.isArray(customization)) return [];
+  const raw = (customization as Record<string, unknown>).matched_location_ids;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((id) => String(id).trim()).filter(Boolean);
 }
 
 /** Read snake_case or camelCase pricing_summary from booking.customization JSON. */
@@ -39,6 +48,9 @@ export function extractPricingSummaryFromCustomization(
   const frequencyDiscount = num(o.frequency_discount ?? o.frequencyDiscount);
   const couponDiscount = num(o.coupon_discount ?? o.couponDiscount);
   const tax = num(o.tax);
+  const taxLabelRaw = o.tax_label ?? o.taxLabel;
+  const taxLabel =
+    typeof taxLabelRaw === "string" && taxLabelRaw.trim() ? taxLabelRaw.trim() : undefined;
   const total = num(o.total);
   const lineSubtotal = num(o.line_subtotal ?? o.lineSubtotal);
   const discountedSubtotal = num(o.discounted_subtotal ?? o.discountedSubtotal);
@@ -49,6 +61,7 @@ export function extractPricingSummaryFromCustomization(
     frequencyDiscount,
     couponDiscount,
     tax,
+    ...(taxLabel ? { taxLabel } : {}),
     total,
     ...(lineSubtotal > 0 ? { lineSubtotal } : {}),
     ...(discountedSubtotal > 0 ? { discountedSubtotal } : {}),
@@ -63,10 +76,11 @@ export function serializePricingSummaryForCustomization(tot: {
   frequencyDiscount: number;
   couponDiscount: number;
   tax: number;
+  taxLabel?: string;
   total: number;
   lineSubtotal: number;
   discountedSubtotal: number;
-}): Record<string, number> {
+}): Record<string, number | string> {
   return {
     effective_service_total: tot.effectiveServiceTotal,
     extras_subtotal: tot.extrasSubtotal,
@@ -74,6 +88,7 @@ export function serializePricingSummaryForCustomization(tot: {
     frequency_discount: tot.frequencyDiscount,
     coupon_discount: tot.couponDiscount,
     tax: tot.tax,
+    ...(tot.taxLabel ? { tax_label: tot.taxLabel } : {}),
     total: tot.total,
     line_subtotal: tot.lineSubtotal,
     discounted_subtotal: tot.discountedSubtotal,

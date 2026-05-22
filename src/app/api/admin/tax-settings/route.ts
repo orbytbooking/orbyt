@@ -3,18 +3,9 @@ import {
   requireAdminTenantContext,
   assertBusinessIdMatchesContext,
 } from '@/lib/adminTenantContext';
+import type { TaxMethod, TaxSettingsPayload } from '@/lib/bookingTax';
 
-export type TaxMethod = 'taxify' | 'flat';
-
-export interface TaxSettingsPayload {
-  taxesEnabled?: boolean;
-  method?: TaxMethod;
-  taxLabel?: string;
-  taxifyApiKey?: string | null;
-  flatLocationMode?: 'single' | 'per_location';
-  flatRateGlobal?: string; // percentage as string, e.g. "8.25"
-  flatTaxAmountPerLocation?: Record<string, string>; // location_id -> percentage string
-}
+export type { TaxMethod, TaxSettingsPayload } from '@/lib/bookingTax';
 
 /**
  * Expected database table (create this in Supabase):

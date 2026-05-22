@@ -24,6 +24,7 @@ import {
 import { finalStatusForAdminBooking, providerIdFromBookingPayload } from '@/lib/adminBookingStatus';
 import { sendCustomerBookingConfirmedEmail } from '@/lib/sendCustomerBookingConfirmedEmail';
 import { applyKeyAndJobNotesFromPayload } from '@/lib/bookingKeyJobNotes';
+import { resolveBookingTaxTotals } from '@/lib/bookingTax';
 import { scopedIndustryTable } from '@/lib/formScopeTables';
 import type { BookingFormScope } from '@/lib/bookingFormScope';
 
@@ -214,6 +215,18 @@ export async function PUT(
           scheduledTime = rawTime;
         }
       }
+      const rawPreTax = Number(bookingData.amount ?? bookingData.total_price ?? 0) || 0;
+      const locationIdsRaw = bookingData.location_ids ?? bookingData.locationIds;
+      const matchedLocationIds = Array.isArray(locationIdsRaw)
+        ? locationIdsRaw.map((id: unknown) => String(id).trim()).filter(Boolean)
+        : undefined;
+      const { preTaxAmount, totalWithTax } = await resolveBookingTaxTotals(
+        supabase,
+        businessId,
+        rawPreTax,
+        matchedLocationIds,
+      );
+
       const built: Record<string, unknown> = {
         provider_id: providerId,
         status: finalStatus,
@@ -223,7 +236,7 @@ export async function PUT(
         apt_no: bookingData.apt_no ?? null,
         zip_code: bookingData.zip_code ?? null,
         notes: (bookingData.notes || '').toString(),
-        total_price: bookingData.amount ?? bookingData.total_price ?? 0,
+        total_price: totalWithTax,
         payment_method: paymentMethod,
         customer_email: bookingData.customer_email ?? null,
         customer_name: bookingData.customer_name ?? null,
@@ -232,7 +245,7 @@ export async function PUT(
         date: scheduledDate,
         time: scheduledTime,
         customer_id: customerId,
-        amount: bookingData.amount ?? bookingData.total_price ?? 0,
+        amount: preTaxAmount,
         updated_at: new Date().toISOString(),
       };
       if (providerName) built.provider_name = providerName;

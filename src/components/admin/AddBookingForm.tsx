@@ -72,6 +72,13 @@ import {
   Form2PackageCardStrip,
   type Form2PackageRow,
 } from "@/components/form2/Form2BookingCatalog";
+import {
+  resolveBookingTaxConfig,
+  computeTaxOnSubtotal,
+  normalizeTaxSettings,
+  type TaxSettingsPayload,
+} from "@/lib/bookingTax";
+import { serializePricingSummaryForCustomization } from "@/lib/customerBookingPricingDisplay";
 
 /** `YYYY-MM-DD` for `<input type="date" />` (handles ISO strings from API). */
 function normalizeBookingDateInput(raw: unknown): string {
@@ -527,6 +534,9 @@ export function AddBookingForm({
   const [form3ItemQuantities, setForm3ItemQuantities] = useState<Record<string, number>>({});
   const [hasLocationBasedFrequencies, setHasLocationBasedFrequencies] = useState(false);
   const [resolvedIndustryLocationLabels, setResolvedIndustryLocationLabels] = useState<string[]>([]);
+  const [matchedLocationIdsForTax, setMatchedLocationIdsForTax] = useState<string[]>([]);
+  const [bookingTaxSettings, setBookingTaxSettings] = useState<TaxSettingsPayload | null>(null);
+  const [taxSettingsLoaded, setTaxSettingsLoaded] = useState(false);
   const [industryHasLinkedLocations, setIndustryHasLinkedLocations] = useState(false);
   const [cancellationFeeDisplay, setCancellationFeeDisplay] = useState<{ enabled: boolean; amount: number; currency: string } | null>(null);
   const [specificProviderForAdmin, setSpecificProviderForAdmin] = useState(true);
@@ -603,6 +613,24 @@ export function AddBookingForm({
         setCancellationFeeDisplay({ enabled: false, amount: 0, currency: "$" });
       })
       .catch(() => setCancellationFeeDisplay(null));
+  }, [currentBusiness?.id]);
+
+  useEffect(() => {
+    if (!currentBusiness?.id) {
+      setBookingTaxSettings(null);
+      setTaxSettingsLoaded(true);
+      return;
+    }
+    setTaxSettingsLoaded(false);
+    fetch(`/api/admin/tax-settings?businessId=${encodeURIComponent(currentBusiness.id)}`, {
+      headers: { "x-business-id": currentBusiness.id },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        setBookingTaxSettings(normalizeTaxSettings(data?.settings));
+      })
+      .catch(() => setBookingTaxSettings(null))
+      .finally(() => setTaxSettingsLoaded(true));
   }, [currentBusiness?.id]);
 
   // Load industries from API (runs once)
@@ -687,16 +715,18 @@ export function AddBookingForm({
     fetchFrequencies();
   }, [currentBusiness, selectedIndustryId, newBooking.zipCode, hasLocationBasedFrequencies, bookingFormScopeForCatalog, isForm2Or3Catalog]);
 
-  // Resolve customer zip into matched industry location labels (used by Form 5 service-category location dependency)
+  // Resolve customer zip into matched industry locations (Form 5 deps + per-location tax)
   useEffect(() => {
-    if (!currentBusiness?.id || !selectedIndustryId || bookingFormScopeForCatalog !== "form5") {
+    if (!currentBusiness?.id || !selectedIndustryId) {
       setResolvedIndustryLocationLabels([]);
+      setMatchedLocationIdsForTax([]);
       setIndustryHasLinkedLocations(false);
       return;
     }
     const zipInput = String(newBooking.zipCode || "").trim().replace(/\s/g, "");
     if (zipInput.length < 5) {
       setResolvedIndustryLocationLabels([]);
+      setMatchedLocationIdsForTax([]);
       setIndustryHasLinkedLocations(false);
       return;
     }
@@ -710,13 +740,18 @@ export function AddBookingForm({
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         setResolvedIndustryLocationLabels(Array.isArray(j?.labels) ? j.labels.map((x: unknown) => String(x)) : []);
+        const ids = Array.isArray(j?.matchedLocationIds)
+          ? j.matchedLocationIds.map((x: unknown) => String(x).trim()).filter(Boolean)
+          : [];
+        setMatchedLocationIdsForTax(ids);
         setIndustryHasLinkedLocations(Boolean(j?.hasLinkedLocations));
       })
       .catch(() => {
         setResolvedIndustryLocationLabels([]);
+        setMatchedLocationIdsForTax([]);
         setIndustryHasLinkedLocations(false);
       });
-  }, [currentBusiness?.id, selectedIndustryId, bookingFormScopeForCatalog, newBooking.zipCode]);
+  }, [currentBusiness?.id, selectedIndustryId, newBooking.zipCode]);
 
   // Load frequency dependencies when frequency changes
   useEffect(() => {
@@ -1729,8 +1764,9 @@ const handleAddBooking = async (status: string = 'pending') => {
       scheduled_date: newBooking.selectedDate,
       scheduled_time: newBooking.selectedTime,
       status: status,
-      amount: calculateTotalAmount,
+      amount: preTaxTotalAmount,
       total_price: calculateTotalAmount,
+      ...(matchedLocationIdsForTax.length > 0 ? { location_ids: matchedLocationIdsForTax } : {}),
       service_total: calculateServiceTotal,
       extras_total: calculateExtrasTotal,
       partial_cleaning_discount: calculatePartialCleaningDiscount,
@@ -1781,17 +1817,34 @@ const handleAddBooking = async (status: string = 'pending') => {
       coupon_discount_value: appliedCoupon?.discountValue,
       coupon_discount_amount: calculatedCouponDiscount > 0 ? calculatedCouponDiscount : undefined,
       coupon_mode: appliedCoupon?.mode,
-      customization: appliedCoupon
-        ? {
-            coupon: {
-              mode: appliedCoupon.mode,
-              code: appliedCoupon.code ?? null,
-              discount_type: appliedCoupon.discountType,
-              discount_value: appliedCoupon.discountValue,
-              discount_amount: calculatedCouponDiscount,
-            },
-          }
-        : undefined,
+      customization: {
+        ...(appliedCoupon
+          ? {
+              coupon: {
+                mode: appliedCoupon.mode,
+                code: appliedCoupon.code ?? null,
+                discount_type: appliedCoupon.discountType,
+                discount_value: appliedCoupon.discountValue,
+                discount_amount: calculatedCouponDiscount,
+              },
+            }
+          : {}),
+        ...(matchedLocationIdsForTax.length > 0
+          ? { matched_location_ids: matchedLocationIdsForTax }
+          : {}),
+        pricing_summary: serializePricingSummaryForCustomization({
+          effectiveServiceTotal,
+          extrasSubtotal: calculateExtrasTotal,
+          partialCleaningDiscount: calculatePartialCleaningDiscount,
+          frequencyDiscount: calculateFrequencyDiscount,
+          couponDiscount: calculatedCouponDiscount,
+          tax: taxAmount,
+          taxLabel: bookingTaxConfig.label,
+          total: calculateTotalAmount,
+          lineSubtotal: effectiveServiceTotal + calculateExtrasTotal,
+          discountedSubtotal: preTaxTotalAmount,
+        }),
+      },
       key_access: {
         primary_option: newBooking.keyInfoOption === 'hide-keys' ? 'hide_keys' : 'someone_home',
         keep_key: newBooking.keepKeyWithProvider,
@@ -2750,13 +2803,17 @@ const handleAddBooking = async (status: string = 'pending') => {
     return Math.max(0, Math.min(baseTotalBeforeCoupon, appliedCoupon.discountValue));
   }, [appliedCoupon, baseTotalBeforeCoupon]);
 
-  // Calculate total amount (Booking Koala style: service total before discounts, then price adjustment overrides final after discounts)
-  const calculateTotalAmount = useMemo(() => {
+  const bookingTaxConfig = useMemo(
+    () => resolveBookingTaxConfig(bookingTaxSettings ?? undefined, matchedLocationIdsForTax),
+    [bookingTaxSettings, matchedLocationIdsForTax],
+  );
+
+  // Pre-tax total (Booking Koala: discounts + optional price adjustment, before tax)
+  const preTaxTotalAmount = useMemo(() => {
     const subtotal = effectiveServiceTotal + calculateExtrasTotal;
     const totalDiscount = calculatePartialCleaningDiscount + calculateFrequencyDiscount;
     let finalAmount = Math.max(0, subtotal - totalDiscount - calculatedCouponDiscount);
 
-    // Adjust Price: override final amount after coupons/discounts, before tax (Booking Koala)
     if (newBooking.adjustPrice && newBooking.adjustmentAmount) {
       const adjustment = parseFloat(newBooking.adjustmentAmount);
       if (!isNaN(adjustment) && adjustment >= 0) {
@@ -2766,6 +2823,16 @@ const handleAddBooking = async (status: string = 'pending') => {
 
     return finalAmount;
   }, [effectiveServiceTotal, calculateExtrasTotal, calculatePartialCleaningDiscount, calculateFrequencyDiscount, calculatedCouponDiscount, newBooking.adjustPrice, newBooking.adjustmentAmount]);
+
+  const taxAmount = useMemo(
+    () => computeTaxOnSubtotal(preTaxTotalAmount, bookingTaxConfig.rateDecimal),
+    [preTaxTotalAmount, bookingTaxConfig.rateDecimal],
+  );
+
+  const calculateTotalAmount = useMemo(
+    () => +(preTaxTotalAmount + taxAmount).toFixed(2),
+    [preTaxTotalAmount, taxAmount],
+  );
 
   const applyCouponSelection = async () => {
     const rawInput = (newBooking.couponCode || "").trim();
@@ -3577,6 +3644,12 @@ const handleAddBooking = async (status: string = 'pending') => {
                   <span className="text-xs font-medium">
                     {cancellationFeeDisplay.currency}{cancellationFeeDisplay.amount.toFixed(2)}
                   </span>
+                </div>
+              )}
+              {taxSettingsLoaded && bookingTaxConfig.taxesEnabled && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">{bookingTaxConfig.label}</span>
+                  <span className="font-medium">${taxAmount.toFixed(2)}</span>
                 </div>
               )}
               <div className="border-t pt-2 mt-2"></div>
@@ -6053,19 +6126,42 @@ const handleAddBooking = async (status: string = 'pending') => {
             
             {/* Coupon Code & Gift Cards */}
             <div>
-              <h3 className="text-lg font-semibold mb-4 text-black">Coupon Code & Gift Cards</h3>
+              <h3 className={embInk.h3}>Coupon Code & Gift Cards</h3>
               
               {/* Tabs */}
-              <div className="flex space-x-4 mb-4 border-b border-gray-200">
+              <div
+                className={cn(
+                  "mb-4 flex space-x-4 border-b",
+                  embedded ? "border-gray-200" : "border-white/15",
+                )}
+              >
                 <button
                   onClick={() => setNewBooking({ ...newBooking, couponCodeTab: "coupon-code" })}
-                  className={`pb-2 text-base font-semibold ${newBooking.couponCodeTab === "coupon-code" ? "text-blue-600 border-b-2 border-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+                  className={cn(
+                    "pb-2 text-base font-semibold",
+                    newBooking.couponCodeTab === "coupon-code"
+                      ? embedded
+                        ? "border-b-2 border-blue-600 text-blue-600"
+                        : "border-b-2 border-cyan-400 text-cyan-300"
+                      : embedded
+                        ? "text-gray-500 hover:text-gray-700"
+                        : "text-gray-400 hover:text-gray-300",
+                  )}
                 >
                   Coupon Code
                 </button>
                 <button
                   onClick={() => setNewBooking({ ...newBooking, couponCodeTab: "gift-card" })}
-                  className={`pb-2 text-base font-semibold ${newBooking.couponCodeTab === "gift-card" ? "text-blue-600 border-b-2 border-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+                  className={cn(
+                    "pb-2 text-base font-semibold",
+                    newBooking.couponCodeTab === "gift-card"
+                      ? embedded
+                        ? "border-b-2 border-blue-600 text-blue-600"
+                        : "border-b-2 border-cyan-400 text-cyan-300"
+                      : embedded
+                        ? "text-gray-500 hover:text-gray-700"
+                        : "text-gray-400 hover:text-gray-300",
+                  )}
                 >
                   Gift Cards
                 </button>
@@ -6090,37 +6186,46 @@ const handleAddBooking = async (status: string = 'pending') => {
                           id="coupon-code-radio" 
                           className="text-blue-600"
                         />
-                        <Label htmlFor="coupon-code-radio" className="text-sm font-medium text-gray-900">Coupon Code</Label>
+                        <Label
+                          htmlFor="coupon-code-radio"
+                          className={cn("text-sm font-medium", embedded ? "text-slate-700" : "text-gray-400")}
+                        >
+                          Coupon Code
+                        </Label>
                       </div>
                       <div className="flex items-center space-x-2">
                         <RadioGroupItem 
                           value="amount" 
                           id="amount" 
                         />
-                        <Label htmlFor="amount" className="text-sm font-medium text-gray-900">Amount</Label>
+                        <Label htmlFor="amount" className={cn("text-sm font-medium", embedded ? "text-slate-700" : "text-gray-400")}>
+                          Amount
+                        </Label>
                       </div>
                       <div className="flex items-center space-x-2">
                         <RadioGroupItem 
                           value="percent" 
                           id="percent" 
                         />
-                        <Label htmlFor="percent" className="text-sm font-medium text-gray-900">% Amount</Label>
+                        <Label htmlFor="percent" className={cn("text-sm font-medium", embedded ? "text-slate-700" : "text-gray-400")}>
+                          % Amount
+                        </Label>
                       </div>
                     </RadioGroup>
                     
                     {/* Input Section */}
                     <div>
-                      <div className="flex items-center space-x-2 mb-2">
-                        <Label htmlFor="coupon-code-input" className="text-sm font-medium text-gray-900">
+                      <div className="mb-2">
+                        <Label
+                          htmlFor="coupon-code-input"
+                          className={cn("text-sm font-medium", embedded ? "text-slate-800" : "text-gray-300")}
+                        >
                           {newBooking.couponType === "coupon-code"
                             ? "Enter Coupon Code"
                             : newBooking.couponType === "amount"
                               ? "Enter Amount"
                               : "Enter % Amount"}
                         </Label>
-                        <div className="w-4 h-4 rounded-full bg-gray-200 flex items-center justify-center">
-                          <span className="text-gray-500 text-xs">i</span>
-                        </div>
                       </div>
                       <div className="flex space-x-2">
                         <Input
@@ -6157,7 +6262,12 @@ const handleAddBooking = async (status: string = 'pending') => {
                 ) : (
                   <div className="space-y-6">
                     <div>
-                      <Label htmlFor="gift-card-code" className="text-sm font-medium text-gray-900">Gift Card Code</Label>
+                      <Label
+                        htmlFor="gift-card-code"
+                        className={cn("text-sm font-medium", embedded ? "text-slate-800" : "text-gray-300")}
+                      >
+                        Gift Card Code
+                      </Label>
                       <div className="flex space-x-2 mt-2">
                         <Input
                           id="gift-card-code"
@@ -6353,4 +6463,7 @@ const handleAddBooking = async (status: string = 'pending') => {
     </div>
   );
 }
+
+
+
 

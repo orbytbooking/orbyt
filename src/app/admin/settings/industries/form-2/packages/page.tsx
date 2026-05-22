@@ -21,7 +21,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ChevronDown, Info, Minus, Play, Plus } from "lucide-react";
+import { ChevronDown, Info, Minus, Plus } from "lucide-react";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -196,9 +196,6 @@ export default function IndustryFormPricingParameterPage() {
             cardTitle: "Packages",
             cardDesc: `Manage package rows for ${industry}.`,
             manageLink: "Manage items",
-            howItWorksTitle: "How it works",
-            howItWorksBody:
-              "Packages can be tied to items (for example bedroom count or square footage) or shown on their own. A barber might sell a package of three haircuts; a nail salon might show different items depending on which package the customer picks. Price and time each list two chips: S.A. (service area—at the customer’s location) and M.L. (merchant location—at your store). Hover the orange info icons for definitions. Both chips use the same values until separate amounts are stored per channel.",
             emptyBlurb:
               "No items are set up for this industry yet. Add items first (for example bedroom tiers or square footage), then add packages for each.",
             emptyCta: "Manage items",
@@ -216,8 +213,6 @@ export default function IndustryFormPricingParameterPage() {
             loadError: "Failed to load pricing parameters",
             cardTitle: `${industry} - Form 2 / Pricing Parameter`,
             cardDesc: `Manage pricing parameters for ${industry}.`,
-            howItWorksTitle: "",
-            howItWorksBody: "",
             manageLink: "Manage Variables",
             emptyBlurb:
               "No variables are set up for this industry yet. Add variables first (for example Sq ft, Bedrooms, Bathrooms), then add pricing options for each.",
@@ -634,25 +629,6 @@ export default function IndustryFormPricingParameterPage() {
       {isForm2 ? (
         <TooltipProvider delayDuration={200}>
           <>
-          <div className="rounded-xl border bg-card p-5 shadow-sm">
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-              <div className="min-w-0 space-y-2 lg:max-w-2xl">
-                <h2 className="text-lg font-semibold tracking-tight">{pageCopy.howItWorksTitle}</h2>
-                <p className="text-sm text-muted-foreground leading-relaxed">{pageCopy.howItWorksBody}</p>
-              </div>
-              <div className="relative mx-auto flex aspect-video w-full max-w-[240px] shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-gradient-to-br from-muted/80 to-muted lg:mx-0">
-                <button
-                  type="button"
-                  className="relative z-10 flex h-14 w-14 items-center justify-center rounded-full border bg-background/95 text-foreground shadow-md transition hover:bg-background"
-                  aria-label="Video overview (placeholder)"
-                >
-                  <Play className="h-7 w-7" fill="currentColor" />
-                </button>
-                <span className="sr-only">Video overview placeholder</span>
-              </div>
-            </div>
-          </div>
-
           <Card>
             <CardHeader className="space-y-1 pb-2">
               <CardTitle>{industry} - Form 2 / Packages</CardTitle>

@@ -68,7 +68,7 @@ export default function Form5Layout({ children }: { children: React.ReactNode })
   return (
     <div className="space-y-6 px-4 sm:px-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">
+        <h2 className="text-2xl font-bold tracking-tight text-black dark:text-white">
           {industry} - Form 5
         </h2>
       </div>

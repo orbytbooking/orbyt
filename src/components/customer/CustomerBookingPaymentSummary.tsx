@@ -63,7 +63,7 @@ export function CustomerBookingPaymentSummary({ summary, totalFallback }: Props)
           </div>
         )}
         <div className="flex justify-between gap-4">
-          <span className="text-muted-foreground">Tax</span>
+          <span className="text-muted-foreground">{summary.taxLabel?.trim() || "Tax"}</span>
           <span className="font-medium tabular-nums">{fmt(summary.tax)}</span>
         </div>
         <div className="border-t pt-2 mt-1" />

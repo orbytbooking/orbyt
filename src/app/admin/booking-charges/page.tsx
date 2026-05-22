@@ -36,6 +36,7 @@ import {
   Copy,
 } from "lucide-react";
 import { DatePicker } from "@/components/ui/date-picker";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -582,35 +583,58 @@ export default function BookingChargesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Bookings</h1>
-          <p className="text-muted-foreground mt-1">Booking Charges</p>
-        </div>
-      </div>
-
       <Tabs value={tab} onValueChange={setTab}>
-        <div className="flex items-center gap-2 border-b">
-          <TabsList className="h-10 p-0 bg-transparent border-0">
-            <TabsTrigger value="pending">Pending</TabsTrigger>
-            <TabsTrigger value="declined">Declined</TabsTrigger>
-            <TabsTrigger value="all">All charges</TabsTrigger>
+        <div
+          className={cn(
+            "flex w-full gap-1 rounded-xl border border-border/40 bg-muted/40 p-1.5 shadow-sm backdrop-blur-sm dark:border-border/50 dark:bg-muted/30",
+          )}
+        >
+          <TabsList className="contents h-auto min-h-0 border-0 bg-transparent p-0 shadow-none">
+            <TabsTrigger value="pending" className="flex-1 basis-0 min-w-0">
+              Pending
+            </TabsTrigger>
+            <TabsTrigger value="declined" className="flex-1 basis-0 min-w-0">
+              Declined
+            </TabsTrigger>
+            <TabsTrigger value="all" className="flex-1 basis-0 min-w-0">
+              All charges
+            </TabsTrigger>
           </TabsList>
-          <Button variant="ghost" size="sm" disabled>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled
+            className="flex h-auto min-h-10 flex-1 basis-0 min-w-0 shrink-0 items-center justify-center whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-foreground/50 shadow-none hover:bg-transparent"
+          >
             Card hold(s)/Decline
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => router.push("/admin/booking-charges/invoices")}>
+          <Button
+            type="button"
+            variant="ghost"
+            className="flex h-auto min-h-10 flex-1 basis-0 min-w-0 shrink-0 items-center justify-center whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-foreground/70 shadow-none hover:bg-transparent hover:text-foreground"
+            onClick={() => router.push("/admin/booking-charges/invoices")}
+          >
             Invoices
           </Button>
         </div>
         <div className="mt-3 flex items-center gap-2 border-b pb-2">
-          <Button variant="ghost" size="sm" className="text-cyan-700">
+          <Button variant="ghost" size="sm" className="text-cyan-700 dark:text-cyan-400">
             Bookings
           </Button>
-          <Button variant="ghost" size="sm" disabled>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled
+            className="text-foreground/50 shadow-none hover:bg-transparent"
+          >
             Separate
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => router.push("/admin/booking-charges/invoices")}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-cyan-700 dark:text-cyan-400 hover:bg-transparent hover:text-cyan-800 dark:hover:text-cyan-300"
+            onClick={() => router.push("/admin/booking-charges/invoices")}
+          >
             Invoices
           </Button>
         </div>

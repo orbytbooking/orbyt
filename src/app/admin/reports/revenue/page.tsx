@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useBusiness } from '@/contexts/BusinessContext'
 import { ArrowLeft } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -31,7 +32,14 @@ interface ReportData {
 
 interface ReportsResponse {
   bookings: ReportData[]
-  summary: { totalBookings: number; revenue: number; completed: number; cancelled: number }
+  summary: {
+    totalBookings: number
+    revenue: number
+    completed: number
+    cancelled: number
+    salesTax?: number
+    salesTaxByLocation?: Record<string, number>
+  }
   charts?: { revenueByDate: [string, number][] }
 }
 
@@ -132,7 +140,9 @@ function RevenueAreaChart({
 
 export default function RevenueReportsPage() {
   const router = useRouter()
+  const { currentBusiness } = useBusiness()
   const [query, setQuery] = useState('')
+  const [locationNamesById, setLocationNamesById] = useState<Record<string, string>>({})
   const [startDate, setStartDate] = useState<string>('')
   const [endDate, setEndDate] = useState<string>('')
   const [industry, setIndustry] = useState('all')
@@ -161,6 +171,23 @@ export default function RevenueReportsPage() {
     fetchReports()
   }, [fetchReports])
 
+  useEffect(() => {
+    if (!currentBusiness?.id) {
+      setLocationNamesById({})
+      return
+    }
+    fetch(`/api/locations?business_id=${encodeURIComponent(currentBusiness.id)}`)
+      .then((r) => r.json())
+      .then((j) => {
+        const map: Record<string, string> = {}
+        for (const loc of Array.isArray(j.locations) ? j.locations : []) {
+          if (loc?.id) map[String(loc.id)] = String(loc.name || 'Unnamed').trim() || 'Unnamed'
+        }
+        setLocationNamesById(map)
+      })
+      .catch(() => setLocationNamesById({}))
+  }, [currentBusiness?.id])
+
   const bookings = data?.bookings ?? []
   const totalRevenue = data?.summary.revenue ?? 0
   const billedRevenue = totalRevenue
@@ -168,7 +195,8 @@ export default function RevenueReportsPage() {
   const tips = 0
   const parking = 0
   const serviceFee = 0
-  const salesTax = 0
+  const salesTax = data?.summary.salesTax ?? 0
+  const salesTaxByLocation = data?.summary.salesTaxByLocation ?? {}
   const cancellationCharges = 0
   const rescheduleFee = 0
   const refundsGiven = 0
@@ -269,6 +297,28 @@ export default function RevenueReportsPage() {
         </CardContent>
       </Card>
 
+      {Object.keys(salesTaxByLocation).length > 0 && (
+        <Card className="border-muted/70 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle>Sales tax by location</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {Object.entries(salesTaxByLocation)
+              .sort(([, a], [, b]) => b - a)
+              .map(([locationId, amount]) => (
+                <div key={locationId} className="flex items-center justify-between border-b py-1.5 last:border-0">
+                  <span className="text-muted-foreground">
+                    {locationId === '_unassigned'
+                      ? 'Unassigned location'
+                      : locationNamesById[locationId] ?? locationId}
+                  </span>
+                  <span className="font-medium">${amount.toFixed(2)}</span>
+                </div>
+              ))}
+          </CardContent>
+        </Card>
+      )}
+
       <Card className="border-muted/70 shadow-sm">
         <CardHeader className="pb-2">
           <CardTitle>Revenue</CardTitle>
@@ -284,3 +334,8 @@ export default function RevenueReportsPage() {
     </div>
   )
 }
+
+
+
+
+

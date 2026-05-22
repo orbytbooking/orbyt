@@ -58,6 +58,7 @@ import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import Link from 'next/link';
+import { TaxPerLocationRates } from '@/app/admin/settings/general/TaxPerLocationRates';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -440,6 +441,11 @@ export default function GeneralSettingsPage() {
   const [taxType, setTaxType] = useState<'taxify' | 'flat'>('taxify');
   const [locationBasedTax, setLocationBasedTax] = useState<'yes' | 'no'>('yes');
   const [flatTaxAmount, setFlatTaxAmount] = useState('');
+  const [flatTaxPerLocation, setFlatTaxPerLocation] = useState<Record<string, string>>({});
+  const [taxLocations, setTaxLocations] = useState<
+    Array<{ id: string; name: string; city?: string | null; state?: string | null }>
+  >([]);
+  const [taxLocationsLoading, setTaxLocationsLoading] = useState(false);
   const [taxLabel, setTaxLabel] = useState('Sales Tax');
   const [taxSettingsSaving, setTaxSettingsSaving] = useState(false);
 
@@ -1076,6 +1082,15 @@ export default function GeneralSettingsPage() {
           setLocationBasedTax('no');
         }
         if (typeof s.flatRateGlobal === 'string') setFlatTaxAmount(s.flatRateGlobal);
+        if (s.flatTaxAmountPerLocation && typeof s.flatTaxAmountPerLocation === 'object') {
+          const perLoc: Record<string, string> = {};
+          for (const [k, v] of Object.entries(s.flatTaxAmountPerLocation as Record<string, unknown>)) {
+            if (k && (typeof v === 'string' || typeof v === 'number')) perLoc[k] = String(v);
+          }
+          setFlatTaxPerLocation(perLoc);
+        } else {
+          setFlatTaxPerLocation({});
+        }
       } catch (e) {
         console.error(e);
         toast.error(e instanceof Error ? e.message : 'Failed to load tax settings');
@@ -1085,6 +1100,43 @@ export default function GeneralSettingsPage() {
       fetchTaxSettings();
     }
   }, [mainTab, currentBusiness?.id]);
+
+  useEffect(() => {
+    if (
+      mainTab !== 'taxes' ||
+      !currentBusiness?.id ||
+      taxType !== 'flat' ||
+      locationBasedTax !== 'yes'
+    ) {
+      setTaxLocations([]);
+      return;
+    }
+    let cancelled = false;
+    setTaxLocationsLoading(true);
+    fetch(`/api/locations?business_id=${encodeURIComponent(currentBusiness.id)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        const locs = (Array.isArray(data.locations) ? data.locations : [])
+          .filter((l: { active?: boolean }) => l.active !== false)
+          .map((l: { id: string; name?: string; city?: string | null; state?: string | null }) => ({
+            id: l.id,
+            name: (l.name || 'Unnamed').trim() || 'Unnamed',
+            city: l.city ?? null,
+            state: l.state ?? null,
+          }));
+        setTaxLocations(locs);
+      })
+      .catch(() => {
+        if (!cancelled) setTaxLocations([]);
+      })
+      .finally(() => {
+        if (!cancelled) setTaxLocationsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mainTab, currentBusiness?.id, taxType, locationBasedTax]);
 
   const fetchPaymentServiceCategories = async () => {
     if (!currentBusiness?.id) return;
@@ -1218,6 +1270,14 @@ export default function GeneralSettingsPage() {
           taxifyApiKey: taxType === 'taxify' ? '' : null,
           flatLocationMode: taxType === 'flat' ? (locationBasedTax === 'yes' ? 'per_location' : 'single') : undefined,
           flatRateGlobal: taxType === 'flat' && locationBasedTax === 'no' ? flatTaxAmount : undefined,
+          flatTaxAmountPerLocation:
+            taxType === 'flat' && locationBasedTax === 'yes'
+              ? Object.fromEntries(
+                  Object.entries(flatTaxPerLocation)
+                    .filter(([id, v]) => id && v !== '' && !Number.isNaN(Number(v)) && Number(v) >= 0)
+                    .map(([id, v]) => [id, String(Number(v))]),
+                )
+              : undefined,
         }),
       });
       const data = await res.json();
@@ -5933,6 +5993,25 @@ export default function GeneralSettingsPage() {
                             </Label>
                           </div>
                         </RadioGroup>
+
+                        {locationBasedTax === 'yes' && (
+                          <TaxPerLocationRates
+                            locations={taxLocations}
+                            loading={taxLocationsLoading}
+                            rates={flatTaxPerLocation}
+                            onRateChange={(locationId, value) => {
+                              setFlatTaxPerLocation((prev) => ({
+                                ...prev,
+                                [locationId]:
+                                  value === ''
+                                    ? ''
+                                    : !Number.isNaN(Number(value)) && Number(value) >= 0
+                                      ? value
+                                      : '0',
+                              }));
+                            }}
+                          />
+                        )}
 
                         {locationBasedTax === 'no' && (
                           <div className="space-y-2 pt-2">
