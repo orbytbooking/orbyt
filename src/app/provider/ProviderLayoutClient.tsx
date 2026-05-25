@@ -1,0 +1,259 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import Link from "next/link";
+import {
+  LayoutDashboard,
+  Calendar,
+  DollarSign,
+  User,
+  LogOut,
+  Menu,
+  X,
+  Clock,
+  Settings,
+  FolderOpen,
+  Briefcase,
+  Mail
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/use-toast";
+import { getSupabaseProviderClient } from "@/lib/supabaseProviderClient";
+import { PlatformNotificationBell } from "@/components/notifications/PlatformNotificationBell";
+
+const navigation = [
+  { name: "Dashboard", href: "/provider/dashboard", icon: LayoutDashboard },
+  { name: "My Bookings", href: "/provider/bookings", icon: Calendar },
+  { name: "Unassigned Jobs", href: "/provider/unassigned", icon: Briefcase },
+  { name: "My Invitations", href: "/provider/invitations", icon: Mail },
+  { name: "Earnings", href: "/provider/earnings", icon: DollarSign },
+  { name: "Profile", href: "/provider/profile", icon: User },
+  { name: "Manage Availability", href: "/provider/availability", icon: Clock },
+  { name: "Settings", href: "/provider/settings", icon: Settings },
+  { name: "My Drive", href: "/provider/drive", icon: FolderOpen },
+];
+
+export default function ProviderLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const { toast } = useToast();
+  const [providerName, setProviderName] = useState("Provider");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      // Skip auth check for invite page and provider login page (use dedicated provider login only)
+      if (pathname === "/provider/invite" || pathname === "/provider/login") {
+        return;
+      }
+
+      try {
+        const { data: { session } } = await getSupabaseProviderClient().auth.getSession();
+
+        if (!session) {
+          router.push("/provider/login");
+          return;
+        }
+
+        // Get provider name from user metadata and validate role
+        const userRole = session.user.user_metadata?.role || 'owner';
+        if (session.user.user_metadata?.full_name) {
+          setProviderName(session.user.user_metadata.full_name);
+        }
+
+        // Check if user is a provider
+        if (userRole !== 'provider') {
+          console.log('User is not a provider, redirecting to appropriate dashboard');
+          const redirectPath = userRole === 'owner' ? '/admin/dashboard' : '/auth/onboarding';
+          router.push(redirectPath);
+          return;
+        }
+
+        // Verify provider access is not blocked (admin may have blocked while logged in)
+        const { data: providerData } = await getSupabaseProviderClient()
+          .from('service_providers')
+          .select('access_blocked, business_id')
+          .eq('user_id', session.user.id)
+          .single();
+
+        if (providerData?.access_blocked) {
+          let message = "We apologize for the inconvenience. Please contact our office if you have any questions.";
+          if (providerData.business_id) {
+            try {
+              const res = await fetch(`/api/admin/access-settings?businessId=${encodeURIComponent(providerData.business_id)}`);
+              const data = await res.json();
+              if (res.ok && data.settings?.provider_deactivated_message) {
+                message = data.settings.provider_deactivated_message;
+              }
+            } catch (_) {
+              // use default
+            }
+          }
+          await getSupabaseProviderClient().auth.signOut();
+          toast({
+            title: "Access Blocked",
+            description: message,
+            variant: "destructive",
+          });
+          router.push("/provider/login");
+          return;
+        }
+      } catch (error) {
+        console.error('Auth check error:', error);
+        router.push("/provider/login");
+      }
+    };
+
+    checkAuth();
+
+    // Listen for auth changes
+    const { data: { subscription } } = getSupabaseProviderClient().auth.onAuthStateChange((_event, session) => {
+      // Skip auth redirect for invite and login pages
+      if (pathname === "/provider/invite" || pathname === "/provider/login") {
+        return;
+      }
+
+      if (!session) {
+        router.push("/provider/login");
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [router, pathname]);
+
+  const handleLogout = async () => {
+    try {
+      await getSupabaseProviderClient().auth.signOut();
+      toast({
+        title: "Logged Out",
+        description: "You have been successfully logged out.",
+      });
+
+      router.push("/provider/login");
+    } catch (error) {
+      console.error('Logout error:', error);
+      router.push("/provider/login");
+    }
+  };
+
+  return (
+    <>
+      {pathname === "/provider/invite" || pathname === "/provider/login" ? (
+        // For invite page, render without sidebar
+        <div className="min-h-screen bg-background">
+          {children}
+        </div>
+      ) : (
+        // For all other provider pages, render with full layout
+        <div className="min-h-screen bg-background">
+        {/* Mobile menu button */}
+        <div className="lg:hidden fixed top-4 left-4 z-50">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          >
+            {isSidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </Button>
+        </div>
+
+        {/* Sidebar */}
+        <aside
+          className={`
+            fixed top-0 left-0 z-40 h-screen w-64 bg-card border-r border-border
+            transition-transform duration-300 ease-in-out
+            ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}
+            lg:translate-x-0
+          `}
+        >
+          <div className="flex flex-col h-full">
+            {/* Logo */}
+            <div className="p-6 border-b border-border">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-3 min-w-0">
+                  <img src="/images/orbit.png" alt="Orbyt Service" className="h-10 w-10 shrink-0" />
+                  <div className="min-w-0">
+                    <h1 className="text-lg font-bold" style={{ color: '#0C2B4E' }}>Orbyt Service</h1>
+                    <p className="text-xs text-muted-foreground">Provider Portal</p>
+                  </div>
+                </div>
+                <PlatformNotificationBell
+                  apiBase="/api/provider/notifications"
+                  getAuthHeaders={async () => {
+                    const {
+                      data: { session },
+                    } = await getSupabaseProviderClient().auth.getSession();
+                    if (!session?.access_token) return undefined;
+                    return { Authorization: `Bearer ${session.access_token}` };
+                  }}
+                  variant="muted"
+                />
+              </div>
+            </div>
+
+            {/* Navigation */}
+            <nav className="flex-1 p-4 space-y-1">
+              {navigation.map((item) => {
+                const Icon = item.icon;
+                const isActive = pathname === item.href;
+
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    onClick={() => setIsSidebarOpen(false)}
+                    className={`
+                      flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium
+                      transition-colors
+                      ${
+                        isActive
+                          ? "bg-gradient-to-r from-cyan-500 to-blue-500 text-white"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }
+                    `}
+                  >
+                    <Icon className="h-5 w-5" />
+                    {item.name}
+                  </Link>
+                );
+              })}
+            </nav>
+
+            {/* Logout */}
+            <div className="p-4 border-t border-border">
+              <Button
+                variant="ghost"
+                className="w-full justify-start text-muted-foreground hover:text-foreground"
+                onClick={handleLogout}
+              >
+                <LogOut className="h-5 w-5 mr-3" />
+                Logout
+              </Button>
+            </div>
+          </div>
+        </aside>
+
+        {/* Overlay for mobile */}
+        {isSidebarOpen && (
+          <div
+            className="fixed inset-0 bg-black/50 z-30 lg:hidden"
+            onClick={() => setIsSidebarOpen(false)}
+          />
+        )}
+
+        {/* Main content */}
+        <main className="lg:pl-64">
+          <div className="p-6 lg:p-8">
+            {children}
+          </div>
+        </main>
+      </div>
+      )}
+    </>
+  );
+}

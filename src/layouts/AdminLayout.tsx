@@ -1,0 +1,1520 @@
+'use client';
+
+import { useState, useEffect, useLayoutEffect, useMemo, Suspense } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import Image from "next/image";
+import { cn } from "@/lib/utils";
+import { 
+  LayoutDashboard, 
+  Calendar, 
+  Users, 
+  Briefcase, 
+  Settings, 
+  LogOut, 
+  Menu, 
+  X,
+  ChevronRight,
+  UserCog,
+  UserPlus,
+  Megaphone,
+  BarChart3,
+  FileText,
+  User,
+  ChevronDown,
+  Layout,
+  Bell,
+  List,
+  Clock,
+  Sun,
+  Moon,
+  DollarSign
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useLogo } from "@/contexts/LogoContext";
+import defaultLogo from "@/assets/orbit.png";
+import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
+import { supabase } from "@/lib/supabaseClient";
+import { useBusiness } from "@/contexts/BusinessContext";
+import { addIndustryChangeListener, removeIndustryChangeListener } from "@/lib/industryEvents";
+import { ReceptionistChat } from "@/components/ReceptionistChat";
+import { PLATFORM_NOTIF_ID_PREFIX } from "@/lib/platform-announcement-notifications";
+import { NotificationDetailDialog } from "@/components/notifications/NotificationDetailDialog";
+import {
+  adminThemeFromProfileValue,
+  readCachedAdminTheme,
+  writeCachedAdminTheme,
+} from "@/lib/adminThemeCache";
+import {
+  pathnameToRequiredAdminModule,
+  firstAllowedAdminPath,
+  type AdminModuleKey,
+} from "@/lib/adminModulePermissions";
+
+interface Industry {
+  id: string;
+  name: string;
+  description: string | null;
+  business_id: string;
+  is_custom: boolean;
+  created_at: string;
+  updated_at: string;
+  /** Public book-now layout: drives sidebar label and catalog entry path. */
+  customer_booking_form_layout?: string | null;
+}
+
+function industryFormNavEntry(industry: Industry): { label: "Form 1" | "Form 2" | "Form 3" | "Form 4" | "Form 5"; path: string } {
+  const q = encodeURIComponent(industry.name);
+  const id = encodeURIComponent(industry.id);
+  const layout = industry.customer_booking_form_layout;
+  if (layout === "form5") {
+    return {
+      label: "Form 5",
+      path: `/admin/settings/industries/form-5/locations?industry=${q}&industryId=${id}&bookingFormScope=form5`,
+    };
+  }
+  if (layout === "form4") {
+    return {
+      label: "Form 4",
+      path: `/admin/settings/industries/form-4/locations?industry=${q}&industryId=${id}&bookingFormScope=form4`,
+    };
+  }
+  if (layout === "form3") {
+    return {
+      label: "Form 3",
+      path: `/admin/settings/industries/form-3/locations?industry=${q}&industryId=${id}&bookingFormScope=form3`,
+    };
+  }
+  if (layout === "form2") {
+    return {
+      label: "Form 2",
+      path: `/admin/settings/industries/form-2/locations?industry=${q}&industryId=${id}&bookingFormScope=form2`,
+    };
+  }
+  return {
+    label: "Form 1",
+    path: `/admin/settings/industries/form-1/locations?industry=${q}&industryId=${id}&bookingFormScope=form1`,
+  };
+}
+
+/** Sidebar paths include query; `usePathname()` does not — match base + search params. */
+function isIndustryFormNavLinkActive(menuPath: string, pathname: string, searchParams: URLSearchParams): boolean {
+  const raw = menuPath || "";
+  const qIdx = raw.indexOf("?");
+  const base = qIdx >= 0 ? raw.slice(0, qIdx) : raw;
+  const qs = qIdx >= 0 ? new URLSearchParams(raw.slice(qIdx + 1)) : new URLSearchParams();
+  if (pathname !== base) return false;
+  if (
+    base === "/admin/settings/industries/form-1" ||
+    base === "/admin/settings/industries/form-2" ||
+    base === "/admin/settings/industries/form-3" ||
+    base === "/admin/settings/industries/form-4" ||
+    base === "/admin/settings/industries/form-5"
+  ) {
+    return (
+      searchParams.get("industry") === qs.get("industry") &&
+      searchParams.get("bookingFormScope") === qs.get("bookingFormScope")
+    );
+  }
+  if (base === "/admin/settings/industries/booking-template") {
+    return searchParams.get("industryId") === qs.get("industryId");
+  }
+  for (const key of qs.keys()) {
+    if (searchParams.get(key) !== qs.get(key)) return false;
+  }
+  return true;
+}
+
+/** Form 1 configuration (data model for book-now); available for every industry regardless of Form 1 vs Form 2 layout. */
+function industryForm1AdminLinks(industry: Industry): Array<{ label: string; path: string }> {
+  const q = encodeURIComponent(industry.name);
+  const id = encodeURIComponent(industry.id);
+  const scope = "bookingFormScope=form1";
+  return [
+    { label: "Service categories", path: `/admin/settings/industries/form-1/service-category?industry=${q}&${scope}` },
+    { label: "Frequencies", path: `/admin/settings/industries/form-1/frequencies?industry=${q}&${scope}` },
+    { label: "Locations", path: `/admin/settings/industries/form-1/locations?industry=${q}` },
+    { label: "Pricing parameters", path: `/admin/settings/industries/form-1/pricing-parameter?industry=${q}&${scope}` },
+    {
+      label: "Extras",
+      path: `/admin/settings/industries/form-1/extras?industry=${q}&industryId=${id}&${scope}&listingKind=extra`,
+    },
+  ];
+}
+
+/** Form 2 sidebar: catalog under `/form-2/...`, ordered for the single-page booking layout. */
+function industryForm2AdminLinks(industry: Industry): Array<{ label: string; path: string }> {
+  const q = encodeURIComponent(industry.name);
+  const id = encodeURIComponent(industry.id);
+  const scope = "bookingFormScope=form2";
+  const base = "form-2";
+  return [
+    { label: "Locations", path: `/admin/settings/industries/${base}/locations?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Frequencies", path: `/admin/settings/industries/${base}/frequencies?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Service Category", path: `/admin/settings/industries/${base}/service-category?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Items", path: `/admin/settings/industries/form-2/items?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Packages", path: `/admin/settings/industries/form-2/packages?industry=${q}&industryId=${id}&${scope}` },
+    {
+      label: "Addons",
+      path: `/admin/settings/industries/${base}/add-ons?industry=${q}&industryId=${id}&${scope}&listingKind=addon`,
+    },
+    {
+      label: "Extras",
+      path: `/admin/settings/industries/${base}/extras?industry=${q}&industryId=${id}&${scope}&listingKind=extra`,
+    },
+    { label: "Custom Sections", path: `/admin/settings/design` },
+  ];
+}
+
+/** Form 4 sidebar: same catalog order as BookingKoala (locations → … → pricing parameters → extras). */
+function industryForm4AdminLinks(industry: Industry): Array<{ label: string; path: string }> {
+  const q = encodeURIComponent(industry.name);
+  const id = encodeURIComponent(industry.id);
+  const scope = "bookingFormScope=form5";
+  const base = "form-4";
+  return [
+    { label: "Locations", path: `/admin/settings/industries/${base}/locations?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Frequencies", path: `/admin/settings/industries/${base}/frequencies?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Service Category", path: `/admin/settings/industries/${base}/service-category?industry=${q}&industryId=${id}&${scope}` },
+    {
+      label: "Pricing Parameter",
+      path: `/admin/settings/industries/${base}/pricing-parameter?industry=${q}&industryId=${id}&${scope}`,
+    },
+    {
+      label: "Extras",
+      path: `/admin/settings/industries/${base}/extras?industry=${q}&industryId=${id}&${scope}&listingKind=extra`,
+    },
+    { label: "Custom Sections", path: `/admin/settings/design` },
+  ];
+}
+
+/** Form 5 sidebar: hourly category flow (no pricing-parameter tab). */
+function industryForm5AdminLinks(industry: Industry): Array<{ label: string; path: string }> {
+  const q = encodeURIComponent(industry.name);
+  const id = encodeURIComponent(industry.id);
+  const scope = "bookingFormScope=form4";
+  const base = "form-5";
+  return [
+    { label: "Locations", path: `/admin/settings/industries/${base}/locations?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Frequencies", path: `/admin/settings/industries/${base}/frequencies?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Service Category", path: `/admin/settings/industries/${base}/service-category?industry=${q}&industryId=${id}&${scope}` },
+    {
+      label: "Extras",
+      path: `/admin/settings/industries/${base}/extras?industry=${q}&industryId=${id}&${scope}&listingKind=extra`,
+    },
+    { label: "Custom Sections", path: `/admin/settings/design` },
+  ];
+}
+
+/** Form 3 sidebar: items + add-ons + extras (no packages). */
+function industryForm3AdminLinks(industry: Industry): Array<{ label: string; path: string }> {
+  const q = encodeURIComponent(industry.name);
+  const id = encodeURIComponent(industry.id);
+  const scope = "bookingFormScope=form3";
+  const base = "form-3";
+  return [
+    { label: "Locations", path: `/admin/settings/industries/${base}/locations?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Frequencies", path: `/admin/settings/industries/${base}/frequencies?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Service Category", path: `/admin/settings/industries/${base}/service-category?industry=${q}&industryId=${id}&${scope}` },
+    { label: "Items", path: `/admin/settings/industries/${base}/items?industry=${q}&industryId=${id}&${scope}` },
+    {
+      label: "Addons",
+      path: `/admin/settings/industries/${base}/add-ons?industry=${q}&industryId=${id}&${scope}&listingKind=addon`,
+    },
+    {
+      label: "Extras",
+      path: `/admin/settings/industries/${base}/extras?industry=${q}&industryId=${id}&${scope}&listingKind=extra`,
+    },
+    { label: "Custom Sections", path: `/admin/settings/design` },
+  ];
+}
+
+const AdminLayout = ({ children }: { children: React.ReactNode }) => {
+  const { currentBusiness, hasModuleAccess, loading: businessCtxLoading } = useBusiness();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [adminEmail, setAdminEmail] = useState("");
+  const [accountName, setAccountName] = useState("");
+  const [profilePictureUrl, setProfilePictureUrl] = useState("");
+  const [userRoleLabel, setUserRoleLabel] = useState("");
+
+  const formatRoleLabel = (raw: string | null | undefined) => {
+    const s = String(raw ?? "").trim().toLowerCase();
+    if (!s) return "";
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  };
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+
+  /** Apply this user’s last-known theme before profile fetch (reduces flash). DB wins once loaded. */
+  useLayoutEffect(() => {
+    let cancelled = false;
+    void supabase.auth.getSession().then(({ data }) => {
+      const uid = data.session?.user?.id;
+      if (cancelled || !uid) return;
+      const cached = readCachedAdminTheme(uid);
+      if (cached) setTheme(cached);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const onThemeEvent = (e: Event) => {
+      const t = (e as CustomEvent<{ theme?: string }>).detail?.theme;
+      if (t !== "light" && t !== "dark") return;
+      setTheme(t);
+      void supabase.auth.getUser().then(({ data: { user } }) => {
+        if (user?.id) writeCachedAdminTheme(user.id, t);
+      });
+    };
+    window.addEventListener("orbyt-admin-theme", onThemeEvent);
+    return () => window.removeEventListener("orbyt-admin-theme", onThemeEvent);
+  }, []);
+
+  /** Account switch (e.g. another login in-tab): re-sync theme from profile. */
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT") {
+        setTheme("light");
+        return;
+      }
+      if (event !== "SIGNED_IN" || !session?.user?.id) return;
+      const uid = session.user.id;
+      const cached = readCachedAdminTheme(uid);
+      if (cached) setTheme(cached);
+      void (async () => {
+        try {
+          const res = await fetch("/api/admin/profile", { credentials: "include" });
+          if (!res.ok) return;
+          const body = await res.json();
+          const t = adminThemeFromProfileValue(
+            (body?.profile as { admin_theme?: string } | undefined)?.admin_theme
+          );
+          setTheme(t);
+          writeCachedAdminTheme(uid, t);
+        } catch {
+          /* keep cache / current */
+        }
+      })();
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const pathname = usePathname();
+  const { config } = useWebsiteConfig();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const isSettingsPath = pathname?.startsWith("/admin/settings") ?? false;
+  const [settingsOpen, setSettingsOpen] = useState(isSettingsPath);
+  const isAccountPath = pathname?.startsWith("/admin/settings/account") ?? false;
+  const [accountOpen, setAccountOpen] = useState(isAccountPath);
+  const isIndustriesPath = pathname?.startsWith("/admin/settings/industries") ?? false;
+  const [industriesOpen, setIndustriesOpen] = useState(isIndustriesPath);
+  const isMarketingPath = pathname?.startsWith("/admin/marketing") ?? false;
+  const isStaffPath = pathname?.startsWith("/admin/settings/staff") ?? false;
+  const [marketingOpen, setMarketingOpen] = useState(isMarketingPath);
+  const isBookingsPath = pathname?.startsWith("/admin/booking") ?? false; // covers /admin/bookings and /admin/booking-charges
+  const [bookingsOpen, setBookingsOpen] = useState(isBookingsPath);
+  const isProvidersPath = pathname?.startsWith("/admin/provider") ?? false; // covers /admin/providers and /admin/provider-payments
+  const [providersOpen, setProvidersOpen] = useState(isProvidersPath);
+  const [industries, setIndustries] = useState<Industry[]>([]);
+
+  useEffect(() => {
+    if (pathname?.startsWith("/admin/booking")) setBookingsOpen(true);
+    if (pathname?.startsWith("/admin/provider")) setProvidersOpen(true);
+  }, [pathname]);
+  type NotificationItem = {
+    id: string;
+    title: string;
+    description: string;
+    read?: boolean;
+    link?: string | null;
+    source?: 'admin' | 'platform';
+    created_at?: string;
+    level?: string | null;
+    audience?: string | null;
+  };
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationDetail, setNotificationDetail] = useState<NotificationItem | null>(null);
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const notificationsBaseUrl = currentBusiness
+    ? `/api/admin/notifications?business_id=${encodeURIComponent(currentBusiness.id)}`
+    : '/api/admin/notifications';
+
+  const fetchNotifications = async () => {
+    if (!currentBusiness) return;
+    setNotificationsLoading(true);
+    try {
+      const res = await fetch(notificationsBaseUrl);
+      if (!res.ok) {
+        setNotifications([]);
+        return;
+      }
+      const data = await res.json();
+      setNotifications(
+        (data.notifications || []).map(
+          (n: {
+            id: string;
+            title: string;
+            description: string;
+            read: boolean;
+            link?: string | null;
+            source?: 'admin' | 'platform';
+            created_at?: string;
+            level?: string | null;
+            audience?: string | null;
+          }) => ({
+            id: n.id,
+            title: n.title,
+            description: n.description ?? '',
+            read: !!n.read,
+            link: n.link ?? null,
+            source: n.source,
+            created_at: n.created_at,
+            level: n.level,
+            audience: n.audience,
+          })
+        )
+      );
+    } catch {
+      setNotifications([]);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  };
+
+  const markAllAsRead = async () => {
+    try {
+      const res = await fetch(notificationsBaseUrl, { method: 'PATCH' });
+      if (res.ok) setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    } catch {
+      // keep state unchanged on error
+    }
+  };
+
+  const markNotificationAsRead = async (id: string) => {
+    try {
+      const url = currentBusiness
+        ? `/api/admin/notifications/${id}?business_id=${encodeURIComponent(currentBusiness.id)}`
+        : `/api/admin/notifications/${id}`;
+      const res = await fetch(url, { method: 'PATCH' });
+      if (res.ok) setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    } catch {
+      // keep state unchanged on error
+    }
+  };
+
+  const deleteNotification = async (id: string) => {
+    try {
+      const url = currentBusiness
+        ? `/api/admin/notifications/${id}?business_id=${encodeURIComponent(currentBusiness.id)}`
+        : `/api/admin/notifications/${id}`;
+      const res = await fetch(url, { method: 'DELETE' });
+      if (res.ok) {
+        if (id.startsWith(PLATFORM_NOTIF_ID_PREFIX)) {
+          setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+        } else {
+          setNotifications((prev) => prev.filter((n) => n.id !== id));
+        }
+        setNotificationDetail((d) => (d?.id === id ? null : d));
+      }
+    } catch {
+      // keep state unchanged on error
+    }
+  };
+
+  const clearAllNotifications = async () => {
+    try {
+      const res = await fetch(notificationsBaseUrl, { method: 'DELETE' });
+      if (res.ok) {
+        setNotificationDetail(null);
+        await fetchNotifications();
+      }
+    } catch {
+      // keep state unchanged on error
+    }
+  };
+
+  const [openIndustryMenus, setOpenIndustryMenus] = useState<Record<string, boolean>>({});
+
+  // Session + profile: theme, name, role, avatar (refetch on navigation so /admin/profile saves show up).
+  useEffect(() => {
+    let mounted = true;
+    const hydrateProfile = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const user = data.session?.user;
+        const userId = user?.id ?? "";
+        const sessionEmail = user?.email?.trim();
+        if (mounted && sessionEmail) {
+          setAdminEmail(sessionEmail);
+        }
+        const metaRole = formatRoleLabel(user?.user_metadata?.role as string | undefined);
+        if (mounted && metaRole) {
+          setUserRoleLabel(metaRole);
+        }
+
+        const res = await fetch("/api/admin/profile", { credentials: "include" });
+        let profileFullName = "";
+        if (res.ok) {
+          const body = await res.json();
+          const prof = body?.profile as { admin_theme?: string; role?: string; full_name?: string; profile_picture?: string } | undefined;
+          if (mounted) {
+            const t = adminThemeFromProfileValue(prof?.admin_theme);
+            setTheme(t);
+            if (userId) writeCachedAdminTheme(userId, t);
+          }
+          const role = prof?.role as string | undefined;
+          if (mounted && role) {
+            setUserRoleLabel(formatRoleLabel(role));
+          }
+          profileFullName = (prof?.full_name as string | undefined)?.trim() ?? "";
+          const rawPic = (prof?.profile_picture as string | undefined)?.trim() ?? "";
+          const validPic =
+            rawPic &&
+            (rawPic.startsWith("https://") ||
+              rawPic.startsWith("http://") ||
+              rawPic.startsWith("blob:"));
+          if (mounted) {
+            setProfilePictureUrl(validPic ? rawPic : "");
+          }
+        } else if (mounted) {
+          setProfilePictureUrl("");
+        }
+
+        const metaName = (user?.user_metadata?.full_name as string | undefined)?.trim() ?? "";
+        const emailForFallback = sessionEmail || "";
+        const fromEmail = emailForFallback ? emailForFallback.split("@")[0] : "";
+        const displayName = profileFullName || metaName || fromEmail || "";
+        if (mounted) {
+          setAccountName(displayName);
+        }
+      } catch {
+        /* keep defaults */
+      }
+    };
+    void hydrateProfile();
+    return () => {
+      mounted = false;
+    };
+  }, [pathname]);
+
+  useEffect(() => {
+    if (currentBusiness) {
+      fetchIndustries();
+    }
+  }, [currentBusiness]);
+
+  useEffect(() => {
+    if (currentBusiness) {
+      fetchNotifications();
+    }
+  }, [currentBusiness]);
+
+  // Listen for industry changes
+  useEffect(() => {
+    const handleIndustryChange = () => {
+      fetchIndustries();
+    };
+
+    addIndustryChangeListener(handleIndustryChange);
+
+    return () => {
+      removeIndustryChangeListener(handleIndustryChange);
+    };
+  }, [currentBusiness]);
+
+ const fetchIndustries = async () => {
+  if (!currentBusiness) return;
+
+  try {
+    const response = await fetch(
+      `/api/industries?business_id=${currentBusiness.id}`
+    );
+
+    // Check if response is ok before trying to parse JSON
+    if (!response.ok) {
+      // Try to get error message from response
+      let errorMessage = `Failed to fetch industries: ${response.status} ${response.statusText}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorMessage;
+      } catch {
+        // If JSON parsing fails, use the status text
+      }
+      console.error("Error fetching industries:", errorMessage);
+      setIndustries([]);
+      return;
+    }
+
+    const data = await response.json();
+
+    if (data.industries && Array.isArray(data.industries)) {
+      setIndustries(data.industries);
+    } else {
+      setIndustries([]);
+    }
+  } catch (error) {
+    // Handle network errors, JSON parsing errors, etc.
+    if (error instanceof TypeError && error.message === 'Failed to fetch') {
+      console.error("Error fetching industries: Network error - API endpoint may be unavailable");
+    } else {
+      console.error("Error fetching industries:", error);
+    }
+    setIndustries([]);
+  }
+};
+
+
+  useEffect(() => {
+    setSettingsOpen(isSettingsPath);
+  }, [isSettingsPath]);
+
+  useEffect(() => {
+    setMarketingOpen(isMarketingPath);
+  }, [isMarketingPath]);
+
+  useEffect(() => {
+    setAccountOpen(isAccountPath);
+  }, [isAccountPath]);
+
+  useEffect(() => {
+    setIndustriesOpen(isIndustriesPath);
+  }, [isIndustriesPath]);
+
+  const menuItems = [
+    { 
+      icon: LayoutDashboard, 
+      label: "Dashboard", 
+      path: "/admin/dashboard",
+      module: "dashboard" as AdminModuleKey,
+      iconBg: "bg-blue-100",
+      iconColor: "text-blue-600"
+    },
+    { 
+      icon: Calendar, 
+      label: "Bookings", 
+      path: "/admin/bookings",
+      module: "bookings" as AdminModuleKey,
+      iconBg: "bg-green-100",
+      iconColor: "text-green-600",
+      children: [
+        { label: "All Bookings", path: "/admin/bookings" },
+        { label: "Today's bookings", path: "/admin/bookings?tab=today" },
+        { label: "Upcoming bookings", path: "/admin/bookings?tab=upcoming" },
+        { label: "Unassigned", path: "/admin/bookings?tab=unassigned" },
+        { label: "Draft/Quote", path: "/admin/bookings?tab=draft" },
+        { label: "Cancelled", path: "/admin/bookings?tab=cancelled" },
+        { label: "History", path: "/admin/bookings?tab=history" },
+        { label: "Booking Charges", path: "/admin/booking-charges" },
+      ],
+    },
+    { 
+      icon: Users, 
+      label: "Customers", 
+      path: "/admin/customers",
+      module: "customers" as AdminModuleKey,
+      iconBg: "bg-purple-100",
+      iconColor: "text-purple-600"
+    },
+    { 
+      icon: FileText, 
+      label: "Leads", 
+      path: "/admin/leads",
+      module: "leads" as AdminModuleKey,
+      iconBg: "bg-blue-100",
+      iconColor: "text-blue-600"
+    },
+    { 
+      icon: UserPlus, 
+      label: "Hiring", 
+      path: "/admin/hiring",
+      module: "hiring" as AdminModuleKey,
+      iconBg: "bg-cyan-100",
+      iconColor: "text-cyan-600"
+    },
+    { 
+      icon: UserCog, 
+      label: "Providers", 
+      path: "/admin/providers",
+      module: "providers" as AdminModuleKey,
+      iconBg: "bg-amber-100",
+      iconColor: "text-amber-600",
+      children: [
+        { label: "All Providers", path: "/admin/providers" },
+        { label: "Provider Payments", path: "/admin/provider-payments" },
+      ],
+    },
+    { 
+      icon: Megaphone, 
+      label: "Marketing", 
+      path: "/admin/marketing",
+      module: "marketing" as AdminModuleKey,
+      iconBg: "bg-pink-100",
+      iconColor: "text-pink-600"
+    },
+    { 
+      icon: BarChart3, 
+      label: "Reports", 
+      path: "/admin/reports",
+      module: "reports" as AdminModuleKey,
+      iconBg: "bg-emerald-100",
+      iconColor: "text-emerald-600"
+    },
+    { 
+      icon: List, 
+      label: "Logs", 
+      path: "/admin/logs",
+      module: "logs" as AdminModuleKey,
+      iconBg: "bg-gray-100",
+      iconColor: "text-gray-600"
+    },
+    {
+      icon: Settings,
+      label: "Settings",
+      path: "/admin/settings",
+      module: "settings" as AdminModuleKey,
+      iconBg: "bg-indigo-100",
+      iconColor: "text-indigo-600",
+      children: [
+        { label: "Account", path: "/admin/settings/account" },
+        {
+          icon: Users,
+          label: "Staff",
+          path: "/admin/settings/staff",
+          iconBg: "purple-100",
+          iconColor: "text-purple-600",
+        },
+        { 
+          icon: Settings,
+          label: 'General', 
+          path: '/admin/settings/general',
+          iconBg: 'bg-blue-100',
+          iconColor: 'text-blue-600'
+        },
+        { label: "Website & Form Design", path: "/admin/settings/design" },
+        {
+          label: "Industries",
+          path: "/admin/settings/industries",
+          children: [
+            { label: 'Add Industries', path: '/admin/settings/industries' },
+            ...(industries || []).map((industry) => {
+              const formEntry = industryFormNavEntry(industry);
+              const layout = industry.customer_booking_form_layout;
+              const isForm5Layout = layout === "form5";
+              const isForm4Layout = layout === "form4";
+              const isForm3Layout = layout === "form3";
+              const isForm2Layout = layout === "form2";
+              const formSetupKind = isForm5Layout
+                ? ("form5" as const)
+                : isForm4Layout
+                ? ("form4" as const)
+                : isForm3Layout
+                  ? ("form3" as const)
+                  : isForm2Layout
+                    ? ("form2" as const)
+                    : ("form1" as const);
+              return {
+                label: industry.name,
+                path: formEntry.path,
+                children: [
+                  {
+                    label: formEntry.label,
+                    path: formEntry.path,
+                    /** Click chevron to expand Form 1 / 2 / 3 / 4 setup links */
+                    formSetupKind,
+                    children: isForm5Layout
+                      ? industryForm5AdminLinks(industry)
+                      : isForm4Layout
+                      ? industryForm4AdminLinks(industry)
+                      : isForm3Layout
+                        ? industryForm3AdminLinks(industry)
+                        : isForm2Layout
+                          ? industryForm2AdminLinks(industry)
+                          : industryForm1AdminLinks(industry),
+                  },
+                  {
+                    label: "Settings",
+                    path: `/admin/settings/industries/settings?industry=${encodeURIComponent(industry.name)}`,
+                    children: [
+                      {
+                        label: "Form Settings",
+                        path: `/admin/settings/industries/settings/form-settings?industry=${encodeURIComponent(industry.name)}`,
+                      },
+                      {
+                        label: "Add/Combine Form",
+                        path: `/admin/settings/industries/settings/add-combine-form?industry=${encodeURIComponent(industry.name)}`,
+                      },
+                    ],
+                  },
+                ],
+              };
+            }),
+          ],
+        },
+        { 
+          icon: Clock,
+          label: 'Reserve Slot', 
+          path: '/admin/settings/reserve-slot',
+          iconBg: 'bg-amber-100',
+          iconColor: 'text-amber-600'
+        },
+        { 
+          icon: Bell,
+          label: 'Notifications', 
+          path: '/admin/settings/notifications',
+          iconBg: 'bg-blue-100',
+          iconColor: 'text-blue-600'
+        },
+      ],
+    },
+  ];
+
+  const visibleMenuItems = useMemo(() => {
+    return menuItems.filter((item: { module?: AdminModuleKey }) => {
+      const m = item.module;
+      if (!m) return true;
+      return hasModuleAccess(m);
+    });
+  }, [menuItems, hasModuleAccess]);
+
+  useEffect(() => {
+    if (businessCtxLoading || !currentBusiness || !pathname) return;
+    const mod = pathnameToRequiredAdminModule(pathname);
+    if (mod === null) return;
+    if (hasModuleAccess(mod)) return;
+    const dest = firstAllowedAdminPath(
+      currentBusiness.role === "owner",
+      currentBusiness.module_permissions ?? null
+    );
+    if (pathname !== dest) {
+      router.replace(dest);
+    }
+  }, [pathname, businessCtxLoading, currentBusiness, hasModuleAccess, router]);
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      router.push("/auth/login");
+    } catch (error) {
+      console.error('Logout error:', error);
+      router.push("/auth/login");
+    }
+  };
+
+  const toggleTheme = () => {
+    const prev = theme;
+    const newTheme = prev === "dark" ? "light" : "dark";
+    setTheme(newTheme);
+    void (async () => {
+      try {
+        const r = await fetch("/api/admin/profile", {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ admin_theme: newTheme }),
+        });
+        if (!r.ok) {
+          console.warn("Could not persist admin theme:", await r.text());
+          setTheme(prev);
+          return;
+        }
+        const { data: u } = await supabase.auth.getUser();
+        const uid = u.user?.id;
+        if (uid) writeCachedAdminTheme(uid, newTheme);
+      } catch {
+        setTheme(prev);
+      }
+    })();
+  };
+
+  const { logo } = useLogo();
+
+  return (
+    <div className={`min-h-screen ${theme === 'dark' ? 'void-bg admin-theme dark' : 'bg-white light-theme'}`}>
+      {/* Sidebar */}
+      <aside
+        className={`fixed top-0 left-0 z-40 h-screen transition-all duration-300 ${
+          sidebarOpen ? "w-64" : "w-20"
+        } glass-sidebar shadow-2xl`}
+      >
+        <div className="flex flex-col h-full">
+          {/* Logo */}
+          <div className="flex items-start justify-between p-4 border-b border-cyan-500/20">
+            {sidebarOpen ? (
+              <>
+                <div className="flex items-center gap-3">
+                  {logo && !logo.startsWith('blob:') ? (
+                    <Image 
+                      src={logo} 
+                      alt="Logo" 
+                      width={44} 
+                      height={44} 
+                      className="rounded object-cover" 
+                    />
+                  ) : (
+                    <Image 
+                      src={defaultLogo} 
+                      alt="Logo" 
+                      width={44} 
+                      height={44} 
+                      className="rounded object-cover" 
+                    />
+                  )}
+                  <div>
+                    <h2 className={`text-sm font-semibold uppercase tracking-wide ${theme === 'dark' ? 'text-cyan-400' : 'text-black'}`} style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
+                      {currentBusiness?.name || config?.branding?.companyName || 'Your Business'}
+                    </h2>
+                    <p className={`text-xs ${theme === 'dark' ? 'text-cyan-300/60' : 'text-black/60'}`} style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>Admin Panel</p>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setSidebarOpen(false)}
+                  className="h-8 w-8"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </>
+            ) : (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setSidebarOpen(true)}
+                className="h-8 w-8 mx-auto"
+              >
+                <Menu className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+
+          {/* Navigation */}
+          <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+            {visibleMenuItems.map((item) => {
+              const Icon = item.icon;
+              const hasChildren = Array.isArray((item as any).children);
+              const childActive = hasChildren
+                ? (item as any).children.some((child: { path: string }) => pathname === child.path)
+                : false;
+              const isExpanded = hasChildren
+                ? item.label === "Settings"
+                  ? settingsOpen
+                  : item.label === "Marketing"
+                  ? marketingOpen
+                  : item.label === "Bookings"
+                  ? bookingsOpen
+                  : item.label === "Providers"
+                  ? providersOpen
+                  : false
+                : false;
+              const isActive = hasChildren 
+                ? pathname === item.path && !childActive 
+                : pathname === item.path || 
+                  (item.path === '/admin/settings/staff' && isStaffPath);
+              const shouldHighlight = hasChildren && item.label === "Settings"
+                ? isActive
+                : isActive;
+
+              return (
+                <div key={item.path}>
+                  {hasChildren ? (
+                    <Collapsible
+                      open={sidebarOpen ? isExpanded : false}
+                      onOpenChange={(open) => {
+                        if (!sidebarOpen) return;
+                        if (item.label === "Settings") setSettingsOpen(open);
+                        if (item.label === "Marketing") setMarketingOpen(open);
+                        if (item.label === "Bookings") setBookingsOpen(open);
+                        if (item.label === "Providers") setProvidersOpen(open);
+                      }}
+                    >
+                      <CollapsibleTrigger asChild>
+                        <button
+                          type="button"
+                          className={`relative flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
+                            shouldHighlight
+                              ? "text-white shadow-lg neon-cyan"
+                              : theme === 'dark' 
+                                ? "text-gray-300 hover:bg-white/5 hover:text-cyan-300"
+                                : "text-black hover:bg-black/5"
+                          }`}
+                          style={shouldHighlight ? { background: 'linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%)' } : {}}
+                        >
+                          <div className={cn("flex h-8 w-8 items-center justify-center rounded-full", item.iconBg, item.iconColor)}>
+                            <Icon className="h-4 w-4" />
+                          </div>
+                          {sidebarOpen && (
+                            <>
+                              <span className="flex-1 text-sm font-medium text-left" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{item.label}</span>
+                              <ChevronDown
+                                className={`absolute right-3 h-4 w-4 transition-transform duration-200 ease-out ${isExpanded ? "rotate-180" : ""}`}
+                              />
+                            </>
+                          )}
+                        </button>
+                      </CollapsibleTrigger>
+                      {sidebarOpen && (
+                        <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down">
+                          <div className="mt-1 space-y-1">
+                      {(item as any).children.map((child: any) => {
+                        const childHasChildren = Array.isArray(child.children);
+                        const childPathBase = (child.path || "").split("?")[0];
+                        const childTab = (child.path || "").includes("?tab=")
+                          ? new URLSearchParams((child.path || "").split("?")[1] || "").get("tab")
+                          : null;
+                        const childActive =
+                          item.label === "Bookings" && pathname === "/admin/bookings"
+                            ? childPathBase === "/admin/booking-charges"
+                              ? false
+                              : childTab === null
+                                ? !searchParams.get("tab") || searchParams.get("tab") === "all"
+                                : searchParams.get("tab") === childTab
+                            : item.label === "Bookings" && child.path === "/admin/booking-charges"
+                              ? pathname === "/admin/booking-charges"
+                              : pathname === child.path;
+                        const grandchildActive = childHasChildren
+                          ? child.children.some((gc: { path?: string; children?: { path: string }[] }) => {
+                              if (child.label === "Industries" && Array.isArray(gc.children) && gc.children.length > 0) {
+                                return gc.children.some((ggc) =>
+                                  isIndustryFormNavLinkActive(ggc.path, pathname || "", searchParams),
+                                );
+                              }
+                              return (gc.path && pathname === gc.path) || false;
+                            })
+                          : false;
+                        if (childHasChildren) {
+                          return (
+                            <div key={child.path}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (item.label === "Settings" && child.label === "Account") {
+                                    setAccountOpen((prev) => !prev);
+                                  }
+                                  if (item.label === "Settings" && child.label === "Industries") {
+                                    setIndustriesOpen((prev) => !prev);
+                                  }
+                                }}
+                                className={`relative flex w-full items-center gap-2 rounded-lg py-2 pl-8 pr-3 text-sm transition-all ${
+                                  (item.label === 'Settings' && child.label === 'Industries')
+                                    ? "text-gray-300 hover:bg-white/5 hover:text-cyan-300"
+                                    : (childActive || grandchildActive
+                                      ? "text-white shadow neon-cyan"
+                                      : "text-gray-300 hover:bg-white/5 hover:text-cyan-300")
+                                }`}
+                                style={(item.label === 'Settings' && child.label === 'Industries')
+                                  ? {}
+                                  : (childActive || grandchildActive ? { background: 'linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%)' } : {})}
+                              >
+                                <span className="flex-1 text-left" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{child.label}</span>
+                                <ChevronDown className={`h-4 w-4 transition-transform ${
+                                  (child.label === 'Account' && accountOpen) || (child.label === 'Industries' && industriesOpen)
+                                    ? 'rotate-180'
+                                    : ''
+                                }`} />
+                              </button>
+                              {(child.label === 'Account' ? accountOpen : child.label === 'Industries' ? industriesOpen : false) && (
+                                <div className="mt-1 space-y-1">
+                                  {child.children.map((gc: any) => {
+                                    const gcHasChildren = Array.isArray(gc.children);
+                                    const gcActive =
+                                      gcHasChildren && child.label === "Industries"
+                                        ? gc.children.some((ggc: { path: string }) =>
+                                            isIndustryFormNavLinkActive(ggc.path, pathname || "", searchParams),
+                                          )
+                                        : pathname === gc.path;
+                                    const isAddIndustries = gc.label === 'Add Industries';
+                                    const addIndustriesActive = isAddIndustries && pathname === '/admin/settings/industries' && !searchParams.get('industry');
+                                    if (gcHasChildren) {
+                                      const key = gc.path as string;
+                                      const open = !!openIndustryMenus[key];
+                                      return (
+                                        <div key={gc.path}>
+                                          <button
+                                            type="button"
+                                            onClick={() => setOpenIndustryMenus((m) => ({ ...m, [key]: !open }))}
+                                            className={`relative flex w-full items-center gap-2 rounded-lg py-2 pl-12 pr-3 text-sm transition-all text-gray-300 hover:bg-white/5 hover:text-cyan-300`}
+                                            style={{}}
+                                          >
+                                            <span className="flex-1 text-left" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{gc.label}</span>
+                                            <ChevronDown className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} />
+                                          </button>
+                                          {open && (
+                                            <div className="mt-1 space-y-1">
+                                              {gc.children.map((ggc: any) => {
+                                                const ggcHasChildren = Array.isArray(ggc.children);
+                                                const ggcActive = isIndustryFormNavLinkActive(
+                                                  ggc.path,
+                                                  pathname || "",
+                                                  searchParams,
+                                                );
+                                                const flyoutSubActive =
+                                                  ggc.formSetupKind &&
+                                                  Array.isArray(ggc.children) &&
+                                                  ggc.children.some((sub: { path: string }) =>
+                                                    isIndustryFormNavLinkActive(
+                                                      sub.path,
+                                                      pathname || "",
+                                                      searchParams,
+                                                    ),
+                                                  );
+                                                const highlightFormRow = ggcActive || flyoutSubActive;
+
+                                                if (ggc.formSetupKind && Array.isArray(ggc.children)) {
+                                                  const formSetupMenuKey = `form-setup:${ggc.path}:${ggc.formSetupKind}`;
+                                                  const formSetupOpen = !!openIndustryMenus[formSetupMenuKey];
+                                                  return (
+                                                    <div key={formSetupMenuKey}>
+                                                      <div
+                                                        className={cn(
+                                                          "relative flex items-center gap-1 rounded-lg py-2 pl-16 pr-2 text-sm transition-all",
+                                                          highlightFormRow
+                                                            ? "text-white shadow neon-cyan"
+                                                            : "text-gray-300 hover:bg-white/5 hover:text-cyan-300",
+                                                        )}
+                                                        style={
+                                                          highlightFormRow
+                                                            ? {
+                                                                background:
+                                                                  "linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%)",
+                                                              }
+                                                            : {}
+                                                        }
+                                                      >
+                                                        <Link
+                                                          href={ggc.path}
+                                                          className="min-w-0 flex-1 truncate text-left"
+                                                          style={{
+                                                            fontFamily: "var(--font-inter), system-ui, sans-serif",
+                                                          }}
+                                                        >
+                                                          {ggc.label}
+                                                        </Link>
+                                                        <button
+                                                          type="button"
+                                                          aria-expanded={formSetupOpen}
+                                                          aria-label={`${ggc.label} setup menu`}
+                                                          onClick={() =>
+                                                            setOpenIndustryMenus((m) => ({
+                                                              ...m,
+                                                              [formSetupMenuKey]: !m[formSetupMenuKey],
+                                                            }))
+                                                          }
+                                                          className={cn(
+                                                            "rounded-md p-1 text-current transition-colors hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60",
+                                                            highlightFormRow && "hover:bg-white/20",
+                                                          )}
+                                                        >
+                                                          <ChevronDown
+                                                            className={cn(
+                                                              "h-4 w-4 shrink-0 transition-transform",
+                                                              formSetupOpen && "rotate-180",
+                                                            )}
+                                                            aria-hidden
+                                                          />
+                                                        </button>
+                                                      </div>
+                                                      {formSetupOpen && (
+                                                        <div className="mt-1 space-y-0.5 border-l border-cyan-400/40 py-1 pl-3 ml-[3.25rem]">
+                                                          <p className="px-0.5 pb-1 text-[10px] font-medium uppercase tracking-wide text-gray-500">
+                                                            {ggc.formSetupKind === "form5"
+                                                              ? "Form 5 setup"
+                                                              : ggc.formSetupKind === "form4"
+                                                              ? "Form 4 setup"
+                                                              : ggc.formSetupKind === "form3"
+                                                                ? "Form 3 setup"
+                                                                : ggc.formSetupKind === "form2"
+                                                                  ? "Form 2 setup"
+                                                                  : "Form 1 setup"}
+                                                          </p>
+                                                          {ggc.children.map((sub: { label: string; path: string }) => {
+                                                            const subActive = isIndustryFormNavLinkActive(
+                                                              sub.path,
+                                                              pathname || "",
+                                                              searchParams,
+                                                            );
+                                                            return (
+                                                              <Link
+                                                                key={sub.path}
+                                                                href={sub.path}
+                                                                className={cn(
+                                                                  "block rounded-md py-1.5 pr-2 text-xs transition-colors",
+                                                                  subActive
+                                                                    ? "bg-white/15 font-medium text-white"
+                                                                    : "text-gray-400 hover:bg-white/10 hover:text-cyan-200",
+                                                                )}
+                                                                style={{
+                                                                  fontFamily:
+                                                                    "var(--font-inter), system-ui, sans-serif",
+                                                                }}
+                                                              >
+                                                                {sub.label}
+                                                              </Link>
+                                                            );
+                                                          })}
+                                                        </div>
+                                                      )}
+                                                    </div>
+                                                  );
+                                                }
+                                                if (ggcHasChildren) {
+                                                  const subKey = ggc.path as string;
+                                                  const subOpen = !!openIndustryMenus[subKey];
+                                                  return (
+                                                    <div key={ggc.path}>
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => setOpenIndustryMenus((m) => ({ ...m, [subKey]: !subOpen }))}
+                                                        className={`relative flex w-full items-center gap-2 rounded-lg py-2 pl-16 pr-3 text-sm transition-all text-gray-300 hover:bg-white/5 hover:text-cyan-300`}
+                                                        style={{}}
+                                                      >
+                                                        <span className="flex-1 text-left" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{ggc.label}</span>
+                                                        <ChevronDown className={`h-4 w-4 transition-transform ${subOpen ? 'rotate-180' : ''}`} />
+                                                      </button>
+                                                      {subOpen && (
+                                                        <div className="mt-1 space-y-1">
+                                                          {ggc.children.map((gggc: { label: string; path: string }) => {
+                                                            const gggcBase = (gggc.path || '').split('?')[0];
+                                                            const gggcActive = pathname === gggcBase;
+                                                            return (
+                                                              <Link
+                                                                key={gggc.path}
+                                                                href={gggc.path}
+                                                                className={`relative flex items-center rounded-lg py-2 pl-20 pr-3 text-sm transition-all ${
+                                                                  gggcActive ? 'text-white shadow neon-cyan' : 'text-gray-300 hover:bg-white/5 hover:text-cyan-300'
+                                                                }`}
+                                                                style={gggcActive ? { background: 'linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%)' } : {}}
+                                                              >
+                                                                <span style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{gggc.label}</span>
+                                                              </Link>
+                                                            );
+                                                          })}
+                                                        </div>
+                                                      )}
+                                                    </div>
+                                                  );
+                                                }
+                                                return (
+                                                  <Link
+                                                    key={ggc.path}
+                                                    href={ggc.path}
+                                                    className={`relative flex items-center rounded-lg py-2 pl-16 pr-3 text-sm transition-all ${
+                                                      ggcActive
+                                                        ? "text-white shadow neon-cyan"
+                                                        : "text-gray-300 hover:bg-white/5 hover:text-cyan-300"
+                                                    }`}
+                                                    style={
+                                                      ggcActive
+                                                        ? { background: "linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%)" }
+                                                        : {}
+                                                    }
+                                                  >
+                                                    <span style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{ggc.label}</span>
+                                                  </Link>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    }
+                                    return (
+                                      <Link
+                                        key={gc.path}
+                                        href={gc.path}
+                                        className={`relative flex items-center rounded-lg py-2 pl-12 pr-3 text-sm transition-all ${
+                                          addIndustriesActive
+                                            ? 'text-white shadow neon-cyan'
+                                            : 'text-gray-300 hover:bg-white/5 hover:text-cyan-300'
+                                        }`}
+                                        style={addIndustriesActive ? { background: 'linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%)' } : {}}
+                                      >
+                                        <span>{gc.label}</span>
+                                      </Link>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
+                        return (
+                          <Link
+                            key={child.path}
+                            href={child.path}
+                            className={`relative flex items-center rounded-lg py-2 pl-8 pr-3 text-sm transition-all ${
+                              childActive
+                                ? "text-white shadow neon-cyan"
+                                : "text-gray-300 hover:bg-white/5 hover:text-cyan-300"
+                            }`}
+                            style={childActive ? { background: 'linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%)' } : {}}
+                          >
+                            <span style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{child.label}</span>
+                          </Link>
+                        );
+                      })}
+                      </div>
+                        </CollapsibleContent>
+                      )}
+                    </Collapsible>
+                  ) : (
+                    <Link
+                      href={item.path}
+                      onClick={() => { setSettingsOpen(false); setMarketingOpen(false); setBookingsOpen(false); setProvidersOpen(false); }}
+                      className={`flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
+                        isActive
+                          ? "text-white shadow-lg neon-cyan"
+                          : theme === 'dark'
+                            ? "text-gray-300 hover:bg-white/5 hover:text-cyan-300"
+                            : "text-black hover:bg-black/5"
+                      }`}
+                      style={isActive ? { background: 'linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%)' } : {}}
+                    >
+                      <div className={cn("flex h-8 w-8 items-center justify-center rounded-full", item.iconBg, item.iconColor)}>
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      {sidebarOpen && (
+                        <>
+                          <span className="flex-1 text-sm font-medium" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>{item.label}</span>
+                          {shouldHighlight && <ChevronRight className="h-4 w-4" />}
+                        </>
+                      )}
+                    </Link>
+                  )}
+                </div>
+              );
+            })}
+          </nav>
+
+          {/* Profile Dropdown */}
+          <div className="p-4 border-t border-cyan-500/20">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  className={`w-full justify-start gap-3 text-gray-300 hover:text-cyan-300 hover:bg-white/5 ${
+                    !sidebarOpen && "justify-center px-2"
+                  }`}
+                >
+                  <Avatar className="h-8 w-8 flex-shrink-0">
+                    <AvatarImage
+                      src={
+                        profilePictureUrl
+                          ? profilePictureUrl
+                          : `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(accountName || adminEmail || userRoleLabel || "user")}`
+                      }
+                      alt={accountName || adminEmail || "User"}
+                      onError={(e) => {
+                        if (profilePictureUrl) {
+                          setProfilePictureUrl("");
+                        }
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
+                    <AvatarFallback>
+                      {(accountName || adminEmail || userRoleLabel || "U").charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  {sidebarOpen && (
+                    <>
+                      <div className="flex-1 text-left min-w-0">
+                        <p className="text-sm font-medium text-cyan-300 truncate" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
+                          {accountName || "—"}
+                        </p>
+                        <p className="text-xs text-cyan-300/60 truncate" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
+                          {userRoleLabel || "—"}
+                        </p>
+                      </div>
+                      <ChevronDown className="h-4 w-4" />
+                    </>
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>My Account</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => router.push("/admin/profile")} style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
+                  <User className="mr-2 h-4 w-4" />
+                  <span>Profile Settings</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleLogout} className="text-red-600" style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
+                  <LogOut className="mr-2 h-4 w-4" />
+                  <span>Logout</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <div
+        className={`transition-all duration-300 ${
+          sidebarOpen ? "ml-64" : "ml-20"
+        }`}
+      >
+        {/* Top Bar */}
+        <header className="sticky top-0 z-30 shadow-lg glass-header">
+          <div className="flex items-center justify-between px-6 py-4">
+            <div>
+              <h1 className={`text-2xl font-semibold ${theme === 'dark' ? 'text-cyan-300' : 'text-black'}`} style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', fontWeight: 600 }}>
+                {(() => {
+                  const special = pathname === "/admin/add-booking" ? "New Booking" : null;
+                  if (special) return special;
+                  if (pathname?.startsWith("/admin/customers/") && pathname !== "/admin/customers") {
+                    return "Customer Profile";
+                  }
+                  if (pathname?.startsWith("/admin/providers/") && pathname !== "/admin/providers") {
+                    return "Provider Profile";
+                  }
+                  // Find the active menu item by checking paths
+                  const findActiveLabel = (items: any[], currentPath: string): string | undefined => {
+                    for (const item of items) {
+                      if (item.path === currentPath) return item.label;
+                      if (item.children) {
+                        const childMatch = findActiveLabel(item.children, currentPath);
+                        if (childMatch) return childMatch;
+                      }
+                    }
+                    return undefined;
+                  };
+                  
+                  return findActiveLabel(menuItems, pathname || '') || 'Dashboard';
+                })()}
+              </h1>
+              {pathname === "/admin/dashboard" && (
+                <p className={`text-sm ${theme === 'dark' ? 'text-cyan-300/70' : 'text-black/70'}`} style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
+                  Welcome back, {accountName || adminEmail.split("@")[0] || "there"}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-4">
+              {/* Theme Toggle */}
+              <Button 
+                variant="ghost" 
+                size="icon"
+                onClick={toggleTheme}
+                className={`${theme === 'dark' ? 'hover:bg-white/5 text-cyan-300' : 'hover:bg-black/5 text-black'}`}
+                title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+              >
+                {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+              </Button>
+
+              {/* Notifications Dropdown */}
+              <DropdownMenu onOpenChange={(open) => { if (open && currentBusiness) fetchNotifications(); }}>
+                <DropdownMenuTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="icon"
+                    className="relative hover:bg-white/5 text-cyan-300"
+                  >
+                    <Bell className="h-5 w-5" />
+                    {unreadCount > 0 && (
+                      <span className="absolute -top-1 -right-1 h-4 min-w-4 px-1 bg-gradient-to-r from-pink-500 to-purple-500 text-white text-[10px] rounded-full flex items-center justify-center neon-purple">
+                        {unreadCount}
+                      </span>
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-80 p-0">
+                  <DropdownMenuLabel className="flex items-center justify-between gap-2 px-3 py-2">
+                    <span>Notifications</span>
+                    <div className="ml-auto flex items-center gap-3">
+                      <button type="button" onClick={(e) => { e.preventDefault(); markAllAsRead(); }} className="text-xs text-cyan-400 hover:underline">Mark all as read</button>
+                      <span className="text-gray-400">·</span>
+                      <button type="button" onClick={(e) => { e.preventDefault(); clearAllNotifications(); }} className="text-xs text-pink-400 hover:underline">Clear all</button>
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <div className="max-h-[min(24rem,70vh)] overflow-y-auto">
+                    {notificationsLoading && notifications.length === 0 && (
+                      <div className="p-3 text-sm text-gray-400">Loading…</div>
+                    )}
+                    {!notificationsLoading && notifications.length === 0 && (
+                      <div className="p-3 text-sm text-gray-400">No notifications</div>
+                    )}
+                    {notifications.map((n) => (
+                      <DropdownMenuItem
+                        key={n.id}
+                        className="flex items-start gap-2 py-3 cursor-pointer"
+                        onSelect={() => {
+                          if (!n.read) void markNotificationAsRead(n.id);
+                          setNotificationDetail(n);
+                        }}
+                      >
+                        <div className={`mt-1 h-2 w-2 rounded-full flex-shrink-0 ${n.read ? 'bg-gray-500/30' : 'bg-cyan-400 neon-cyan'}`} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium">{n.title}</div>
+                          <div className="text-xs text-muted-foreground line-clamp-2">{n.description}</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="ml-2 text-xs text-gray-400 hover:text-pink-400 flex-shrink-0"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteNotification(n.id); }}
+                          aria-label="Delete notification"
+                        >
+                          Delete
+                        </button>
+                      </DropdownMenuItem>
+                    ))}
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              
+                            <a
+                href={currentBusiness?.id ? `/website/${currentBusiness.id}?business=${currentBusiness.id}` : '/website'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`inline-flex items-center justify-center rounded-md text-sm font-medium transition-all border border-cyan-500/30 bg-white/5 h-9 px-3 neon-cyan ${
+                  theme === 'light' ? 'text-black hover:text-black' : 'text-cyan-300 hover:text-white'
+                }`}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'linear-gradient(135deg, #00D4E8 0%, #00BCD4 100%)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'}
+              >
+                View Website
+              </a>
+            </div>
+          </div>
+        </header>
+
+        {/* Page Content */}
+        <main className="p-6 relative z-10">
+          {children}
+        </main>
+      </div>
+
+      <NotificationDetailDialog
+        open={!!notificationDetail}
+        onOpenChange={(open) => {
+          if (!open) setNotificationDetail(null);
+        }}
+        item={notificationDetail}
+        theme={theme}
+      />
+
+      {/* AI receptionist chat – always visible in admin CRM */}
+      <Suspense fallback={null}>
+        <ReceptionistChat businessId={currentBusiness?.id} theme={theme} />
+      </Suspense>
+    </div>
+  );
+};
+
+export default AdminLayout;

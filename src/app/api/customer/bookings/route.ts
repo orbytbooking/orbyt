@@ -1,0 +1,761 @@
+import { createClient } from '@supabase/supabase-js';
+import { NextRequest, NextResponse } from 'next/server';
+import { createAdminNotification } from '@/lib/adminProviderSync';
+import { processBookingScheduling } from '@/lib/bookingScheduling';
+import { sendCustomerFacingBookingEmailAfterScheduling } from '@/lib/sendCustomerBookingConfirmedEmail';
+import { syncBookingCreated, createRecurringCalendarEvent } from '@/lib/googleCalendar';
+import { getStoreOptionsScheduling, isDateHoliday, getSpotLimits, getBookingCountForDate, getBookingCountForWeek, isTimeSlotAvailableForBooking } from '@/lib/schedulingFilters';
+import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProviderWage';
+import { getOccurrenceDatesForSeriesSync, statusForRecurringOccurrence } from '@/lib/recurringBookings';
+import {
+  collectActiveTimeLogKeys,
+  normalizeBookingDateYmd,
+  resolveCustomerOccurrenceProgressStatus,
+} from '@/lib/bookingTimeLogActiveProgress';
+import { formatFrequencyRepeatsForDisplay, resolveFrequencyRepeatsForBooking } from '@/lib/industryFrequencyRepeats';
+import { compareBookingsByScheduleAsc } from '@/lib/bookingScheduleSort';
+import { parseDurationMinutesFromBookingPayload } from '@/lib/bookingDuration';
+import { extractPricingSummaryFromCustomization } from '@/lib/customerBookingPricingDisplay';
+import { ensureCustomerRowForBusiness } from '@/lib/ensureCustomerRowForBusiness';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+/** Format DB time (e.g. "18:00:00" or "18:00") to display like "6:00 PM" */
+function formatTimeForDisplay(timeStr: string): string {
+  if (!timeStr || typeof timeStr !== 'string') return timeStr;
+  const trimmed = timeStr.trim();
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!match) return trimmed;
+  const hours = parseInt(match[1], 10);
+  const minutes = match[2] || '00';
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const h = hours % 12 || 12;
+  return `${h}:${minutes} ${ampm}`;
+}
+
+/** Normalize display time (e.g. "6:00 PM") to DB time ("18:00:00") for PostgreSQL time columns */
+function normalizeTimeForDb(timeStr: string): string | null {
+  if (!timeStr || typeof timeStr !== 'string') return null;
+  const trimmed = timeStr.trim();
+  const amPm = trimmed.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)/i);
+  if (amPm) {
+    let h = parseInt(amPm[1], 10);
+    const m = amPm[2] || '00';
+    const s = amPm[3] || '00';
+    if (amPm[4].toUpperCase() === 'PM' && h !== 12) h += 12;
+    if (amPm[4].toUpperCase() === 'AM' && h === 12) h = 0;
+    return `${String(h).padStart(2, '0')}:${m}:${s}`;
+  }
+  const already24 = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (already24) {
+    const h = already24[1].padStart(2, '0');
+    const m = already24[2] || '00';
+    const s = (already24[3] || '00').padStart(2, '0');
+    return `${h}:${m}:${s}`;
+  }
+  return trimmed || null;
+}
+
+/** Map DB booking row to customer portal Booking format. providerNameById is used when join didn't return provider (e.g. FK to different table). */
+function dbToCustomerBooking(
+  row: any,
+  providerNameById?: Record<string, string>,
+  extras?: {
+    occurrenceDate?: string;
+    occurrenceStatusOverride?: string;
+    frequencyRepeats?: string | null;
+  },
+): {
+  id: string;
+  service: string;
+  provider: string;
+  frequency: string;
+  date: string;
+  time: string;
+  status: 'scheduled' | 'completed' | 'canceled' | 'confirmed' | 'in_progress';
+  address: string;
+  contact: string;
+  notes: string;
+  price: number;
+  tipAmount?: number;
+  tipUpdatedAt?: string;
+  customization?: Record<string, unknown>;
+  occurrenceDate?: string;
+  frequencyRepeatsDisplay?: string;
+  durationMinutes?: number;
+} {
+  const statusMap: Record<string, string> = {
+    pending: 'scheduled',
+    confirmed: 'confirmed',
+    in_progress: 'in_progress',
+    completed: 'completed',
+    cancelled: 'canceled',
+  };
+  const date = row.date ?? row.scheduled_date ?? '';
+  const rawTime = row.time ?? row.scheduled_time ?? '';
+  const time = formatTimeForDisplay(String(rawTime));
+  const rawStatus = extras?.occurrenceStatusOverride ?? row.status;
+  const totalPrice = Number(row.total_price);
+  const amount = Number(row.amount);
+  const price = (totalPrice && !Number.isNaN(totalPrice)) ? totalPrice : ((amount && !Number.isNaN(amount)) ? amount : 0);
+  const providerRow = row.service_providers ?? row.providers;
+  let providerName = providerRow
+    ? [providerRow.first_name, providerRow.last_name].filter(Boolean).join(' ').trim()
+    : (row.provider_name ?? row.assigned_provider ?? '').trim();
+  if (!providerName && row.provider_id && providerNameById?.[row.provider_id]) {
+    providerName = providerNameById[row.provider_id];
+  }
+  const mappedStatus = statusMap[rawStatus] ?? (rawStatus ?? 'scheduled');
+  const repeatsDisp = formatFrequencyRepeatsForDisplay(extras?.frequencyRepeats ?? null);
+  const pricingSummary = extractPricingSummaryFromCustomization(row.customization);
+  return {
+    id: row.id,
+    service: row.service ?? '',
+    provider: providerName || 'Unassigned',
+    frequency: row.frequency && String(row.frequency).trim() ? String(row.frequency).trim() : '',
+    date,
+    time,
+    status: mappedStatus as 'scheduled' | 'completed' | 'canceled' | 'confirmed' | 'in_progress',
+    address: row.address ?? '',
+    contact: row.customer_phone ?? row.customer_email ?? '',
+    notes: row.notes ?? '',
+    price,
+    tipAmount: row.tip_amount != null ? Number(row.tip_amount) : undefined,
+    tipUpdatedAt: row.tip_updated_at ?? undefined,
+    customization: row.customization != null && typeof row.customization === 'object' ? row.customization : undefined,
+    cancellationFeeAmount: row.cancellation_fee_amount != null ? Number(row.cancellation_fee_amount) : undefined,
+    cancellationFeeCurrency: row.cancellation_fee_currency ?? undefined,
+    ...(extras?.occurrenceDate ? { occurrenceDate: extras.occurrenceDate } : {}),
+    ...(repeatsDisp ? { frequencyRepeatsDisplay: repeatsDisp } : {}),
+    ...(row.duration_minutes != null && Number(row.duration_minutes) > 0
+      ? { durationMinutes: Number(row.duration_minutes) }
+      : {}),
+    ...(pricingSummary ? { pricingSummary } : {}),
+  };
+}
+
+/** GET - Fetch bookings for the logged-in customer (customer portal) */
+export async function GET(request: NextRequest) {
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+  }
+
+  const authHeader = request.headers.get('Authorization');
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const businessId = request.nextUrl.searchParams.get('business');
+  if (!businessId) {
+    return NextResponse.json({ error: 'Business ID required' }, { status: 400 });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const { data: customer, error: customerError } = await supabase
+    .from('customers')
+    .select('id')
+    .eq('auth_user_id', user.id)
+    .eq('business_id', businessId)
+    .single();
+
+  if (customerError || !customer) {
+    return NextResponse.json({ bookings: [] });
+  }
+
+  let rows: any[] | null = null;
+  let bookingsError: any = null;
+
+  const withProviders = await supabase
+    .from('bookings')
+    .select('*, service_providers!provider_id(first_name, last_name)')
+    .eq('customer_id', customer.id)
+    .eq('business_id', businessId)
+    .order('scheduled_date', { ascending: false });
+
+  if (withProviders.error) {
+    const fallback = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('customer_id', customer.id)
+      .eq('business_id', businessId)
+      .order('scheduled_date', { ascending: false });
+    rows = fallback.data;
+    bookingsError = fallback.error;
+  } else {
+    rows = withProviders.data;
+  }
+
+  if (bookingsError) {
+    console.error('Customer bookings fetch error:', bookingsError);
+    return NextResponse.json({ error: bookingsError.message }, { status: 500 });
+  }
+
+  const rawRows = rows ?? [];
+  // When join fails or FK points elsewhere, provider_id is set but service_providers is null. Fetch names by id.
+  const providerIdsNeedingName = rawRows.filter((r: any) => {
+    if (!r?.provider_id) return false;
+    const hasJoined = r.service_providers ?? r.providers;
+    const hasDenorm = (r.provider_name ?? r.assigned_provider ?? '').trim();
+    return !hasJoined && !hasDenorm;
+  }).map((r: any) => r.provider_id);
+  const uniqueProviderIds = [...new Set(providerIdsNeedingName)].filter(Boolean);
+
+  let providerNameById: Record<string, string> = {};
+  if (uniqueProviderIds.length > 0) {
+    const { data: providers } = await supabase
+      .from('service_providers')
+      .select('id, first_name, last_name')
+      .in('id', uniqueProviderIds);
+    if (providers?.length) {
+      for (const p of providers) {
+        const name = [p.first_name, p.last_name].filter(Boolean).join(' ').trim();
+        if (name && p.id) providerNameById[p.id] = name;
+      }
+    }
+  }
+
+  // Expand recurring series into one row per occurrence (same idea as admin / provider portals)
+  const recurringIds = [
+    ...new Set(
+      rawRows.filter((b: { recurring_series_id?: string }) => b.recurring_series_id).map((b: { recurring_series_id: string }) => b.recurring_series_id),
+    ),
+  ];
+  let seriesById: Record<string, Record<string, unknown>> = {};
+  if (recurringIds.length > 0) {
+    const { data: seriesList } = await supabase
+      .from('recurring_series')
+      .select('id, start_date, end_date, frequency, frequency_repeats, occurrences_ahead, scheduled_time')
+      .eq('business_id', businessId)
+      .in('id', recurringIds);
+    seriesById = (seriesList || []).reduce((acc: Record<string, Record<string, unknown>>, s: Record<string, unknown>) => {
+      if (s?.id) acc[String(s.id)] = s;
+      return acc;
+    }, {});
+  }
+
+  const expanded: Array<{
+    row: any;
+    occurrenceDate?: string;
+    occurrenceStatusOverride?: string;
+    frequencyRepeatsFromSeries?: string | null;
+  }> = [];
+  for (const row of rawRows) {
+    const seriesId = (row as { recurring_series_id?: string }).recurring_series_id;
+    const series = seriesId ? seriesById[seriesId] : null;
+    const frequencyRepeatsFromSeries = series
+      ? ((series as { frequency_repeats?: string | null }).frequency_repeats ?? null)
+      : null;
+    if (series) {
+      const dates = getOccurrenceDatesForSeriesSync(series as never);
+      const timeStr = String(series.scheduled_time ?? row.scheduled_time ?? row.time ?? '');
+      const completedDates: string[] = Array.isArray((row as { completed_occurrence_dates?: string[] }).completed_occurrence_dates)
+        ? (row as { completed_occurrence_dates: string[] }).completed_occurrence_dates
+        : [];
+      const cancelledByCustomer: string[] = Array.isArray(
+        (row as { customer_cancelled_occurrence_dates?: string[] }).customer_cancelled_occurrence_dates,
+      )
+        ? (row as { customer_cancelled_occurrence_dates: string[] }).customer_cancelled_occurrence_dates
+        : [];
+      if (!dates.length) {
+        expanded.push({ row, frequencyRepeatsFromSeries });
+        continue;
+      }
+      for (const d of dates) {
+        const occurrenceStatusOverride = statusForRecurringOccurrence(
+          d,
+          {
+            status: (row as { status?: string }).status,
+            completed_occurrence_dates: completedDates,
+            customer_cancelled_occurrence_dates: cancelledByCustomer,
+            recurring_series_id: seriesId,
+          },
+          { collapseRecurringRowInProgress: false },
+        );
+        expanded.push({
+          row: {
+            ...row,
+            date: d,
+            scheduled_date: d,
+            time: timeStr,
+            scheduled_time: timeStr,
+          },
+          occurrenceDate: d,
+          occurrenceStatusOverride,
+          frequencyRepeatsFromSeries,
+        });
+      }
+    } else {
+      expanded.push({ row });
+    }
+  }
+
+  const seen = new Set<string>();
+  const deduped = expanded.filter((item) => {
+    const r = item.row;
+    const d = String(r.date ?? r.scheduled_date ?? '').slice(0, 10);
+    const t = String(r.time ?? r.scheduled_time ?? '');
+    const key = `${r.id}-${d}-${t}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  deduped.sort((a, b) =>
+    compareBookingsByScheduleAsc(
+      { date: a.row.date ?? a.row.scheduled_date, time: a.row.time ?? a.row.scheduled_time },
+      { date: b.row.date ?? b.row.scheduled_date, time: b.row.time ?? b.row.scheduled_time },
+    ),
+  );
+
+  const bookingIds = [...new Set(rawRows.map((r: { id?: string }) => r.id).filter(Boolean))] as string[];
+  let activeKeys = new Set<string>();
+  if (bookingIds.length > 0) {
+    const { data: openTimeLogs, error: openLogsError } = await supabase
+      .from('booking_time_logs')
+      .select(
+        'booking_id, occurrence_date, on_the_way_at, at_location_at, clocked_in_at, provider_status',
+      )
+      .in('booking_id', bookingIds)
+      .is('clocked_out_at', null);
+    if (openLogsError) {
+      console.error('Customer bookings: open time logs query failed', openLogsError.message);
+    }
+    activeKeys = collectActiveTimeLogKeys(openTimeLogs ?? []);
+  }
+
+  const bookings = deduped.map((item) => {
+    const r = item.row;
+    const d = normalizeBookingDateYmd(String(r.date ?? r.scheduled_date ?? ''));
+    const base = item.occurrenceStatusOverride ?? String(r.status ?? 'pending');
+    const isRecurring = Boolean((r as { recurring_series_id?: string }).recurring_series_id);
+    const finalStatus = resolveCustomerOccurrenceProgressStatus({
+      baseStatus: base,
+      bookingId: String(r.id),
+      occurrenceDateYmd: d,
+      isRecurring,
+      dbRowStatus: (r as { status?: string }).status,
+      activeKeys,
+    });
+    return dbToCustomerBooking(item.row, providerNameById, {
+      occurrenceDate: item.occurrenceDate,
+      occurrenceStatusOverride: finalStatus,
+      frequencyRepeats: item.frequencyRepeatsFromSeries,
+    });
+  });
+  return NextResponse.json({ bookings });
+}
+
+/** POST - Create a booking as the logged-in customer (customer portal) */
+export async function POST(request: NextRequest) {
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+  }
+
+  const authHeader = request.headers.get('Authorization');
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch (e) {
+    console.error('Customer bookings POST parse error:', e);
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
+  if (!body || typeof body !== 'object') {
+    return NextResponse.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+  }
+  // Same pattern as admin: business from header first, then body
+  const businessId =
+    request.headers.get('x-business-id') ??
+    body.businessId ??
+    body.business_id ??
+    request.nextUrl.searchParams.get('business');
+  if (!businessId) {
+    return NextResponse.json({ error: 'Business ID required' }, { status: 400 });
+  }
+
+  const ensured = await ensureCustomerRowForBusiness(supabase, user, String(businessId), {
+    customer_name: body.customer_name ?? body.customerName,
+    customer_email: body.customer_email ?? body.customerEmail,
+    customer_phone: body.customer_phone ?? body.customerPhone ?? body.contact,
+    address: body.address,
+  });
+  if (!ensured.ok) {
+    return NextResponse.json({ error: ensured.error }, { status: ensured.status });
+  }
+  const customer = ensured.customer;
+
+  if ((customer as { access_blocked?: boolean }).access_blocked || (customer as { booking_blocked?: boolean }).booking_blocked) {
+    const { data: accessRow } = await supabase
+      .from('business_access_settings')
+      .select('customer_blocked_message')
+      .eq('business_id', businessId)
+      .maybeSingle();
+    const message =
+      accessRow?.customer_blocked_message ||
+      'We apologize for the inconvenience. Please contact our office if you have any questions.';
+    return NextResponse.json(
+      { error: 'BOOKING_BLOCKED', message },
+      { status: 403 }
+    );
+  }
+
+  const date = (body.date ?? '').toString().trim();
+  let timeRaw = body.time ?? '';
+
+  // Holiday check: if customer is blocked, reject booking on holiday dates
+  if (date) {
+    const storeOpts = await getStoreOptionsScheduling(businessId);
+    const holidayBlocked = storeOpts?.holiday_blocked_who === 'customer' || storeOpts?.holiday_blocked_who === 'both';
+    if (holidayBlocked) {
+      const isHoliday = await isDateHoliday(businessId, date);
+      if (isHoliday) {
+        return NextResponse.json(
+          { error: 'HOLIDAY_BLOCKED', message: 'Booking is not available on this date (holiday).' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Spot limits: reject if day or week at capacity
+    if (storeOpts?.spot_limits_enabled) {
+      const limits = await getSpotLimits(businessId);
+      if (limits?.enabled) {
+        const dayCount = await getBookingCountForDate(supabase, businessId, date);
+        if (limits.max_bookings_per_day > 0 && dayCount >= limits.max_bookings_per_day) {
+          return NextResponse.json(
+            { error: 'DAY_CAPACITY', message: 'This date has reached maximum bookings.' },
+            { status: 400 }
+          );
+        }
+        const weekStart = new Date(date);
+        weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+        const weekStartStr = weekStart.toISOString().split('T')[0];
+        const weekCount = await getBookingCountForWeek(supabase, businessId, weekStartStr);
+        if (limits.max_bookings_per_week > 0 && weekCount >= limits.max_bookings_per_week) {
+          return NextResponse.json(
+            { error: 'WEEK_CAPACITY', message: 'This week has reached maximum bookings.' },
+            { status: 400 }
+          );
+        }
+      }
+    }
+  }
+
+  const parseNum = (v: unknown): number => {
+    if (v == null) return 0;
+    if (typeof v === 'number' && !Number.isNaN(v)) return v;
+    const n = Number(v);
+    return Number.isNaN(n) ? 0 : n;
+  };
+  const amountNum = parseNum(body.amount);
+  const totalNum = parseNum(body.total);
+  const subtotalNum = parseNum(body.subtotal);
+  const priceNum = parseNum(body.price);
+  const totalPrice =
+    (amountNum > 0 ? amountNum : null) ??
+    (totalNum > 0 ? totalNum : null) ??
+    (subtotalNum > 0 ? subtotalNum : null) ??
+    (priceNum > 0 ? priceNum : null) ??
+    0;
+
+  if (totalPrice === 0) {
+    console.warn('[customer/bookings] Booking amount 0 – received:', {
+      amount: body.amount,
+      total: body.total,
+      subtotal: body.subtotal,
+      price: body.price,
+      parsed: { amountNum, totalNum, subtotalNum, priceNum },
+    });
+  } else {
+    console.log('[customer/bookings] Storing booking amount:', totalPrice);
+  }
+
+  const timeForDb = normalizeTimeForDb(String(timeRaw));
+  const frequency = (body.frequency && String(body.frequency).trim()) || null;
+  const providerId = body.provider_id ?? body.providerId ?? body.provider ?? null;
+  const providerIdClean = providerId && String(providerId).trim() ? String(providerId).trim() : null;
+
+  const notesVal = (body.notes ?? '').toString().trim();
+  const zipCodeForDb =
+    String(
+      body.service_area_input ??
+        body.service_areaInput ??
+        body.zip_code ??
+        body.zipCode ??
+        '',
+    ).trim() || null;
+
+  const durationMinutes = parseDurationMinutesFromBookingPayload(body as Record<string, unknown>);
+  if (durationMinutes > 0) {
+    const storeOptsForDuration = await getStoreOptionsScheduling(businessId);
+    const maxMins = storeOptsForDuration?.max_minutes_per_provider_per_booking;
+    if (maxMins != null && maxMins > 0 && durationMinutes > maxMins) {
+      return NextResponse.json(
+        { error: 'DURATION_EXCEEDED', message: `Booking duration (${durationMinutes} min) exceeds maximum allowed (${maxMins} min).` },
+        { status: 400 }
+      );
+    }
+  }
+
+  // Booking Koala-style: per-time-spot capacity (Reserve Slot settings)
+  const dateStr = date && String(date).trim() ? String(date).trim() : null;
+  if (dateStr && timeForDb) {
+    const slotAvailable = await isTimeSlotAvailableForBooking(supabase, businessId, dateStr, timeForDb);
+    if (!slotAvailable) {
+      return NextResponse.json(
+        { error: 'SLOT_FULL', message: 'This time slot is full. Please choose another time.' },
+        { status: 400 }
+      );
+    }
+  }
+
+  const stripeIntent = request.nextUrl.searchParams.get('stripe_intent') === '1';
+  const isOnlinePayment =
+    body.paymentMethod === 'online' || body.payment_method === 'online';
+  if (stripeIntent && isOnlinePayment) {
+    const amountCents = Math.round(totalPrice * 100);
+    if (amountCents < 50) {
+      return NextResponse.json(
+        { error: 'INVALID_AMOUNT', message: 'Amount is too small for card checkout.' },
+        { status: 400 }
+      );
+    }
+    const { data: intentRow, error: intentErr } = await supabase
+      .from('pending_stripe_booking_intents')
+      .insert({
+        business_id: businessId,
+        source: 'customer',
+        customer_auth_user_id: user.id,
+        payload: body,
+        amount_cents: amountCents,
+      })
+      .select('id')
+      .single();
+    if (intentErr || !intentRow?.id) {
+      console.error('customer/bookings stripe_intent insert:', intentErr);
+      return NextResponse.json(
+        {
+          error: 'CHECKOUT_INTENT_FAILED',
+          message:
+            'Could not start payment. If this persists, run database migration 093_pending_stripe_booking_intents.sql.',
+        },
+        { status: 500 }
+      );
+    }
+    // Customer email is sent only after Stripe payment succeeds (booking materialize), not here.
+    return NextResponse.json({
+      success: true,
+      stripeIntentId: intentRow.id,
+      id: intentRow.id,
+      data: { id: intentRow.id },
+      message: 'Proceed to payment to confirm your booking.',
+    });
+  }
+
+  const insertMinimal: Record<string, unknown> = {
+    business_id: businessId,
+    customer_id: customer.id,
+    customer_name: (customer.name ?? body.contact ?? '').toString().trim() || null,
+    customer_email: (customer.email ?? '').toString().trim() || null,
+    customer_phone: (customer.phone ?? body.contact ?? '').toString().trim() || null,
+    provider_id: providerIdClean ?? null,
+    service: (body.service ?? '').toString().trim() || null,
+    address: (body.address ?? '').toString().trim() || '',
+    zip_code: zipCodeForDb,
+    notes: notesVal || null,
+    frequency: frequency ?? null,
+    total_price: totalPrice,
+    amount: totalPrice,
+    status: 'pending',
+    scheduled_date: (date && String(date).trim()) ? String(date).trim() : null,
+    scheduled_time: timeForDb ?? null,
+    date: (date && String(date).trim()) ? String(date).trim() : null,
+    time: timeForDb ?? null,
+    payment_method: (body.paymentMethod === 'online' || body.payment_method === 'online') ? 'online' : 'cash',
+    payment_status: 'pending',
+    tip_amount: body.tipAmount ?? 0,
+  };
+
+  const insert: Record<string, unknown> = { ...insertMinimal };
+  if (durationMinutes > 0) insert.duration_minutes = durationMinutes;
+  if (body.tipUpdatedAt) insert.tip_updated_at = body.tipUpdatedAt;
+  const providerName = body.provider_name ?? body.providerName ?? null;
+  if (providerName && String(providerName).trim()) insert.provider_name = String(providerName).trim();
+  const customizationRaw = body.customization;
+  if (customizationRaw && typeof customizationRaw === 'object' && !Array.isArray(customizationRaw)) {
+    insert.customization =
+      durationMinutes > 0
+        ? { ...(customizationRaw as Record<string, unknown>), duration_minutes: durationMinutes }
+        : customizationRaw;
+  } else if (durationMinutes > 0) {
+    insert.customization = { duration_minutes: durationMinutes };
+  }
+
+  const { data: storeWageOpts } = await supabase
+    .from('business_store_options')
+    .select('default_provider_wage, default_provider_wage_type')
+    .eq('business_id', businessId)
+    .maybeSingle();
+  const wageResolved = resolveProviderWageFromBodyOrStoreDefault(body as Record<string, unknown>, storeWageOpts);
+  if (wageResolved) {
+    insert.provider_wage = wageResolved.provider_wage;
+    insert.provider_wage_type = wageResolved.provider_wage_type;
+  }
+
+  const freqNorm = (frequency || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
+  const recurringByFrequency = !!freqNorm && freqNorm !== 'one-time' && freqNorm !== 'onetime';
+  const createRecurring = body.create_recurring === true || body.create_recurring === 'true' || recurringByFrequency;
+  const scheduledDate = (date && String(date).trim()) ? String(date).trim() : null;
+  const timeForRecurring = timeForDb || '09:00:00';
+
+  if (createRecurring && frequency && scheduledDate) {
+    const freqName = frequency.trim();
+    let frequencyRepeats: string | null = (body.frequency_repeats && String(body.frequency_repeats).trim()) || null;
+    if (!frequencyRepeats) {
+      const { data: biz } = await supabase.from('businesses').select('industry_id').eq('id', businessId).single();
+      const industryId = (biz as { industry_id?: string } | null)?.industry_id;
+      if (industryId) {
+        frequencyRepeats = await resolveFrequencyRepeatsForBooking(supabase, businessId, industryId, freqName);
+      }
+    }
+    const endDate = (body.recurring_end_date && String(body.recurring_end_date).trim()) || null;
+    const occurrencesAhead = Math.min(Math.max(1, parseInt(String(body.recurring_occurrences_ahead || 8), 10) || 8), 24);
+
+    try {
+      const { createRecurringSeries } = await import('@/lib/recurringBookings');
+      const template = { ...insert, scheduled_time: timeForRecurring, time: timeForRecurring };
+      const { seriesId, bookingIds } = await createRecurringSeries(supabase, businessId, template, {
+        startDate: scheduledDate,
+        endDate: endDate || undefined,
+        frequencyName: freqName,
+        frequencyRepeats,
+        occurrencesAhead,
+        sameProvider: true,
+      });
+      const { data: firstBooking } = await supabase.from('bookings').select('*').eq('id', bookingIds[0]).single();
+      const bkRef = `BK${String(bookingIds[0]).slice(-6).toUpperCase()}`;
+      if (firstBooking) {
+        const { data: series } = await supabase.from('recurring_series').select('start_date, end_date, frequency, frequency_repeats, occurrences_ahead').eq('id', seriesId).single();
+        const eventId = series
+          ? await createRecurringCalendarEvent(businessId, firstBooking, series).catch(() => null)
+          : await syncBookingCreated(businessId, firstBooking).catch(() => null);
+        if (eventId) {
+          await supabase.from('bookings').update({ google_calendar_event_id: eventId }).eq('id', firstBooking.id).eq('business_id', businessId);
+        }
+      }
+      await createAdminNotification(businessId, 'new_booking', {
+        title: 'Recurring booking (customer)',
+        message: `Recurring booking ${bkRef} created with ${bookingIds.length} occurrences.`,
+        link: '/admin/bookings',
+      });
+      await processBookingScheduling(firstBooking?.id, businessId, {
+        providerId: firstBooking?.provider_id,
+        scheduledDate: firstBooking?.scheduled_date ?? firstBooking?.date,
+        service: firstBooking?.service,
+      }).catch((e) => console.warn('Scheduling processing failed:', e));
+
+      if (firstBooking?.id) {
+        await sendCustomerFacingBookingEmailAfterScheduling(supabase, businessId, String(firstBooking.id), {
+          totalPriceFallback: totalPrice,
+          customerEmailFallback: (firstBooking?.customer_email ?? customer?.email ?? '').toString().trim() || null,
+          customerNameFallback: (firstBooking?.customer_name ?? customer?.name ?? 'Customer').toString(),
+        });
+      }
+
+      const payload = firstBooking ? dbToCustomerBooking(firstBooking) : { id: bookingIds[0] };
+      return NextResponse.json(
+        { success: true, data: payload, message: `Recurring booking created with ${bookingIds.length} visits`, id: bookingIds[0], seriesId, bookingIds },
+        { status: 201 }
+      );
+    } catch (e: unknown) {
+      console.error('Customer recurring series error:', e);
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : 'Failed to create recurring booking' },
+        { status: 500 }
+      );
+    }
+  }
+
+  let booking: any = null;
+  let insertError: any = null;
+
+  const result = await supabase.from('bookings').insert(insert).select().single();
+  booking = result.data;
+  insertError = result.error;
+
+  // If a column is missing (migrations not run), retry without only that column so we don't lose others
+  if (insertError && /column|schema cache/i.test(String(insertError.message || ''))) {
+    const msg = String(insertError.message || '').toLowerCase();
+    const insertFallback = { ...insert };
+    if (/customization/i.test(msg)) delete (insertFallback as any).customization;
+    if (/frequency/i.test(msg)) delete insertFallback.frequency;
+    if (/provider_name/i.test(msg)) delete (insertFallback as any).provider_name;
+    if (/provider_wage/i.test(msg)) {
+      delete (insertFallback as any).provider_wage;
+      delete (insertFallback as any).provider_wage_type;
+    }
+    const retry = await supabase.from('bookings').insert(insertFallback).select().single();
+    booking = retry.data;
+    insertError = retry.error;
+  }
+  if (insertError) {
+    const retry = await supabase.from('bookings').insert(insertMinimal).select().single();
+    booking = retry.data;
+    insertError = retry.error;
+  }
+
+  if (insertError) {
+    console.error('Customer booking create error:', insertError);
+    return NextResponse.json(
+      { error: insertError.message, details: insertError.details, hint: insertError.hint, code: insertError.code },
+      { status: 500 }
+    );
+  }
+
+  await processBookingScheduling(booking.id, businessId, {
+    providerId: booking.provider_id,
+    scheduledDate: booking.scheduled_date ?? booking.date,
+    service: booking.service,
+  }).catch((e) => console.warn('Scheduling processing failed:', e));
+
+  const eventId = await syncBookingCreated(businessId, booking).catch(() => null);
+  if (eventId) {
+    await supabase.from('bookings').update({ google_calendar_event_id: eventId }).eq('id', booking.id).eq('business_id', businessId);
+  }
+
+  const bkRef = `BK${String(booking.id).slice(-6).toUpperCase()}`;
+  await createAdminNotification(businessId, 'new_booking', {
+    title: 'New booking confirmed',
+    message: `Booking ${bkRef} has been confirmed.`,
+    link: '/admin/bookings',
+  });
+
+  await sendCustomerFacingBookingEmailAfterScheduling(supabase, businessId, String(booking.id), {
+    totalPriceFallback: totalPrice,
+    customerEmailFallback: (booking.customer_email ?? customer?.email ?? '').toString().trim() || null,
+    customerNameFallback: (booking.customer_name ?? customer?.name ?? 'Customer').toString(),
+  });
+
+  const payload = dbToCustomerBooking(booking);
+  return NextResponse.json(
+    { success: true, data: payload, message: 'Booking created successfully', id: booking.id },
+    { status: 201 }
+  );
+}

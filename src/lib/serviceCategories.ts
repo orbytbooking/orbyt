@@ -1,0 +1,539 @@
+import { supabase } from '@/lib/supabaseClient';
+import type { BookingFormScope } from '@/lib/bookingFormScope';
+import { hasBookingFormScopeColumnFilter } from '@/lib/bookingFormScope';
+import { scopedIndustryTable } from '@/lib/formScopeTables';
+
+export interface ServiceCategory {
+  id: string;
+  business_id: string;
+  industry_id: string;
+  name: string;
+  different_on_customer_end?: boolean;
+  customer_end_name?: string | null;
+  description?: string;
+  color?: string;
+  icon?: string;
+  display: 'customer_frontend_backend_admin' | 'customer_backend_admin' | 'admin_only';
+  display_service_length_customer: 'customer_frontend_backend_admin' | 'customer_backend_admin' | 'admin_only';
+  display_service_length_provider: boolean;
+  can_customer_edit_service: boolean;
+  service_fee_enabled: boolean;
+  service_category_frequency: boolean;
+  selected_frequencies?: string[];
+  variables?: { [key: string]: string[] };
+  exclude_parameters?: {
+    pets: boolean;
+    smoking: boolean;
+    deepCleaning: boolean;
+  };
+  selected_exclude_parameters?: string[];
+  /** `industry_extras.id` values (UUID strings from Supabase). */
+  extras?: string[];
+  extras_config?: {
+    tip: {
+      enabled: boolean;
+      saveTo: 'all' | 'first';
+      display: 'customer_frontend_backend_admin' | 'customer_backend_admin' | 'admin_only';
+    };
+    parking: {
+      enabled: boolean;
+      saveTo: 'all' | 'first';
+      display: 'customer_frontend_backend_admin' | 'customer_backend_admin' | 'admin_only';
+    };
+  };
+  expedited_charge?: {
+    enabled: boolean;
+    amount: string;
+    displayText: string;
+    currency: string;
+  };
+  cancellation_fee?: {
+    enabled: boolean;
+    type: 'single' | 'multiple';
+    fee: string;
+    currency: string;
+    payProvider: boolean;
+    providerFee: string;
+    providerCurrency: string;
+    chargeTiming: 'beforeDay' | 'hoursBefore';
+    beforeDayTime: string;
+    hoursBefore: string;
+    multiple_fees?: Array<{
+      id: string;
+      fee: string;
+      currency: string;
+      chargeTiming: 'beforeDay' | 'hoursBefore';
+      beforeDayTime: string;
+      daysBefore?: string;
+      hoursBefore: string;
+      minutesBefore?: string;
+      payProvider: boolean;
+      providerFee: string;
+      providerCurrency: string;
+    }>;
+  };
+  hourly_service?: {
+    enabled: boolean;
+    price: string;
+    currency: string;
+    priceCalculationType: 'customTime' | 'pricingParametersTime';
+    countExtrasSeparately: boolean;
+  };
+  service_category_price?: {
+    enabled: boolean;
+    price: string;
+    currency: string;
+  };
+  service_category_time?: {
+    enabled: boolean;
+    hours: string;
+    minutes: string;
+  };
+  minimum_price?: {
+    enabled: boolean;
+    checkAmountType: 'discounted' | 'final';
+    price: string;
+    checkRecurringSchedule: boolean;
+    textToDisplay: boolean;
+    noticeText: string;
+  };
+  minimum_time?: {
+    enabled: boolean;
+    hours: string;
+    minutes: string;
+    textToDisplay: boolean;
+    noticeText: string;
+  };
+  override_provider_pay?: {
+    enabled: boolean;
+    amount: string;
+    /** @deprecated use payType */
+    currency?: string;
+    payType?: 'fixed' | 'hourly';
+  };
+  excluded_providers?: string[];
+  show_explanation_icon_on_form?: boolean;
+  explanation_tooltip_text?: string;
+  enable_popup_on_selection?: boolean;
+  popup_content?: string;
+  popup_display?: string;
+  enable_service_length_tooltip_customer?: boolean;
+  service_length_tooltip_text_customer?: string;
+  enable_service_length_tooltip_provider?: boolean;
+  service_length_tooltip_text_provider?: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  booking_form_scope?: BookingFormScope;
+}
+
+export interface CreateServiceCategoryData {
+  business_id: string;
+  industry_id: string;
+  name: string;
+  different_on_customer_end?: boolean;
+  customer_end_name?: string | null;
+  description?: string;
+  color?: string;
+  icon?: string;
+  display?: ServiceCategory['display'];
+  display_service_length_customer?: ServiceCategory['display_service_length_customer'];
+  display_service_length_provider?: boolean;
+  can_customer_edit_service?: boolean;
+  service_fee_enabled?: boolean;
+  service_category_frequency?: boolean;
+  selected_frequencies?: string[];
+  variables?: { [key: string]: string[] };
+  exclude_parameters?: {
+    pets: boolean;
+    smoking: boolean;
+    deepCleaning: boolean;
+  };
+  selected_exclude_parameters?: string[];
+  extras?: string[];
+  extras_config?: ServiceCategory['extras_config'];
+  expedited_charge?: ServiceCategory['expedited_charge'];
+  cancellation_fee?: ServiceCategory['cancellation_fee'];
+  hourly_service?: ServiceCategory['hourly_service'];
+  service_category_price?: ServiceCategory['service_category_price'];
+  service_category_time?: ServiceCategory['service_category_time'];
+  minimum_price?: ServiceCategory['minimum_price'];
+  minimum_time?: ServiceCategory['minimum_time'];
+  override_provider_pay?: ServiceCategory['override_provider_pay'];
+  excluded_providers?: string[];
+  show_explanation_icon_on_form?: boolean;
+  explanation_tooltip_text?: string;
+  enable_popup_on_selection?: boolean;
+  popup_content?: string;
+  popup_display?: string;
+  enable_service_length_tooltip_customer?: boolean;
+  service_length_tooltip_text_customer?: string;
+  enable_service_length_tooltip_provider?: boolean;
+  service_length_tooltip_text_provider?: string;
+  sort_order?: number;
+  booking_form_scope?: BookingFormScope;
+}
+
+export interface UpdateServiceCategoryData extends Partial<CreateServiceCategoryData> {}
+
+class ServiceCategoriesService {
+  private supabase;
+
+  constructor() {
+    this.supabase = supabase;
+  }
+
+  async getServiceCategoriesByIndustry(
+    industryId: string,
+    bookingFormScope?: BookingFormScope | null,
+  ): Promise<ServiceCategory[]> {
+    const table = scopedIndustryTable('industry_service_category', bookingFormScope);
+    let q = this.supabase
+      .from(table)
+      .select('*')
+      .eq('industry_id', industryId);
+    if (hasBookingFormScopeColumnFilter(bookingFormScope)) {
+      q = q.eq('booking_form_scope', bookingFormScope);
+    }
+    const { data, error } = await q
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching service categories:', error);
+      throw error;
+    }
+
+    return data || [];
+  }
+
+  async getServiceCategoryById(
+    id: string,
+    bookingFormScope?: BookingFormScope | null,
+  ): Promise<ServiceCategory | null> {
+    if (bookingFormScope) {
+      const table = scopedIndustryTable('industry_service_category', bookingFormScope);
+      const scoped = await this.supabase.from(table).select('*').eq('id', id).maybeSingle();
+      if (scoped.error) {
+        console.error('Error fetching service category:', scoped.error);
+        throw scoped.error;
+      }
+      return scoped.data ?? null;
+    }
+    const { data, error } = await this.supabase
+      .from('industry_service_category')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error?.code === 'PGRST116') {
+      for (const table of ['industry_form2_service_categories', 'industry_form3_service_categories', 'industry_form4_service_categories', 'industry_form5_service_categories']) {
+        const fallback = await this.supabase.from(table).select('*').eq('id', id).single();
+        if (!fallback.error) return fallback.data;
+      }
+      return null;
+    }
+    if (error) {
+      console.error('Error fetching service category:', error);
+      throw error;
+    }
+
+    return data;
+  }
+
+  async createServiceCategory(categoryData: CreateServiceCategoryData): Promise<ServiceCategory> {
+    console.log('=== CREATE SERVICE CATEGORY DEBUG ===');
+    console.log('Category data:', categoryData);
+    
+    const table = scopedIndustryTable('industry_service_category', categoryData.booking_form_scope ?? 'form1');
+    const { data, error } = await this.supabase
+      .from(table)
+      .insert(categoryData)
+      .select()
+      .single();
+
+    console.log('Insert result:', { data, error });
+
+    if (error) {
+      console.error('Error creating service category:', error);
+      console.error('Error details:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      });
+      throw error;
+    }
+
+    return data;
+  }
+
+  async updateServiceCategory(
+    id: string,
+    updateData: UpdateServiceCategoryData,
+    bookingFormScope?: BookingFormScope | null,
+  ): Promise<ServiceCategory> {
+    console.log('=== UPDATE SERVICE CATEGORY DEBUG ===');
+    console.log('ID:', id);
+    console.log('UpdateData:', JSON.stringify(updateData, null, 2));
+    
+    const scope =
+      bookingFormScope ??
+      (updateData as { booking_form_scope?: BookingFormScope | null }).booking_form_scope ??
+      null;
+    const preferredTable = scopedIndustryTable('industry_service_category', scope);
+    const candidateTables = Array.from(
+      new Set([preferredTable, 'industry_service_category', 'industry_form2_service_categories', 'industry_form3_service_categories', 'industry_form4_service_categories', 'industry_form5_service_categories']),
+    );
+
+    let data: ServiceCategory | null = null;
+    let error: { code?: string; message?: string } | null = null;
+    for (const table of candidateTables) {
+      const res2 = await this.supabase
+        .from(table)
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+      if (!res2.error) {
+        data = res2.data;
+        error = null;
+        break;
+      }
+      error = res2.error;
+      if (res2.error?.code !== 'PGRST116') break;
+    }
+
+    console.log('Update result:', { data, error });
+
+    if (error) {
+      console.error('Error updating service category:', error);
+      console.error('Error details:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      });
+      throw error;
+    }
+
+    return data;
+  }
+
+  async deleteServiceCategory(id: string, bookingFormScope?: BookingFormScope | null): Promise<void> {
+    if (bookingFormScope) {
+      const table = scopedIndustryTable('industry_service_category', bookingFormScope);
+      const scoped = await this.supabase
+        .from(table)
+        .delete()
+        .eq('id', id)
+        .select('id');
+      if (scoped.error) {
+        console.error('Error deleting service category:', scoped.error);
+        throw scoped.error;
+      }
+      return;
+    }
+    let { error, data } = await this.supabase
+      .from('industry_service_category')
+      .delete()
+      .eq('id', id)
+      .select('id');
+
+    if (error) {
+      console.error('Error deleting service category:', error);
+      throw error;
+    }
+    if ((data?.length ?? 0) > 0) return;
+    for (const table of ['industry_form2_service_categories', 'industry_form3_service_categories', 'industry_form4_service_categories', 'industry_form5_service_categories']) {
+      const r2 = await this.supabase
+        .from(table)
+        .delete()
+        .eq('id', id)
+        .select('id');
+      if (r2.error) throw r2.error;
+      if ((r2.data?.length ?? 0) > 0) return;
+    }
+  }
+
+  async updateServiceCategoryOrder(
+    updates: Array<{ id: string; sort_order: number }>,
+    bookingFormScope?: BookingFormScope | null,
+  ): Promise<void> {
+    if (bookingFormScope) {
+      const table = scopedIndustryTable('industry_service_category', bookingFormScope);
+      for (const { id, sort_order } of updates) {
+        const scoped = await this.supabase
+          .from(table)
+          .update({ sort_order })
+          .eq('id', id)
+          .select('id');
+        if (scoped.error) throw scoped.error;
+      }
+      return;
+    }
+    for (const { id, sort_order } of updates) {
+      const r1 = await this.supabase
+        .from('industry_service_category')
+        .update({ sort_order })
+        .eq('id', id)
+        .select('id');
+      if (r1.error) throw r1.error;
+      if ((r1.data?.length ?? 0) > 0) continue;
+      for (const table of ['industry_form2_service_categories', 'industry_form3_service_categories', 'industry_form4_service_categories', 'industry_form5_service_categories']) {
+        const r2 = await this.supabase
+          .from(table)
+          .update({ sort_order })
+          .eq('id', id)
+          .select('id');
+        if (r2.error) throw r2.error;
+        if ((r2.data?.length ?? 0) > 0) break;
+      }
+    }
+  }
+
+  async migrateFromLocalStorage(industryId: string, industryName: string): Promise<void> {
+    try {
+      const storageKey = `service_categories_${industryName}`;
+      const stored = localStorage.getItem(storageKey);
+      
+      if (!stored || stored === "null") {
+        console.log(`No service categories found in localStorage for ${industryName}`);
+        return;
+      }
+
+      const localStorageCategories = JSON.parse(stored);
+      if (!Array.isArray(localStorageCategories) || localStorageCategories.length === 0) {
+        console.log(`No valid service categories array found in localStorage for ${industryName}`);
+        return;
+      }
+
+      console.log(`Migrating ${localStorageCategories.length} service categories from localStorage to database for ${industryName}`);
+
+      const { data: { user } } = await this.supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+      
+      const { data: business } = await this.supabase
+        .from('businesses')
+        .select('id')
+        .eq('owner_id', user.id)
+        .single();
+      
+      if (!business) throw new Error('Business not found');
+
+      const dbCategories: CreateServiceCategoryData[] = localStorageCategories.map((category, index) => ({
+        business_id: business.id,
+        industry_id: industryId,
+        name: category.name,
+        description: category.description,
+        color: category.color,
+        icon: category.icon,
+        display: category.display || 'customer_frontend_backend_admin',
+        display_service_length_customer: category.displayServiceLengthCustomer || 'admin_only',
+        display_service_length_provider: category.displayServiceLengthProvider || false,
+        can_customer_edit_service: category.canCustomerEditService || false,
+        service_fee_enabled: category.serviceFeeEnabled || false,
+        service_category_frequency: category.serviceCategoryFrequency || false,
+        selected_frequencies: category.selectedFrequencies || [],
+        variables: category.variables || {},
+        exclude_parameters: category.excludeParameters || {
+          pets: false,
+          smoking: false,
+          deepCleaning: false
+        },
+        selected_exclude_parameters: category.selectedExcludeParameters || [],
+        extras: category.extras || [],
+        extras_config: category.extrasConfig || {
+          tip: {
+            enabled: false,
+            saveTo: 'all',
+            display: 'customer_frontend_backend_admin'
+          },
+          parking: {
+            enabled: false,
+            saveTo: 'all',
+            display: 'customer_frontend_backend_admin'
+          }
+        },
+        expedited_charge: category.expeditedCharge || {
+          enabled: false,
+          amount: "",
+          displayText: "",
+          currency: "$"
+        },
+        cancellation_fee: category.cancellationFee || {
+          enabled: false,
+          type: 'single',
+          fee: "",
+          currency: "$",
+          payProvider: false,
+          providerFee: "",
+          providerCurrency: "$",
+          chargeTiming: 'beforeDay',
+          beforeDayTime: "",
+          hoursBefore: ""
+        },
+        hourly_service: category.hourlyService || {
+          enabled: false,
+          price: "",
+          currency: "$",
+          priceCalculationType: 'customTime',
+          countExtrasSeparately: false
+        },
+        service_category_price: category.serviceCategoryPrice || {
+          enabled: false,
+          price: "",
+          currency: "$"
+        },
+        service_category_time: category.serviceCategoryTime || {
+          enabled: false,
+          hours: "0",
+          minutes: "0"
+        },
+        minimum_price: category.minimumPrice || {
+          enabled: false,
+          checkAmountType: 'discounted',
+          price: "",
+          checkRecurringSchedule: false,
+          textToDisplay: false,
+          noticeText: ""
+        },
+        minimum_time: category.minimumTime || {
+          enabled: false,
+          hours: "0",
+          minutes: "0",
+          textToDisplay: false,
+          noticeText: ""
+        },
+        override_provider_pay: category.overrideProviderPay || {
+          enabled: false,
+          amount: "",
+          payType: "hourly"
+        },
+        excluded_providers: category.excludedProviders || [],
+        sort_order: index
+      }));
+
+      const { data, error } = await this.supabase
+        .from('industry_service_category')
+        .insert(dbCategories)
+        .select();
+
+      if (error) {
+        console.error('Error migrating service categories:', error);
+        throw error;
+      }
+
+      console.log(`Successfully migrated ${data?.length || 0} service categories to database`);
+
+      localStorage.removeItem(storageKey);
+      console.log(`Cleared localStorage for ${industryName} service categories`);
+
+    } catch (error) {
+      console.error('Migration failed:', error);
+      throw error;
+    }
+  }
+}
+
+export const serviceCategoriesService = new ServiceCategoriesService();

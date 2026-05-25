@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" role="img" aria-hidden="true">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+  </defs>
+  <circle cx="36" cy="36" r="34" fill="url(#bg)"/>
+  <rect x="14" y="16" width="44" height="44" rx="10" fill="#fff" opacity="0.96"/>
+  <rect x="14" y="16" width="44" height="44" rx="10" fill="none" stroke="#059669" stroke-width="1.4" opacity="0.35"/>
+  <!-- Plate -->
+  <ellipse cx="36" cy="44" rx="16" ry="6" fill="#ecfdf5" stroke="#047857" stroke-width="1.6"/>
+  <ellipse cx="36" cy="43" rx="11" ry="3.5" fill="#d1fae5"/>
+  <!-- Fork -->
+  <path fill="none" stroke="#065f46" stroke-width="2" stroke-linecap="round" d="M28 26v14M26 26v4M28 26v4M30 26v4"/>
+  <!-- Knife -->
+  <path fill="none" stroke="#065f46" stroke-width="2.2" stroke-linecap="round" d="M44 26v14"/>
+  <path fill="#a7f3d0" d="M43 26h3v10h-3z" opacity="0.9"/>
+  <!-- Steam -->
+  <path fill="none" stroke="#6ee7b7" stroke-width="1.5" stroke-linecap="round" d="M32 20c2-2 4-2 6 0M36 18c2-2 4-2 6 0"/>
+</svg>

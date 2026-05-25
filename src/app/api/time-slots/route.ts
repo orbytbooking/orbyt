@@ -1,0 +1,226 @@
+import { NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabaseClient';
+import {
+  getStoreOptionsScheduling,
+  isDateHoliday,
+  getSpotLimits,
+  getBookingCountForDate,
+  getReserveSlotSettingsAndBlocks,
+  getBookingCountByTimeForDate,
+  getCalendarDayOfWeek,
+  getDayNameFromDate,
+  normalizeTimeToHHmm,
+  filterDisplaySlotsByReservedBlocks,
+  buildReserveCustomerSlotDisplaysForDate,
+} from '@/lib/schedulingFilters';
+import type { ReserveSlotSettings } from '@/lib/schedulingFilters';
+
+/** Booking Koala-style: filter time slots by per-time-spot capacity from Reserve Slot settings */
+async function filterSlotsByReserveSlotCapacity(
+  slots: string[],
+  businessId: string,
+  dateStr: string | null,
+  supabase: any,
+  settings: ReserveSlotSettings | null
+): Promise<string[]> {
+  if (!dateStr || !slots.length) return slots;
+  if (!settings?.maximumByDay) return slots;
+  const dayName = getDayNameFromDate(dateStr);
+  const dayConfig = settings.maximumByDay[dayName];
+  if (!dayConfig?.enabled || !dayConfig.slots?.length) return slots;
+  const customerSlots = dayConfig.slots.filter(
+    (s) => (s.displayOn ?? 'Both') === 'Both'
+  );
+  if (!customerSlots.length) return slots;
+  const countsByTime = await getBookingCountByTimeForDate(supabase, businessId, dateStr);
+  /** Only these clock times are capped by maxJobs; other times (e.g. from provider windows) stay available */
+  const maxJobsByHHmm = new Map<string, number>();
+  for (const s of customerSlots) {
+    const key = normalizeTimeToHHmm(s.time);
+    if (!key) continue;
+    maxJobsByHHmm.set(key, s.maxJobs ?? 1);
+  }
+  return slots.filter((displayTime) => {
+    const hhmm = normalizeTimeToHHmm(displayTime);
+    if (!hhmm) return false;
+    const cap = maxJobsByHHmm.get(hhmm);
+    if (cap === undefined) return true;
+    const count = countsByTime[hhmm] ?? 0;
+    return count < cap;
+  });
+}
+
+/** Capacity limits + admin reserved time blocks (single settings read per request when date set) */
+async function applyReserveSlotPipeline(
+  rawSlots: string[],
+  businessId: string,
+  dateStr: string | null,
+  supabase: any
+): Promise<string[]> {
+  if (!dateStr) return rawSlots;
+  const { settings, reservedBlocks } = await getReserveSlotSettingsAndBlocks(businessId);
+  const capped = await filterSlotsByReserveSlotCapacity(rawSlots, businessId, dateStr, supabase, settings);
+  return filterDisplaySlotsByReservedBlocks(capped, dateStr, reservedBlocks);
+}
+
+export async function GET(request: Request) {
+  try {
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Database connection not available' }, { status: 500 });
+    }
+    
+    const { searchParams } = new URL(request.url);
+    const businessId = searchParams.get('business_id');
+    const date = searchParams.get('date'); // YYYY-MM-DD format
+
+    if (!businessId) {
+      return NextResponse.json({ error: 'Business ID is required' }, { status: 400 });
+    }
+
+    const storeOpts = await getStoreOptionsScheduling(businessId);
+
+    // Holiday check: if customer is blocked on holidays, return empty for holiday dates
+    const holidayBlocked = storeOpts?.holiday_blocked_who === 'customer' || storeOpts?.holiday_blocked_who === 'both';
+    if (date && holidayBlocked) {
+      const isHoliday = await isDateHoliday(businessId, date);
+      if (isHoliday) {
+        return NextResponse.json({ timeSlots: [] });
+      }
+    }
+
+    // Spot limits: if enabled and day at capacity, return empty
+    if (date && storeOpts?.spot_limits_enabled) {
+      const limits = await getSpotLimits(businessId);
+      if (limits?.enabled && limits.max_bookings_per_day > 0) {
+        const count = await getBookingCountForDate(supabaseAdmin, businessId, date);
+        if (count >= limits.max_bookings_per_day) {
+          return NextResponse.json({ timeSlots: [] });
+        }
+      }
+    }
+
+    const useProviderAvailability = storeOpts?.spots_based_on_provider_availability ?? true;
+
+    // Calendar weekday for YYYY-MM-DD (avoid Date.parse UTC/local mismatch)
+    const dayOfWeek = date ? getCalendarDayOfWeek(date) : new Date().getDay();
+
+    const { data: availabilityData, error: availabilityError } = await supabaseAdmin
+      .from('provider_availability')
+      .select('start_time, end_time')
+      .eq('business_id', businessId)
+      .eq('day_of_week', dayOfWeek)
+      .eq('is_available', true)
+      .order('start_time');
+
+    if (availabilityError) {
+      console.error('Error fetching time slots:', availabilityError);
+      return NextResponse.json({ error: 'Failed to fetch time slots' }, { status: 500 });
+    }
+
+    const availability = availabilityData ?? [];
+    const hasProviderAvailabilityForSlots =
+      useProviderAvailability && availability.length > 0;
+
+    const { settings: reserveSettings } = await getReserveSlotSettingsAndBlocks(businessId);
+    const reserveDisplays = date ? buildReserveCustomerSlotDisplaysForDate(reserveSettings, date) : null;
+
+    // Reserve "Maximum" grid only when not using provider windows for this day (fallback template)
+    if (date && reserveDisplays?.length && !hasProviderAvailabilityForSlots) {
+      const filtered = await applyReserveSlotPipeline(reserveDisplays, businessId, date, supabaseAdmin);
+      return NextResponse.json({ timeSlots: filtered });
+    }
+
+    // Spots based on provider availability: when false, return default full-day slots (no provider filter)
+    if (!useProviderAvailability && date) {
+      const defaultSlots: string[] = [];
+      for (let h = 7; h < 20; h++) {
+        defaultSlots.push(
+          new Date(2000, 0, 1, h, 0, 0).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
+          new Date(2000, 0, 1, h, 30, 0).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+        );
+      }
+      const filtered = await applyReserveSlotPipeline(defaultSlots, businessId, date, supabaseAdmin);
+      return NextResponse.json({ timeSlots: filtered });
+    }
+
+    // Convert time slots to readable format and generate full range
+    const timeSlots = availability?.map(slot => {
+      const startTime = new Date(`2000-01-01T${slot.start_time}`);
+      const endTime = new Date(`2000-01-01T${slot.end_time}`);
+      
+      // Format as "9:00 AM", "11:00 AM", etc.
+      return {
+        start: startTime.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        }),
+        end: endTime.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        }),
+        startTimeObj: startTime,
+        endTimeObj: endTime
+      };
+    }) || [];
+
+    // Generate complete time range from earliest start to latest end
+    let fullTimeSlots = [];
+    
+    if (timeSlots.length > 0) {
+      // Find earliest start time and latest end time
+      const earliestStart = new Date(Math.min(...timeSlots.map(s => s.startTimeObj.getTime())));
+      const latestEnd = new Date(Math.max(...timeSlots.map(s => s.endTimeObj.getTime())));
+      
+      // Generate time slots every 30 minutes from start to end
+      const currentTime = new Date(earliestStart);
+      
+      while (currentTime < latestEnd) {
+        const timeString = currentTime.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        });
+        
+        fullTimeSlots.push(timeString);
+        
+        // Add 30 minutes
+        currentTime.setMinutes(currentTime.getMinutes() + 30);
+      }
+    }
+
+    // If no availability found, return default time slots for full day
+    if (fullTimeSlots.length === 0) {
+      // Generate time slots from 7:00 AM to 8:00 PM every hour
+      const defaultSlots = [];
+      const currentTime = new Date();
+      currentTime.setHours(7, 0, 0, 0); // 7:00 AM
+      
+      while (currentTime.getHours() < 20) { // Until 8:00 PM
+        const timeString = currentTime.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        });
+        
+        defaultSlots.push(timeString);
+        
+        // Add 1 hour
+        currentTime.setHours(currentTime.getHours() + 1);
+      }
+
+      // Booking Koala-style: per-time-spot capacity from Reserve Slot settings
+      const filteredDefault = await applyReserveSlotPipeline(defaultSlots, businessId, date, supabaseAdmin);
+      return NextResponse.json({ timeSlots: filteredDefault });
+    }
+
+    // Booking Koala-style: per-time-spot capacity from Reserve Slot settings
+    const filteredSlots = await applyReserveSlotPipeline(fullTimeSlots, businessId, date, supabaseAdmin);
+    return NextResponse.json({ timeSlots: filteredSlots });
+
+  } catch (error) {
+    console.error('Error in time-slots API:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}

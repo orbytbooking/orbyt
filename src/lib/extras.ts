@@ -1,0 +1,474 @@
+import { supabase, supabaseAdmin } from '@/lib/supabaseClient';
+import type { BookingFormScope, IndustryExtraListingKind } from '@/lib/bookingFormScope';
+import { hasBookingFormScopeColumnFilter } from '@/lib/bookingFormScope';
+import { scopedIndustryTable } from '@/lib/formScopeTables';
+
+/** Columns accepted on POST/PUT `/api/extras` — must match `industry_extras` (no `id` / timestamps). */
+export const INDUSTRY_EXTRAS_WRITABLE_KEYS = [
+  'business_id',
+  'industry_id',
+  'name',
+  'description',
+  'icon',
+  'time_minutes',
+  'service_category',
+  'price',
+  'display',
+  'qty_based',
+  'maximum_quantity',
+  'pricing_structure',
+  'manual_prices',
+  'exempt_from_discount',
+  'show_based_on_frequency',
+  'frequency_options',
+  'show_based_on_location',
+  'location_options',
+  'show_based_on_service_category',
+  'service_category_options',
+  'show_based_on_variables',
+  'variable_options',
+  'excluded_providers',
+  'sort_order',
+  'different_on_customer_end',
+  'customer_end_name',
+  'show_explanation_icon_on_form',
+  'explanation_tooltip_text',
+  'enable_popup_on_selection',
+  'popup_content',
+  'popup_display',
+  'apply_to_all_bookings',
+  'booking_form_scope',
+  'listing_kind',
+  'price_merchant_location',
+  'time_minutes_merchant_location',
+  'item_prices',
+] as const;
+
+function scopeFromExtraPayload(row: Record<string, unknown>): BookingFormScope {
+  const raw = String(row.booking_form_scope ?? "form1");
+  if (raw === "form2") return "form2";
+  if (raw === "form3") return "form3";
+  if (raw === "form4") return "form4";
+  if (raw === "form5") return "form5";
+  return "form1";
+}
+
+function listingKindFromExtraPayload(row: Record<string, unknown>): IndustryExtraListingKind | null {
+  const raw = String(row.listing_kind ?? "");
+  if (raw === "addon") return "addon";
+  if (raw === "extra") return "extra";
+  return null;
+}
+
+/** Drop unknown keys so writes are DB-backed only (no arbitrary JSON → Supabase). */
+export function pickIndustryExtraWritePayload(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {};
+  }
+  const o = raw as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of INDUSTRY_EXTRAS_WRITABLE_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(o, key)) {
+      out[key] = o[key];
+    }
+  }
+  return out;
+}
+
+/**
+ * Legacy Supabase projects may not have `manual_prices` / `pricing_structure` (migration 095) or
+ * Form 1 popup columns (116). Omitting keys that match DB defaults lets PostgREST insert without
+ * referencing missing columns. Only used for INSERT — updates still send full payloads when needed.
+ */
+export function pruneIndustryExtraRowForInsert(row: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...row };
+
+  const ps = out.pricing_structure;
+  const mp = out.manual_prices;
+  const isMultiplyDefault =
+    (ps === undefined || ps === null || ps === 'multiply') &&
+    (mp === undefined ||
+      mp === null ||
+      (Array.isArray(mp) && mp.length === 0));
+  if (isMultiplyDefault) {
+    delete out.manual_prices;
+    delete out.pricing_structure;
+  }
+
+  if (out.different_on_customer_end === false) {
+    delete out.different_on_customer_end;
+    delete out.customer_end_name;
+  }
+  if (out.show_explanation_icon_on_form === false) {
+    delete out.show_explanation_icon_on_form;
+    delete out.explanation_tooltip_text;
+  }
+  if (out.enable_popup_on_selection === false) {
+    delete out.enable_popup_on_selection;
+    delete out.popup_content;
+    delete out.popup_display;
+  }
+  if (out.apply_to_all_bookings === true) {
+    delete out.apply_to_all_bookings;
+  }
+
+  return out;
+}
+
+export interface Extra {
+  id: string;
+  business_id: string;
+  industry_id: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  time_minutes: number;
+  service_category?: string;
+  price: number;
+  /** Form 2 add-on: M.L. price; null = same as S.A. */
+  price_merchant_location?: number | null;
+  /** Form 2 add-on: M.L. duration; null = same as S.A. */
+  time_minutes_merchant_location?: number | null;
+  /** Form 3 add-on: per-item S.A. / M.L. pricing keyed by item name. */
+  item_prices?: Record<
+    string,
+    {
+      price: number;
+      time_minutes: number;
+      price_merchant_location?: number | null;
+      time_minutes_merchant_location?: number | null;
+    }
+  >;
+  display: 'frontend-backend-admin' | 'backend-admin' | 'admin-only';
+  qty_based: boolean;
+  maximum_quantity?: number | null;
+  pricing_structure?: 'multiply' | 'manual';
+  manual_prices?: Array<{ price: number; time_minutes: number }>;
+  exempt_from_discount: boolean;
+  show_based_on_frequency: boolean;
+  frequency_options?: string[];
+  show_based_on_location?: boolean;
+  location_options?: string[];
+  show_based_on_service_category: boolean;
+  service_category_options?: string[];
+  show_based_on_variables: boolean;
+  variable_options?: string[];
+  excluded_providers?: string[];
+  different_on_customer_end?: boolean;
+  customer_end_name?: string | null;
+  show_explanation_icon_on_form?: boolean;
+  explanation_tooltip_text?: string | null;
+  enable_popup_on_selection?: boolean;
+  popup_content?: string | null;
+  popup_display?: string;
+  apply_to_all_bookings?: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  booking_form_scope?: BookingFormScope;
+  listing_kind?: IndustryExtraListingKind;
+}
+
+export interface CreateExtraData {
+  business_id: string;
+  industry_id: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  time_minutes: number;
+  service_category?: string;
+  price: number;
+  price_merchant_location?: number | null;
+  time_minutes_merchant_location?: number | null;
+  display: Extra['display'];
+  qty_based: boolean;
+  maximum_quantity?: number | null;
+  pricing_structure?: 'multiply' | 'manual';
+  manual_prices?: Array<{ price: number; time_minutes: number }>;
+  exempt_from_discount: boolean;
+  show_based_on_frequency?: boolean;
+  frequency_options?: string[];
+  show_based_on_location?: boolean;
+  location_options?: string[];
+  show_based_on_service_category?: boolean;
+  service_category_options?: string[];
+  show_based_on_variables?: boolean;
+  variable_options?: string[];
+  excluded_providers?: string[];
+  different_on_customer_end?: boolean;
+  customer_end_name?: string | null;
+  show_explanation_icon_on_form?: boolean;
+  explanation_tooltip_text?: string | null;
+  enable_popup_on_selection?: boolean;
+  popup_content?: string | null;
+  popup_display?: string;
+  apply_to_all_bookings?: boolean;
+  sort_order?: number;
+  booking_form_scope?: BookingFormScope;
+  listing_kind?: IndustryExtraListingKind;
+}
+
+export interface UpdateExtraData extends Partial<CreateExtraData> {}
+
+const EXTRA_FALLBACK_TABLES = [
+  'industry_form2_extras',
+  'industry_form2_addons',
+  'industry_form3_extras',
+  'industry_form3_addons',
+  'industry_form4_extras',
+  'industry_form5_extras',
+] as const;
+
+export type ExtraTenantScope = {
+  business_id: string;
+  industry_id: string;
+  booking_form_scope?: BookingFormScope | null;
+  listing_kind?: IndustryExtraListingKind | null;
+};
+
+function extraTableForScope(scope?: {
+  booking_form_scope?: BookingFormScope | null;
+  listing_kind?: IndustryExtraListingKind | null;
+}): string {
+  return scopedIndustryTable('industry_extras', scope?.booking_form_scope ?? null, {
+    listingKind: scope?.listing_kind ?? null,
+  });
+}
+
+/** When form scope is set, only touch that form's table (no cross-form fallback). */
+function isFormScopedExtraRequest(scope?: {
+  booking_form_scope?: BookingFormScope | null;
+}): boolean {
+  return hasBookingFormScopeColumnFilter(scope?.booking_form_scope);
+}
+
+class ExtrasService {
+  private supabase;
+
+  constructor() {
+    // Use admin client for server-side operations, fall back to regular client
+    this.supabase = (typeof window === 'undefined' && supabaseAdmin) ? supabaseAdmin : supabase;
+  }
+
+  async getExtrasByIndustry(
+    industryId: string,
+    opts?: {
+      businessId?: string | null;
+      bookingFormScope?: BookingFormScope | null;
+      listingKind?: IndustryExtraListingKind | null;
+    },
+  ): Promise<Extra[]> {
+    const table = scopedIndustryTable('industry_extras', opts?.bookingFormScope ?? null, {
+      listingKind: opts?.listingKind ?? null,
+    });
+    let q = this.supabase
+      .from(table)
+      .select('*')
+      .eq('industry_id', industryId);
+    if (opts?.businessId?.trim()) {
+      q = q.eq('business_id', opts.businessId.trim());
+    }
+    if (hasBookingFormScopeColumnFilter(opts?.bookingFormScope)) {
+      q = q.eq('booking_form_scope', opts.bookingFormScope);
+    }
+    if (opts?.listingKind === 'extra' || opts?.listingKind === 'addon') {
+      q = q.eq('listing_kind', opts.listingKind);
+    }
+    const { data, error } = await q
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching extras:', error);
+      throw error;
+    }
+
+    return data || [];
+  }
+
+  async getExtraById(id: string, scope?: ExtraTenantScope): Promise<Extra | null> {
+    const preferredTable = extraTableForScope(scope);
+    let q = this.supabase.from(preferredTable).select('*').eq('id', id);
+    if (scope?.business_id?.trim()) {
+      q = q.eq('business_id', scope.business_id.trim());
+    }
+    if (scope?.industry_id?.trim()) {
+      q = q.eq('industry_id', scope.industry_id.trim());
+    }
+    const { data, error } = await q.single();
+
+    if (error?.code === 'PGRST116') {
+      if (isFormScopedExtraRequest(scope)) {
+        return null;
+      }
+      const fallbackTables =
+        preferredTable === 'industry_extras'
+          ? EXTRA_FALLBACK_TABLES
+          : (['industry_extras', ...EXTRA_FALLBACK_TABLES] as const).filter((t) => t !== preferredTable);
+      for (const table of fallbackTables) {
+        let q2 = this.supabase.from(table).select('*').eq('id', id);
+        if (scope?.business_id?.trim()) {
+          q2 = q2.eq('business_id', scope.business_id.trim());
+        }
+        if (scope?.industry_id?.trim()) {
+          q2 = q2.eq('industry_id', scope.industry_id.trim());
+        }
+        const res2 = await q2.single();
+        if (!res2.error) return res2.data;
+      }
+      return null;
+    }
+    if (error) {
+      console.error('Error fetching extra:', error);
+      throw error;
+    }
+
+    return data;
+  }
+
+  async createExtra(extraData: CreateExtraData): Promise<Extra> {
+    const row = pruneIndustryExtraRowForInsert({ ...extraData } as Record<string, unknown>);
+    const table = scopedIndustryTable('industry_extras', scopeFromExtraPayload(row), {
+      listingKind: listingKindFromExtraPayload(row),
+    });
+    const { data, error } = await this.supabase
+      .from(table)
+      .insert(row)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating extra:', error);
+      throw error;
+    }
+
+    return data;
+  }
+
+  async updateExtra(id: string, updateData: UpdateExtraData, scope?: ExtraTenantScope): Promise<Extra> {
+    const rowScope = {
+      booking_form_scope:
+        scope?.booking_form_scope ??
+        (updateData.booking_form_scope as BookingFormScope | undefined) ??
+        null,
+      listing_kind:
+        scope?.listing_kind ?? (updateData.listing_kind as IndustryExtraListingKind | undefined) ?? null,
+    };
+    const table = extraTableForScope(rowScope);
+    let q = this.supabase.from(table).update(updateData).eq('id', id);
+    if (scope?.business_id?.trim()) {
+      q = q.eq('business_id', scope.business_id.trim());
+    }
+    if (scope?.industry_id?.trim()) {
+      q = q.eq('industry_id', scope.industry_id.trim());
+    }
+    let { data, error } = await q.select().single();
+    if (error?.code === 'PGRST116' && !isFormScopedExtraRequest(rowScope)) {
+      for (const fallbackTable of EXTRA_FALLBACK_TABLES) {
+        if (fallbackTable === table) continue;
+        let q2 = this.supabase.from(fallbackTable).update(updateData).eq('id', id);
+        if (scope?.business_id?.trim()) {
+          q2 = q2.eq('business_id', scope.business_id.trim());
+        }
+        if (scope?.industry_id?.trim()) {
+          q2 = q2.eq('industry_id', scope.industry_id.trim());
+        }
+        const res2 = await q2.select().single();
+        data = res2.data;
+        error = res2.error;
+        if (!res2.error || res2.error?.code !== 'PGRST116') break;
+      }
+    }
+
+    if (error) {
+      console.error('Error updating extra:', error);
+      throw error;
+    }
+
+    return data;
+  }
+
+  async deleteExtra(id: string, scope?: ExtraTenantScope): Promise<{ deleted: boolean }> {
+    const table = extraTableForScope(scope);
+    let q = this.supabase.from(table).delete().eq('id', id);
+    if (scope?.business_id?.trim()) {
+      q = q.eq('business_id', scope.business_id.trim());
+    }
+    if (scope?.industry_id?.trim()) {
+      q = q.eq('industry_id', scope.industry_id.trim());
+    }
+    const { data, error } = await q.select('id');
+
+    if (error) {
+      console.error('Error deleting extra:', error);
+      throw error;
+    }
+    if (Array.isArray(data) && data.length > 0) return { deleted: true };
+    if (isFormScopedExtraRequest(scope)) {
+      return { deleted: false };
+    }
+    for (const fallbackTable of ['industry_extras', ...EXTRA_FALLBACK_TABLES] as const) {
+      if (fallbackTable === table) continue;
+      let q2 = this.supabase.from(fallbackTable).delete().eq('id', id);
+      if (scope?.business_id?.trim()) {
+        q2 = q2.eq('business_id', scope.business_id.trim());
+      }
+      if (scope?.industry_id?.trim()) {
+        q2 = q2.eq('industry_id', scope.industry_id.trim());
+      }
+      const res2 = await q2.select('id');
+      if (res2.error) throw res2.error;
+      if (Array.isArray(res2.data) && res2.data.length > 0) {
+        return { deleted: true };
+      }
+    }
+    return { deleted: false };
+  }
+
+  async permanentlyDeleteExtra(id: string, scope?: ExtraTenantScope): Promise<{ deleted: boolean }> {
+    const table = extraTableForScope(scope);
+    let q = this.supabase.from(table).delete().eq('id', id);
+    if (scope?.business_id?.trim()) {
+      q = q.eq('business_id', scope.business_id.trim());
+    }
+    if (scope?.industry_id?.trim()) {
+      q = q.eq('industry_id', scope.industry_id.trim());
+    }
+    const { data, error } = await q.select('id');
+
+    if (error) {
+      console.error('Error permanently deleting extra:', error);
+      throw error;
+    }
+    return { deleted: Array.isArray(data) && data.length > 0 };
+  }
+
+  async updateExtraOrder(
+    updates: Array<{ id: string; sort_order: number }>,
+    scope?: ExtraTenantScope,
+  ): Promise<void> {
+    const table = extraTableForScope(scope);
+    for (const { id, sort_order } of updates) {
+      let q = this.supabase.from(table).update({ sort_order }).eq('id', id);
+      if (scope?.business_id?.trim()) q = q.eq('business_id', scope.business_id.trim());
+      if (scope?.industry_id?.trim()) q = q.eq('industry_id', scope.industry_id.trim());
+      const r1 = await q.select('id');
+      if (r1.error) throw r1.error;
+      if ((r1.data?.length ?? 0) > 0) continue;
+      if (isFormScopedExtraRequest(scope)) {
+        throw new Error(`Extra ${id} not found in ${table}`);
+      }
+      for (const fallbackTable of ['industry_extras', ...EXTRA_FALLBACK_TABLES] as const) {
+        if (fallbackTable === table) continue;
+        let q2 = this.supabase.from(fallbackTable).update({ sort_order }).eq('id', id);
+        if (scope?.business_id?.trim()) q2 = q2.eq('business_id', scope.business_id.trim());
+        if (scope?.industry_id?.trim()) q2 = q2.eq('industry_id', scope.industry_id.trim());
+        const r2 = await q2.select('id');
+        if (r2.error) throw r2.error;
+        if ((r2.data?.length ?? 0) > 0) break;
+      }
+    }
+  }
+}
+
+export const extrasService = new ExtrasService();

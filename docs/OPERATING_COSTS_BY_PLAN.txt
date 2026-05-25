@@ -1,0 +1,257 @@
+OPERATING COSTS BY PLAN (ORBYT)
+================================
+
+Full documentation for internal cost modeling (COGS / cost price), plan tiers,
+and the companion CSV spreadsheet. For stakeholders in finance, operations,
+and engineering.
+
+
+1. FILES IN THIS DOCUMENTATION SET
+-----------------------------------
+
+docs/operating-cost-list-prices-by-plan-features-excel-safe.csv
+  Primary data: vendor list prices, units, free-tier notes, upgrade guidance,
+  Starter/Growth/Premium columns. Last row = example COGS per tenant per month.
+  UTF-8 with BOM for Excel on Windows.
+
+docs/OPERATING_COSTS_BY_PLAN.md
+  This content in Markdown (tables, headings).
+
+docs/OPERATING_COSTS_BY_PLAN.txt
+  This file: plain text for email or Google Docs paste.
+
+CSV layout: no README row. Line 1 = header. Line 2 = first vendor line
+(Supabase Pro base).
+
+
+2. WHAT PROBLEM THIS ANSWERS
+-----------------------------
+
+Question: "What is our cost price to operate one customer account on Starter
+vs Growth vs Premium?"
+
+That is NOT the same as:
+  - Subscription price you charge (revenue).
+  - Summing every row in the sheet (rows mix USD/mo, USD per GB, per 1k events,
+    percent of payment; stack is shared across tenants).
+
+Use this for:
+  - Unit economics (rough COGS vs price).
+  - Vendor budgeting and overage awareness.
+  - Plan design (AI, SMS, and other variable-cost features).
+
+
+3. CORE CONCEPTS
+----------------
+
+3.1 COGS and "cost price" (internal)
+  COGS here means direct costs to deliver the service: database, hosting,
+  email, maps APIs, AI, payment fees if the platform pays them, etc.
+  "Cost price to operate an account" = estimated spend per tenant per month
+  after fair allocation of shared bills. Replace estimates with invoices.
+
+3.2 Multitenancy and allocation
+  Many tenants share one Supabase project, one deployment, one Resend account.
+  Vendors bill aggregate or one monthly fee. To get "per tenant" you must
+  allocate (example: divide fixed platform cost by active tenant count, then
+  add variable usage by tier or meter). The CSV does not compute that for you.
+  The SUMMARY row is an illustrative rollup; read its Notes for assumptions.
+
+3.3 List price vs true cost
+  Source links are public pricing. Actual bills may differ (tax, FX, credits,
+  discounts, commits). Reconcile to invoices regularly.
+
+
+3.4 PRICING MODELS: FIXED, BASE + USAGE, AND "PER WHAT"
+--------------------------------------------------------
+
+Every CSV number is tied to a pricing model. The Unit column is the source of
+truth for "per what"; this section is the narrative map.
+
+Fixed recurring (vendor plan)
+  Flat USD/month OR USD per paid seat/month for that product tier.
+  Per: calendar month for the whole platform (one vendor bill), or per seat
+  (Vercel). Usually includes bundled allowances; the vendor does NOT bill
+  "per Orbyt tenant."
+  Examples: Supabase Pro base ($25/mo), compute line ($10/mo example),
+  Resend Pro base ($20/mo), Vercel Pro ($20/seat/mo), Hobby ($0/mo),
+  IPv4 / PITR add-ons ($/mo).
+
+Included quota + overage (base + meter)
+  Fixed plan includes volume; beyond that you pay per meter unit.
+  Per: GB-month (DB or files), per GB (egress), per 1000 emails after included.
+  Examples: Supabase storage/egress overage rates; Resend overage ($/1k emails).
+
+Free allowance + meter
+  First N events or emails per month at $0 for that SKU, then per-1k pricing.
+  Per: per 1000 billable events after cap; separate (ref) rows show N/month
+  (counts, NOT dollars).
+  Examples: Google Maps free-cap ref rows + USD/1k loads or geocode requests;
+  Resend Free 3000 emails/mo reference row.
+
+Pure pay-as-you-go
+  Cost only from consumption on that meter.
+  Per: per 1M tokens (input vs output), per 1000 tool calls, per SMS.
+  Examples: OpenAI GPT-4o mini in/out, web search tool; SMS when USD/msg filled.
+
+Per payment (processing)
+  Fee on each successful card charge.
+  Per: decimal = fraction of charge amount (e.g. 0.029 = 2.9%);
+  USD/txn = per successful transaction.
+  Examples: Stripe reference rows (often merchant-paid).
+
+Internal rollup (SUMMARY row only)
+  Your estimate after allocation.
+  Per: tenant/month (illustrative USD/tenant-mo).
+
+Fixed vs variable (quick check)
+  If usage doubled tomorrow, would this line stay about the same? Then it is
+  mostly fixed (or a fixed base). If the bill scales with GB, emails, map
+  events, tokens, SMS, or payment volume, it is variable / metered.
+
+Per tenant
+  Vendors rarely bill per Orbyt tenant. Fixed platform fees become per-tenant
+  only after YOU divide by active tenants (or another rule). SUMMARY is already
+  per tenant-month but is an example, not a vendor line item.
+
+
+4. PLANS IN THE PRODUCT VS THE SHEET
+-------------------------------------
+
+Starter, Growth, Premium columns match product tier naming.
+
+Plan entitlements for marketing and Super Admin are driven from code such as
+src/lib/pricing/pricingFeatures.ts (and related DB config).
+
+Alignment for this cost model:
+  - AI Virtual Receptionist: false on Starter, true on Growth/Premium in the
+    feature table -> OpenAI rows show 0 on Starter for those lines unless you
+    override.
+  - SMS notifications: false on Starter, true on Growth/Premium in the feature
+    table -> CSV still uses TBD for USD per message until a provider exists.
+
+If you change plan features, update both product config and this spreadsheet.
+
+
+5. COLUMN REFERENCE (FULL)
+---------------------------
+
+Category
+  Group: Supabase, Google Maps, Email, Hosting, Payments, AI, SMS, SUMMARY.
+
+Feature_gate_in_plan
+  All plans vs feature-specific (e.g. AI receptionist false on Starter).
+
+Line_item
+  Name of the charge or rate.
+
+Source
+  Vendor pricing URL or n/a.
+
+Free_or_included_before_overage
+  Included quota, $0 tier, or "not included" for add-ons. Verify on vendor site.
+
+When_to_scale_Pro_or_paid_tier
+  When to upgrade compute, enable billing, buy a higher tier, or optimize.
+  Stripe is a fee model, not the same as "SaaS Pro."
+
+Unit
+  Meaning of numbers: USD/mo, USD/GB-mo, USD/1k, USD/txn, decimal (percent),
+  events/mo (ref), emails/mo (ref), USD/tenant-mo, etc.
+  See section 3.4 for fixed vs base+overage vs metered and what "per what" means.
+
+Starter_USD_or_numeric_per_Unit_column
+Growth_USD_or_numeric_per_Unit_column
+Premium_USD_or_numeric_per_Unit_column
+  Interpret using Unit. USD* units = dollars for that unit. Decimals on
+  Stripe rows = ratio on payment amount, not dollars. (ref) = counts, not price.
+  Parentheses in cells label non-dollar meanings.
+
+Notes
+  Multitenant notes, "not dollars," code pointers (e.g. OpenAI model).
+
+
+6. CATEGORY-BY-CATEGORY (SHORT)
+--------------------------------
+
+Supabase: Pro base + compute are platform monthly; storage/egress are overage
+  rates after included quotas. IPv4 and PITR optional.
+
+Google Maps: ~10k events/mo free per SKU (see ref rows), then per-1k pricing.
+  Costs are aggregate across tenants; cache/batch where possible.
+
+Email (Resend): Pro = monthly fee + included sends; overage per 1k. Free tier
+  row is reference (3k/mo).
+
+Hosting (Vercel): Hobby $0 with limits; Pro per seat. Scale seats and tier
+  for production.
+
+Payments (Stripe): Reference. Percents are of charge amount; fixed fee USD/txn.
+  Usually merchant-paid unless you absorb.
+
+AI (OpenAI): Per 1M tokens + optional web search per 1k calls. Receptionist
+  in repo uses gpt-4o-mini (src/app/api/chat/receptionist/route.ts).
+
+SMS: TBD per message until integrated.
+
+SUMMARY: Example COGS USD/tenant/mo; see Notes for tenant count and stack
+  assumptions.
+
+
+7. WORKED EXAMPLE (CURRENT SUMMARY ROW)
+----------------------------------------
+
+Illustrative COGS per tenant per month (USD):
+
+  Starter:  2.75
+  Growth:   4.45
+  Premium:  7.40
+
+Decomposition (from SUMMARY Notes; do not get this by summing every CSV row):
+
+  Shared stack share (e.g. $65/mo / 25 tenants):  2.60  2.60  2.60
+  Extra usage (maps/email/storage vs light use):  0.15  0.65  1.80
+  OpenAI (AI off Starter in this example):      0.00  1.20  3.00
+  Total:                                          2.75  4.45  7.40
+
+Not audited. Replace with actuals.
+
+
+8. EXCEL TIPS
+-------------
+
+Use UTF-8 when importing. BOM helps Excel on Windows. Cells with text labels
+(e.g. Stripe parentheses) are not numeric for formulas unless cleaned. After
+Excel edits, save as CSV UTF-8 to avoid character corruption.
+
+
+9. LIMITATIONS
+--------------
+
+Examples and list prices, not confidential invoices. No tax/FX/credits unless
+you add them. SUMMARY goes stale without an owner. Not legal advice.
+
+
+10. MAINTENANCE CHECKLIST
+-------------------------
+
+  - Quarterly: verify Source URLs and vendor rates/free tiers.
+  - On AI model/tool changes: update OpenAI rows and SUMMARY.
+  - On SMS launch: fill USD/msg and plan columns.
+  - Monthly finance: replace SUMMARY with invoice-based allocation.
+  - On product plan changes: align pricingFeatures.ts / DB with CSV gates.
+
+
+11. GLOSSARY
+------------
+
+COGS              Direct cost to run the hosted product.
+Cost price/tenant Estimated internal cost per account per month after allocation.
+List price        Public vendor rate before your discounts/credits.
+Allocation        Rule to split shared bills (e.g. even split by tenant count).
+Feature gate      Plan rule that turns a feature and its cost on/off per tier.
+
+
+---
+Aligned with: docs/operating-cost-list-prices-by-plan-features-excel-safe.csv
+Update this file when the sheet or business rules change materially.

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" role="img" aria-hidden="true">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#6d28d9"/>
+    </linearGradient>
+  </defs>
+  <circle cx="36" cy="36" r="34" fill="url(#bg)"/>
+  <rect x="14" y="16" width="44" height="44" rx="10" fill="#fff" opacity="0.96"/>
+  <rect x="14" y="16" width="44" height="44" rx="10" fill="none" stroke="#7c3aed" stroke-width="1.4" opacity="0.35"/>
+  <!-- Headboard -->
+  <rect x="20" y="28" width="32" height="8" rx="2" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1.4"/>
+  <!-- Mattress -->
+  <rect x="20" y="36" width="32" height="10" rx="2" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.4"/>
+  <!-- Pillows -->
+  <rect x="24" y="32" width="10" height="5" rx="1.5" fill="#fff" stroke="#8b5cf6" stroke-width="1"/>
+  <rect x="38" y="32" width="10" height="5" rx="1.5" fill="#fff" stroke="#8b5cf6" stroke-width="1"/>
+  <!-- Legs -->
+  <rect x="24" y="46" width="4" height="6" rx="1" fill="#6d28d9" opacity="0.55"/>
+  <rect x="44" y="46" width="4" height="6" rx="1" fill="#6d28d9" opacity="0.55"/>
+</svg>

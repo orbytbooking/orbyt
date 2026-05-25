@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" role="img" aria-hidden="true">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fb923c"/>
+      <stop offset="100%" stop-color="#c2410c"/>
+    </linearGradient>
+  </defs>
+  <circle cx="36" cy="36" r="34" fill="url(#bg)"/>
+  <rect x="14" y="16" width="44" height="44" rx="10" fill="#fff" opacity="0.96"/>
+  <rect x="14" y="16" width="44" height="44" rx="10" fill="none" stroke="#ea580c" stroke-width="1.4" opacity="0.35"/>
+  <!-- Control knobs -->
+  <circle cx="26" cy="26" r="2.5" fill="#fed7aa" stroke="#9a3412" stroke-width="1.2"/>
+  <circle cx="36" cy="26" r="2.5" fill="#fed7aa" stroke="#9a3412" stroke-width="1.2"/>
+  <circle cx="46" cy="26" r="2.5" fill="#fed7aa" stroke="#9a3412" stroke-width="1.2"/>
+  <!-- Cooktop -->
+  <rect x="20" y="32" width="32" height="14" rx="3" fill="#ffedd5" stroke="#c2410c" stroke-width="1.6"/>
+  <circle cx="28" cy="39" r="3.5" fill="#fdba74" stroke="#9a3412" stroke-width="1.2"/>
+  <circle cx="44" cy="39" r="3.5" fill="#fdba74" stroke="#9a3412" stroke-width="1.2"/>
+  <circle cx="28" cy="39" r="1.2" fill="#fff7ed"/>
+  <circle cx="44" cy="39" r="1.2" fill="#fff7ed"/>
+  <!-- Oven door -->
+  <rect x="24" y="48" width="24" height="10" rx="2" fill="#ffedd5" stroke="#9a3412" stroke-width="1.5"/>
+  <rect x="28" y="50" width="16" height="6" rx="1" fill="#bae6fd" opacity="0.55"/>
+</svg>

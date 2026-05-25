@@ -1,0 +1,701 @@
+import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
+import { MultiTenantHelper } from '@/lib/multiTenantSupabase';
+import { createAdminNotification } from '@/lib/adminProviderSync';
+import { syncBookingCreated, createRecurringCalendarEvent } from '@/lib/googleCalendar';
+import { getStoreOptionsScheduling, isDateHoliday } from '@/lib/schedulingFilters';
+import { logNewDraftOrQuote } from '@/lib/draftQuoteLogs';
+import { ensureCustomerForAdminBooking } from '@/lib/ensureCustomerForAdminBooking';
+import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProviderWage';
+import { resolveFrequencyRepeatsForBooking } from '@/lib/industryFrequencyRepeats';
+import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
+import { sendCustomerFacingBookingEmailAfterScheduling } from '@/lib/sendCustomerBookingConfirmedEmail';
+import { finalStatusForAdminBooking, providerIdFromBookingPayload } from '@/lib/adminBookingStatus';
+import {
+  couponRequiresCustomerEmailForScope,
+  evaluateMarketingCouponCustomerScope,
+} from '@/lib/marketingCouponCustomerScope';
+import { applyKeyAndJobNotesFromPayload } from '@/lib/bookingKeyJobNotes';
+import { resolveBookingTaxTotals } from '@/lib/bookingTax';
+
+type AdminBookingRow = {
+  id: string;
+  status?: string | null;
+  customer_email?: string | null;
+  customer_name?: string | null;
+  service?: string | null;
+  scheduled_date?: string | null;
+  date?: string | null;
+  scheduled_time?: string | null;
+  time?: string | null;
+  address?: string | null;
+  total_price?: number | string | null;
+  exclude_customer_notification?: boolean | null;
+  provider_id?: string | null;
+  provider_name?: string | null;
+};
+
+/**
+ * Customer email for bookings created from the admin add-booking form (POST /api/bookings).
+ * Uses the same rules as customer/guest book-now: confirmed → confirmation email; pending → pending/scheduled email; draft/quote/etc. → none.
+ */
+async function sendAdminCreatedBookingConfirmationEmail(
+  supabase: ReturnType<typeof createClient>,
+  businessId: string,
+  booking: AdminBookingRow
+) {
+  if (booking.exclude_customer_notification) return;
+  const st = String(booking.status || '');
+  if (['draft', 'quote', 'expired'].includes(st)) return;
+  if (!String(booking.customer_email ?? '').trim() || !booking.id) return;
+  try {
+    await sendCustomerFacingBookingEmailAfterScheduling(supabase, businessId, booking.id, {
+      totalPriceFallback: Number(booking.total_price ?? 0),
+      customerEmailFallback: booking.customer_email,
+      customerNameFallback: booking.customer_name,
+    });
+  } catch (e) {
+    console.warn('Admin booking confirmation email failed:', e);
+  }
+}
+
+export async function GET(request: Request) {
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+
+    // Get user session
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Get business context from headers
+    const businessId = request.headers.get('x-business-id');
+    if (!businessId) {
+      return NextResponse.json({ error: 'Business context required' }, { status: 400 });
+    }
+
+    // Verify user has access to this business
+    const { data: businessAccess, error: accessError } = await supabase
+      .from('businesses')
+      .select('id')
+      .or(`owner_id.eq.${user.id},id.in.(SELECT business_id FROM tenant_users WHERE user_id = ${user.id} AND is_active = true)`)
+      .eq('id', businessId)
+      .single();
+
+    if (accessError || !businessAccess) {
+      return NextResponse.json({ error: 'Access denied to this business' }, { status: 403 });
+    }
+
+    // Set business context and fetch bookings
+    MultiTenantHelper.setBusinessContext(businessId);
+    
+    const { data: bookings, error: bookingsError } = MultiTenantHelper.filterBookings(
+      supabase.from('bookings').select('*')
+    );
+
+    if (bookingsError) {
+      return NextResponse.json({ error: bookingsError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: bookings,
+      business_id: businessId,
+      user_id: user.id
+    });
+
+  } catch (error) {
+    console.error('Bookings API error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    // Get auth token from header
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'Unauthorized - No token' }, { status: 401 });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    
+    // Verify user session with token
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      console.error('Auth error:', authError);
+      return NextResponse.json({ error: 'Unauthorized - Invalid token' }, { status: 401 });
+    }
+
+    // Get business context from headers
+    const businessId = request.headers.get('x-business-id');
+    if (!businessId) {
+      return NextResponse.json({ error: 'Business context required' }, { status: 400 });
+    }
+
+    const allowed = await userCanManageBookingsForBusiness(supabase, user.id, businessId);
+    if (!allowed) {
+      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+    }
+
+    // Parse request body
+    const bookingData = await request.json();
+
+    const scheduledDate = (bookingData.date ?? bookingData.selectedDate ?? '').toString().trim();
+    if (scheduledDate) {
+      const storeOpts = await getStoreOptionsScheduling(businessId);
+      if (storeOpts?.holiday_blocked_who === 'both') {
+        const isHoliday = await isDateHoliday(businessId, scheduledDate);
+        if (isHoliday) {
+          return NextResponse.json(
+            { error: 'HOLIDAY_BLOCKED', message: 'Booking is not available on this date (holiday).' },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
+    const couponCodeEarly =
+      typeof bookingData.coupon_code === 'string' ? bookingData.coupon_code.trim() : '';
+    if (couponCodeEarly) {
+      const custEmail = (bookingData.customer_email ?? bookingData.email ?? '').toString().trim();
+      const { data: mcCoupon, error: mcCouponErr } = await supabase
+        .from('marketing_coupons')
+        .select('code, coupon_config, usage_limit')
+        .eq('business_id', businessId)
+        .ilike('code', couponCodeEarly)
+        .eq('active', true)
+        .maybeSingle();
+      if (mcCouponErr) {
+        console.error('bookings POST marketing_coupons:', mcCouponErr);
+        return NextResponse.json({ error: 'Coupon lookup failed' }, { status: 500 });
+      }
+      if (!mcCoupon) {
+        return NextResponse.json(
+          { error: 'INVALID_COUPON', message: 'This coupon code is not valid or is no longer active.' },
+          { status: 400 }
+        );
+      }
+      if (couponRequiresCustomerEmailForScope(mcCoupon.coupon_config) && !custEmail.includes('@')) {
+        return NextResponse.json(
+          {
+            error: 'COUPON_EMAIL_REQUIRED',
+            message:
+              'Customer email is required for this coupon (new/existing customer or one-time use per email).',
+          },
+          { status: 400 }
+        );
+      }
+      const scope = await evaluateMarketingCouponCustomerScope(supabase, {
+        businessId,
+        couponCode: String(mcCoupon.code || couponCodeEarly).trim(),
+        couponConfig: mcCoupon.coupon_config,
+        customerEmail: custEmail || null,
+        usageLimit: mcCoupon.usage_limit ?? null,
+        requireStrongIdentity: false,
+      });
+      if (!scope.ok) {
+        return NextResponse.json(
+          { error: 'COUPON_NOT_ALLOWED', title: scope.title, message: scope.description },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Map payment method to valid database values
+    let paymentMethod = 'cash'; // default
+    if (bookingData.payment_method) {
+      const method = bookingData.payment_method.toLowerCase();
+      if (method === 'cash') {
+        paymentMethod = 'cash';
+      } else if (method.includes('card') || method.includes('bank') || method === 'credit card') {
+        paymentMethod = 'online';
+      }
+    }
+
+    // Prepare booking data with only fields that exist in database schema
+    const providerIdEarly = providerIdFromBookingPayload(bookingData as Record<string, unknown>);
+    const finalStatus = finalStatusForAdminBooking(bookingData as Record<string, unknown>, providerIdEarly);
+
+    // Base amount before tax (from pricing engine / form)
+    const baseAmount = Number(bookingData.amount) || 0;
+
+    const locationIdsRaw = bookingData.location_ids ?? bookingData.locationIds;
+    const matchedLocationIds = Array.isArray(locationIdsRaw)
+      ? locationIdsRaw.map((id: unknown) => String(id).trim()).filter(Boolean)
+      : undefined;
+
+    const { preTaxAmount, taxAmount, totalWithTax } = await resolveBookingTaxTotals(
+      supabase,
+      businessId,
+      baseAmount,
+      matchedLocationIds,
+    ).catch((e) => {
+      console.error('Tax calculation error for booking:', e);
+      return { preTaxAmount: baseAmount, taxAmount: 0, totalWithTax: baseAmount };
+    });
+
+    const { data: storeWageOpts } = await supabase
+      .from('business_store_options')
+      .select('default_provider_wage, default_provider_wage_type')
+      .eq('business_id', businessId)
+      .maybeSingle();
+    const wageResolved = resolveProviderWageFromBodyOrStoreDefault(
+      bookingData as Record<string, unknown>,
+      storeWageOpts
+    );
+    const providerWage = wageResolved?.provider_wage ?? null;
+    const providerWageType = wageResolved?.provider_wage_type ?? null;
+
+    const customerEmail = (bookingData.customer_email || '').toString().trim();
+    const customerName = (bookingData.customer_name || '').toString().trim();
+    const customerPhone = (bookingData.customer_phone || '').toString().trim() || null;
+    const customerAddress = (bookingData.address || '').toString().trim() || null;
+    const customerId = await ensureCustomerForAdminBooking(supabase, businessId, {
+      customerIdFromClient: bookingData.customer_id,
+      customerEmail,
+      customerName,
+      customerPhone,
+      customerAddress,
+    });
+
+    // Resolve provider_name when provider is assigned (for display in customer profile/calendar)
+    let providerName: string | null = (bookingData.provider_name || '').toString().trim() || null;
+    const providerId = providerIdEarly;
+    if (providerId && !providerName) {
+      const { data: prov } = await supabase
+        .from('service_providers')
+        .select('first_name, last_name')
+        .eq('id', providerId)
+        .maybeSingle();
+      if (prov) providerName = `${(prov.first_name || '').trim()} ${(prov.last_name || '').trim()}`.trim() || null;
+    }
+
+    const bookingWithBusiness: any = {
+      business_id: businessId,
+      provider_id: providerId,
+      service_id: null, // You may need to map service to service_id
+      status: finalStatus,
+      scheduled_date: bookingData.date || null,
+      scheduled_time: bookingData.time || null,
+      address: bookingData.address || 'Default Address', // REQUIRED FIELD - you need to collect this
+      apt_no: bookingData.apt_no || null,
+      zip_code: bookingData.zip_code || null,
+      notes: bookingData.notes || '',
+      total_price: totalWithTax,
+      payment_method: paymentMethod,
+      payment_status: 'pending',
+      tip_amount: 0,
+      customer_email: bookingData.customer_email || null,
+      customer_name: bookingData.customer_name || null,
+      customer_phone: bookingData.customer_phone || null,
+      service: bookingData.service || null,
+      frequency:
+        bookingData.frequency != null && String(bookingData.frequency).trim()
+          ? String(bookingData.frequency).trim()
+          : null,
+      date: bookingData.date || null,
+      time: bookingData.time || null,
+      customer_id: customerId,
+      amount: preTaxAmount,
+    };
+    if (providerName) bookingWithBusiness.provider_name = providerName;
+
+    // Build customization from admin payload (partial cleaning, extras, key access, job notes, client JSON, etc.)
+    const hasPartialCleaning = Boolean(bookingData.is_partial_cleaning);
+    const excludedAreas = Array.isArray(bookingData.excluded_areas) ? bookingData.excluded_areas : [];
+    const excludeQuantities = bookingData.exclude_quantities && typeof bookingData.exclude_quantities === 'object' && !Array.isArray(bookingData.exclude_quantities)
+      ? bookingData.exclude_quantities
+      : {};
+    const hasStructuredCustomization = hasPartialCleaning || excludedAreas.length > 0 || Object.keys(excludeQuantities).length > 0 ||
+      (Array.isArray(bookingData.selected_extras) && bookingData.selected_extras.length > 0) ||
+      (bookingData.extra_quantities && typeof bookingData.extra_quantities === 'object' && Object.keys(bookingData.extra_quantities).length > 0) ||
+      (bookingData.category_values && typeof bookingData.category_values === 'object' && Object.keys(bookingData.category_values).length > 0);
+    const rawClientCustomization =
+      bookingData.customization && typeof bookingData.customization === 'object' && !Array.isArray(bookingData.customization)
+        ? { ...(bookingData.customization as Record<string, unknown>) }
+        : {};
+    const hasKeyJobPayload =
+      (bookingData.key_access != null && typeof bookingData.key_access === 'object' && !Array.isArray(bookingData.key_access)) ||
+      (bookingData.keyAccess != null && typeof bookingData.keyAccess === 'object' && !Array.isArray(bookingData.keyAccess)) ||
+      Object.prototype.hasOwnProperty.call(bookingData, 'customer_note_for_provider');
+    const shouldSetCustomization =
+      hasStructuredCustomization || Object.keys(rawClientCustomization).length > 0 || hasKeyJobPayload;
+    if (shouldSetCustomization) {
+      let cust: Record<string, unknown> = { ...rawClientCustomization };
+      if (hasStructuredCustomization) {
+        cust = {
+          ...cust,
+          isPartialCleaning: hasPartialCleaning,
+          excludedAreas,
+          excludeQuantities,
+          selectedExtras: Array.isArray(bookingData.selected_extras) ? bookingData.selected_extras : [],
+          extraQuantities: bookingData.extra_quantities && typeof bookingData.extra_quantities === 'object' ? bookingData.extra_quantities : {},
+          categoryValues: bookingData.category_values && typeof bookingData.category_values === 'object' ? bookingData.category_values : {},
+        };
+      }
+      bookingWithBusiness.customization = applyKeyAndJobNotesFromPayload(cust, bookingData as Record<string, unknown>);
+    }
+
+    // Only include provider_wage fields if they have valid values
+    if (providerWage !== null && providerWageType !== null) {
+      bookingWithBusiness.provider_wage = providerWage;
+      bookingWithBusiness.provider_wage_type = providerWageType;
+    }
+
+    // Exclude flags from add-booking form
+    if (bookingData.exclude_cancellation_fee === true) bookingWithBusiness.exclude_cancellation_fee = true;
+    if (bookingData.exclude_customer_notification === true) bookingWithBusiness.exclude_customer_notification = true;
+    if (bookingData.exclude_provider_notification === true) bookingWithBusiness.exclude_provider_notification = true;
+
+    // Booking adjustments (service total, price, time)
+    if (bookingData.adjust_service_total === true) {
+      bookingWithBusiness.adjust_service_total = true;
+      const serviceTotalAmt = parseFloat(bookingData.adjustment_service_total_amount);
+      if (!isNaN(serviceTotalAmt)) bookingWithBusiness.adjustment_service_total_amount = serviceTotalAmt;
+    }
+    if (bookingData.adjust_price === true) {
+      bookingWithBusiness.adjust_price = true;
+      const priceAmt = parseFloat(bookingData.adjustment_amount);
+      if (!isNaN(priceAmt)) bookingWithBusiness.adjustment_amount = priceAmt;
+      if (bookingData.price_adjustment_note != null && typeof bookingData.price_adjustment_note === 'string') {
+        bookingWithBusiness.price_adjustment_note = bookingData.price_adjustment_note.trim() || null;
+      }
+    }
+    if (bookingData.adjust_time === true) {
+      bookingWithBusiness.adjust_time = true;
+      if (bookingData.time_adjustment_note != null && typeof bookingData.time_adjustment_note === 'string') {
+        bookingWithBusiness.time_adjustment_note = bookingData.time_adjustment_note.trim() || null;
+      }
+    }
+
+    // Coupon metadata (persist independently from customization JSON)
+    if (typeof bookingData.coupon_code === 'string') {
+      bookingWithBusiness.coupon_code = bookingData.coupon_code.trim() || null;
+    } else if (bookingData.coupon_code == null) {
+      bookingWithBusiness.coupon_code = null;
+    }
+    if (typeof bookingData.coupon_mode === 'string') {
+      const mode = bookingData.coupon_mode.trim();
+      bookingWithBusiness.coupon_mode = mode || null;
+    } else if (bookingData.coupon_mode == null) {
+      bookingWithBusiness.coupon_mode = null;
+    }
+    if (typeof bookingData.coupon_discount_type === 'string') {
+      const discountType = bookingData.coupon_discount_type.trim().toLowerCase();
+      bookingWithBusiness.coupon_discount_type = (discountType === 'fixed' || discountType === 'percentage') ? discountType : null;
+    } else if (bookingData.coupon_discount_type == null) {
+      bookingWithBusiness.coupon_discount_type = null;
+    }
+    if (bookingData.coupon_discount_value != null) {
+      const couponValue = parseFloat(String(bookingData.coupon_discount_value));
+      bookingWithBusiness.coupon_discount_value = Number.isFinite(couponValue) ? couponValue : null;
+    } else {
+      bookingWithBusiness.coupon_discount_value = null;
+    }
+    if (bookingData.coupon_discount_amount != null) {
+      const couponAmount = parseFloat(String(bookingData.coupon_discount_amount));
+      bookingWithBusiness.coupon_discount_amount = Number.isFinite(couponAmount) ? couponAmount : null;
+    } else {
+      bookingWithBusiness.coupon_discount_amount = null;
+    }
+
+    // Private booking notes, private customer notes, notes for service provider (arrays stored as jsonb)
+    const privateBookingNotes = Array.isArray(bookingData.private_booking_notes) ? bookingData.private_booking_notes.filter((n: unknown) => typeof n === 'string') : [];
+    const privateCustomerNotes = Array.isArray(bookingData.private_customer_notes) ? bookingData.private_customer_notes.filter((n: unknown) => typeof n === 'string') : [];
+    const serviceProviderNotes = Array.isArray(bookingData.service_provider_notes) ? bookingData.service_provider_notes.filter((n: unknown) => typeof n === 'string') : [];
+    bookingWithBusiness.private_booking_notes = privateBookingNotes;
+    bookingWithBusiness.private_customer_notes = privateCustomerNotes;
+    bookingWithBusiness.service_provider_notes = serviceProviderNotes;
+
+    const statusStr = String(finalStatus || '');
+    if (['draft', 'quote'].includes(statusStr)) {
+      if (bookingData.draft_quote_expires_on === null) {
+        bookingWithBusiness.draft_quote_expires_on = null;
+      } else if (typeof bookingData.draft_quote_expires_on === 'string') {
+        const dq = bookingData.draft_quote_expires_on.trim().slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dq)) {
+          bookingWithBusiness.draft_quote_expires_on = dq;
+        } else if (dq === '') {
+          bookingWithBusiness.draft_quote_expires_on = null;
+        }
+      }
+    }
+    if (statusStr && !['draft', 'quote', 'expired'].includes(statusStr)) {
+      bookingWithBusiness.draft_quote_expires_on = null;
+    }
+
+    // Convert duration + duration_unit to duration_minutes
+    const durationVal = parseFloat(bookingData.duration);
+    const durationUnit = (bookingData.duration_unit || 'Hours').toString();
+    let durationMinutes = 0;
+    if (!isNaN(durationVal) && durationVal >= 0) {
+      durationMinutes = durationUnit.toLowerCase().includes('hour') ? Math.round(durationVal * 60) : Math.round(durationVal);
+      if (durationMinutes > 0) bookingWithBusiness.duration_minutes = durationMinutes;
+    }
+    // Validate max_minutes_per_provider_per_booking
+    const storeOpts = await getStoreOptionsScheduling(businessId);
+    const maxMinutes = storeOpts?.max_minutes_per_provider_per_booking;
+    if (maxMinutes != null && maxMinutes > 0 && durationMinutes > maxMinutes) {
+      return NextResponse.json(
+        { error: 'DURATION_EXCEEDED', message: `Booking duration (${durationMinutes} min) exceeds maximum allowed (${maxMinutes} min) per provider.` },
+        { status: 400 }
+      );
+    }
+
+    // Recurring path: create series + one booking row linked to it.
+    // Draft/quote must stay a single row (no series) until confirmed from the admin form.
+    // If frequency is non one-time, treat it as recurring even when create_recurring is omitted.
+    const freqNorm = (bookingData.frequency || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
+    const recurringByFrequency = !!freqNorm && freqNorm !== 'one-time' && freqNorm !== 'onetime';
+    const isDraftOrQuote = ['draft', 'quote'].includes(statusStr);
+    if (
+      !isDraftOrQuote &&
+      (bookingData.create_recurring || recurringByFrequency) &&
+      scheduledDate &&
+      bookingData.frequency
+    ) {
+      const freqName = (bookingData.frequency || '').toString().trim();
+      let frequencyRepeats: string | null = bookingData.frequency_repeats ?? null;
+      if (!frequencyRepeats && bookingData.industry_id) {
+        frequencyRepeats = await resolveFrequencyRepeatsForBooking(
+          supabase,
+          businessId,
+          bookingData.industry_id,
+          freqName
+        );
+      }
+      const endDate = bookingData.recurring_end_date?.toString().trim() || null;
+      const occurrencesAhead = Math.min(Math.max(1, parseInt(bookingData.recurring_occurrences_ahead, 10) || 8), 24);
+      const sameProvider = bookingData.same_provider_for_recurring !== false;
+
+      try {
+        const { createRecurringSeries } = await import('@/lib/recurringBookings');
+        const template = { ...bookingWithBusiness };
+        const { seriesId, bookingIds } = await createRecurringSeries(supabase, businessId, template, {
+          startDate: scheduledDate,
+          endDate: endDate || undefined,
+          frequencyName: freqName,
+          frequencyRepeats,
+          occurrencesAhead,
+          sameProvider,
+          adminBooking: true,
+        });
+        const { data: firstBooking } = await supabase.from('bookings').select('*').eq('id', bookingIds[0]).single();
+        const bkRef = `BK${String(bookingIds[0]).slice(-6).toUpperCase()}`;
+        if (firstBooking) {
+          const { data: series } = await supabase.from('recurring_series').select('start_date, end_date, frequency, frequency_repeats, occurrences_ahead').eq('id', seriesId).single();
+          const eventId = series
+            ? await createRecurringCalendarEvent(businessId, firstBooking, series).catch(() => null)
+            : await syncBookingCreated(businessId, firstBooking).catch(() => null);
+          if (eventId) {
+            await supabase.from('bookings').update({ google_calendar_event_id: eventId }).eq('id', firstBooking.id).eq('business_id', businessId);
+          }
+        }
+        await createAdminNotification(businessId, 'new_booking', {
+          title: 'Recurring series created',
+          message: `Recurring booking ${bkRef} created with ${bookingIds.length} occurrences.`,
+          link: '/admin/bookings',
+        });
+        if (firstBooking && (firstBooking.status === 'draft' || firstBooking.status === 'quote')) {
+          await logNewDraftOrQuote(supabase, request, user, businessId, firstBooking.id, firstBooking.status);
+        }
+        if (firstBooking) {
+          await sendAdminCreatedBookingConfirmationEmail(supabase, businessId, firstBooking as AdminBookingRow);
+        }
+        return NextResponse.json({
+          success: true,
+          data: firstBooking,
+          seriesId,
+          bookingIds,
+          message: `Recurring series created with ${bookingIds.length} bookings`,
+        });
+      } catch (e: unknown) {
+        console.error('Recurring series error:', e);
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : 'Failed to create recurring series' },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Insert booking directly
+    console.log('📝 Creating booking with data:', {
+      business_id: businessId,
+      provider_id: bookingWithBusiness.provider_id,
+      status: bookingWithBusiness.status,
+      customer_name: bookingWithBusiness.customer_name,
+      date: bookingWithBusiness.scheduled_date || bookingWithBusiness.date,
+      time: bookingWithBusiness.scheduled_time || bookingWithBusiness.time
+    });
+    
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .insert(bookingWithBusiness)
+      .select()
+      .single();
+
+    if (bookingError) {
+      console.error('❌ Booking creation error:', bookingError);
+      console.error('❌ Booking data attempted:', JSON.stringify(bookingWithBusiness, null, 2));
+      
+      // If error is about missing columns (provider_wage or customization), retry without them
+      const msg = bookingError.message || '';
+      let didStrip = false;
+      if (msg.includes('provider_wage')) {
+        console.log('⚠️ provider_wage columns not found, retrying without them...');
+        delete bookingWithBusiness.provider_wage;
+        delete bookingWithBusiness.provider_wage_type;
+        didStrip = true;
+      }
+      if (msg.includes('customization')) {
+        console.log('⚠️ customization column not found, retrying without it...');
+        delete bookingWithBusiness.customization;
+        didStrip = true;
+      }
+      if (msg.includes('duration_minutes')) {
+        console.log('⚠️ duration_minutes column not found, retrying without it...');
+        delete bookingWithBusiness.duration_minutes;
+        didStrip = true;
+      }
+      if (msg.includes('exclude_cancellation_fee') || msg.includes('exclude_customer_notification') || msg.includes('exclude_provider_notification')) {
+        console.log('⚠️ exclude_* columns not found, retrying without them...');
+        delete bookingWithBusiness.exclude_cancellation_fee;
+        delete bookingWithBusiness.exclude_customer_notification;
+        delete bookingWithBusiness.exclude_provider_notification;
+        didStrip = true;
+      }
+      if (msg.includes('private_booking_notes') || msg.includes('private_customer_notes') || msg.includes('service_provider_notes')) {
+        console.log('⚠️ note columns not found, retrying without them...');
+        delete bookingWithBusiness.private_booking_notes;
+        delete bookingWithBusiness.private_customer_notes;
+        delete bookingWithBusiness.service_provider_notes;
+        didStrip = true;
+      }
+      if (msg.includes('adjust_service_total') || msg.includes('adjustment_service_total_amount') || msg.includes('adjust_price') || msg.includes('adjustment_amount') || msg.includes('adjust_time')) {
+        console.log('⚠️ booking adjustment columns not found, retrying without them...');
+        delete bookingWithBusiness.adjust_service_total;
+        delete bookingWithBusiness.adjustment_service_total_amount;
+        delete bookingWithBusiness.adjust_price;
+        delete bookingWithBusiness.adjustment_amount;
+        delete bookingWithBusiness.adjust_time;
+        didStrip = true;
+      }
+      if (msg.includes('coupon_code') || msg.includes('coupon_mode') || msg.includes('coupon_discount_type') || msg.includes('coupon_discount_value') || msg.includes('coupon_discount_amount')) {
+        console.log('⚠️ coupon columns not found, retrying without them...');
+        delete bookingWithBusiness.coupon_code;
+        delete bookingWithBusiness.coupon_mode;
+        delete bookingWithBusiness.coupon_discount_type;
+        delete bookingWithBusiness.coupon_discount_value;
+        delete bookingWithBusiness.coupon_discount_amount;
+        didStrip = true;
+      }
+      if (didStrip) {
+        const { data: retryBooking, error: retryError } = await supabase
+          .from('bookings')
+          .insert(bookingWithBusiness)
+          .select()
+          .single();
+        if (retryError) {
+          console.error('❌ Retry booking creation error:', retryError);
+          return NextResponse.json({
+            error: retryError.message,
+            details: 'Run migrations 012 and 018 for full booking features.'
+          }, { status: 500 });
+        }
+        const warning = msg.includes('customization')
+          ? 'Customization column not found. Run migration 018 to save exclude quantities and partial cleaning.'
+          : (msg.includes('provider_wage')
+              ? 'Run migration 012 for provider wage.'
+              : (msg.includes('coupon_') ? 'Run migration 074 for coupon metadata.' : ''));
+        const eventIdRetry = await syncBookingCreated(businessId, retryBooking).catch(() => null);
+        if (eventIdRetry) {
+          await supabase.from('bookings').update({ google_calendar_event_id: eventIdRetry }).eq('id', retryBooking.id).eq('business_id', businessId);
+        }
+        if (retryBooking.status === 'draft' || retryBooking.status === 'quote') {
+          await logNewDraftOrQuote(supabase, request, user, businessId, retryBooking.id, retryBooking.status);
+        }
+        const bkRef = `BK${String(retryBooking.id).slice(-6).toUpperCase()}`;
+        const assignMsg = retryBooking.provider_id ? ' and assigned to provider' : '';
+        await createAdminNotification(businessId, 'new_booking', {
+          title: retryBooking.provider_id ? 'Booking assigned' : 'New booking confirmed',
+          message: `Booking ${bkRef} has been confirmed${assignMsg}.`,
+          link: '/admin/bookings',
+        });
+        await sendAdminCreatedBookingConfirmationEmail(supabase, businessId, retryBooking as AdminBookingRow);
+        return NextResponse.json({
+          success: true,
+          data: retryBooking,
+          message: 'Booking created successfully',
+          ...(warning ? { warning } : {})
+        });
+      }
+      
+      return NextResponse.json({ 
+        error: bookingError.message,
+        code: bookingError.code,
+        details: bookingError.details,
+        hint: bookingError.hint
+      }, { status: 500 });
+    }
+
+    console.log('✅ Booking created successfully:', {
+      id: booking.id,
+      provider_id: booking.provider_id,
+      status: booking.status
+    });
+
+    if (booking.status === 'draft' || booking.status === 'quote') {
+      await logNewDraftOrQuote(supabase, request, user, businessId, booking.id, booking.status);
+    }
+
+    console.log('[googleCalendar] Attempting sync for booking', booking.id, 'business', businessId, { scheduled_date: booking.scheduled_date ?? booking.date, scheduled_time: booking.scheduled_time ?? booking.time });
+    const eventId = await syncBookingCreated(businessId, booking).catch((err) => {
+      console.warn('[googleCalendar] Sync threw:', err);
+      return null;
+    });
+    if (eventId) {
+      await supabase.from('bookings').update({ google_calendar_event_id: eventId }).eq('id', booking.id).eq('business_id', businessId);
+      console.log('[googleCalendar] Event created and saved:', eventId);
+    } else {
+      console.warn('[googleCalendar] No event id returned (check logs above for reason)');
+    }
+
+    const bkRef = `BK${String(booking.id).slice(-6).toUpperCase()}`;
+    const assignMsg = booking.provider_id ? ' and assigned to provider' : '';
+    await createAdminNotification(businessId, 'new_booking', {
+      title: booking.provider_id ? 'Booking assigned' : 'New booking confirmed',
+      message: `Booking ${bkRef} has been confirmed${assignMsg}.`,
+      link: '/admin/bookings',
+    });
+
+    await sendAdminCreatedBookingConfirmationEmail(supabase, businessId, booking as AdminBookingRow);
+
+    return NextResponse.json({
+      success: true,
+      data: booking,
+      message: booking.provider_id 
+        ? 'Booking created successfully and assigned to provider'
+        : 'Booking created successfully'
+    });
+
+  } catch (error) {
+    console.error('Create booking API error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error', details: error instanceof Error ? error.message : String(error) },
+      { status: 500 }
+    );
+  }
+}

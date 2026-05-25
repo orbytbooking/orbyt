@@ -1,0 +1,9 @@
+# Add this line to your .env file:
+
+RESEND_API_KEY=re_8BGwwSKm_3cGNLVc2dacwYHbdVVXoQBnU
+
+# You'll also want to add:
+RESEND_FROM_EMAIL=noreply@yourdomain.com
+
+# Then restart your development server:
+# npm run dev

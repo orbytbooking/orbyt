@@ -1,0 +1,799 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Button } from "@/components/ui/button";
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { PhoneField, PHONE_FIELD_HELPER_TEXT } from "@/components/ui/phone-field";
+import { isValidPhoneNumber } from "react-phone-number-input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Loader2, Mail, Lock, User, ArrowRight, MapPin, CheckCircle2, Home } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import Navigation from "@/components/Navigation";
+import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
+import { getSupabaseCustomerClient } from "@/lib/supabaseCustomerClient";
+
+
+// Login form schema
+const loginSchema = z.object({
+  email: z.string().email("Please enter a valid email"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+});
+
+// Signup form schema
+const signupSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  email: z.string().email("Please enter a valid email"),
+  phone: z
+    .string()
+    .min(1, "Phone number is required")
+    .refine((v) => isValidPhoneNumber(v), "Please enter a valid phone number"),
+  address: z.string().min(5, "Please enter a valid address"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  confirmPassword: z.string().min(6, "Password must be at least 6 characters"),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ["confirmPassword"],
+});
+
+// Forgot password schema
+const forgotPasswordSchema = z.object({
+  email: z.string().email("Please enter a valid email"),
+});
+
+export default function AuthPage() {
+  const [isLogin, setIsLogin] = useState(true);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmailSent, setResetEmailSent] = useState(false);
+  const [businessName, setBusinessName] = useState<string>('');
+  const [businessId, setBusinessId] = useState<string>('');
+  const { toast } = useToast();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { config } = useWebsiteConfig();
+  const supabase = getSupabaseCustomerClient();
+
+  // Helper for consistent logo logic
+  const getLogo = () => {
+    return businessName === 'ORBYT' ? '/images/logo.png' : (config?.branding?.logo || '/images/orbit.png');
+  };
+
+
+  // Login form
+  const loginForm = useForm<z.infer<typeof loginSchema>>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+    },
+  });
+
+  // Signup form
+  const signupForm = useForm<z.infer<typeof signupSchema>>({
+    resolver: zodResolver(signupSchema),
+    defaultValues: {
+      name: "",
+      email: "",
+      phone: "",
+      address: "",
+      password: "",
+      confirmPassword: "",
+    },
+  });
+
+  // Forgot password form
+  const forgotPasswordForm = useForm<z.infer<typeof forgotPasswordSchema>>({
+    resolver: zodResolver(forgotPasswordSchema),
+    defaultValues: {
+      email: "",
+    },
+  });
+
+
+  // Reset forms when switching between login and signup
+  useEffect(() => {
+    loginForm.reset();
+    signupForm.reset();
+  }, [isLogin]);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const currentBusinessId = searchParams.get('business');
+      if (!currentBusinessId) return;
+      
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data: customer } = await supabase
+          .from('customers')
+          .select('id, business_id')
+          .eq('auth_user_id', session.user.id)
+          .eq('business_id', currentBusinessId)
+          .single();
+        
+        if (customer && customer.business_id === currentBusinessId) {
+          router.replace(`/customer/dashboard?business=${currentBusinessId}`);
+        }
+      }
+    };
+    checkAuth();
+  }, [router, searchParams]);
+
+  // Get business context from URL params
+  useEffect(() => {
+    const getBusinessContext = async () => {
+      // Try to get business ID from URL params first
+      const urlBusinessId = searchParams.get('business');
+      const currentBusinessId = urlBusinessId;
+      
+      if (currentBusinessId) {
+        setBusinessId(currentBusinessId);
+        
+        try {
+          // Special case for ORBYT business
+          if (currentBusinessId === '879ec172-e1dd-475d-b57d-0033fae0b30e') {
+            setBusinessName('ORBYT');
+            return;
+          }
+          
+          // Try to get business name from businesses API first
+          const response = await fetch(`/api/businesses?business_id=${currentBusinessId}`);
+          if (response.ok) {
+            const data = await response.json();
+            if (data.businesses && data.businesses.length > 0) {
+              const business = data.businesses[0];
+              const name = business.name || business.business_name || business.display_name || business.title || 'Cleaning Service';
+              setBusinessName(name);
+              return;
+            }
+          }
+          
+          // Fallback to industries API with multiple field name attempts
+          const industriesResponse = await fetch(`/api/industries?business_id=${currentBusinessId}`);
+          if (industriesResponse.ok) {
+            const industriesData = await industriesResponse.json();
+            if (industriesData.industries && industriesData.industries.length > 0) {
+              const firstIndustry = industriesData.industries[0];
+              const name = firstIndustry.name || 
+                           firstIndustry.business_name || 
+                           firstIndustry.display_name || 
+                           firstIndustry.title ||
+                           'Cleaning Service';
+              setBusinessName(name);
+              return;
+            }
+          }
+          
+          // Final fallback if no data found
+          setBusinessName('Cleaning Service');
+        } catch (error) {
+          console.error('Error fetching business name:', error);
+          setBusinessName('Cleaning Service');
+        }
+      } else {
+        // No business ID found, set fallback
+        setBusinessName('Cleaning Service');
+      }
+    };
+
+    getBusinessContext();
+  }, [searchParams]);
+
+  // Handle login submission
+  async function onLoginSubmit(values: z.infer<typeof loginSchema>) {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: values.email,
+        password: values.password,
+      });
+
+      if (error) {
+        if (error.message.includes('Invalid login credentials')) {
+          throw new Error('Invalid email or password');
+        } else if (error.message.includes('Email not confirmed')) {
+          throw new Error('Please confirm your email first. Check your inbox for the confirmation link.');
+        } else {
+          throw error;
+        }
+      }
+
+      if (data.user) {
+        // Get business context from URL params
+        const currentBusinessId = searchParams.get('business');
+        
+        if (!currentBusinessId) {
+          throw new Error('Business context not found. Please access login from the business website.');
+        }
+
+        // Get customer record for this specific business (requires RLS policy "Customers can view own data")
+        const { data: customer, error: customerError } = await supabase
+          .from('customers')
+          .select('id, name, business_id')
+          .eq('auth_user_id', data.user.id)
+          .eq('business_id', currentBusinessId)
+          .single();
+
+        if (customerError || !customer) {
+          console.error('Customer lookup error:', customerError);
+          const isPermissionOrNoRows = customerError?.code === 'PGRST116' || customerError?.code === '42501';
+          if (isPermissionOrNoRows) {
+            throw new Error(
+              'Your account exists but could not be loaded. If you just signed up, the database may need the customer login policy. Please contact support or try again later.'
+            );
+          }
+          throw new Error('Customer account not found for this business. Please sign up first.');
+        }
+
+        // Verify customer belongs to current business
+        if (customer.business_id !== currentBusinessId) {
+          throw new Error('This account is not registered for this business. Please contact support.');
+        }
+
+        toast({
+          title: "Login Successful!",
+          description: `Welcome back${customer.name ? ', ' + customer.name : ''}!`,
+        });
+        
+        setTimeout(() => {
+          router.push(`/customer/dashboard?business=${currentBusinessId}`);
+        }, 500);
+      }
+      
+    } catch (error: any) {
+      console.error('Login error:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Invalid email or password. Please try again.",
+        variant: "destructive",
+      });
+    }
+  }
+
+  // Handle signup submission
+  async function onSignupSubmit(values: z.infer<typeof signupSchema>) {
+    try {
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: values.email,
+        password: values.password,
+        options: {
+          data: {
+            full_name: values.name,
+            phone: values.phone,
+            address: values.address,
+            role: 'customer'
+          },
+          emailRedirectTo: undefined
+        }
+      });
+
+      if (authError) throw authError;
+
+      if (authData.user) {
+        // Get the current business from URL parameters (required for business isolation)
+        const currentBusinessId = searchParams.get('business');
+        
+        if (!currentBusinessId) {
+          throw new Error('Business context not found. Please access signup from the business website.');
+        }
+
+        // Check if customer already exists for this business
+        const { data: existingCustomer } = await supabase
+          .from('customers')
+          .select('*')
+          .or(`email.eq.${values.email},auth_user_id.eq.${authData.user.id}`)
+          .eq('business_id', currentBusinessId)
+          .maybeSingle();
+
+        if (existingCustomer) {
+          if (existingCustomer.auth_user_id === authData.user.id) {
+            throw new Error('You already have an account for this business. Please sign in instead.');
+          } else {
+            throw new Error('An account with this email already exists for this business. Please sign in instead.');
+          }
+        }
+
+        // Create customer record associated with the business
+        const { error: customerError } = await supabase
+          .from('customers')
+          .insert({
+            auth_user_id: authData.user.id,
+            business_id: currentBusinessId,
+            name: values.name,
+            email: values.email,
+            phone: values.phone,
+            address: values.address,
+            created_at: new Date().toISOString()
+          });
+
+        if (customerError) {
+          console.error('Customer creation error:', customerError);
+          
+          // Handle specific error cases
+          if (customerError.code === '23505' || customerError.message?.includes('duplicate key')) {
+            throw new Error('An account with this email already exists for this business. Please sign in instead.');
+          } else if (customerError.code === '42501' || customerError.message?.includes('permission denied')) {
+            throw new Error('Permission denied. Please contact support to create your account.');
+          } else {
+            throw new Error(`Failed to create customer account: ${customerError.message || 'Unknown error'}. Please contact support.`);
+          }
+        }
+
+        toast({
+          title: "Account Created!",
+          description: `Welcome ${values.name}! You can now sign in to your account.`,
+        });
+        
+        setIsLogin(true);
+      }
+      
+    } catch (error: any) {
+      console.error('Signup error:', error);
+      toast({
+        title: "Error",
+        description: error.message || "There was an error creating your account. Please try again.",
+        variant: "destructive",
+      });
+    }
+  }
+
+  // Handle forgot password submission
+  async function onForgotPasswordSubmit(values: z.infer<typeof forgotPasswordSchema>) {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(values.email, {
+        redirectTo: `${window.location.origin}/auth/reset-password`,
+      });
+
+      if (error) throw error;
+      
+      setResetEmailSent(true);
+      
+      toast({
+        title: "Reset Email Sent!",
+        description: `We've sent a password reset link to ${values.email}`,
+      });
+      
+    } catch (error: any) {
+      console.error('Password reset error:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to send reset email. Please try again.",
+        variant: "destructive",
+      });
+    }
+  }
+
+  // Handle closing forgot password dialog
+  const handleCloseForgotPassword = () => {
+    setShowForgotPassword(false);
+    setResetEmailSent(false);
+    forgotPasswordForm.reset();
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
+      <Navigation 
+        branding={{
+          ...config?.branding,
+          companyName: businessName || config?.branding?.companyName || 'Cleaning Service',
+          logo: getLogo()
+        }} 
+        headerData={{
+          companyName: businessName || config?.branding?.companyName || 'Cleaning Service',
+          logo: getLogo(),
+          showNavigation: config?.sections?.find(s => s.type === 'header')?.data?.showNavigation ?? true,
+          navigationLinks: config?.sections?.find(s => s.type === 'header')?.data?.navigationLinks || [
+            { text: 'How It Works', url: '#how-it-works' },
+            { text: 'Services', url: '#services' },
+            { text: 'Reviews', url: '#reviews' },
+            { text: 'Contact', url: '#contact' }
+          ]
+        }}
+      />
+      
+      <div className="container mx-auto px-4 pt-32 pb-20">
+        <div className="max-w-md mx-auto">
+          {/* Auth Card */}
+          <div className="bg-card border border-border rounded-2xl shadow-xl p-8">
+            {/* Logo and Company Name */}
+            <div className="text-center mb-6">
+              <div className="flex justify-center mb-4">
+                {getLogo() && !getLogo()?.startsWith('blob:') ? (
+                  <img src={getLogo()} alt={businessName || config?.branding?.companyName || "Cleaning Service"} className="h-20 w-20" />
+                ) : (
+                  <div className="h-20 w-20 bg-primary/10 rounded-full flex items-center justify-center">
+                    <Home className="h-10 w-10 text-primary" />
+                  </div>
+                )}
+              </div>
+              <h2 className="text-2xl font-bold gradient-text mb-4">{businessName || 'Cleaning Service'}</h2>
+              <p className="text-muted-foreground text-sm">
+                {isLogin 
+                  ? "Sign in to access your account and bookings" 
+                  : "Join us to book professional cleaning services"}
+              </p>
+            </div>
+
+            {/* Login Form */}
+            {isLogin ? (
+              <Form {...loginForm} key="login">
+                <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-5">
+                  <FormField
+                    control={loginForm.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-sm font-medium">Email Address</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
+                            <Input 
+                              type="email"
+                              placeholder="you@example.com"
+                              className="pl-10 h-11"
+                              {...field} 
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={loginForm.control}
+                    name="password"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-sm font-medium">Password</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
+                            <Input 
+                              type="password"
+                              placeholder="••••••••"
+                              className="pl-10 h-11"
+                              {...field} 
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <div className="flex items-center justify-between text-sm">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" className="rounded border-border" />
+                      <span className="text-muted-foreground">Remember me</span>
+                    </label>
+                    <button 
+                      type="button"
+                      onClick={() => setShowForgotPassword(true)}
+                      className="text-primary hover:underline"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+
+                  <Button 
+                    type="submit"
+                    className="w-full h-11 text-base group"
+                    disabled={loginForm.formState.isSubmitting}
+                  >
+                    {loginForm.formState.isSubmitting ? (
+                      <>
+                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                        Signing in...
+                      </>
+                    ) : (
+                      <>
+                        Sign In
+                        <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </Form>
+            ) : (
+              // Signup Form
+              <Form {...signupForm} key="signup">
+                <form onSubmit={signupForm.handleSubmit(onSignupSubmit)} className="space-y-5">
+                  <FormField
+                    control={signupForm.control}
+                    name="name"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-sm font-medium">Full Name</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <User className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
+                            <Input 
+                              placeholder="John Doe"
+                              className="pl-10 h-11"
+                              value={field.value}
+                              onChange={field.onChange}
+                              onBlur={field.onBlur}
+                              name={field.name}
+                              ref={field.ref}
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={signupForm.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-sm font-medium">Email Address</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
+                            <Input 
+                              type="email"
+                              placeholder="you@example.com"
+                              className="pl-10 h-11"
+                              value={field.value}
+                              onChange={field.onChange}
+                              onBlur={field.onBlur}
+                              name={field.name}
+                              ref={field.ref}
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={signupForm.control}
+                    name="phone"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-sm font-medium">Phone Number</FormLabel>
+                        <FormControl>
+                          <PhoneField
+                            hideLabel
+                            showHelperText={false}
+                            value={field.value || ""}
+                            onChange={field.onChange}
+                            onBlur={field.onBlur}
+                            placeholder="Phone number"
+                            containerClassName="space-y-0"
+                          />
+                        </FormControl>
+                        <FormDescription className="text-xs">{PHONE_FIELD_HELPER_TEXT}</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={signupForm.control}
+                    name="address"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-sm font-medium">Address</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
+                            <Input 
+                              placeholder="123 Main St, Chicago, IL"
+                              className="pl-10 h-11"
+                              {...field} 
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={signupForm.control}
+                    name="password"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-sm font-medium">Password</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
+                            <Input 
+                              type="password"
+                              placeholder="••••••••"
+                              className="pl-10 h-11"
+                              {...field} 
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={signupForm.control}
+                    name="confirmPassword"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-sm font-medium">Confirm Password</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
+                            <Input 
+                              type="password"
+                              placeholder="••••••••"
+                              className="pl-10 h-11"
+                              {...field} 
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <div className="text-sm text-muted-foreground">
+                    By signing up, you agree to our{' '}
+                    <Link href="/terms-and-conditions" className="text-primary hover:underline">Terms of Service</Link>
+                    {' '}and{' '}
+                    <Link href="/privacy-policy" className="text-primary hover:underline">Privacy Policy</Link>
+                  </div>
+
+                  <Button 
+                    type="submit"
+                    className="w-full h-11 text-base group"
+                    disabled={signupForm.formState.isSubmitting}
+                  >
+                    {signupForm.formState.isSubmitting ? (
+                      <>
+                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                        Creating account...
+                      </>
+                    ) : (
+                      <>
+                        Create Account
+                        <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </Form>
+            )}
+
+          </div>
+
+          {/* Forgot Password Dialog */}
+          <Dialog open={showForgotPassword} onOpenChange={handleCloseForgotPassword}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="text-2xl font-bold">
+                  {resetEmailSent ? "Check Your Email" : "Reset Password"}
+                </DialogTitle>
+                <DialogDescription>
+                  {resetEmailSent 
+                    ? "We've sent you a password reset link. Please check your email and follow the instructions."
+                    : "Enter your email address and we'll send you a link to reset your password."}
+                </DialogDescription>
+              </DialogHeader>
+
+              {resetEmailSent ? (
+                <div className="space-y-6 py-4">
+                  <div className="flex justify-center">
+                    <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+                      <CheckCircle2 className="w-8 h-8 text-primary" />
+                    </div>
+                  </div>
+                  <div className="text-center space-y-2">
+                    <p className="text-sm text-muted-foreground">
+                      Didn't receive the email? Check your spam folder or
+                    </p>
+                    <button
+                      onClick={() => {
+                        setResetEmailSent(false);
+                        forgotPasswordForm.reset();
+                      }}
+                      className="text-primary hover:underline text-sm font-medium"
+                    >
+                      try another email address
+                    </button>
+                  </div>
+                  <Button
+                    onClick={handleCloseForgotPassword}
+                    className="w-full"
+                  >
+                    Close
+                  </Button>
+                </div>
+              ) : (
+                <Form {...forgotPasswordForm}>
+                  <form onSubmit={forgotPasswordForm.handleSubmit(onForgotPasswordSubmit)} className="space-y-4 py-4">
+                    <FormField
+                      control={forgotPasswordForm.control}
+                      name="email"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Email Address</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
+                              <Input
+                                type="email"
+                                placeholder="you@example.com"
+                                className="pl-10 h-11"
+                                {...field}
+                              />
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <div className="flex gap-3 pt-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleCloseForgotPassword}
+                        className="flex-1"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        disabled={forgotPasswordForm.formState.isSubmitting}
+                        className="flex-1"
+                      >
+                        {forgotPasswordForm.formState.isSubmitting ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Sending...
+                          </>
+                        ) : (
+                          "Send Reset Link"
+                        )}
+                      </Button>
+                    </div>
+                  </form>
+                </Form>
+              )}
+            </DialogContent>
+          </Dialog>
+
+          {/* Footer Text */}
+          <p className="text-center text-sm text-muted-foreground mt-6">
+            {isLogin ? "Don't have an account? " : "Already have an account? "}
+            <button 
+              onClick={() => setIsLogin(!isLogin)}
+              className="text-primary hover:underline font-medium"
+            >
+              {isLogin ? "Sign up" : "Sign in"}
+            </button>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}

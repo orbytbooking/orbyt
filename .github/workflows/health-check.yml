@@ -1,0 +1,38 @@
+name: Health Check API
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run health check tests
+        run: |
+          # Test critical endpoints
+          echo "Testing application health..."
+          
+          # Test build process
+          npm run build
+          
+          # Test that critical files exist
+          test -f src/app/layout.tsx || exit 1
+          test -f src/lib/supabaseClient.ts || exit 1
+          
+          echo "✅ All health checks passed"

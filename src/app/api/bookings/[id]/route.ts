@@ -1,0 +1,770 @@
+import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
+import { createAdminNotification } from '@/lib/adminProviderSync';
+import { getCancellationFeeForBooking } from '@/lib/cancellationFee';
+import {
+  createRecurringCalendarEvent,
+  syncBookingCancelled,
+  syncBookingUpdated,
+} from '@/lib/googleCalendar';
+import { describeDraftQuoteExpiryChange, normalizeExpiryDateValue } from '@/lib/draftQuoteExpiryUtils';
+import {
+  describeDraftQuoteStatusChange,
+  formatQuoteLogActorName,
+  getRequestClientIp,
+  insertQuoteActivityLog,
+  shortBookingRefForLogs,
+} from '@/lib/draftQuoteLogs';
+import { ensureCustomerForAdminBooking } from '@/lib/ensureCustomerForAdminBooking';
+import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProviderWage';
+import {
+  assertUserHasAdminModuleAccess,
+  userCanManageBookingsForBusiness,
+} from '@/lib/bookingApiAuth';
+import { finalStatusForAdminBooking, providerIdFromBookingPayload } from '@/lib/adminBookingStatus';
+import { sendCustomerBookingConfirmedEmail } from '@/lib/sendCustomerBookingConfirmedEmail';
+import { applyKeyAndJobNotesFromPayload } from '@/lib/bookingKeyJobNotes';
+import { resolveBookingTaxTotals } from '@/lib/bookingTax';
+import { scopedIndustryTable } from '@/lib/formScopeTables';
+import type { BookingFormScope } from '@/lib/bookingFormScope';
+
+async function getServiceCategoryCancellationFee(
+  supabase: ReturnType<typeof createClient>,
+  businessId: string,
+  serviceId: string,
+): Promise<Record<string, unknown> | null> {
+  const base = await supabase
+    .from('industry_service_category')
+    .select('cancellation_fee')
+    .eq('id', serviceId)
+    .eq('business_id', businessId)
+    .maybeSingle();
+  const baseFee = (base.data as { cancellation_fee?: Record<string, unknown> } | null)?.cancellation_fee;
+  if (baseFee) return baseFee;
+
+  const form2 = await supabase
+    .from('industry_form2_service_categories')
+    .select('cancellation_fee')
+    .eq('id', serviceId)
+    .eq('business_id', businessId)
+    .maybeSingle();
+  return (form2.data as { cancellation_fee?: Record<string, unknown> } | null)?.cancellation_fee ?? null;
+}
+
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    // Get auth token from header
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'Unauthorized - No token' }, { status: 401 });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    
+    // Verify user session with token
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized - Invalid token' }, { status: 401 });
+    }
+
+    // Get business context from headers
+    const businessId = request.headers.get('x-business-id');
+    if (!businessId) {
+      return NextResponse.json({ error: 'Business context required' }, { status: 400 });
+    }
+    if (!id || id === 'undefined' || id === 'null' || typeof id !== 'string' || id.trim() === '') {
+      return NextResponse.json({ error: 'Invalid booking ID' }, { status: 400 });
+    }
+
+    // Get booking by ID
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('id', id)
+      .eq('business_id', businessId)
+      .single();
+
+    if (bookingError) {
+      return NextResponse.json({ error: bookingError.message }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: booking
+    });
+
+  } catch (error) {
+    console.error('Get booking API error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PUT(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    // Get auth token from header
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'Unauthorized - No token' }, { status: 401 });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    
+    // Verify user session with token
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized - Invalid token' }, { status: 401 });
+    }
+
+    // Get business context from headers
+    const businessId = request.headers.get('x-business-id');
+    if (!businessId) {
+      return NextResponse.json({ error: 'Business context required' }, { status: 400 });
+    }
+    if (!id || id === 'undefined' || id === 'null' || typeof id !== 'string' || id.trim() === '') {
+      return NextResponse.json({ error: 'Invalid booking ID' }, { status: 400 });
+    }
+
+    const allowed = await userCanManageBookingsForBusiness(supabase, user.id, businessId);
+    if (!allowed) {
+      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+    }
+
+    // Parse request body
+    let updateData = await request.json();
+    const bookingId = id;
+    let addBookingFormUpdate: Record<string, unknown> | null = null;
+
+    // If this is the add-booking form payload (full booking update), build DB-shaped update object
+    if (updateData.customer_name !== undefined && typeof updateData.customer_name === 'string') {
+      const bookingData = updateData as Record<string, unknown>;
+      let paymentMethod = 'cash';
+      if (bookingData.payment_method) {
+        const method = String(bookingData.payment_method).toLowerCase();
+        if (method === 'cash') paymentMethod = 'cash';
+        else if (method.includes('card') || method.includes('bank') || method === 'credit card') paymentMethod = 'online';
+      }
+      const providerIdEarly = providerIdFromBookingPayload(bookingData);
+      const finalStatus = finalStatusForAdminBooking(bookingData, providerIdEarly);
+      const { data: storeWageOpts } = await supabase
+        .from('business_store_options')
+        .select('default_provider_wage, default_provider_wage_type')
+        .eq('business_id', businessId)
+        .maybeSingle();
+      const wageResolved = resolveProviderWageFromBodyOrStoreDefault(
+        bookingData as Record<string, unknown>,
+        storeWageOpts
+      );
+      const providerWage = wageResolved?.provider_wage ?? null;
+      const providerWageType = wageResolved?.provider_wage_type ?? null;
+      const customerEmail = (bookingData.customer_email || '').toString().trim();
+      const customerName = (bookingData.customer_name || '').toString().trim();
+      const customerPhone = (bookingData.customer_phone || '').toString().trim() || null;
+      const customerAddress = (bookingData.address || '').toString().trim() || null;
+      const customerId = await ensureCustomerForAdminBooking(supabase, businessId, {
+        customerIdFromClient: bookingData.customer_id,
+        customerEmail,
+        customerName,
+        customerPhone,
+        customerAddress,
+      });
+      let providerName: string | null = (bookingData.provider_name || '').toString().trim() || null;
+      const providerId = providerIdEarly;
+      if (providerId && !providerName) {
+        const { data: prov } = await supabase
+          .from('service_providers')
+          .select('first_name, last_name')
+          .eq('id', providerId)
+          .maybeSingle();
+        if (prov) providerName = `${(prov.first_name || '').trim()} ${(prov.last_name || '').trim()}`.trim() || null;
+      }
+      // Normalize date: use non-empty string or null (so service date is always persisted when provided)
+      const rawDate = (bookingData.date ?? bookingData.scheduled_date ?? '')?.toString?.()?.trim() || null;
+      const scheduledDate = rawDate && rawDate.length >= 10 ? rawDate : null;
+      // Normalize time: Postgres time accepts HH:mm or HH:mm:ss; ensure we don't send invalid values
+      const rawTime = (bookingData.time ?? bookingData.scheduled_time ?? '')?.toString?.()?.trim() || null;
+      let scheduledTime: string | null = null;
+      if (rawTime) {
+        const match = rawTime.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+        if (match) {
+          const h = String(parseInt(match[1], 10)).padStart(2, '0');
+          const m = String(parseInt(match[2], 10)).padStart(2, '0');
+          const s = match[3] != null ? String(parseInt(match[3], 10)).padStart(2, '0') : '00';
+          scheduledTime = `${h}:${m}:${s}`;
+        } else {
+          scheduledTime = rawTime;
+        }
+      }
+      const rawPreTax = Number(bookingData.amount ?? bookingData.total_price ?? 0) || 0;
+      const locationIdsRaw = bookingData.location_ids ?? bookingData.locationIds;
+      const matchedLocationIds = Array.isArray(locationIdsRaw)
+        ? locationIdsRaw.map((id: unknown) => String(id).trim()).filter(Boolean)
+        : undefined;
+      const { preTaxAmount, totalWithTax } = await resolveBookingTaxTotals(
+        supabase,
+        businessId,
+        rawPreTax,
+        matchedLocationIds,
+      );
+
+      const built: Record<string, unknown> = {
+        provider_id: providerId,
+        status: finalStatus,
+        scheduled_date: scheduledDate,
+        scheduled_time: scheduledTime,
+        address: (bookingData.address || 'Default Address').toString(),
+        apt_no: bookingData.apt_no ?? null,
+        zip_code: bookingData.zip_code ?? null,
+        notes: (bookingData.notes || '').toString(),
+        total_price: totalWithTax,
+        payment_method: paymentMethod,
+        customer_email: bookingData.customer_email ?? null,
+        customer_name: bookingData.customer_name ?? null,
+        customer_phone: bookingData.customer_phone ?? null,
+        service: bookingData.service ?? null,
+        date: scheduledDate,
+        time: scheduledTime,
+        customer_id: customerId,
+        amount: preTaxAmount,
+        updated_at: new Date().toISOString(),
+      };
+      if (providerName) built.provider_name = providerName;
+      if (bookingData.frequency !== undefined) {
+        const f = bookingData.frequency;
+        built.frequency =
+          f != null && String(f).trim() ? String(f).trim() : null;
+      }
+      const hasPartialCleaning = Boolean(bookingData.is_partial_cleaning);
+      const excludedAreas = Array.isArray(bookingData.excluded_areas) ? bookingData.excluded_areas : [];
+      const excludeQuantities = bookingData.exclude_quantities && typeof bookingData.exclude_quantities === 'object' && !Array.isArray(bookingData.exclude_quantities) ? bookingData.exclude_quantities : {};
+      const hasStructuredCustomization = hasPartialCleaning || excludedAreas.length > 0 || Object.keys(excludeQuantities).length > 0 ||
+        (Array.isArray(bookingData.selected_extras) && bookingData.selected_extras.length > 0) ||
+        (bookingData.extra_quantities && typeof bookingData.extra_quantities === 'object' && Object.keys(bookingData.extra_quantities as object).length > 0) ||
+        (bookingData.category_values && typeof bookingData.category_values === 'object' && Object.keys(bookingData.category_values as object).length > 0);
+      const rawClientCustomization =
+        bookingData.customization && typeof bookingData.customization === 'object' && !Array.isArray(bookingData.customization)
+          ? { ...(bookingData.customization as Record<string, unknown>) }
+          : {};
+      const hasKeyJobPayload =
+        (bookingData.key_access != null && typeof bookingData.key_access === 'object' && !Array.isArray(bookingData.key_access)) ||
+        (bookingData.keyAccess != null && typeof bookingData.keyAccess === 'object' && !Array.isArray(bookingData.keyAccess)) ||
+        Object.prototype.hasOwnProperty.call(bookingData, 'customer_note_for_provider');
+      const shouldSetCustomization =
+        hasStructuredCustomization || Object.keys(rawClientCustomization).length > 0 || hasKeyJobPayload;
+      if (shouldSetCustomization) {
+        let cust: Record<string, unknown> = { ...rawClientCustomization };
+        if (hasStructuredCustomization) {
+          cust = {
+            ...cust,
+            isPartialCleaning: hasPartialCleaning,
+            excludedAreas,
+            excludeQuantities,
+            selectedExtras: Array.isArray(bookingData.selected_extras) ? bookingData.selected_extras : [],
+            extraQuantities: bookingData.extra_quantities && typeof bookingData.extra_quantities === 'object' ? bookingData.extra_quantities : {},
+            categoryValues: bookingData.category_values && typeof bookingData.category_values === 'object' ? bookingData.category_values : {},
+          };
+        }
+        built.customization = applyKeyAndJobNotesFromPayload(cust, bookingData as Record<string, unknown>);
+      }
+      if (providerWage !== null && providerWageType) {
+        built.provider_wage = providerWage;
+        built.provider_wage_type = providerWageType;
+      }
+      if (bookingData.exclude_cancellation_fee === true) built.exclude_cancellation_fee = true;
+      if (bookingData.exclude_customer_notification === true) built.exclude_customer_notification = true;
+      if (bookingData.exclude_provider_notification === true) built.exclude_provider_notification = true;
+      if (bookingData.adjust_service_total === true) {
+        built.adjust_service_total = true;
+        const serviceTotalAmt = parseFloat(String(bookingData.adjustment_service_total_amount));
+        if (!isNaN(serviceTotalAmt)) built.adjustment_service_total_amount = serviceTotalAmt;
+      } else {
+        built.adjust_service_total = false;
+        built.adjustment_service_total_amount = null;
+      }
+      if (bookingData.adjust_price === true) {
+        built.adjust_price = true;
+        const priceAmt = parseFloat(String(bookingData.adjustment_amount));
+        if (!isNaN(priceAmt)) built.adjustment_amount = priceAmt;
+        built.price_adjustment_note = bookingData.price_adjustment_note != null && typeof bookingData.price_adjustment_note === 'string'
+          ? (bookingData.price_adjustment_note.trim() || null)
+          : null;
+      } else {
+        built.adjust_price = false;
+        built.adjustment_amount = null;
+        built.price_adjustment_note = null;
+      }
+      built.adjust_time = bookingData.adjust_time === true;
+      built.time_adjustment_note = bookingData.adjust_time === true && bookingData.time_adjustment_note != null && typeof bookingData.time_adjustment_note === 'string'
+        ? (bookingData.time_adjustment_note.trim() || null)
+        : null;
+      if (typeof bookingData.coupon_code === 'string') {
+        built.coupon_code = bookingData.coupon_code.trim() || null;
+      } else if (bookingData.coupon_code == null) {
+        built.coupon_code = null;
+      }
+      if (typeof bookingData.coupon_mode === 'string') {
+        const mode = bookingData.coupon_mode.trim();
+        built.coupon_mode = mode || null;
+      } else if (bookingData.coupon_mode == null) {
+        built.coupon_mode = null;
+      }
+      if (typeof bookingData.coupon_discount_type === 'string') {
+        const discountType = bookingData.coupon_discount_type.trim().toLowerCase();
+        built.coupon_discount_type = (discountType === 'fixed' || discountType === 'percentage') ? discountType : null;
+      } else if (bookingData.coupon_discount_type == null) {
+        built.coupon_discount_type = null;
+      }
+      if (bookingData.coupon_discount_value != null) {
+        const couponValue = parseFloat(String(bookingData.coupon_discount_value));
+        built.coupon_discount_value = Number.isFinite(couponValue) ? couponValue : null;
+      } else {
+        built.coupon_discount_value = null;
+      }
+      if (bookingData.coupon_discount_amount != null) {
+        const couponAmount = parseFloat(String(bookingData.coupon_discount_amount));
+        built.coupon_discount_amount = Number.isFinite(couponAmount) ? couponAmount : null;
+      } else {
+        built.coupon_discount_amount = null;
+      }
+      built.private_booking_notes = Array.isArray(bookingData.private_booking_notes) ? bookingData.private_booking_notes.filter((n: unknown) => typeof n === 'string') : [];
+      built.private_customer_notes = Array.isArray(bookingData.private_customer_notes) ? bookingData.private_customer_notes.filter((n: unknown) => typeof n === 'string') : [];
+      built.service_provider_notes = Array.isArray(bookingData.service_provider_notes) ? bookingData.service_provider_notes.filter((n: unknown) => typeof n === 'string') : [];
+      const durationVal = parseFloat(String(bookingData.duration));
+      const durationUnit = (bookingData.duration_unit || 'Hours').toString();
+      if (!isNaN(durationVal) && durationVal >= 0) {
+        const durationMinutes = durationUnit.toLowerCase().includes('hour') ? Math.round(durationVal * 60) : Math.round(durationVal);
+        if (durationMinutes > 0) built.duration_minutes = durationMinutes;
+      }
+      if (bookingData.draft_quote_expires_on === null) {
+        built.draft_quote_expires_on = null;
+      } else if (typeof bookingData.draft_quote_expires_on === 'string') {
+        const dq = bookingData.draft_quote_expires_on.trim().slice(0, 10);
+        if (dq === '' || dq === 'null') {
+          built.draft_quote_expires_on = null;
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(dq)) {
+          built.draft_quote_expires_on = dq;
+        }
+      }
+      const fs = String(finalStatus || '');
+      if (fs && !['draft', 'quote', 'expired'].includes(fs)) {
+        built.draft_quote_expires_on = null;
+      }
+      updateData = built;
+      addBookingFormUpdate = built;
+    }
+
+    // When editing a recurring booking's date/time, update the series so all recurring occurrences move (update all recurring)
+    const newDate = (updateData as Record<string, unknown>).scheduled_date ?? (updateData as Record<string, unknown>).date;
+    const newTime = (updateData as Record<string, unknown>).scheduled_time ?? (updateData as Record<string, unknown>).time;
+    if (newDate && typeof newDate === 'string' && newDate.trim().length >= 10) {
+      const { data: existingBooking } = await supabase
+        .from('bookings')
+        .select('recurring_series_id')
+        .eq('id', bookingId)
+        .eq('business_id', businessId)
+        .single();
+      const seriesId = (existingBooking as { recurring_series_id?: string } | null)?.recurring_series_id;
+      if (seriesId) {
+        const seriesUpdate: Record<string, unknown> = {
+          start_date: newDate.trim(),
+          updated_at: new Date().toISOString(),
+        };
+        if (newTime != null && typeof newTime === 'string' && String(newTime).trim()) {
+          seriesUpdate.scheduled_time = String(newTime).trim();
+        }
+        await supabase
+          .from('recurring_series')
+          .update(seriesUpdate)
+          .eq('id', seriesId)
+          .eq('business_id', businessId);
+      }
+    }
+
+    if (updateData.status === 'cancelled') {
+      const { data: existing } = await supabase
+        .from('bookings')
+        .select('id, business_id, scheduled_date, scheduled_time, date, time, service_id, exclude_cancellation_fee')
+        .eq('id', bookingId)
+        .eq('business_id', businessId)
+        .single();
+      if (existing?.business_id && !existing.exclude_cancellation_fee) {
+        const { data: cancelSettings } = await supabase
+          .from('business_cancellation_settings')
+          .select('settings')
+          .eq('business_id', existing.business_id)
+          .maybeSingle();
+        let categoryFee = null;
+        if (existing.service_id) {
+          categoryFee = await getServiceCategoryCancellationFee(
+            supabase,
+            existing.business_id,
+            existing.service_id,
+          );
+        }
+        const fee = getCancellationFeeForBooking(
+          existing,
+          (cancelSettings?.settings as Record<string, unknown>) || null,
+          categoryFee
+        );
+        if (fee) {
+          updateData.cancellation_fee_amount = fee.amount;
+          updateData.cancellation_fee_currency = fee.currency;
+        }
+      } else if (existing?.exclude_cancellation_fee) {
+        updateData.cancellation_fee_amount = null;
+        updateData.cancellation_fee_currency = null;
+      }
+    }
+
+    const { data: existingBefore } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('id', bookingId)
+      .eq('business_id', businessId)
+      .maybeSingle();
+
+    const priorStatus = existingBefore?.status ?? null;
+    const priorExpiryRaw =
+      (existingBefore as { draft_quote_expires_on?: string | null } | null)?.draft_quote_expires_on ?? null;
+
+    let didPromoteRecurring = false;
+    let booking: Record<string, unknown>;
+
+    let shouldAttachRecurring = false;
+    if (
+      addBookingFormUpdate &&
+      existingBefore &&
+      ['draft', 'quote', 'expired'].includes(String(existingBefore.status || '')) &&
+      ['pending', 'confirmed', 'in_progress'].includes(String(addBookingFormUpdate.status || '')) &&
+      !(existingBefore as { recurring_series_id?: string | null }).recurring_series_id
+    ) {
+      const freqName = String(
+        addBookingFormUpdate.frequency ?? (existingBefore as { frequency?: string | null }).frequency ?? ''
+      ).trim();
+      const freqNorm = freqName.toLowerCase().replace(/\s+/g, ' ');
+      const recurringByFrequency =
+        !!freqNorm && freqNorm !== 'one-time' && freqNorm !== 'onetime';
+      const createRecurring =
+        addBookingFormUpdate.create_recurring === true ||
+        addBookingFormUpdate.create_recurring === 'true' ||
+        recurringByFrequency;
+      const scheduledDateRaw = String(
+        addBookingFormUpdate.scheduled_date ?? addBookingFormUpdate.date ?? ''
+      ).trim();
+      shouldAttachRecurring = !!(createRecurring && scheduledDateRaw && freqName);
+    }
+
+    if (shouldAttachRecurring && addBookingFormUpdate && existingBefore) {
+      const freqName = String(
+        addBookingFormUpdate.frequency ?? (existingBefore as { frequency?: string | null }).frequency ?? ''
+      ).trim();
+      const scheduledDateRaw = String(
+        addBookingFormUpdate.scheduled_date ?? addBookingFormUpdate.date ?? ''
+      ).trim();
+
+      let frequencyRepeats: string | null =
+        (addBookingFormUpdate.frequency_repeats as string | null | undefined) ?? null;
+      if (!frequencyRepeats && addBookingFormUpdate.industry_id) {
+        let frequencyScope: BookingFormScope = 'form1';
+        if (addBookingFormUpdate.booking_form_scope === 'form2') {
+          frequencyScope = 'form2';
+        } else if (addBookingFormUpdate.booking_form_scope === 'form3') {
+          frequencyScope = 'form3';
+        } else if (addBookingFormUpdate.booking_form_scope === 'form4') {
+          frequencyScope = 'form4';
+        } else if (addBookingFormUpdate.booking_form_scope === 'form5') {
+          frequencyScope = 'form5';
+        } else {
+          const { data: ind } = await supabase
+            .from('industries')
+            .select('customer_booking_form_layout')
+            .eq('id', String(addBookingFormUpdate.industry_id))
+            .eq('business_id', businessId)
+            .maybeSingle();
+          const layout = (ind as { customer_booking_form_layout?: string } | null)?.customer_booking_form_layout;
+          if (layout === 'form2') frequencyScope = 'form2';
+          else if (layout === 'form3') frequencyScope = 'form3';
+          else if (layout === 'form4') frequencyScope = 'form4';
+          else if (layout === 'form5') frequencyScope = 'form5';
+        }
+        const frequencyTable = scopedIndustryTable('industry_frequency', frequencyScope);
+        const { data: freq } = await supabase
+          .from(frequencyTable)
+          .select('frequency_repeats')
+          .eq('industry_id', String(addBookingFormUpdate.industry_id))
+          .eq('business_id', businessId)
+          .eq('booking_form_scope', frequencyScope)
+          .ilike('name', freqName)
+          .maybeSingle();
+        frequencyRepeats =
+          (freq as { frequency_repeats?: string } | null)?.frequency_repeats ?? null;
+      }
+
+      const endDateRaw = addBookingFormUpdate.recurring_end_date;
+      const endDate =
+        endDateRaw != null && String(endDateRaw).trim() ? String(endDateRaw).trim() : null;
+      const occurrencesAhead = Math.min(
+        Math.max(1, parseInt(String(addBookingFormUpdate.recurring_occurrences_ahead ?? 8), 10) || 8),
+        24
+      );
+      const sameProvider = addBookingFormUpdate.same_provider_for_recurring !== false;
+
+      const templateForSeries: Record<string, unknown> = {
+        ...(existingBefore as Record<string, unknown>),
+        ...addBookingFormUpdate,
+      };
+
+      try {
+        const { attachExistingBookingToRecurringSeries } = await import('@/lib/recurringBookings');
+        await attachExistingBookingToRecurringSeries(
+          supabase,
+          businessId,
+          bookingId,
+          templateForSeries,
+          addBookingFormUpdate,
+          {
+            startDate: scheduledDateRaw,
+            endDate: endDate || undefined,
+            frequencyName: freqName,
+            frequencyRepeats,
+            occurrencesAhead,
+            sameProvider,
+          }
+        );
+        didPromoteRecurring = true;
+        const { data: b, error: be } = await supabase
+          .from('bookings')
+          .select('*')
+          .eq('id', bookingId)
+          .eq('business_id', businessId)
+          .single();
+        if (be || !b) {
+          return NextResponse.json(
+            { error: be?.message ?? 'Failed to load booking after recurring setup' },
+            { status: 500 }
+          );
+        }
+        booking = b as Record<string, unknown>;
+      } catch (e: unknown) {
+        console.error('Promote draft/quote to recurring:', e);
+        return NextResponse.json(
+          {
+            error:
+              e instanceof Error
+                ? e.message
+                : 'Failed to create recurring series from draft/quote',
+          },
+          { status: 500 }
+        );
+      }
+    } else {
+      const { data: b, error: be } = await supabase
+        .from('bookings')
+        .update(updateData)
+        .eq('id', bookingId)
+        .eq('business_id', businessId)
+        .select()
+        .single();
+      if (be || !b) {
+        return NextResponse.json(
+          { error: be?.message ?? 'Booking not found' },
+          { status: 500 }
+        );
+      }
+      booking = b as Record<string, unknown>;
+    }
+
+    const actorName = formatQuoteLogActorName(user);
+    const transitionText = describeDraftQuoteStatusChange(priorStatus, booking.status, bookingId, actorName);
+    const newExpiryRaw = (booking as { draft_quote_expires_on?: string | null }).draft_quote_expires_on;
+    const expiryChanged =
+      normalizeExpiryDateValue(priorExpiryRaw) !== normalizeExpiryDateValue(newExpiryRaw);
+
+    if (transitionText) {
+      await insertQuoteActivityLog(supabase, {
+        business_id: businessId,
+        booking_id: bookingId,
+        actor_user_id: user.id,
+        actor_name: actorName,
+        activity_text: transitionText,
+        event_key: 'draft_quote_status_change',
+        ip_address: getRequestClientIp(request),
+      });
+    } else if (
+      expiryChanged &&
+      (booking.status === 'draft' || booking.status === 'quote' || booking.status === 'expired')
+    ) {
+      await insertQuoteActivityLog(supabase, {
+        business_id: businessId,
+        booking_id: bookingId,
+        actor_user_id: user.id,
+        actor_name: actorName,
+        activity_text: describeDraftQuoteExpiryChange(bookingId, priorExpiryRaw, newExpiryRaw, actorName),
+        event_key: 'draft_quote_expiry_changed',
+        ip_address: getRequestClientIp(request),
+      });
+    } else if (booking.status === 'draft' || booking.status === 'quote') {
+      const ref = shortBookingRefForLogs(bookingId);
+      const kind = booking.status === 'quote' ? 'quote' : 'draft';
+      await insertQuoteActivityLog(supabase, {
+        business_id: businessId,
+        booking_id: bookingId,
+        actor_user_id: user.id,
+        actor_name: actorName,
+        activity_text: `#${ref} - ${kind} updated by ${actorName}`,
+        event_key: `${kind}_updated`,
+        ip_address: getRequestClientIp(request),
+      });
+    }
+
+    if (booking.status === 'cancelled') {
+      await syncBookingCancelled(businessId, booking).catch(() => {});
+    } else if (
+      didPromoteRecurring &&
+      booking.recurring_series_id &&
+      typeof booking.recurring_series_id === 'string'
+    ) {
+      const { data: series } = await supabase
+        .from('recurring_series')
+        .select('start_date, end_date, frequency, frequency_repeats, occurrences_ahead')
+        .eq('id', booking.recurring_series_id)
+        .single();
+      const eventId = series
+        ? await createRecurringCalendarEvent(businessId, booking, series).catch(() => null)
+        : null;
+      if (eventId) {
+        await supabase
+          .from('bookings')
+          .update({ google_calendar_event_id: eventId })
+          .eq('id', bookingId)
+          .eq('business_id', businessId);
+      }
+    } else {
+      const newEventId = await syncBookingUpdated(businessId, booking).catch(() => null);
+      if (newEventId) {
+        await supabase.from('bookings').update({ google_calendar_event_id: newEventId }).eq('id', bookingId).eq('business_id', businessId);
+      }
+    }
+
+    const bkRef = `BK${String(bookingId).slice(-6).toUpperCase()}`;
+    if (didPromoteRecurring) {
+      await createAdminNotification(businessId, 'new_booking', {
+        title: 'Recurring series created',
+        message: `Recurring booking ${bkRef} was saved from draft/quote.`,
+        link: '/admin/bookings',
+      });
+    } else {
+      await createAdminNotification(businessId, 'booking_modified', {
+        title: 'Booking modified',
+        message: `Booking ${bkRef} has been updated.`,
+        link: '/admin/bookings',
+      });
+    }
+
+    const newSt = String(booking.status || '');
+    const oldSt = String(priorStatus || '');
+    if (newSt === 'confirmed' && oldSt !== 'confirmed') {
+      await sendCustomerBookingConfirmedEmail(supabase, businessId, booking);
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: booking,
+      message: 'Booking updated successfully'
+    });
+
+  } catch (error) {
+    console.error('Update booking API error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    // Get auth token from header
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'Unauthorized - No token' }, { status: 401 });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    
+    // Verify user session with token
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized - Invalid token' }, { status: 401 });
+    }
+
+    // Get business context from headers
+    const businessId = request.headers.get('x-business-id');
+    if (!businessId) {
+      return NextResponse.json({ error: 'Business context required' }, { status: 400 });
+    }
+    if (!id || id === 'undefined' || id === 'null' || typeof id !== 'string' || id.trim() === '') {
+      return NextResponse.json({ error: 'Invalid booking ID' }, { status: 400 });
+    }
+
+    const access = await assertUserHasAdminModuleAccess(user.id, businessId, 'bookings');
+    if (access === 'no_service_role') {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
+    if (access === 'denied') {
+      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+    }
+
+    // Delete booking
+    const { error: bookingError } = await supabase
+      .from('bookings')
+      .delete()
+      .eq('id', id)
+      .eq('business_id', businessId);
+
+    if (bookingError) {
+      return NextResponse.json({ error: bookingError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Booking deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Delete booking API error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
