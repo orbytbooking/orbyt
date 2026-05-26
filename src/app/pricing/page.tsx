@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { ReceptionistChat } from '@/components/ReceptionistChat';
 import { Check, X } from 'lucide-react';
 import { PRICING_FEATURES, type FeatureValue } from '@/lib/pricing/pricingFeatures';
 
@@ -220,6 +221,9 @@ export default function PricingDetailsPage() {
           </a>
         </div>
       </main>
+      <Suspense fallback={null}>
+        <ReceptionistChat />
+      </Suspense>
     </div>
   );
 }

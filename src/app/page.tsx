@@ -6,6 +6,8 @@ import { motion } from 'framer-motion';
 import { ChevronDown, HelpCircle, MessageSquare, LifeBuoy, BookOpen, User, Zap, Users, Target, Star, Bot, Menu, X } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { ClientOnly } from '@/components/ClientOnly';
+import { Suspense } from 'react';
+import { ReceptionistChat } from '@/components/ReceptionistChat';
 
 function SupportDropdown({ onNavigate }: { onNavigate?: () => void } = {}) {
   const [open, setOpen] = useState(false);
@@ -1444,6 +1446,9 @@ export default function Home() {
         </motion.div>
       </footer>
       </div>
+      <Suspense fallback={null}>
+        <ReceptionistChat />
+      </Suspense>
     </main>
   );
 }

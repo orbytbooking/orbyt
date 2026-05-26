@@ -500,7 +500,7 @@ export default function FeaturesPage() {
             <div className="md:w-1/2 mb-8 md:mb-0 md:order-2 md:pl-12">
               <h2 className="text-3xl font-bold mb-6">AI Virtual Receptionist</h2>
               <p className="text-lg text-gray-600 mb-6">
-                Let an AI assistant handle common questions 24/7. Our virtual receptionist appears on your booking page and in the admin area, answering questions about your services, how to book, and more—so visitors get instant help and you reduce no-shows.
+                Let an AI assistant handle common questions 24/7. Our virtual receptionist appears on the Orbyt website and your booking page, answering questions about your services, how to book, and more—so visitors get instant help and you reduce no-shows.
               </p>
               <ul className="space-y-4">
                 <li className="flex items-start">
@@ -520,7 +520,7 @@ export default function FeaturesPage() {
                     </svg>
                   </div>
                   <span className="ml-3 text-gray-700">
-                    <span className="font-medium">Available on your booking page &amp; admin:</span> One chat widget for customers, one for your team—both powered by the same AI.
+                    <span className="font-medium">Available on Orbyt &amp; your booking page:</span> Help visitors on the platform site and on your public booking flow—powered by the same AI.
                   </span>
                 </li>
                 <li className="flex items-start">

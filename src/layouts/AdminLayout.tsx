@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useLayoutEffect, useMemo, Suspense } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -48,7 +48,6 @@ import { useWebsiteConfig } from "@/hooks/useWebsiteConfig";
 import { supabase } from "@/lib/supabaseClient";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { addIndustryChangeListener, removeIndustryChangeListener } from "@/lib/industryEvents";
-import { ReceptionistChat } from "@/components/ReceptionistChat";
 import { PLATFORM_NOTIF_ID_PREFIX } from "@/lib/platform-announcement-notifications";
 import { NotificationDetailDialog } from "@/components/notifications/NotificationDetailDialog";
 import {
@@ -1508,11 +1507,6 @@ const AdminLayout = ({ children }: { children: React.ReactNode }) => {
         item={notificationDetail}
         theme={theme}
       />
-
-      {/* AI receptionist chat – always visible in admin CRM */}
-      <Suspense fallback={null}>
-        <ReceptionistChat businessId={currentBusiness?.id} theme={theme} />
-      </Suspense>
     </div>
   );
 };
