@@ -3,40 +3,67 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { applyAdminLoginRedirect } from '@/lib/applyAdminLoginRedirect';
+import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 
 /**
  * Auth callback for magic link / OAuth redirects.
- * Reads access_token and refresh_token from query or hash, sets the session, then redirects to ?next= or /admin.
- * Used by Super Admin impersonation and other magic-link flows.
+ * - OAuth (PKCE): `?code=` → exchangeCodeForSession → admin login routing
+ * - Magic link: access_token + refresh_token in query or hash → setSession → ?next=
  */
 function AuthCallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { toast } = useToast();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
 
   useEffect(() => {
     const run = async () => {
-      const next = searchParams.get('next') || '/admin';
-
-      let accessToken: string | null = searchParams.get('access_token');
-      let refreshToken: string | null = searchParams.get('refresh_token');
-
-      if ((!accessToken || !refreshToken) && typeof window !== 'undefined' && window.location.hash) {
-        const hash = window.location.hash.slice(1);
-        const params = new URLSearchParams(hash);
-        accessToken = accessToken || params.get('access_token');
-        refreshToken = refreshToken || params.get('refresh_token');
-      }
-
-      if (!accessToken || !refreshToken) {
+      const oauthError = searchParams.get('error_description') || searchParams.get('error');
+      if (oauthError) {
         setStatus('error');
-        setMessage('Invalid or expired link. Please try again.');
+        setMessage(oauthError);
         return;
       }
 
+      const code = searchParams.get('code');
+      const next = searchParams.get('next') || '/admin';
+
       try {
+        if (code) {
+          const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) throw error;
+
+          const user = data.session?.user;
+          if (!user) {
+            setStatus('error');
+            setMessage('Could not sign you in.');
+            return;
+          }
+
+          setStatus('success');
+          await applyAdminLoginRedirect(user, toast);
+          return;
+        }
+
+        let accessToken: string | null = searchParams.get('access_token');
+        let refreshToken: string | null = searchParams.get('refresh_token');
+
+        if ((!accessToken || !refreshToken) && typeof window !== 'undefined' && window.location.hash) {
+          const hash = window.location.hash.slice(1);
+          const params = new URLSearchParams(hash);
+          accessToken = accessToken || params.get('access_token');
+          refreshToken = refreshToken || params.get('refresh_token');
+        }
+
+        if (!accessToken || !refreshToken) {
+          setStatus('error');
+          setMessage('Invalid or expired link. Please try again.');
+          return;
+        }
+
         const { data, error } = await supabase.auth.setSession({
           access_token: accessToken,
           refresh_token: refreshToken,
@@ -58,8 +85,8 @@ function AuthCallbackContent() {
       }
     };
 
-    run();
-  }, [router, searchParams]);
+    void run();
+  }, [router, searchParams, toast]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">

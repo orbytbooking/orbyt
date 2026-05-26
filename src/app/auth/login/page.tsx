@@ -23,6 +23,8 @@ import {
   reapplyTenantAuthCookiesAsSessionOnly,
   setTenantAuthSessionOnlyMode,
 } from "@/lib/tenantAuthCookies";
+import { applyAdminLoginRedirect } from "@/lib/applyAdminLoginRedirect";
+import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 
 // Login schema
 const loginSchema = z.object({
@@ -33,6 +35,7 @@ const loginSchema = z.object({
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
 
@@ -63,22 +66,6 @@ export default function LoginPage() {
       }
 
       if (data.user) {
-        // Get user role from metadata
-        const userRole = data.user.user_metadata?.role || 'owner'; // Default to owner for backward compatibility
-
-        // Redirect providers to use their dedicated login page (they should not use CRM/admin login)
-        if (userRole === 'provider') {
-          await supabase.auth.signOut();
-          toast({
-            title: "Use Provider Portal",
-            description: "Please sign in using the Provider Login page.",
-            variant: "destructive",
-          });
-          window.location.href = "/provider/login";
-          return;
-        }
-
-        // Remember me: persistent cookies (Supabase default). Unchecked: session cookies only.
         if (rememberMe) {
           setTenantAuthSessionOnlyMode(false);
         } else {
@@ -86,59 +73,7 @@ export default function LoginPage() {
           reapplyTenantAuthCookiesAsSessionOnly();
         }
 
-        // Check if user has completed onboarding by looking for their business
-        // For providers, they don't need a business to access their dashboard
-        const { data: business, error: businessError } = await supabase
-          .from('businesses')
-          .select('id, name, is_active')
-          .eq('owner_id', data.user.id)
-          .maybeSingle();
-
-        // If no business exists for providers, that's okay - they can still access their dashboard
-        // Only redirect to onboarding if user is an owner (admin) without a business
-        if (!business && userRole === 'owner') {
-          console.log('No business found for owner, redirecting to onboarding');
-          toast({
-            title: "Welcome!",
-            description: "Please complete your business setup to continue.",
-          });
-          window.location.href = "/auth/onboarding";
-          return;
-        }
-
-        // Owner has a business but payment not completed/activated yet.
-        if (business && userRole === 'owner' && business.is_active !== true) {
-          toast({
-            title: "Payment Required",
-            description: "Complete your Stripe subscription checkout to activate your account.",
-            variant: "destructive",
-          });
-          window.location.href = "/auth/onboarding?payment=pending";
-          return;
-        }
-
-        // For providers, always allow access to their dashboard
-        if (businessError) {
-          console.warn('Business query warning:', businessError);
-        }
-
-        // Persist current workspace on profiles.business_id (database)
-        if (business?.id) {
-          await fetch('/api/admin/profile', {
-            method: 'PUT',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ business_id: business.id }),
-          });
-        }
-
-        // Redirect based on user role – use full page navigation so auth state is visible on the next load
-        const redirectPath = userRole === 'provider' ? '/provider/dashboard' : '/admin/dashboard';
-        toast({
-          title: "Login Successful!",
-          description: `Welcome back${data.user.user_metadata?.full_name ? ', ' + data.user.user_metadata.full_name : ''}!`,
-        });
-        window.location.href = redirectPath;
+        await applyAdminLoginRedirect(data.user, toast);
       }
       
     } catch (error: any) {
@@ -146,6 +81,38 @@ export default function LoginPage() {
       toast({
         title: "Login Failed",
         description: error.message || "An error occurred during login. Please try again.",
+        variant: "destructive",
+      });
+    }
+  }
+
+  async function signInWithGoogle() {
+    try {
+      setOauthLoading(true);
+      const next = encodeURIComponent("/admin/dashboard");
+      const redirectTo = `${window.location.origin}/auth/callback?next=${next}`;
+
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo,
+          queryParams: {
+            access_type: "offline",
+            prompt: "select_account",
+          },
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+    } catch (error: unknown) {
+      setOauthLoading(false);
+      const message =
+        error instanceof Error ? error.message : "Could not start Google sign-in.";
+      toast({
+        title: "Google sign-in failed",
+        description: message,
         variant: "destructive",
       });
     }
@@ -248,7 +215,7 @@ export default function LoginPage() {
                 type="submit"
                 className="w-full h-11 text-base"
                 style={{ background: 'linear-gradient(135deg, #00BCD4 0%, #00D4E8 100%)', color: 'white' }}
-                disabled={form.formState.isSubmitting}
+                disabled={form.formState.isSubmitting || oauthLoading}
               >
                 {form.formState.isSubmitting ? (
                   <>
@@ -272,15 +239,12 @@ export default function LoginPage() {
                   </div>
                 </div>
                 
-                <Button 
-                  variant="outline" 
-                  type="button" 
-                  className="w-full h-11 text-base border-primary/50 hover:border-primary"
-                  onClick={() => router.push('/auth/signup')}
-                >
-                  Create an account
-                </Button>
-                
+                <GoogleSignInButton
+                  onClick={() => void signInWithGoogle()}
+                  loading={oauthLoading}
+                  disabled={form.formState.isSubmitting}
+                />
+
                 <p className="text-center text-sm text-muted-foreground">
                   Don't have an account?{' '}
                   <Link href="/auth/signup" className="text-primary hover:underline font-medium">
