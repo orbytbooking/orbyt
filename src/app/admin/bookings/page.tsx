@@ -2478,6 +2478,7 @@ export default function BookingsPage() {
       <SendScheduleDialog
         open={showSendScheduleDialog}
         onOpenChange={setShowSendScheduleDialog}
+        businessId={currentBusiness?.id ?? ""}
         bookings={bookings}
         providers={providers}
       />

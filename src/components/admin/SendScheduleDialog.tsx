@@ -23,6 +23,14 @@ interface Booking {
   status: string;
   amount: number | string;
   assignedProvider?: string;
+  /** Set when admin list expands recurring series into one row per visit. */
+  occurrence_date?: string;
+}
+
+/** Unique React key for recurring rows that share the same booking id. */
+function bookingScheduleRowKey(booking: Booking): string {
+  const visitDate = booking.occurrence_date ?? booking.date;
+  return `${booking.id}:${visitDate}`;
 }
 
 interface Provider {
@@ -33,17 +41,19 @@ interface Provider {
 interface SendScheduleDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  businessId: string;
   bookings: Booking[];
   providers: Provider[];
 }
 
-export function SendScheduleDialog({ open, onOpenChange, bookings, providers }: SendScheduleDialogProps) {
+export function SendScheduleDialog({ open, onOpenChange, businessId, bookings, providers }: SendScheduleDialogProps) {
   const { toast } = useToast();
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [providerFilter, setProviderFilter] = useState<"all" | "specific">("all");
   const [selectedProviders, setSelectedProviders] = useState<string[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [sendSms, setSendSms] = useState(false);
 
   // Filter bookings based on date range and provider selection
   const filteredBookings = useMemo(() => {
@@ -112,31 +122,54 @@ export function SendScheduleDialog({ open, onOpenChange, bookings, providers }: 
       return;
     }
 
+    if (!businessId) {
+      toast({
+        title: "Error",
+        description: "No business selected",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSending(true);
     
     try {
-      // TODO: Implement actual API call to send schedule
-      const response = await fetch('/api/schedule/send', {
-        method: 'POST',
+      const response = await fetch("/api/schedule/send", {
+        method: "POST",
+        credentials: "include",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
+          "x-business-id": businessId,
         },
         body: JSON.stringify({
           startDate,
           endDate,
-          providers: providerFilter === "all" ? "all" : selectedProviders,
-          bookings: filteredBookings,
+          scheduleItems: filteredBookings.map((b) => ({
+            bookingId: b.id,
+            occurrenceDate: b.occurrence_date ?? b.date,
+            status: b.status,
+          })),
+          sendSms,
+          businessId,
         }),
       });
 
+      const data = await response.json().catch(() => ({}));
+
       if (!response.ok) {
-        throw new Error('Failed to send schedule');
+        const errMsg = typeof data.error === "string" ? data.error : "Failed to send schedule";
+        throw new Error(errMsg);
       }
 
-      toast({
-        title: "Schedule Sent Successfully",
-        description: `Schedule has been sent to ${filteredBookings.length} booking(s)`,
-      });
+      const warnings = Array.isArray(data.data?.warnings) ? (data.data.warnings as string[]) : [];
+      let description =
+        typeof data.message === "string"
+          ? data.message
+          : `Notified providers for ${filteredBookings.length} booking(s).`;
+      if (warnings.length > 0) {
+        description += ` ${warnings.join(" ")}`;
+      }
+      toast({ title: "Schedule sent", description });
 
       onOpenChange(false);
     } catch (error) {
@@ -248,6 +281,17 @@ export function SendScheduleDialog({ open, onOpenChange, bookings, providers }: 
             )}
           </div>
 
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="send-sms"
+              checked={sendSms}
+              onCheckedChange={(v) => setSendSms(v === true)}
+            />
+            <Label htmlFor="send-sms" className="text-sm font-normal">
+              Also send SMS (when Twilio is configured and providers have SMS enabled)
+            </Label>
+          </div>
+
           {/* Schedule Table */}
           <div className="space-y-4">
             <h3 className="text-lg font-semibold">
@@ -270,7 +314,7 @@ export function SendScheduleDialog({ open, onOpenChange, bookings, providers }: 
                     </thead>
                     <tbody>
                       {filteredBookings.map((booking) => (
-                        <tr key={booking.id} className="border-b hover:bg-muted/20">
+                        <tr key={bookingScheduleRowKey(booking)} className="border-b hover:bg-muted/20">
                           <td className="py-3 px-4 text-sm">
                             <div className="flex items-center gap-2">
                               <Calendar className="h-4 w-4 text-muted-foreground" />
