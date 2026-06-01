@@ -41,7 +41,7 @@ export async function saveCustomerAuthorizeNetCard(
 
   const { data: cust, error: custErr } = await supabase
     .from("customers")
-    .select("id, email, billing_cards, authorize_net_customer_profile_id")
+    .select("id, email, first_name, last_name, billing_cards, authorize_net_customer_profile_id")
     .eq("id", params.customerId)
     .eq("business_id", params.businessId)
     .single();
@@ -52,6 +52,8 @@ export async function saveCustomerAuthorizeNetCard(
 
   const row = cust as {
     email?: string | null;
+    first_name?: string | null;
+    last_name?: string | null;
     billing_cards?: unknown;
     authorize_net_customer_profile_id?: string | null;
   };
@@ -66,6 +68,8 @@ export async function saveCustomerAuthorizeNetCard(
       existingCustomerProfileId: customerProfileId || null,
       merchantCustomerId: params.customerId,
       email: row.email,
+      firstName: row.first_name,
+      lastName: row.last_name,
       opaqueData: { dataDescriptor: descriptor, dataValue: value },
     });
     customerProfileId = vaulted.customerProfileId;

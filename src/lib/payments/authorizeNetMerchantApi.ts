@@ -19,6 +19,11 @@ export type AuthorizeNetOpaqueData = {
   dataValue: string;
 };
 
+type AuthorizeNetBillTo = {
+  firstName: string;
+  lastName: string;
+};
+
 function cleanSecret(raw: string | undefined | null): string {
   if (raw == null) return "";
   return raw
@@ -26,6 +31,30 @@ function cleanSecret(raw: string | undefined | null): string {
     .replace(/\r/g, "")
     .replace(/^["']|["']$/g, "")
     .trim();
+}
+
+function buildAuthorizeNetProfileEmail(rawEmail: string | undefined | null, merchantCustomerId: string): string {
+  const email = cleanSecret(rawEmail);
+  if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return email;
+  }
+  const compactId = merchantCustomerId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 24) || "customer";
+  // Some admin-created customers do not have email yet; CIM createCustomerProfile expects a valid email.
+  return `customer-${compactId}@example.com`;
+}
+
+function buildAuthorizeNetBillTo(
+  rawFirstName: string | undefined | null,
+  rawLastName: string | undefined | null,
+  merchantCustomerId: string
+): AuthorizeNetBillTo {
+  const firstName = cleanSecret(rawFirstName).slice(0, 50);
+  const lastName = cleanSecret(rawLastName).slice(0, 50);
+  if (firstName && lastName) return { firstName, lastName };
+  if (firstName) return { firstName, lastName: "Customer" };
+  if (lastName) return { firstName: "Customer", lastName };
+  const compactId = merchantCustomerId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 20) || "Customer";
+  return { firstName: "Customer", lastName: compactId };
 }
 
 function merchantAuth(creds: MerchantAuthorizeCredentials) {
@@ -164,8 +193,11 @@ export async function createMerchantCustomerPaymentProfile(params: {
   creds: MerchantAuthorizeCredentials;
   customerProfileId: string;
   opaqueData: AuthorizeNetOpaqueData;
+  firstName?: string | null;
+  lastName?: string | null;
   cluster: AuthorizeNetSessionCluster;
 }): Promise<{ customerPaymentProfileId: string }> {
+  const billTo = buildAuthorizeNetBillTo(params.firstName, params.lastName, params.customerProfileId);
   const raw = await postMerchantAuthorizeNetJson(
     params.creds,
     {
@@ -173,6 +205,8 @@ export async function createMerchantCustomerPaymentProfile(params: {
         merchantAuthentication: merchantAuth(params.creds),
         customerProfileId: params.customerProfileId,
         paymentProfile: {
+          customerType: "individual",
+          billTo,
           payment: {
             opaqueData: {
               dataDescriptor: params.opaqueData.dataDescriptor,
@@ -203,22 +237,25 @@ export async function createMerchantCustomerProfileWithPayment(params: {
   creds: MerchantAuthorizeCredentials;
   merchantCustomerId: string;
   email?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
   opaqueData: AuthorizeNetOpaqueData;
   cluster: AuthorizeNetSessionCluster;
 }): Promise<{ customerProfileId: string; customerPaymentProfileId: string }> {
+  const merchantCustomerId = params.merchantCustomerId.slice(0, 20);
+  const billTo = buildAuthorizeNetBillTo(params.firstName, params.lastName, merchantCustomerId);
   const profile: Record<string, unknown> = {
-    merchantCustomerId: params.merchantCustomerId.slice(0, 20),
+    merchantCustomerId,
   };
 
-  const email = cleanSecret(params.email);
+  const email = buildAuthorizeNetProfileEmail(params.email, merchantCustomerId);
   // Authorize.Net CIM schema is order-sensitive: email must appear before paymentProfiles.
-  if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    profile.email = email;
-  }
+  profile.email = email;
 
   profile.paymentProfiles = [
     {
       customerType: "individual",
+      billTo,
       payment: {
         opaqueData: {
           dataDescriptor: params.opaqueData.dataDescriptor,
@@ -260,6 +297,8 @@ export async function vaultMerchantCustomerCard(params: {
   existingCustomerProfileId?: string | null;
   merchantCustomerId: string;
   email?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
   opaqueData: AuthorizeNetOpaqueData;
 }): Promise<{ customerProfileId: string; customerPaymentProfileId: string }> {
   const existing = cleanSecret(params.existingCustomerProfileId);
@@ -268,6 +307,8 @@ export async function vaultMerchantCustomerCard(params: {
       creds: params.creds,
       customerProfileId: existing,
       opaqueData: params.opaqueData,
+      firstName: params.firstName,
+      lastName: params.lastName,
       cluster: params.cluster,
     });
     return { customerProfileId: existing, customerPaymentProfileId: created.customerPaymentProfileId };
@@ -277,6 +318,8 @@ export async function vaultMerchantCustomerCard(params: {
     creds: params.creds,
     merchantCustomerId: params.merchantCustomerId,
     email: params.email,
+    firstName: params.firstName,
+    lastName: params.lastName,
     opaqueData: params.opaqueData,
     cluster: params.cluster,
   });
