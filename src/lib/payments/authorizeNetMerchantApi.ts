@@ -208,23 +208,25 @@ export async function createMerchantCustomerProfileWithPayment(params: {
 }): Promise<{ customerProfileId: string; customerPaymentProfileId: string }> {
   const profile: Record<string, unknown> = {
     merchantCustomerId: params.merchantCustomerId.slice(0, 20),
-    paymentProfiles: [
-      {
-        customerType: "individual",
-        payment: {
-          opaqueData: {
-            dataDescriptor: params.opaqueData.dataDescriptor,
-            dataValue: params.opaqueData.dataValue,
-          },
-        },
-      },
-    ],
   };
 
   const email = cleanSecret(params.email);
+  // Authorize.Net CIM schema is order-sensitive: email must appear before paymentProfiles.
   if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     profile.email = email;
   }
+
+  profile.paymentProfiles = [
+    {
+      customerType: "individual",
+      payment: {
+        opaqueData: {
+          dataDescriptor: params.opaqueData.dataDescriptor,
+          dataValue: params.opaqueData.dataValue,
+        },
+      },
+    },
+  ];
 
   const raw = await postMerchantAuthorizeNetJson(
     params.creds,
