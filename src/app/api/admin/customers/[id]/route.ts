@@ -54,6 +54,7 @@ export async function GET(
         addresses: Array.isArray(customer.addresses) ? customer.addresses : [],
         billingCards: Array.isArray(customer.billing_cards) ? customer.billing_cards : [],
         stripeCustomerId: customer.stripe_customer_id ?? null,
+        authorizeNetCustomerProfileId: customer.authorize_net_customer_profile_id ?? null,
       },
     });
   } catch (err) {

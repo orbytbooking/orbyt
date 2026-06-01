@@ -15,6 +15,7 @@ export function BillingAuthorizeNet() {
   const [transactionKey, setTransactionKey] = useState("");
   const [publicClientKey, setPublicClientKey] = useState("");
   const [hasExistingConfig, setHasExistingConfig] = useState(false);
+  const [hasPublicClientKey, setHasPublicClientKey] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const businessId = currentBusiness?.id ?? null;
@@ -31,6 +32,7 @@ export function BillingAuthorizeNet() {
         if (cancelled || !res.ok) return;
         const data = await res.json();
         setHasExistingConfig(!!data.authorizeNetApiLoginId);
+        setHasPublicClientKey(!!data.authorizeNetPublicClientKeyConfigured);
       } catch {
         // ignore
       }
@@ -74,6 +76,7 @@ export function BillingAuthorizeNet() {
         setTransactionKey("");
         setPublicClientKey("");
         setHasExistingConfig(true);
+        setHasPublicClientKey(!!clientKey || hasPublicClientKey);
       } else {
         toast.error(data.error || "Failed to save");
       }
@@ -138,9 +141,21 @@ export function BillingAuthorizeNet() {
           )}
         </Button>
         {hasExistingConfig && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <CheckCircle2 className="h-4 w-4 text-green-600" />
-            <span>Authorize.net is configured. Enter new credentials above to update.</span>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <CheckCircle2 className="h-4 w-4 text-green-600" />
+              <span>Authorize.net is configured. Enter new credentials above to update.</span>
+            </div>
+            {hasPublicClientKey ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <CheckCircle2 className="h-4 w-4 text-green-600" />
+                <span>Public Client Key saved (Accept.js card vaulting enabled).</span>
+              </div>
+            ) : (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-2">
+                Add your Public Client Key above to enable secure add-card with Accept.js.
+              </p>
+            )}
           </div>
         )}
       </CardContent>

@@ -12,6 +12,9 @@ ADD COLUMN IF NOT EXISTS authorize_net_api_login_id text;
 ALTER TABLE public.businesses
 ADD COLUMN IF NOT EXISTS authorize_net_transaction_key text;
 
+ALTER TABLE public.businesses
+ADD COLUMN IF NOT EXISTS authorize_net_public_client_key text;
+
 -- Stripe keys and toggles (from 064)
 ALTER TABLE public.businesses
 ADD COLUMN IF NOT EXISTS stripe_publishable_key text;

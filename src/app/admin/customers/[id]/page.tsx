@@ -52,6 +52,10 @@ import {
   getStoredAdminCustomerExtrasJson,
   adminCustomerApiHeaders,
 } from "@/lib/adminCustomersStorage";
+import {
+  AuthorizeNetAcceptJsCardForm,
+  type AuthorizeNetOpaqueData,
+} from "@/components/payments/AuthorizeNetAcceptJsCardForm";
 
 type FileItem = {
   id: string;
@@ -145,7 +149,8 @@ export default function CustomerProfilePage() {
     aptNo: string;
     zip: string;
   } | null>(null);
-  const [stripeConnected, setStripeConnected] = useState(false);
+  const [stripeCustomerId, setStripeCustomerId] = useState<string | null>(null);
+  const [authorizeNetCustomerProfileId, setAuthorizeNetCustomerProfileId] = useState<string | null>(null);
   const [buttonStates, setButtonStates] = useState({
     isActive: true,
     isBlocked: false,
@@ -193,6 +198,7 @@ export default function CustomerProfilePage() {
   const [setupClientSecret, setSetupClientSecret] = useState<string | null>(null);
   const [setupIntentId, setSetupIntentId] = useState<string | null>(null);
   const stripePromiseRef = useRef<Promise<StripeJs | null> | null>(null);
+  const [businessPaymentProvider, setBusinessPaymentProvider] = useState<"stripe" | "authorize_net">("stripe");
 
   const [showAddCardLinkDialog, setShowAddCardLinkDialog] = useState(false);
   const [addCardLinkUrl, setAddCardLinkUrl] = useState<string>("");
@@ -230,6 +236,88 @@ export default function CustomerProfilePage() {
       cancelled = true;
     };
   }, [showAddCardLinkDialog, currentBusiness?.id, id]);
+
+  useEffect(() => {
+    if (!currentBusiness?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/admin/payment-settings?business=${encodeURIComponent(currentBusiness.id)}`,
+          { credentials: "include" }
+        );
+        if (cancelled || !res.ok) return;
+        const data = await res.json();
+        const p = typeof data.paymentProvider === "string" ? data.paymentProvider : "stripe";
+        setBusinessPaymentProvider(p === "authorize_net" ? "authorize_net" : "stripe");
+      } catch {
+        // keep default stripe
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentBusiness?.id]);
+
+  const resetAddCardDialog = () => {
+    setShowAddCardDialog(false);
+    setCardSetupError(null);
+    setCardSetupLoading(false);
+    setSetupClientSecret(null);
+    setSetupIntentId(null);
+    setStripePk(null);
+    setStripeAccount(null);
+    stripePromiseRef.current = null;
+  };
+
+  const handleAuthorizeNetCardSaved = (billingCards: unknown[], customerProfileId?: string | null) => {
+    setSavedCards(
+      billingCards
+        .map((c: Record<string, unknown>) => ({
+          brand: (c?.brand ?? "").toString().trim(),
+          last4: (c?.last4 ?? "").toString().trim(),
+          expMonth: (c?.expMonth as number | null | undefined) ?? null,
+          expYear: (c?.expYear as number | null | undefined) ?? null,
+          stripePaymentMethodId: (c?.stripePaymentMethodId ?? null) as string | null,
+          source: (c?.source ?? "authorize_net").toString(),
+        }))
+        .filter((c: { last4: string }) => !!c.last4)
+    );
+    if (customerProfileId) {
+      setAuthorizeNetCustomerProfileId(customerProfileId);
+    }
+    toast({
+      title: "Card added",
+      description: "Card vaulted with Authorize.Net and linked to this customer.",
+    });
+    resetAddCardDialog();
+  };
+
+  const submitAuthorizeNetOpaqueData = async (opaqueData: AuthorizeNetOpaqueData) => {
+    if (!currentBusiness?.id || !id) {
+      throw new Error("Business or customer is not available.");
+    }
+    setCardSetupError(null);
+    const res = await fetch("/api/authorize-net/customer-add-card", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        businessId: currentBusiness.id,
+        customerId: id,
+        opaqueData,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data?.error || `Failed to save card (${res.status})`);
+    }
+    if (Array.isArray(data.billingCards)) {
+      handleAuthorizeNetCardSaved(
+        data.billingCards,
+        typeof data.customerProfileId === "string" ? data.customerProfileId : null
+      );
+    }
+  };
 
   const stripePromise = useMemo(() => {
     if (!stripePk) return null;
@@ -620,6 +708,20 @@ export default function CustomerProfilePage() {
           } else {
             setSavedCards([]);
           }
+          setStripeCustomerId(
+            typeof c.stripeCustomerId === "string"
+              ? c.stripeCustomerId
+              : typeof c.stripe_customer_id === "string"
+                ? c.stripe_customer_id
+                : null
+          );
+          setAuthorizeNetCustomerProfileId(
+            typeof c.authorizeNetCustomerProfileId === "string"
+              ? c.authorizeNetCustomerProfileId
+              : typeof c.authorize_net_customer_profile_id === "string"
+                ? c.authorize_net_customer_profile_id
+                : null
+          );
           setButtonStates({
             isActive: (c.status || "active") === "active",
             isBlocked: !!c.access_blocked,
@@ -1986,6 +2088,12 @@ export default function CustomerProfilePage() {
                     className="text-blue-600 border-blue-600"
                     onClick={() => {
                       setNewCardNumber("");
+                      setCardSetupError(null);
+                      setSetupClientSecret(null);
+                      setSetupIntentId(null);
+                      setStripePk(null);
+                      setStripeAccount(null);
+                      stripePromiseRef.current = null;
                       setShowAddCardDialog(true);
                     }}
                   >
@@ -2057,76 +2165,134 @@ export default function CustomerProfilePage() {
             </CardContent>
           </Card>
 
-          {/* Connect to Stripe */}
+          {/* Payment provider connection */}
           <Card>
             <CardHeader>
-              <CardTitle>Connect to Stripe</CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">If your customer&apos;s card(s) are inside a Stripe account, you can connect their profile here.</p>
+              <CardTitle>Payment provider</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Saved cards and checkout use your business payment integration.
+              </p>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               <div className="flex items-center gap-2">
-                <Switch checked={stripeConnected} onCheckedChange={setStripeConnected} />
-                <span className="text-sm">{stripeConnected ? 'Enabled' : 'Disabled'}</span>
+                <span className="text-sm text-muted-foreground">Selected provider</span>
+                <Badge variant="secondary">
+                  {businessPaymentProvider === "authorize_net" ? "Authorize.net" : "Stripe"}
+                </Badge>
               </div>
+
+              {businessPaymentProvider === "stripe" ? (
+                <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
+                  <p className="text-sm font-medium">Connect to Stripe</p>
+                  <p className="text-sm text-muted-foreground">
+                    If this customer&apos;s card(s) are inside a Stripe account, you can connect their profile here.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Switch checked={!!stripeCustomerId} disabled />
+                    <span className="text-sm">
+                      {stripeCustomerId ? "Connected" : "Not connected"}
+                    </span>
+                  </div>
+                  {stripeCustomerId ? (
+                    <p className="text-xs text-muted-foreground font-mono break-all">
+                      Stripe customer: {stripeCustomerId}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Add a card or complete a Stripe checkout to link this customer to Stripe.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
+                  <p className="text-sm font-medium">Authorize.net customer profile</p>
+                  <p className="text-sm text-muted-foreground">
+                    Cards added here are vaulted in your Authorize.net CIM merchant profile for this customer.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Switch checked={!!authorizeNetCustomerProfileId} disabled />
+                    <span className="text-sm">
+                      {authorizeNetCustomerProfileId ? "Connected" : "Not connected"}
+                    </span>
+                  </div>
+                  {authorizeNetCustomerProfileId ? (
+                    <p className="text-xs text-muted-foreground font-mono break-all">
+                      CIM profile: {authorizeNetCustomerProfileId}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Use Add New above to vault the first card and create an Authorize.net customer profile.
+                    </p>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
 
         {/* Add Card Dialog */}
-        <Dialog open={showAddCardDialog} onOpenChange={setShowAddCardDialog}>
+        <Dialog
+          open={showAddCardDialog}
+          onOpenChange={(open) => {
+            if (!open) resetAddCardDialog();
+            else setShowAddCardDialog(true);
+          }}
+        >
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>Add card</DialogTitle>
               <DialogDescription>
-                Add a new card to this customer&apos;s profile. This is for reference only and does not charge the card.
+                {businessPaymentProvider === "authorize_net"
+                  ? "Add a card to this customer\u2019s Authorize.Net profile. The card is vaulted securely and can be used for future charges."
+                  : "Add a new card to this customer\u2019s profile. This is for reference only and does not charge the card."}
               </DialogDescription>
             </DialogHeader>
             <div className="py-2">
               {cardSetupError ? (
                 <div className="text-sm text-destructive">{cardSetupError}</div>
               ) : null}
-              {cardSetupLoading ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Initializing Stripe…
-                </div>
-              ) : null}
 
-              {!setupClientSecret || !stripePromise ? (
-                <div className="space-y-3">
-                  <Button
-                    className="w-full"
-                    onClick={initStripeCardSetup}
-                    disabled={cardSetupLoading}
-                  >
-                    Initialize card form
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => setShowAddCardDialog(false)}
-                  >
-                    Cancel
-                  </Button>
-                </div>
+              {businessPaymentProvider === "authorize_net" && currentBusiness?.id ? (
+                <AuthorizeNetAcceptJsCardForm
+                  configUrl={`/api/authorize-net/accept-js-config?businessId=${encodeURIComponent(currentBusiness.id)}`}
+                  onSubmitOpaqueData={submitAuthorizeNetOpaqueData}
+                  onCancel={resetAddCardDialog}
+                />
+              ) : businessPaymentProvider === "authorize_net" ? (
+                <p className="text-sm text-muted-foreground">Select a business to add a card.</p>
               ) : (
-                <Elements
-                  stripe={stripePromise}
-                  options={{
-                    clientSecret: setupClientSecret,
-                  }}
-                >
-                  <AddCardStripeForm
-                    onDone={() => {
-                      setShowAddCardDialog(false);
-                      setSetupClientSecret(null);
-                      setSetupIntentId(null);
-                      setStripePk(null);
-                      setStripeAccount(null);
-                      stripePromiseRef.current = null;
-                    }}
-                  />
-                </Elements>
+                <>
+                  {cardSetupLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Initializing Stripe…
+                    </div>
+                  ) : null}
+
+                  {!setupClientSecret || !stripePromise ? (
+                    <div className="space-y-3">
+                      <Button
+                        className="w-full"
+                        onClick={initStripeCardSetup}
+                        disabled={cardSetupLoading}
+                      >
+                        Initialize card form
+                      </Button>
+                      <Button variant="outline" className="w-full" onClick={resetAddCardDialog}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <Elements
+                      stripe={stripePromise}
+                      options={{
+                        clientSecret: setupClientSecret,
+                      }}
+                    >
+                      <AddCardStripeForm onDone={resetAddCardDialog} />
+                    </Elements>
+                  )}
+                </>
               )}
             </div>
           </DialogContent>

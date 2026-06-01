@@ -40,15 +40,17 @@ export async function GET(request: NextRequest) {
     let stripe3dsEnabled = true;
     let stripeBillingAddressEnabled = false;
     let authorizeNetApiLoginId: string | null = null;
+    let authorizeNetPublicClientKeyConfigured = false;
     const { data: settings, error: settingsError } = await supabase
       .from("businesses")
-      .select("payment_provider, authorize_net_api_login_id, stripe_connect_account_id, stripe_publishable_key, stripe_secret_key, stripe_3ds_enabled, stripe_billing_address_enabled")
+      .select("payment_provider, authorize_net_api_login_id, authorize_net_public_client_key, stripe_connect_account_id, stripe_publishable_key, stripe_secret_key, stripe_3ds_enabled, stripe_billing_address_enabled")
       .eq("id", businessId)
       .single();
     if (!settingsError && settings) {
       const b = settings as {
         payment_provider?: string;
         authorize_net_api_login_id?: string | null;
+        authorize_net_public_client_key?: string | null;
         stripe_connect_account_id?: string | null;
         stripe_publishable_key?: string | null;
         stripe_secret_key?: string | null;
@@ -57,6 +59,9 @@ export async function GET(request: NextRequest) {
       };
       if (b.payment_provider === "authorize_net") paymentProvider = "authorize_net";
       if (b.authorize_net_api_login_id != null) authorizeNetApiLoginId = b.authorize_net_api_login_id;
+      authorizeNetPublicClientKeyConfigured = !!(
+        b.authorize_net_public_client_key && String(b.authorize_net_public_client_key).trim()
+      );
       const hasConnect = !!(b.stripe_connect_account_id != null && String(b.stripe_connect_account_id).trim() !== "");
       const hasKeys = !!(b.stripe_secret_key != null && String(b.stripe_secret_key).trim() !== "");
       stripeConnected = hasConnect || hasKeys;
@@ -70,6 +75,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       paymentProvider,
       authorizeNetApiLoginId,
+      authorizeNetPublicClientKeyConfigured,
       stripeConnected,
       stripePublishableKeyMasked,
       stripe3dsEnabled,
@@ -92,6 +98,7 @@ export async function PATCH(request: NextRequest) {
       paymentProvider?: string;
       authorizeNetApiLoginId?: string | null;
       authorizeNetTransactionKey?: string | null;
+      authorizeNetPublicClientKey?: string | null;
       stripePublishableKey?: string | null;
       stripeSecretKey?: string | null;
       stripe3dsEnabled?: boolean;
@@ -114,6 +121,7 @@ export async function PATCH(request: NextRequest) {
     const paymentProvider = body.paymentProvider;
     const authorizeNetApiLoginId = body.authorizeNetApiLoginId;
     const authorizeNetTransactionKey = body.authorizeNetTransactionKey;
+    const authorizeNetPublicClientKey = body.authorizeNetPublicClientKey;
     const stripePublishableKey = body.stripePublishableKey;
     const stripeSecretKey = body.stripeSecretKey;
     const stripe3dsEnabled = body.stripe3dsEnabled;
@@ -136,6 +144,7 @@ export async function PATCH(request: NextRequest) {
       payment_provider?: string;
       authorize_net_api_login_id?: string | null;
       authorize_net_transaction_key?: string | null;
+      authorize_net_public_client_key?: string | null;
       stripe_publishable_key?: string | null;
       stripe_secret_key?: string | null;
       stripe_3ds_enabled?: boolean;
@@ -153,6 +162,12 @@ export async function PATCH(request: NextRequest) {
         authorizeNetTransactionKey === null || authorizeNetTransactionKey === ""
           ? null
           : String(authorizeNetTransactionKey).trim();
+    }
+    if (authorizeNetPublicClientKey !== undefined) {
+      updates.authorize_net_public_client_key =
+        authorizeNetPublicClientKey === null || authorizeNetPublicClientKey === ""
+          ? null
+          : String(authorizeNetPublicClientKey).trim();
     }
     if (stripePublishableKey !== undefined) {
       updates.stripe_publishable_key =

@@ -7,6 +7,10 @@ import { Elements, CardElement, useElements, useStripe } from "@stripe/react-str
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, ShieldCheck } from "lucide-react";
+import {
+  AuthorizeNetAcceptJsCardForm,
+  type AuthorizeNetOpaqueData,
+} from "@/components/payments/AuthorizeNetAcceptJsCardForm";
 
 function AddCardInner({
   token,
@@ -121,6 +125,7 @@ function AddCardPageContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [provider, setProvider] = useState<"stripe" | "authorize_net" | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [pk, setPk] = useState<string | null>(null);
   const [stripeAccount, setStripeAccount] = useState<string | null>(null);
@@ -141,7 +146,7 @@ function AddCardPageContent() {
     setError(null);
     (async () => {
       try {
-        const res = await fetch("/api/stripe/customer-add-card/link/setup-intent", {
+        const res = await fetch("/api/customer-add-card/link/init", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ token }),
@@ -152,6 +157,14 @@ function AddCardPageContent() {
           setError(data?.error || `Could not load link (${res.status})`);
           return;
         }
+
+        const resolvedProvider = data.provider === "authorize_net" ? "authorize_net" : "stripe";
+        setProvider(resolvedProvider);
+
+        if (resolvedProvider === "authorize_net") {
+          return;
+        }
+
         const publishableKey = typeof data.publishableKey === "string" ? data.publishableKey : null;
         const cs = typeof data.clientSecret === "string" ? data.clientSecret : null;
         const acct = typeof data.stripeConnectAccountId === "string" ? data.stripeConnectAccountId : null;
@@ -166,13 +179,26 @@ function AddCardPageContent() {
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load link.");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [token]);
+
+  const submitAuthorizeNetOpaqueData = async (opaqueData: AuthorizeNetOpaqueData) => {
+    const res = await fetch("/api/authorize-net/customer-add-card/link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, opaqueData }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data?.error || `Could not save card (${res.status})`);
+    }
+    setDone(true);
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-muted/30">
@@ -192,7 +218,13 @@ function AddCardPageContent() {
           {done ? (
             <p className="text-sm">Card added successfully. You can close this page.</p>
           ) : null}
-          {!done && token && clientSecret && stripePromise ? (
+          {!done && token && provider === "authorize_net" ? (
+            <AuthorizeNetAcceptJsCardForm
+              configUrl={`/api/authorize-net/accept-js-config?token=${encodeURIComponent(token)}`}
+              onSubmitOpaqueData={submitAuthorizeNetOpaqueData}
+            />
+          ) : null}
+          {!done && token && provider === "stripe" && clientSecret && stripePromise ? (
             <Elements stripe={stripePromise} options={{ clientSecret }}>
               <AddCardInner token={token} clientSecret={clientSecret} onComplete={() => setDone(true)} />
             </Elements>
@@ -226,4 +258,3 @@ export default function AddCardPage() {
     </Suspense>
   );
 }
-
