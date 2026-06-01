@@ -36,3 +36,12 @@ export function enrichAcceptJsHttpsError(message: string): string {
   if (envError) return envError;
   return message;
 }
+
+export function isAcceptJsAuthError(message: string): boolean {
+  return /invalid authentication|authentication failed|authentication values/i.test(message);
+}
+
+export function enrichAcceptJsAuthError(message: string, serverEnvironment?: "sandbox" | "production"): string {
+  const envLabel = serverEnvironment === "production" ? "production (live)" : "sandbox";
+  return `${message} This is not caused by the card number. Check that your API Login ID and Public Client Key are live keys from the same Authorize.Net merchant account, were saved together in Billing settings, and match the server environment (${envLabel}). If you use live keys, set AUTHORIZE_NET_ENVIRONMENT=production on the server and restart.`;
+}

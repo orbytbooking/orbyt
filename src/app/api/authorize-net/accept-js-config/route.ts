@@ -6,6 +6,7 @@ import {
   getAuthenticatedUser,
 } from "@/lib/auth-helpers";
 import { getAcceptJsScriptUrl } from "@/lib/payments/authorizeNetMerchantApi";
+import { getAuthorizeNetSessionCluster } from "@/lib/payments/authorizeNetEnvironment";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -115,6 +116,7 @@ export async function GET(request: NextRequest) {
       apiLoginId,
       publicClientKey,
       acceptJsUrl: getAcceptJsScriptUrl(),
+      environment: getAuthorizeNetSessionCluster(),
       businessId,
     });
   } catch (e) {

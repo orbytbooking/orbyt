@@ -15,9 +15,11 @@ import {
   validateCardFormInput,
 } from "@/lib/payments/cardReference";
 import {
+  enrichAcceptJsAuthError,
   enrichAcceptJsHttpsError,
   getAcceptJsClientEnvironmentError,
   getAcceptJsLocalhostFixUrl,
+  isAcceptJsAuthError,
   isAcceptJsHttpsError,
 } from "@/lib/payments/acceptJsClientEnvironment";
 
@@ -30,6 +32,7 @@ type AcceptJsConfig = {
   apiLoginId: string;
   publicClientKey: string;
   acceptJsUrl: string;
+  environment: "sandbox" | "production";
 };
 
 type AcceptDispatchResponse = {
@@ -125,6 +128,7 @@ export function AuthorizeNetAcceptJsCardForm({
           apiLoginId: String(data.apiLoginId || ""),
           publicClientKey: String(data.publicClientKey || ""),
           acceptJsUrl: String(data.acceptJsUrl || ""),
+          environment: data.environment === "production" ? "production" : "sandbox",
         };
         if (!next.apiLoginId || !next.publicClientKey || !next.acceptJsUrl) {
           setConfigError("Authorize.Net Accept.js is not fully configured.");
@@ -202,7 +206,13 @@ export function AuthorizeNetAcceptJsCardForm({
               const raw =
                 response.messages.message?.map((m) => m.text).filter(Boolean).join("; ") ||
                 "Could not tokenize card.";
-              setError(isAcceptJsHttpsError(raw) ? enrichAcceptJsHttpsError(raw) : raw);
+              setError(
+                isAcceptJsHttpsError(raw)
+                  ? enrichAcceptJsHttpsError(raw)
+                  : isAcceptJsAuthError(raw)
+                    ? enrichAcceptJsAuthError(raw, config.environment)
+                    : raw
+              );
               return;
             }
             const opaqueData = response.opaqueData;
@@ -237,6 +247,14 @@ export function AuthorizeNetAcceptJsCardForm({
 
   return (
     <div className="space-y-4">
+      {config ? (
+        <p className="text-xs text-muted-foreground">
+          Server Authorize.Net mode:{" "}
+          <span className="font-medium">
+            {config.environment === "production" ? "Production (live)" : "Sandbox (test)"}
+          </span>
+        </p>
+      ) : null}
       {environmentError ? (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-2">
           <p className="text-sm text-amber-900">{environmentError}</p>

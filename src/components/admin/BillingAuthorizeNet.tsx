@@ -49,8 +49,8 @@ export function BillingAuthorizeNet() {
     const txKey = transactionKey.trim();
     const clientKey = publicClientKey.trim();
 
-    if (!loginId || !txKey) {
-      toast.error("API Login ID and Transaction Key are required");
+    if (!loginId || !txKey || !clientKey) {
+      toast.error("API Login ID, Transaction Key, and Public Client Key are required");
       return;
     }
     setSaving(true);
@@ -65,7 +65,7 @@ export function BillingAuthorizeNet() {
           paymentProvider: "authorize_net",
           authorizeNetApiLoginId: loginId,
           authorizeNetTransactionKey: txKey,
-          authorizeNetPublicClientKey: clientKey || undefined,
+          authorizeNetPublicClientKey: clientKey,
         }),
         credentials: "include",
       });
@@ -130,7 +130,10 @@ export function BillingAuthorizeNet() {
             className="font-mono"
           />
         </div>
-        <Button onClick={handleSave} disabled={saving || !apiLoginId.trim() || !transactionKey.trim()}>
+        <Button
+          onClick={handleSave}
+          disabled={saving || !apiLoginId.trim() || !transactionKey.trim() || !publicClientKey.trim()}
+        >
           {saving ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
