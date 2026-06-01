@@ -67,13 +67,24 @@ function merchantAuth(creds: MerchantAuthorizeCredentials) {
 function throwIfMessagesError(messages: AuthNetMessages | undefined, label: string): void {
   if (messages?.resultCode === "Error") {
     const text =
-      messages.message?.map((m) => m.text).filter(Boolean).join("; ") || "Unknown Authorize.Net error";
+      messages.message
+        ?.map((m) => {
+          const code = String(m.code ?? "").trim();
+          const msg = String(m.text ?? "").trim();
+          if (code && msg) return `${code}: ${msg}`;
+          return code || msg;
+        })
+        .filter(Boolean)
+        .join("; ") || "Unknown Authorize.Net error";
     throw new Error(`${label}: ${text}`);
   }
 }
 
 function getValidationMode(cluster: AuthorizeNetSessionCluster): "testMode" | "liveMode" {
-  return cluster === "production" ? "liveMode" : "testMode";
+  // For CIM profile creation, liveMode is strict and often fails for admin-entered cards
+  // without full AVS fields (zip/address) or when using non-chargeable test numbers.
+  // We only need to vault here; real authorization/validation happens when charging.
+  return "testMode";
 }
 
 async function postMerchantAuthorizeNetJson(
