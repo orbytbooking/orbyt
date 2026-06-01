@@ -6,7 +6,7 @@ import {
   getAuthenticatedUser,
 } from "@/lib/auth-helpers";
 import { getAcceptJsScriptUrl } from "@/lib/payments/authorizeNetMerchantApi";
-import { getAuthorizeNetSessionCluster } from "@/lib/payments/authorizeNetEnvironment";
+import { resolveAuthorizeNetSessionCluster } from "@/lib/payments/authorizeNetEnvironment";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
     const { data: biz, error: bizErr } = await supabase
       .from("businesses")
       .select(
-        "payment_provider, authorize_net_api_login_id, authorize_net_public_client_key, authorize_net_transaction_key"
+        "payment_provider, authorize_net_api_login_id, authorize_net_public_client_key, authorize_net_transaction_key, authorize_net_environment"
       )
       .eq("id", businessId)
       .single();
@@ -85,6 +85,7 @@ export async function GET(request: NextRequest) {
       authorize_net_api_login_id?: string | null;
       authorize_net_public_client_key?: string | null;
       authorize_net_transaction_key?: string | null;
+      authorize_net_environment?: string | null;
     };
 
     if (b.payment_provider !== "authorize_net") {
@@ -112,11 +113,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const cluster = resolveAuthorizeNetSessionCluster(b.authorize_net_environment);
+
     return NextResponse.json({
       apiLoginId,
       publicClientKey,
-      acceptJsUrl: getAcceptJsScriptUrl(),
-      environment: getAuthorizeNetSessionCluster(),
+      acceptJsUrl: getAcceptJsScriptUrl(cluster),
+      environment: cluster,
       businessId,
     });
   } catch (e) {

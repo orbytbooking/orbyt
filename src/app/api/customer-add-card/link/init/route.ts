@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { getAcceptJsScriptUrl } from "@/lib/payments/authorizeNetMerchantApi";
+import { resolveAuthorizeNetSessionCluster } from "@/lib/payments/authorizeNetEnvironment";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
     const { data: biz, error: bizErr } = await supabase!
       .from("businesses")
       .select(
-        "payment_provider, stripe_connect_account_id, stripe_secret_key, stripe_publishable_key, authorize_net_api_login_id, authorize_net_transaction_key, authorize_net_public_client_key"
+        "payment_provider, stripe_connect_account_id, stripe_secret_key, stripe_publishable_key, authorize_net_api_login_id, authorize_net_transaction_key, authorize_net_public_client_key, authorize_net_environment"
       )
       .eq("id", businessId)
       .single();
@@ -73,12 +74,14 @@ export async function POST(request: NextRequest) {
       authorize_net_api_login_id?: string | null;
       authorize_net_transaction_key?: string | null;
       authorize_net_public_client_key?: string | null;
+      authorize_net_environment?: string | null;
     };
 
     if (b.payment_provider === "authorize_net") {
       const apiLoginId = b.authorize_net_api_login_id?.trim() || "";
       const transactionKey = b.authorize_net_transaction_key?.trim() || "";
       const publicClientKey = b.authorize_net_public_client_key?.trim() || "";
+      const cluster = resolveAuthorizeNetSessionCluster(b.authorize_net_environment);
       if (!apiLoginId || !transactionKey) {
         return NextResponse.json({ error: "authorize_net_not_configured" }, { status: 500 });
       }
@@ -91,7 +94,8 @@ export async function POST(request: NextRequest) {
         customerId,
         apiLoginId,
         publicClientKey,
-        acceptJsUrl: getAcceptJsScriptUrl(),
+        acceptJsUrl: getAcceptJsScriptUrl(cluster),
+        environment: cluster,
       });
     }
 

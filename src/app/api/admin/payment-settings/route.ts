@@ -4,6 +4,7 @@ import {
   requireAdminTenantContext,
   assertBusinessIdMatchesContext,
 } from "@/lib/adminTenantContext";
+import { resolveAuthorizeNetSessionCluster } from "@/lib/payments/authorizeNetEnvironment";
 
 export type PaymentProvider = "stripe" | "authorize_net";
 
@@ -41,9 +42,11 @@ export async function GET(request: NextRequest) {
     let stripeBillingAddressEnabled = false;
     let authorizeNetApiLoginId: string | null = null;
     let authorizeNetPublicClientKeyConfigured = false;
+    let authorizeNetEnvironment: "sandbox" | "production" | null = null;
+    let authorizeNetEnvironmentResolved: "sandbox" | "production" = "sandbox";
     const { data: settings, error: settingsError } = await supabase
       .from("businesses")
-      .select("payment_provider, authorize_net_api_login_id, authorize_net_public_client_key, stripe_connect_account_id, stripe_publishable_key, stripe_secret_key, stripe_3ds_enabled, stripe_billing_address_enabled")
+      .select("payment_provider, authorize_net_api_login_id, authorize_net_public_client_key, authorize_net_environment, stripe_connect_account_id, stripe_publishable_key, stripe_secret_key, stripe_3ds_enabled, stripe_billing_address_enabled")
       .eq("id", businessId)
       .single();
     if (!settingsError && settings) {
@@ -51,6 +54,7 @@ export async function GET(request: NextRequest) {
         payment_provider?: string;
         authorize_net_api_login_id?: string | null;
         authorize_net_public_client_key?: string | null;
+        authorize_net_environment?: string | null;
         stripe_connect_account_id?: string | null;
         stripe_publishable_key?: string | null;
         stripe_secret_key?: string | null;
@@ -62,6 +66,11 @@ export async function GET(request: NextRequest) {
       authorizeNetPublicClientKeyConfigured = !!(
         b.authorize_net_public_client_key && String(b.authorize_net_public_client_key).trim()
       );
+      const storedEnv = b.authorize_net_environment?.trim().toLowerCase();
+      if (storedEnv === "production" || storedEnv === "sandbox") {
+        authorizeNetEnvironment = storedEnv;
+      }
+      authorizeNetEnvironmentResolved = resolveAuthorizeNetSessionCluster(b.authorize_net_environment);
       const hasConnect = !!(b.stripe_connect_account_id != null && String(b.stripe_connect_account_id).trim() !== "");
       const hasKeys = !!(b.stripe_secret_key != null && String(b.stripe_secret_key).trim() !== "");
       stripeConnected = hasConnect || hasKeys;
@@ -76,6 +85,8 @@ export async function GET(request: NextRequest) {
       paymentProvider,
       authorizeNetApiLoginId,
       authorizeNetPublicClientKeyConfigured,
+      authorizeNetEnvironment,
+      authorizeNetEnvironmentResolved,
       stripeConnected,
       stripePublishableKeyMasked,
       stripe3dsEnabled,
@@ -99,6 +110,7 @@ export async function PATCH(request: NextRequest) {
       authorizeNetApiLoginId?: string | null;
       authorizeNetTransactionKey?: string | null;
       authorizeNetPublicClientKey?: string | null;
+      authorizeNetEnvironment?: string | null;
       stripePublishableKey?: string | null;
       stripeSecretKey?: string | null;
       stripe3dsEnabled?: boolean;
@@ -122,6 +134,7 @@ export async function PATCH(request: NextRequest) {
     const authorizeNetApiLoginId = body.authorizeNetApiLoginId;
     const authorizeNetTransactionKey = body.authorizeNetTransactionKey;
     const authorizeNetPublicClientKey = body.authorizeNetPublicClientKey;
+    const authorizeNetEnvironment = body.authorizeNetEnvironment;
     const stripePublishableKey = body.stripePublishableKey;
     const stripeSecretKey = body.stripeSecretKey;
     const stripe3dsEnabled = body.stripe3dsEnabled;
@@ -145,6 +158,7 @@ export async function PATCH(request: NextRequest) {
       authorize_net_api_login_id?: string | null;
       authorize_net_transaction_key?: string | null;
       authorize_net_public_client_key?: string | null;
+      authorize_net_environment?: string | null;
       stripe_publishable_key?: string | null;
       stripe_secret_key?: string | null;
       stripe_3ds_enabled?: boolean;
@@ -168,6 +182,11 @@ export async function PATCH(request: NextRequest) {
         authorizeNetPublicClientKey === null || authorizeNetPublicClientKey === ""
           ? null
           : String(authorizeNetPublicClientKey).trim();
+    }
+    if (authorizeNetEnvironment !== undefined) {
+      const env = String(authorizeNetEnvironment ?? "").trim().toLowerCase();
+      updates.authorize_net_environment =
+        env === "production" || env === "sandbox" ? env : null;
     }
     if (stripePublishableKey !== undefined) {
       updates.stripe_publishable_key =

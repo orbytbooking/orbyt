@@ -6,14 +6,18 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, Loader2 } from "lucide-react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { toast } from "sonner";
+
+type AuthorizeNetEnvironment = "sandbox" | "production";
 
 export function BillingAuthorizeNet() {
   const { currentBusiness } = useBusiness();
   const [apiLoginId, setApiLoginId] = useState("");
   const [transactionKey, setTransactionKey] = useState("");
   const [publicClientKey, setPublicClientKey] = useState("");
+  const [environment, setEnvironment] = useState<AuthorizeNetEnvironment>("production");
   const [hasExistingConfig, setHasExistingConfig] = useState(false);
   const [hasPublicClientKey, setHasPublicClientKey] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -33,6 +37,11 @@ export function BillingAuthorizeNet() {
         const data = await res.json();
         setHasExistingConfig(!!data.authorizeNetApiLoginId);
         setHasPublicClientKey(!!data.authorizeNetPublicClientKeyConfigured);
+        const resolved = data.authorizeNetEnvironmentResolved === "production" ? "production" : "sandbox";
+        const stored = data.authorizeNetEnvironment === "production" || data.authorizeNetEnvironment === "sandbox"
+          ? data.authorizeNetEnvironment
+          : null;
+        setEnvironment(stored ?? resolved);
       } catch {
         // ignore
       }
@@ -66,6 +75,7 @@ export function BillingAuthorizeNet() {
           authorizeNetApiLoginId: loginId,
           authorizeNetTransactionKey: txKey,
           authorizeNetPublicClientKey: clientKey,
+          authorizeNetEnvironment: environment,
         }),
         credentials: "include",
       });
@@ -97,6 +107,27 @@ export function BillingAuthorizeNet() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="space-y-3">
+          <Label>Environment</Label>
+          <RadioGroup
+            value={environment}
+            onValueChange={(v) => setEnvironment(v as AuthorizeNetEnvironment)}
+            className="grid gap-2"
+          >
+            <div className="flex items-start gap-2">
+              <RadioGroupItem value="production" id="authnet-env-production" className="mt-1" />
+              <Label htmlFor="authnet-env-production" className="font-normal leading-snug cursor-pointer">
+                Production (live) — real charges; use live API Login ID, Transaction Key, and Public Client Key
+              </Label>
+            </div>
+            <div className="flex items-start gap-2">
+              <RadioGroupItem value="sandbox" id="authnet-env-sandbox" className="mt-1" />
+              <Label htmlFor="authnet-env-sandbox" className="font-normal leading-snug cursor-pointer">
+                Sandbox (test) — Authorize.Net test credentials only
+              </Label>
+            </div>
+          </RadioGroup>
+        </div>
         <div className="space-y-2">
           <Label htmlFor="authnet-api-login-id">API Login ID</Label>
           <Input

@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AuthorizeNetSessionCluster } from "@/lib/payments/authorizeNetEnvironment";
+import { resolveAuthorizeNetSessionCluster } from "@/lib/payments/authorizeNetEnvironment";
 import type { AuthorizeNetOpaqueData, MerchantAuthorizeCredentials } from "@/lib/payments/authorizeNetMerchantApi";
 import {
   getCustomerPaymentProfileSnapshot,
@@ -25,6 +27,18 @@ export async function saveCustomerAuthorizeNetCard(
     return { ok: false, error: "Missing payment token from Accept.js.", status: 400 };
   }
 
+  const { data: biz, error: bizErr } = await supabase
+    .from("businesses")
+    .select("authorize_net_environment")
+    .eq("id", params.businessId)
+    .single();
+  if (bizErr || !biz) {
+    return { ok: false, error: "Business not found", status: 404 };
+  }
+  const cluster: AuthorizeNetSessionCluster = resolveAuthorizeNetSessionCluster(
+    (biz as { authorize_net_environment?: string | null }).authorize_net_environment
+  );
+
   const { data: cust, error: custErr } = await supabase
     .from("customers")
     .select("id, email, billing_cards, authorize_net_customer_profile_id")
@@ -48,6 +62,7 @@ export async function saveCustomerAuthorizeNetCard(
   try {
     const vaulted = await vaultMerchantCustomerCard({
       creds: params.creds,
+      cluster,
       existingCustomerProfileId: customerProfileId || null,
       merchantCustomerId: params.customerId,
       email: row.email,
@@ -69,7 +84,8 @@ export async function saveCustomerAuthorizeNetCard(
     const snapshot = await getCustomerPaymentProfileSnapshot(
       params.creds,
       customerProfileId,
-      customerPaymentProfileId
+      customerPaymentProfileId,
+      cluster
     );
     last4 = snapshot.last4;
     brand = snapshot.brand || "Card";

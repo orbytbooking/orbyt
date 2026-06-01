@@ -1,6 +1,7 @@
+import type { AuthorizeNetSessionCluster } from "@/lib/payments/authorizeNetEnvironment";
 import {
-  getAuthorizeNetApiUrl,
-  getAuthorizeNetSessionCluster,
+  getAcceptJsScriptUrlForCluster,
+  getAuthorizeNetApiUrlForCluster,
 } from "@/lib/payments/authorizeNetEnvironment";
 
 export type MerchantAuthorizeCredentials = {
@@ -42,15 +43,16 @@ function throwIfMessagesError(messages: AuthNetMessages | undefined, label: stri
   }
 }
 
-function getValidationMode(): "testMode" | "liveMode" {
-  return getAuthorizeNetSessionCluster() === "production" ? "liveMode" : "testMode";
+function getValidationMode(cluster: AuthorizeNetSessionCluster): "testMode" | "liveMode" {
+  return cluster === "production" ? "liveMode" : "testMode";
 }
 
 async function postMerchantAuthorizeNetJson(
   creds: MerchantAuthorizeCredentials,
-  body: unknown
+  body: unknown,
+  cluster: AuthorizeNetSessionCluster
 ): Promise<Record<string, unknown>> {
-  const apiUrl = getAuthorizeNetApiUrl();
+  const apiUrl = getAuthorizeNetApiUrlForCluster(cluster);
   const res = await fetch(apiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -116,24 +118,27 @@ function parseExpMonthYear(expirationDate: unknown): { expMonth: number | null; 
   return { expMonth: null, expYear: null };
 }
 
-export function getAcceptJsScriptUrl(): string {
-  return getAuthorizeNetSessionCluster() === "production"
-    ? "https://js.authorize.net/v1/Accept.js"
-    : "https://jstest.authorize.net/v1/Accept.js";
+export function getAcceptJsScriptUrl(cluster: AuthorizeNetSessionCluster): string {
+  return getAcceptJsScriptUrlForCluster(cluster);
 }
 
 export async function getCustomerPaymentProfileSnapshot(
   creds: MerchantAuthorizeCredentials,
   customerProfileId: string,
-  customerPaymentProfileId: string
+  customerPaymentProfileId: string,
+  cluster: AuthorizeNetSessionCluster
 ): Promise<{ last4: string | null; brand: string | null; expMonth: number | null; expYear: number | null }> {
-  const raw = await postMerchantAuthorizeNetJson(creds, {
-    getCustomerPaymentProfileRequest: {
-      merchantAuthentication: merchantAuth(creds),
-      customerProfileId,
-      customerPaymentProfileId,
+  const raw = await postMerchantAuthorizeNetJson(
+    creds,
+    {
+      getCustomerPaymentProfileRequest: {
+        merchantAuthentication: merchantAuth(creds),
+        customerProfileId,
+        customerPaymentProfileId,
+      },
     },
-  });
+    cluster
+  );
 
   const resp =
     (raw as { getCustomerPaymentProfileResponse?: Record<string, unknown> }).getCustomerPaymentProfileResponse ??
@@ -159,22 +164,27 @@ export async function createMerchantCustomerPaymentProfile(params: {
   creds: MerchantAuthorizeCredentials;
   customerProfileId: string;
   opaqueData: AuthorizeNetOpaqueData;
+  cluster: AuthorizeNetSessionCluster;
 }): Promise<{ customerPaymentProfileId: string }> {
-  const raw = await postMerchantAuthorizeNetJson(params.creds, {
-    createCustomerPaymentProfileRequest: {
-      merchantAuthentication: merchantAuth(params.creds),
-      customerProfileId: params.customerProfileId,
-      paymentProfile: {
-        payment: {
-          opaqueData: {
-            dataDescriptor: params.opaqueData.dataDescriptor,
-            dataValue: params.opaqueData.dataValue,
+  const raw = await postMerchantAuthorizeNetJson(
+    params.creds,
+    {
+      createCustomerPaymentProfileRequest: {
+        merchantAuthentication: merchantAuth(params.creds),
+        customerProfileId: params.customerProfileId,
+        paymentProfile: {
+          payment: {
+            opaqueData: {
+              dataDescriptor: params.opaqueData.dataDescriptor,
+              dataValue: params.opaqueData.dataValue,
+            },
           },
         },
+        validationMode: getValidationMode(params.cluster),
       },
-      validationMode: getValidationMode(),
     },
-  });
+    params.cluster
+  );
 
   const resp =
     (raw as { createCustomerPaymentProfileResponse?: Record<string, unknown> })
@@ -194,6 +204,7 @@ export async function createMerchantCustomerProfileWithPayment(params: {
   merchantCustomerId: string;
   email?: string | null;
   opaqueData: AuthorizeNetOpaqueData;
+  cluster: AuthorizeNetSessionCluster;
 }): Promise<{ customerProfileId: string; customerPaymentProfileId: string }> {
   const profile: Record<string, unknown> = {
     merchantCustomerId: params.merchantCustomerId.slice(0, 20),
@@ -215,13 +226,17 @@ export async function createMerchantCustomerProfileWithPayment(params: {
     profile.email = email;
   }
 
-  const raw = await postMerchantAuthorizeNetJson(params.creds, {
-    createCustomerProfileRequest: {
-      merchantAuthentication: merchantAuth(params.creds),
-      profile,
-      validationMode: getValidationMode(),
+  const raw = await postMerchantAuthorizeNetJson(
+    params.creds,
+    {
+      createCustomerProfileRequest: {
+        merchantAuthentication: merchantAuth(params.creds),
+        profile,
+        validationMode: getValidationMode(params.cluster),
+      },
     },
-  });
+    params.cluster
+  );
 
   const resp =
     (raw as { createCustomerProfileResponse?: Record<string, unknown> }).createCustomerProfileResponse ?? raw;
@@ -239,6 +254,7 @@ export async function createMerchantCustomerProfileWithPayment(params: {
 
 export async function vaultMerchantCustomerCard(params: {
   creds: MerchantAuthorizeCredentials;
+  cluster: AuthorizeNetSessionCluster;
   existingCustomerProfileId?: string | null;
   merchantCustomerId: string;
   email?: string | null;
@@ -250,6 +266,7 @@ export async function vaultMerchantCustomerCard(params: {
       creds: params.creds,
       customerProfileId: existing,
       opaqueData: params.opaqueData,
+      cluster: params.cluster,
     });
     return { customerProfileId: existing, customerPaymentProfileId: created.customerPaymentProfileId };
   }
@@ -259,5 +276,6 @@ export async function vaultMerchantCustomerCard(params: {
     merchantCustomerId: params.merchantCustomerId,
     email: params.email,
     opaqueData: params.opaqueData,
+    cluster: params.cluster,
   });
 }

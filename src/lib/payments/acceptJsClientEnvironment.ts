@@ -42,6 +42,6 @@ export function isAcceptJsAuthError(message: string): boolean {
 }
 
 export function enrichAcceptJsAuthError(message: string, serverEnvironment?: "sandbox" | "production"): string {
-  const envLabel = serverEnvironment === "production" ? "production (live)" : "sandbox";
-  return `${message} This is not caused by the card number. Check that your API Login ID and Public Client Key are live keys from the same Authorize.Net merchant account, were saved together in Billing settings, and match the server environment (${envLabel}). If you use live keys, set AUTHORIZE_NET_ENVIRONMENT=production on the server and restart.`;
+  const envLabel = serverEnvironment === "production" ? "Production (live)" : "Sandbox (test)";
+  return `${message} This is not caused by the card number. In Billing → Authorize.net, select ${serverEnvironment === "production" ? "Production (live)" : "Sandbox (test)"}, re-enter all three credentials from the same Authorize.Net merchant account (API Login ID, Transaction Key, and Public Client Key generated for that Login ID), and save. The add-card form is currently using ${envLabel}.`;
 }

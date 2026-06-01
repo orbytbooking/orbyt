@@ -5,16 +5,42 @@ const AUTHORIZE_NET_PROD_API = "https://api.authorize.net/xml/v1/request.api";
 const AUTHORIZE_NET_SANDBOX_PAYMENT_FORM = "https://test.authorize.net/payment/payment";
 const AUTHORIZE_NET_PROD_PAYMENT_FORM = "https://accept.authorize.net/payment/payment";
 
-/** Sandbox unless AUTHORIZE_NET_ENVIRONMENT=production */
-export function getAuthorizeNetApiUrl(): string {
-  return process.env.AUTHORIZE_NET_ENVIRONMENT === "production" ? AUTHORIZE_NET_PROD_API : AUTHORIZE_NET_SANDBOX_API;
-}
-
 /** Which Authorize.Net cluster issued / validates the hosted payment token (API + form host must match). */
 export type AuthorizeNetSessionCluster = "sandbox" | "production";
 
+/** Sandbox unless AUTHORIZE_NET_ENVIRONMENT=production */
 export function getAuthorizeNetSessionCluster(): AuthorizeNetSessionCluster {
   return process.env.AUTHORIZE_NET_ENVIRONMENT === "production" ? "production" : "sandbox";
+}
+
+export function normalizeAuthorizeNetEnvironment(
+  raw?: string | null
+): AuthorizeNetSessionCluster | null {
+  const s = String(raw ?? "").trim().toLowerCase();
+  if (s === "production" || s === "live") return "production";
+  if (s === "sandbox" || s === "test") return "sandbox";
+  return null;
+}
+
+/** Business setting wins; otherwise fall back to server AUTHORIZE_NET_ENVIRONMENT. */
+export function resolveAuthorizeNetSessionCluster(
+  businessEnvironment?: string | null
+): AuthorizeNetSessionCluster {
+  return normalizeAuthorizeNetEnvironment(businessEnvironment) ?? getAuthorizeNetSessionCluster();
+}
+
+export function getAuthorizeNetApiUrlForCluster(cluster: AuthorizeNetSessionCluster): string {
+  return cluster === "production" ? AUTHORIZE_NET_PROD_API : AUTHORIZE_NET_SANDBOX_API;
+}
+
+export function getAcceptJsScriptUrlForCluster(cluster: AuthorizeNetSessionCluster): string {
+  return cluster === "production"
+    ? "https://js.authorize.net/v1/Accept.js"
+    : "https://jstest.authorize.net/v1/Accept.js";
+}
+
+export function getAuthorizeNetApiUrl(): string {
+  return getAuthorizeNetApiUrlForCluster(getAuthorizeNetSessionCluster());
 }
 
 /** URL for POSTing the hosted payment token (see Accept Hosted docs). */

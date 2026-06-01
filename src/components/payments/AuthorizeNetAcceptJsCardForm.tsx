@@ -249,7 +249,7 @@ export function AuthorizeNetAcceptJsCardForm({
     <div className="space-y-4">
       {config ? (
         <p className="text-xs text-muted-foreground">
-          Server Authorize.Net mode:{" "}
+          Authorize.Net mode:{" "}
           <span className="font-medium">
             {config.environment === "production" ? "Production (live)" : "Sandbox (test)"}
           </span>
