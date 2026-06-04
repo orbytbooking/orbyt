@@ -9,6 +9,7 @@ export type CustomerPortalPricingSummary = {
   partialCleaningDiscount: number;
   frequencyDiscount: number;
   couponDiscount: number;
+  giftCardDiscount?: number;
   tax: number;
   taxLabel?: string;
   total: number;
@@ -47,6 +48,7 @@ export function extractPricingSummaryFromCustomization(
   const partialCleaningDiscount = num(o.partial_cleaning_discount ?? o.partialCleaningDiscount);
   const frequencyDiscount = num(o.frequency_discount ?? o.frequencyDiscount);
   const couponDiscount = num(o.coupon_discount ?? o.couponDiscount);
+  const giftCardDiscount = num(o.gift_card_discount ?? o.giftCardDiscount);
   const tax = num(o.tax);
   const taxLabelRaw = o.tax_label ?? o.taxLabel;
   const taxLabel =
@@ -60,6 +62,7 @@ export function extractPricingSummaryFromCustomization(
     partialCleaningDiscount,
     frequencyDiscount,
     couponDiscount,
+    ...(giftCardDiscount > 0 ? { giftCardDiscount } : {}),
     tax,
     ...(taxLabel ? { taxLabel } : {}),
     total,
@@ -75,6 +78,7 @@ export function serializePricingSummaryForCustomization(tot: {
   partialCleaningDiscount: number;
   frequencyDiscount: number;
   couponDiscount: number;
+  giftCardDiscount?: number;
   tax: number;
   taxLabel?: string;
   total: number;
@@ -87,6 +91,9 @@ export function serializePricingSummaryForCustomization(tot: {
     partial_cleaning_discount: tot.partialCleaningDiscount,
     frequency_discount: tot.frequencyDiscount,
     coupon_discount: tot.couponDiscount,
+    ...(tot.giftCardDiscount != null && tot.giftCardDiscount > 0
+      ? { gift_card_discount: tot.giftCardDiscount }
+      : {}),
     tax: tot.tax,
     ...(tot.taxLabel ? { tax_label: tot.taxLabel } : {}),
     total: tot.total,

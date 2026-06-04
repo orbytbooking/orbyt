@@ -11,6 +11,7 @@ export type CustomerCheckoutPaymentLines = {
   partialCleaningDiscount: number;
   frequencyDiscount: number;
   couponDiscount: number;
+  giftCardDiscount?: number;
   tax: number;
   taxLabel: string;
   taxesEnabled: boolean;
@@ -31,6 +32,7 @@ export function CustomerBookingCheckoutPaymentSummary({
   partialCleaningDiscount,
   frequencyDiscount,
   couponDiscount,
+  giftCardDiscount = 0,
   tax,
   taxLabel,
   taxesEnabled,
@@ -66,6 +68,12 @@ export function CustomerBookingCheckoutPaymentSummary({
         <div className="flex justify-between">
           <span className="text-muted-foreground">Coupon Discount</span>
           <span className="font-medium text-green-600">-{money(couponDiscount)}</span>
+        </div>
+      )}
+      {giftCardDiscount > 0 && (
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Gift Card</span>
+          <span className="font-medium text-green-600">-{money(giftCardDiscount)}</span>
         </div>
       )}
       {taxesEnabled && (

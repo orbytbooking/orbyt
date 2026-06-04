@@ -290,6 +290,12 @@ type AppliedCoupon = {
   discountValue: number;
 };
 
+type AppliedGiftCard = {
+  code: string;
+  instanceId: string;
+  balance: number;
+};
+
 const toIndustryKey = (label: string) =>
   label
     .trim()
@@ -1050,6 +1056,7 @@ export default function BookingPageContent() {
   const paymentConfirmSentRef = useRef(false);
   const [cancellationPolicyDisclaimer, setCancellationPolicyDisclaimer] = useState<string | null>(null);
   const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null);
+  const [appliedGiftCard, setAppliedGiftCard] = useState<AppliedGiftCard | null>(null);
 
   const getCouponDiscountAmount = useCallback((subtotal: number) => {
     if (!appliedCoupon || subtotal <= 0) return 0;
@@ -1058,6 +1065,11 @@ export default function BookingPageContent() {
     }
     return Math.max(0, Math.min(subtotal, appliedCoupon.discountValue));
   }, [appliedCoupon]);
+
+  const getGiftCardDiscountAmount = useCallback((baseAfterCoupon: number) => {
+    if (!appliedGiftCard || baseAfterCoupon <= 0) return 0;
+    return Math.max(0, Math.min(appliedGiftCard.balance, baseAfterCoupon));
+  }, [appliedGiftCard]);
 
   const isAccountLocked = !accountLoading && Boolean(customerName || customerEmail);
   const [prefilledBookingId, setPrefilledBookingId] = useState<string | null>(null);
@@ -3806,11 +3818,26 @@ export default function BookingPageContent() {
                   },
                 }
               : {}),
+            ...(appliedGiftCard && tot.giftCardDiscount > 0
+              ? {
+                  gift_card: {
+                    code: appliedGiftCard.code,
+                    redemption_amount: tot.giftCardDiscount,
+                  },
+                }
+              : {}),
           },
           coupon_code: appliedCoupon?.code,
           coupon_discount_type: appliedCoupon?.discountType,
           coupon_discount_value: appliedCoupon?.discountValue,
           coupon_discount_amount: appliedCoupon ? tot.couponDiscount : undefined,
+          ...(appliedGiftCard && tot.giftCardDiscount > 0
+            ? {
+                gift_card_code: appliedGiftCard.code,
+                gift_card_instance_id: appliedGiftCard.instanceId,
+                gift_card_redemption_amount: tot.giftCardDiscount,
+              }
+            : {}),
           ...(isRecurringFreq
             ? {
                 create_recurring: true,
@@ -3893,7 +3920,9 @@ export default function BookingPageContent() {
     availableProviders,
     showProviderStep,
     appliedCoupon,
+    appliedGiftCard,
     getCouponDiscountAmount,
+    getGiftCardDiscountAmount,
     storeDefaultProviderWage,
     frequencyMetaByName,
     excludeParametersList,
@@ -4544,6 +4573,7 @@ export default function BookingPageContent() {
         frequencyDiscount: 0,
         baseBeforeCoupon: 0,
         couponDiscount: 0,
+        giftCardDiscount: 0,
         discountedSubtotal: 0,
         tax: 0,
         taxLabel: bookingTaxConfig.label,
@@ -4591,6 +4621,7 @@ export default function BookingPageContent() {
       frequencyDiscount,
       taxRate: bookingTaxConfig.rateDecimal,
       getCouponDiscountAmount,
+      getGiftCardDiscountAmount,
     });
     return {
       ...out,
@@ -4600,6 +4631,11 @@ export default function BookingPageContent() {
       taxLabel: bookingTaxConfig.label,
     };
   }
+
+  /** Always-current totals for async handlers (avoids stale useCallback closures). */
+  const bookingTotalsRef = useRef(calculateTotal());
+  bookingTotalsRef.current = calculateTotal();
+  summaryTotalRef.current = bookingTotalsRef.current.total;
 
   const applyCustomerCoupon = useCallback(async () => {
     const codeRaw = (form.getValues("couponCode") || "").trim();
@@ -4811,6 +4847,86 @@ export default function BookingPageContent() {
     getCouponDiscountAmount,
   ]);
 
+  const applyCustomerGiftCard = useCallback(async () => {
+    const codeRaw = (form.getValues("giftCardCode") || "").trim().toUpperCase();
+    const currentBusinessId = businessIdFromUrl.trim() || null;
+    if (!currentBusinessId) {
+      toast({ title: "Business required", description: "Missing business context.", variant: "destructive" });
+      return;
+    }
+    if (!codeRaw) {
+      toast({ title: "Missing gift card", description: "Enter a gift card code first.", variant: "destructive" });
+      return;
+    }
+
+    const res = await fetch(
+      `/api/guest/gift-card?business_id=${encodeURIComponent(currentBusinessId)}&unique_code=${encodeURIComponent(codeRaw)}`,
+    );
+    const result = (await res.json().catch(() => ({}))) as {
+      valid?: boolean;
+      instance_id?: string;
+      current_balance?: number;
+      error_message?: string;
+      error?: string;
+    };
+
+    if (!res.ok || !result.valid || !result.instance_id) {
+      setAppliedGiftCard(null);
+      toast({
+        title: "Invalid gift card",
+        description: result.error_message || result.error || "Gift card not found or inactive.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const balance = Number(result.current_balance ?? 0);
+    if (balance <= 0) {
+      setAppliedGiftCard(null);
+      toast({
+        title: "No balance",
+        description: "This gift card has no remaining balance.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const totals = bookingTotalsRef.current;
+    const baseBeforeCoupon = totals.baseBeforeCoupon;
+    const couponDisc = getCouponDiscountAmount(baseBeforeCoupon);
+    const afterCoupon = Math.max(0, baseBeforeCoupon - couponDisc);
+    const giftDisc = Math.min(balance, afterCoupon);
+
+    if (baseBeforeCoupon <= 0) {
+      setAppliedGiftCard(null);
+      toast({
+        title: "Nothing to apply",
+        description: "Add services to your booking before applying a gift card.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (giftDisc <= 0) {
+      setAppliedGiftCard(null);
+      toast({
+        title: "Nothing to apply",
+        description: "Your order total is already fully covered by other discounts.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setAppliedGiftCard({
+      code: codeRaw,
+      instanceId: result.instance_id,
+      balance,
+    });
+    toast({
+      title: "Gift card applied",
+      description: `${codeRaw} applied: -$${giftDisc.toFixed(2)} (${(balance - giftDisc).toFixed(2)} remaining after this booking)`,
+    });
+  }, [form, businessIdFromUrl, toast, getCouponDiscountAmount]);
+
   // Handle cash payment
   const handleCashPayment = async (bookingValuesOverride?: z.infer<typeof formSchema>) => {
     setIsProcessing(true);
@@ -4981,11 +5097,26 @@ export default function BookingPageContent() {
                 },
               }
             : {}),
+          ...(appliedGiftCard && tot.giftCardDiscount > 0
+            ? {
+                gift_card: {
+                  code: appliedGiftCard.code,
+                  redemption_amount: tot.giftCardDiscount,
+                },
+              }
+            : {}),
         },
         coupon_code: appliedCoupon?.code,
         coupon_discount_type: appliedCoupon?.discountType,
         coupon_discount_value: appliedCoupon?.discountValue,
         coupon_discount_amount: appliedCoupon ? tot.couponDiscount : undefined,
+        ...(appliedGiftCard && tot.giftCardDiscount > 0
+          ? {
+              gift_card_code: appliedGiftCard.code,
+              gift_card_instance_id: appliedGiftCard.instanceId,
+              gift_card_redemption_amount: tot.giftCardDiscount,
+            }
+          : {}),
         ...(isRecurringFreq
           ? {
               create_recurring: true,
@@ -5064,7 +5195,9 @@ export default function BookingPageContent() {
     availableProviders,
     showProviderStep,
     appliedCoupon,
+    appliedGiftCard,
     getCouponDiscountAmount,
+    getGiftCardDiscountAmount,
     storeDefaultProviderWage,
     paymentProvider,
     frequencyMetaByName,
@@ -5287,6 +5420,7 @@ export default function BookingPageContent() {
       partialCleaningDiscount,
       frequencyDiscount,
       couponDiscount,
+      giftCardDiscount,
       tax,
       taxLabel,
       total,
@@ -5401,6 +5535,7 @@ export default function BookingPageContent() {
                       partialCleaningDiscount={partialCleaningDiscount}
                       frequencyDiscount={frequencyDiscount}
                       couponDiscount={couponDiscount}
+                      giftCardDiscount={giftCardDiscount}
                       tax={tax}
                       taxLabel={taxLabel ?? bookingTaxConfig.label}
                       taxesEnabled={taxSettingsLoaded && bookingTaxConfig.taxesEnabled}
@@ -5510,6 +5645,7 @@ export default function BookingPageContent() {
       partialCleaningDiscount: summaryTotals.partialCleaningDiscount,
       frequencyDiscount: summaryTotals.frequencyDiscount,
       couponDiscount: summaryTotals.couponDiscount,
+      giftCardDiscount: summaryTotals.giftCardDiscount,
       tax: summaryTotals.tax,
       taxLabel: summaryTotals.taxLabel ?? bookingTaxConfig.label,
       taxesEnabled: taxSettingsLoaded && bookingTaxConfig.taxesEnabled,
@@ -6987,6 +7123,7 @@ export default function BookingPageContent() {
                               type="button"
                               onClick={() => {
                                 setAppliedCoupon(null);
+                                setAppliedGiftCard(null);
                                 form.setValue("couponCodeTab", "coupon-code");
                               }}
                               className={`pb-2 text-base font-semibold ${form.watch("couponCodeTab") === "coupon-code" ? (useForm2Layout ? "text-cyan-600 border-b-2 border-cyan-500" : "text-blue-600 border-b-2 border-blue-600") : "text-gray-500 hover:text-gray-700"}`}
@@ -6997,6 +7134,7 @@ export default function BookingPageContent() {
                               type="button"
                               onClick={() => {
                                 setAppliedCoupon(null);
+                                setAppliedGiftCard(null);
                                 form.setValue("couponCodeTab", "gift-card");
                               }}
                               className={`pb-2 text-base font-semibold ${form.watch("couponCodeTab") === "gift-card" ? (useForm2Layout ? "text-cyan-600 border-b-2 border-cyan-500" : "text-blue-600 border-b-2 border-blue-600") : "text-gray-500 hover:text-gray-700"}`}
@@ -7075,6 +7213,10 @@ export default function BookingPageContent() {
                                               id="gift-card-code"
                                               placeholder="Enter gift card code"
                                               {...field}
+                                              onChange={(e) => {
+                                                setAppliedGiftCard(null);
+                                                field.onChange(e.target.value.toUpperCase());
+                                              }}
                                               className="border-gray-300"
                                             />
                                           </FormControl>
@@ -7084,12 +7226,7 @@ export default function BookingPageContent() {
                                     />
                                     <Button
                                       type="button"
-                                      onClick={() => {
-                                        toast({
-                                          title: "Gift Card Applied",
-                                          description: `Gift card "${form.getValues("giftCardCode")}" has been applied.`,
-                                        });
-                                      }}
+                                      onClick={applyCustomerGiftCard}
                                       className={
                                         useForm2Layout
                                           ? "bg-gradient-to-r from-cyan-500 to-sky-500 hover:from-cyan-600 hover:to-sky-600 text-white px-6"
@@ -7099,6 +7236,11 @@ export default function BookingPageContent() {
                                       Apply
                                     </Button>
                                   </div>
+                                  {appliedGiftCard && (
+                                    <p className="mt-2 text-sm text-green-700">
+                                      Applied {appliedGiftCard.code} (${appliedGiftCard.balance.toFixed(2)} balance)
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                             )}

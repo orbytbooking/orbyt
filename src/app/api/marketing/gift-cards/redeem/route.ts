@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
+import { supabaseAdmin } from '@/lib/supabaseClient';
 import { z } from 'zod';
 
 // Schema for redeeming gift cards
@@ -19,7 +19,11 @@ export async function POST(request: NextRequest) {
     const validatedData = redeemGiftCardSchema.parse(body);
 
     // Call the database function to redeem the gift card
-    const { data, error } = await supabase
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
+
+    const { data, error } = await supabaseAdmin
       .rpc('redeem_gift_card', {
         card_code: validatedData.unique_code,
         business_uuid: validatedData.business_id,
@@ -76,7 +80,11 @@ export async function GET(request: NextRequest) {
     }
 
     // Call the database function to validate the gift card
-    const { data, error } = await supabase
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
+
+    const { data, error } = await supabaseAdmin
       .rpc('validate_gift_card', {
         card_code: uniqueCode,
         business_uuid: businessId,

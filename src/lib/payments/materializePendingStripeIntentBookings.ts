@@ -8,6 +8,7 @@ import { resolveFrequencyRepeatsForBooking } from "@/lib/industryFrequencyRepeat
 import { parseDurationMinutesFromBookingPayload } from "@/lib/bookingDuration";
 import { sendCustomerFacingBookingEmailAfterScheduling } from "@/lib/sendCustomerBookingConfirmedEmail";
 import { evaluateMarketingCouponCustomerScope } from "@/lib/marketingCouponCustomerScope";
+import { processGiftCardFromBookingBody } from "@/lib/giftCardBooking";
 
 function normalizeTimeForDb(timeStr: string): string | null {
   if (!timeStr || typeof timeStr !== "string") return null;
@@ -131,6 +132,18 @@ export async function materializeGuestBookingFromIntentPayload(
     }
   }
 
+  const giftCardValidateMat = await processGiftCardFromBookingBody(
+    supabase,
+    businessId,
+    body,
+    "",
+    customerId,
+    "validate",
+  );
+  if (!giftCardValidateMat.ok) {
+    return { ok: false, error: "invalid_gift_card" };
+  }
+
   const customizationRaw = body.customization;
   const durationMinutes = parseDurationMinutesFromBookingPayload(body);
   const zipCodeForDb =
@@ -250,6 +263,14 @@ export async function materializeGuestBookingFromIntentPayload(
       }).catch((e) => console.warn("Scheduling processing failed:", e));
 
       if (firstBooking?.id) {
+        await processGiftCardFromBookingBody(
+          supabase,
+          businessId,
+          body,
+          String(firstBooking.id),
+          customerId,
+          "redeem",
+        );
         await sendCustomerFacingBookingEmailAfterScheduling(supabase, businessId, String(firstBooking.id), {
           totalPriceFallback: totalPrice,
           customerEmailFallback: customerEmail,
@@ -291,6 +312,8 @@ export async function materializeGuestBookingFromIntentPayload(
   }
 
   const bookingId = String(booking.id);
+
+  await processGiftCardFromBookingBody(supabase, businessId, body, bookingId, customerId, "redeem");
 
   await processBookingScheduling(bookingId, businessId, {
     providerId: booking.provider_id as string | null,
@@ -373,6 +396,18 @@ export async function materializeCustomerBookingFromIntentPayload(
     if (!scopeCust.ok) {
       return { ok: false, error: "coupon_not_allowed" };
     }
+  }
+
+  const giftCardValidateCust = await processGiftCardFromBookingBody(
+    supabase,
+    businessId,
+    body,
+    "",
+    String(customer.id),
+    "validate",
+  );
+  if (!giftCardValidateCust.ok) {
+    return { ok: false, error: "invalid_gift_card" };
   }
 
   const date = (body.date ?? "").toString().trim();
@@ -516,6 +551,14 @@ export async function materializeCustomerBookingFromIntentPayload(
       }).catch((e) => console.warn("Scheduling processing failed:", e));
 
       if (firstBooking?.id) {
+        await processGiftCardFromBookingBody(
+          supabase,
+          businessId,
+          body,
+          String(firstBooking.id),
+          String(customer.id),
+          "redeem",
+        );
         await sendCustomerFacingBookingEmailAfterScheduling(supabase, businessId, String(firstBooking.id), {
           totalPriceFallback: totalPrice,
           customerEmailFallback: (firstBooking?.customer_email ?? customer.email ?? "").toString().trim() || null,
@@ -563,6 +606,15 @@ export async function materializeCustomerBookingFromIntentPayload(
   }
 
   const bookingId = String(booking.id);
+
+  await processGiftCardFromBookingBody(
+    supabase,
+    businessId,
+    body,
+    bookingId,
+    String(customer.id),
+    "redeem",
+  );
 
   await processBookingScheduling(bookingId, businessId, {
     providerId: booking.provider_id as string | null,

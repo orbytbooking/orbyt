@@ -11,6 +11,7 @@ import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProvider
 import { parseDurationMinutesFromBookingPayload } from '@/lib/bookingDuration';
 import { evaluateMarketingCouponCustomerScope } from '@/lib/marketingCouponCustomerScope';
 import { assertBookingServiceAreaAllowed } from '@/lib/resolveIndustryLocationsForBooking';
+import { processGiftCardFromBookingBody } from '@/lib/giftCardBooking';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -220,6 +221,21 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  const giftCardValidate = await processGiftCardFromBookingBody(
+    supabase,
+    String(businessId),
+    body,
+    '',
+    customerId,
+    'validate',
+  );
+  if (!giftCardValidate.ok) {
+    return NextResponse.json(
+      { error: 'INVALID_GIFT_CARD', message: giftCardValidate.message },
+      { status: 400 },
+    );
+  }
+
   const industryIdForServiceArea = (body.industry_id ?? body.industryId ?? '').toString().trim();
   const serviceAreaInput = (body.service_area_input ?? body.zip_code ?? body.zipCode ?? '').toString();
   /** Persisted on `bookings.zip_code` for admin/provider summaries (same value used for service-area checks). */
@@ -413,6 +429,14 @@ export async function POST(request: NextRequest) {
       }).catch((e) => console.warn('Scheduling processing failed:', e));
 
       if (firstBooking?.id) {
+        await processGiftCardFromBookingBody(
+          supabase,
+          String(businessId),
+          body,
+          String(firstBooking.id),
+          customerId,
+          'redeem',
+        );
         await sendCustomerFacingBookingEmailAfterScheduling(supabase, businessId, String(firstBooking.id), {
           totalPriceFallback: totalPrice,
           customerEmailFallback: customerEmail || null,
@@ -462,6 +486,15 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+
+  await processGiftCardFromBookingBody(
+    supabase,
+    String(businessId),
+    body,
+    String(booking.id),
+    customerId,
+    'redeem',
+  );
 
   await processBookingScheduling(booking.id, businessId, {
     providerId: booking.provider_id,

@@ -96,12 +96,14 @@ export function computeCustomerBookingTotals(args: {
   frequencyDiscount: number;
   taxRate: number;
   getCouponDiscountAmount: (baseAfterIndustryDiscounts: number) => number;
+  getGiftCardDiscountAmount?: (baseAfterCoupon: number) => number;
 }): {
   lineSubtotal: number;
   partialCleaningDiscount: number;
   frequencyDiscount: number;
   baseBeforeCoupon: number;
   couponDiscount: number;
+  giftCardDiscount: number;
   discountedSubtotal: number;
   tax: number;
   total: number;
@@ -113,12 +115,15 @@ export function computeCustomerBookingTotals(args: {
     frequencyDiscount,
     taxRate,
     getCouponDiscountAmount,
+    getGiftCardDiscountAmount,
   } = args;
 
   const lineSubtotal = effectiveServiceTotal + extrasSubtotal;
   const baseBeforeCoupon = Math.max(0, lineSubtotal - partialCleaningDiscount - frequencyDiscount);
   const couponDiscount = getCouponDiscountAmount(baseBeforeCoupon);
-  const discountedSubtotal = Math.max(0, baseBeforeCoupon - couponDiscount);
+  const baseAfterCoupon = Math.max(0, baseBeforeCoupon - couponDiscount);
+  const giftCardDiscount = (getGiftCardDiscountAmount ?? (() => 0))(baseAfterCoupon);
+  const discountedSubtotal = Math.max(0, baseAfterCoupon - giftCardDiscount);
   const tax = discountedSubtotal * taxRate;
   const total = discountedSubtotal + tax;
 
@@ -128,6 +133,7 @@ export function computeCustomerBookingTotals(args: {
     frequencyDiscount,
     baseBeforeCoupon,
     couponDiscount,
+    giftCardDiscount,
     discountedSubtotal,
     tax,
     total,

@@ -17,6 +17,7 @@ import { compareBookingsByScheduleAsc } from '@/lib/bookingScheduleSort';
 import { parseDurationMinutesFromBookingPayload } from '@/lib/bookingDuration';
 import { extractPricingSummaryFromCustomization } from '@/lib/customerBookingPricingDisplay';
 import { ensureCustomerRowForBusiness } from '@/lib/ensureCustomerRowForBusiness';
+import { processGiftCardFromBookingBody } from '@/lib/giftCardBooking';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -526,6 +527,21 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  const giftCardValidate = await processGiftCardFromBookingBody(
+    supabase,
+    String(businessId),
+    body,
+    '',
+    String(customer.id),
+    'validate',
+  );
+  if (!giftCardValidate.ok) {
+    return NextResponse.json(
+      { error: 'INVALID_GIFT_CARD', message: giftCardValidate.message },
+      { status: 400 },
+    );
+  }
+
   const stripeIntent = request.nextUrl.searchParams.get('stripe_intent') === '1';
   const isOnlinePayment =
     body.paymentMethod === 'online' || body.payment_method === 'online';
@@ -672,6 +688,14 @@ export async function POST(request: NextRequest) {
       }).catch((e) => console.warn('Scheduling processing failed:', e));
 
       if (firstBooking?.id) {
+        await processGiftCardFromBookingBody(
+          supabase,
+          String(businessId),
+          body,
+          String(firstBooking.id),
+          String(customer.id),
+          'redeem',
+        );
         await sendCustomerFacingBookingEmailAfterScheduling(supabase, businessId, String(firstBooking.id), {
           totalPriceFallback: totalPrice,
           customerEmailFallback: (firstBooking?.customer_email ?? customer?.email ?? '').toString().trim() || null,
@@ -728,6 +752,15 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+
+  await processGiftCardFromBookingBody(
+    supabase,
+    String(businessId),
+    body,
+    String(booking.id),
+    String(customer.id),
+    'redeem',
+  );
 
   await processBookingScheduling(booking.id, businessId, {
     providerId: booking.provider_id,
