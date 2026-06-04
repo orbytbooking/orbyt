@@ -1,9 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+const supabaseAdmin =
+  supabaseUrl && supabaseServiceKey
+    ? createClient(supabaseUrl, supabaseServiceKey)
+    : null;
 
 // GET: Fetch gift card transactions
 export async function GET(request: NextRequest) {
   try {
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
     const { searchParams } = new URL(request.url);
     const businessId = searchParams.get('business_id');
     const giftCardInstanceId = searchParams.get('gift_card_instance_id');
@@ -17,7 +28,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Business ID is required' }, { status: 400 });
     }
 
-    let query = supabase
+    let query = supabaseAdmin
       .from('gift_card_transactions')
       .select(`
         *,
@@ -53,7 +64,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get total count for pagination
-    const { count: totalCount } = await supabase
+    const { count: totalCount } = await supabaseAdmin
       .from('gift_card_transactions')
       .select('*', { count: 'exact', head: true })
       .eq('business_id', businessId);
@@ -75,6 +86,9 @@ export async function GET(request: NextRequest) {
 // POST: Create manual adjustment transaction
 export async function POST(request: NextRequest) {
   try {
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
     const body = await request.json();
     const {
       business_id,
@@ -96,7 +110,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get current gift card instance
-    const { data: cardInstance, error: cardError } = await supabase
+    const { data: cardInstance, error: cardError } = await supabaseAdmin
       .from('gift_card_instances')
       .select('*')
       .eq('id', gift_card_instance_id)
@@ -116,7 +130,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create transaction record
-    const { data: transaction, error: transactionError } = await supabase
+    const { data: transaction, error: transactionError } = await supabaseAdmin
       .from('gift_card_transactions')
       .insert({
         business_id,
@@ -136,7 +150,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Update gift card balance
-    const { error: updateError } = await supabase
+    const { error: updateError } = await supabaseAdmin
       .from('gift_card_instances')
       .update({
         current_balance: newBalance,

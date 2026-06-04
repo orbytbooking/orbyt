@@ -40,6 +40,33 @@ export async function validateGiftCardForBusiness(
   };
 }
 
+/** True when this booking already has a gift card redemption transaction. */
+export async function bookingHasGiftCardRedemption(
+  supabase: SupabaseClient,
+  businessId: string,
+  bookingId: string,
+): Promise<boolean> {
+  if (!bookingId) return false;
+  const { data, error } = await supabase
+    .from("gift_card_transactions")
+    .select("id")
+    .eq("business_id", businessId)
+    .eq("booking_id", bookingId)
+    .eq("transaction_type", "redemption")
+    .limit(1);
+  if (error) {
+    console.error("gift_card_transactions lookup:", error);
+    return false;
+  }
+  return (data?.length ?? 0) > 0;
+}
+
+/** Skip RPC redeem for draft/quote/cancelled bookings; validate still runs when a code is sent. */
+export function shouldRedeemGiftCardForBookingStatus(status: string | null | undefined): boolean {
+  const st = String(status ?? "").toLowerCase();
+  return !["draft", "quote", "expired", "cancelled"].includes(st);
+}
+
 export function parseGiftCardRedemptionFromBody(body: Record<string, unknown>): {
   code: string;
   amount: number;
@@ -129,6 +156,7 @@ export async function processGiftCardFromBookingBody(
   bookingId: string,
   customerId: string | null,
   phase: "validate" | "redeem",
+  options?: { redeemDescription?: string; bookingStatus?: string | null },
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const { code, amount } = parseGiftCardRedemptionFromBody(body);
   if (!code || amount <= 0) return { ok: true };
@@ -139,13 +167,17 @@ export async function processGiftCardFromBookingBody(
     return { ok: true };
   }
 
+  if (options?.bookingStatus != null && !shouldRedeemGiftCardForBookingStatus(options.bookingStatus)) {
+    return { ok: true };
+  }
+
   const redeemed = await redeemGiftCardForBooking(supabase, {
     businessId,
     code,
     amount,
     bookingId,
     customerId,
-    description: "Customer booking",
+    description: options?.redeemDescription ?? "Booking redemption",
   });
   if (!redeemed.ok) {
     console.error("Gift card redeem after booking failed:", { bookingId, code, amount, message: redeemed.message });

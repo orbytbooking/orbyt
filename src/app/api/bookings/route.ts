@@ -17,6 +17,7 @@ import {
 } from '@/lib/marketingCouponCustomerScope';
 import { applyKeyAndJobNotesFromPayload } from '@/lib/bookingKeyJobNotes';
 import { resolveBookingTaxTotals } from '@/lib/bookingTax';
+import { processGiftCardFromBookingBody } from '@/lib/giftCardBooking';
 
 type AdminBookingRow = {
   id: string;
@@ -212,6 +213,21 @@ export async function POST(request: Request) {
           { status: 400 }
         );
       }
+    }
+
+    const giftCardValidate = await processGiftCardFromBookingBody(
+      supabase,
+      businessId,
+      bookingData as Record<string, unknown>,
+      '',
+      null,
+      'validate',
+    );
+    if (!giftCardValidate.ok) {
+      return NextResponse.json(
+        { error: 'INVALID_GIFT_CARD', message: giftCardValidate.message },
+        { status: 400 },
+      );
     }
 
     // Map payment method to valid database values
@@ -513,6 +529,21 @@ export async function POST(request: Request) {
           await logNewDraftOrQuote(supabase, request, user, businessId, firstBooking.id, firstBooking.status);
         }
         if (firstBooking) {
+          const giftRedeem = await processGiftCardFromBookingBody(
+            supabase,
+            businessId,
+            bookingData as Record<string, unknown>,
+            String(firstBooking.id),
+            customerId,
+            'redeem',
+            { redeemDescription: 'Admin booking', bookingStatus: firstBooking.status },
+          );
+          if (!giftRedeem.ok) {
+            return NextResponse.json(
+              { error: 'GIFT_CARD_REDEEM_FAILED', message: giftRedeem.message },
+              { status: 400 },
+            );
+          }
           await sendAdminCreatedBookingConfirmationEmail(supabase, businessId, firstBooking as AdminBookingRow);
         }
         return NextResponse.json({
@@ -634,6 +665,21 @@ export async function POST(request: Request) {
           message: `Booking ${bkRef} has been confirmed${assignMsg}.`,
           link: '/admin/bookings',
         });
+        const giftRedeemRetry = await processGiftCardFromBookingBody(
+          supabase,
+          businessId,
+          bookingData as Record<string, unknown>,
+          String(retryBooking.id),
+          customerId,
+          'redeem',
+          { redeemDescription: 'Admin booking', bookingStatus: retryBooking.status },
+        );
+        if (!giftRedeemRetry.ok) {
+          return NextResponse.json(
+            { error: 'GIFT_CARD_REDEEM_FAILED', message: giftRedeemRetry.message },
+            { status: 400 },
+          );
+        }
         await sendAdminCreatedBookingConfirmationEmail(supabase, businessId, retryBooking as AdminBookingRow);
         return NextResponse.json({
           success: true,
@@ -680,6 +726,22 @@ export async function POST(request: Request) {
       message: `Booking ${bkRef} has been confirmed${assignMsg}.`,
       link: '/admin/bookings',
     });
+
+    const giftRedeem = await processGiftCardFromBookingBody(
+      supabase,
+      businessId,
+      bookingData as Record<string, unknown>,
+      String(booking.id),
+      customerId,
+      'redeem',
+      { redeemDescription: 'Admin booking', bookingStatus: booking.status },
+    );
+    if (!giftRedeem.ok) {
+      return NextResponse.json(
+        { error: 'GIFT_CARD_REDEEM_FAILED', message: giftRedeem.message },
+        { status: 400 },
+      );
+    }
 
     await sendAdminCreatedBookingConfirmationEmail(supabase, businessId, booking as AdminBookingRow);
 

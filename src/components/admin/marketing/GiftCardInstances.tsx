@@ -130,6 +130,7 @@ export function GiftCardInstances() {
         body: JSON.stringify({
           ...purchaseForm,
           business_id: currentBusiness.id,
+          send_email: Boolean(purchaseForm.recipient_email?.trim()),
         }),
       });
 

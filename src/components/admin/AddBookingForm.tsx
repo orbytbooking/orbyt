@@ -266,6 +266,12 @@ type AppliedCoupon = {
   discountAmount: number;
 };
 
+type AppliedGiftCard = {
+  code: string;
+  instanceId: string;
+  balance: number;
+};
+
 type Provider = {
   id: string;
   name: string;
@@ -543,6 +549,7 @@ export function AddBookingForm({
   const [priceAdjustmentNoteEnabled, setPriceAdjustmentNoteEnabled] = useState(false);
   const [timeAdjustmentNoteEnabled, setTimeAdjustmentNoteEnabled] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null);
+  const [appliedGiftCard, setAppliedGiftCard] = useState<AppliedGiftCard | null>(null);
   const form2ServiceDependencyKey = useMemo(
     () => buildForm2ServiceDependencyKey(newBooking.service, serviceCategories),
     [newBooking.service, serviceCategories],
@@ -1373,6 +1380,23 @@ export function AddBookingForm({
         } else {
           setAppliedCoupon(null);
         }
+        const giftFromCust =
+          cust && typeof cust === "object" && cust.gift_card && typeof cust.gift_card === "object"
+            ? (cust.gift_card as Record<string, unknown>)
+            : null;
+        const savedGiftCode =
+          typeof giftFromCust?.code === "string" ? giftFromCust.code.trim().toUpperCase() : "";
+        const savedGiftAmount = Number(giftFromCust?.redemption_amount ?? 0);
+        if (savedGiftCode && Number.isFinite(savedGiftAmount) && savedGiftAmount > 0) {
+          setAppliedGiftCard({
+            code: savedGiftCode,
+            instanceId: String(giftFromCust?.instance_id ?? ""),
+            balance: savedGiftAmount,
+          });
+          setNewBooking((prev) => ({ ...prev, giftCardCode: savedGiftCode, couponCodeTab: "gift-card" }));
+        } else {
+          setAppliedGiftCard(null);
+        }
         setProviderWage(b.provider_wage != null ? String(b.provider_wage) : '');
         setProviderWageType((b.provider_wage_type === 'percentage' || b.provider_wage_type === 'fixed' || b.provider_wage_type === 'hourly') ? b.provider_wage_type : 'hourly');
         // Property variables (dropdowns) use `categoryValues` state, not only newBooking.categoryValues
@@ -1817,6 +1841,13 @@ const handleAddBooking = async (status: string = 'pending') => {
       coupon_discount_value: appliedCoupon?.discountValue,
       coupon_discount_amount: calculatedCouponDiscount > 0 ? calculatedCouponDiscount : undefined,
       coupon_mode: appliedCoupon?.mode,
+      ...(appliedGiftCard && calculatedGiftCardDiscount > 0
+        ? {
+            gift_card_code: appliedGiftCard.code,
+            gift_card_instance_id: appliedGiftCard.instanceId || undefined,
+            gift_card_redemption_amount: calculatedGiftCardDiscount,
+          }
+        : {}),
       customization: {
         ...(appliedCoupon
           ? {
@@ -1829,6 +1860,15 @@ const handleAddBooking = async (status: string = 'pending') => {
               },
             }
           : {}),
+        ...(appliedGiftCard && calculatedGiftCardDiscount > 0
+          ? {
+              gift_card: {
+                code: appliedGiftCard.code,
+                instance_id: appliedGiftCard.instanceId || null,
+                redemption_amount: calculatedGiftCardDiscount,
+              },
+            }
+          : {}),
         ...(matchedLocationIdsForTax.length > 0
           ? { matched_location_ids: matchedLocationIdsForTax }
           : {}),
@@ -1838,6 +1878,7 @@ const handleAddBooking = async (status: string = 'pending') => {
           partialCleaningDiscount: calculatePartialCleaningDiscount,
           frequencyDiscount: calculateFrequencyDiscount,
           couponDiscount: calculatedCouponDiscount,
+          giftCardDiscount: calculatedGiftCardDiscount,
           tax: taxAmount,
           taxLabel: bookingTaxConfig.label,
           total: calculateTotalAmount,
@@ -2803,6 +2844,16 @@ const handleAddBooking = async (status: string = 'pending') => {
     return Math.max(0, Math.min(baseTotalBeforeCoupon, appliedCoupon.discountValue));
   }, [appliedCoupon, baseTotalBeforeCoupon]);
 
+  const baseAfterCoupon = useMemo(
+    () => Math.max(0, baseTotalBeforeCoupon - calculatedCouponDiscount),
+    [baseTotalBeforeCoupon, calculatedCouponDiscount],
+  );
+
+  const calculatedGiftCardDiscount = useMemo(() => {
+    if (!appliedGiftCard || baseAfterCoupon <= 0) return 0;
+    return Math.max(0, Math.min(appliedGiftCard.balance, baseAfterCoupon));
+  }, [appliedGiftCard, baseAfterCoupon]);
+
   const bookingTaxConfig = useMemo(
     () => resolveBookingTaxConfig(bookingTaxSettings ?? undefined, matchedLocationIdsForTax),
     [bookingTaxSettings, matchedLocationIdsForTax],
@@ -2812,7 +2863,7 @@ const handleAddBooking = async (status: string = 'pending') => {
   const preTaxTotalAmount = useMemo(() => {
     const subtotal = effectiveServiceTotal + calculateExtrasTotal;
     const totalDiscount = calculatePartialCleaningDiscount + calculateFrequencyDiscount;
-    let finalAmount = Math.max(0, subtotal - totalDiscount - calculatedCouponDiscount);
+    let finalAmount = Math.max(0, subtotal - totalDiscount - calculatedCouponDiscount - calculatedGiftCardDiscount);
 
     if (newBooking.adjustPrice && newBooking.adjustmentAmount) {
       const adjustment = parseFloat(newBooking.adjustmentAmount);
@@ -2822,7 +2873,7 @@ const handleAddBooking = async (status: string = 'pending') => {
     }
 
     return finalAmount;
-  }, [effectiveServiceTotal, calculateExtrasTotal, calculatePartialCleaningDiscount, calculateFrequencyDiscount, calculatedCouponDiscount, newBooking.adjustPrice, newBooking.adjustmentAmount]);
+  }, [effectiveServiceTotal, calculateExtrasTotal, calculatePartialCleaningDiscount, calculateFrequencyDiscount, calculatedCouponDiscount, calculatedGiftCardDiscount, newBooking.adjustPrice, newBooking.adjustmentAmount]);
 
   const taxAmount = useMemo(
     () => computeTaxOnSubtotal(preTaxTotalAmount, bookingTaxConfig.rateDecimal),
@@ -3037,6 +3088,48 @@ const handleAddBooking = async (status: string = 'pending') => {
       title: "Amount discount applied",
       description: `-$${discountAmount.toFixed(2)} applied`,
     });
+  };
+
+  const applyGiftCardSelection = async () => {
+    const code = (newBooking.giftCardCode || "").trim().toUpperCase();
+    if (!code) {
+      toast({ title: "Gift card required", description: "Enter a gift card code.", variant: "destructive" });
+      return;
+    }
+    if (!currentBusiness?.id) {
+      toast({ title: "Business not loaded", description: "Try again in a moment.", variant: "destructive" });
+      return;
+    }
+    try {
+      const params = new URLSearchParams({ business_id: currentBusiness.id, unique_code: code });
+      const res = await fetch(`/api/marketing/gift-cards/redeem?${params.toString()}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.valid) {
+        toast({
+          title: "Invalid gift card",
+          description: data?.error || "This gift card cannot be applied.",
+          variant: "destructive",
+        });
+        return;
+      }
+      const balance = Number(data.current_balance);
+      if (!Number.isFinite(balance) || balance <= 0) {
+        toast({ title: "No balance", description: "This gift card has no remaining balance.", variant: "destructive" });
+        return;
+      }
+      setAppliedGiftCard({
+        code: String(data.unique_code || code),
+        instanceId: String(data.instance_id || ""),
+        balance,
+      });
+      const preview = Math.min(balance, baseAfterCoupon);
+      toast({
+        title: "Gift card applied",
+        description: `${data.unique_code || code}: up to $${preview.toFixed(2)} off this booking`,
+      });
+    } catch {
+      toast({ title: "Validation failed", description: "Could not validate gift card.", variant: "destructive" });
+    }
   };
 
   const form2PackageStripRows = useMemo((): Form2PackageRow[] => {
@@ -3630,6 +3723,12 @@ const handleAddBooking = async (status: string = 'pending') => {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Coupon Discount</span>
                   <span className="font-medium text-green-600">-${calculatedCouponDiscount.toFixed(2)}</span>
+                </div>
+              )}
+              {calculatedGiftCardDiscount > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Gift Card</span>
+                  <span className="font-medium text-green-600">-${calculatedGiftCardDiscount.toFixed(2)}</span>
                 </div>
               )}
               {newBooking.adjustPrice && newBooking.adjustmentAmount && !isNaN(parseFloat(newBooking.adjustmentAmount)) && (
@@ -6136,7 +6235,11 @@ const handleAddBooking = async (status: string = 'pending') => {
                 )}
               >
                 <button
-                  onClick={() => setNewBooking({ ...newBooking, couponCodeTab: "coupon-code" })}
+                  type="button"
+                  onClick={() => {
+                    setAppliedGiftCard(null);
+                    setNewBooking({ ...newBooking, couponCodeTab: "coupon-code" });
+                  }}
                   className={cn(
                     "pb-2 text-base font-semibold",
                     newBooking.couponCodeTab === "coupon-code"
@@ -6151,7 +6254,11 @@ const handleAddBooking = async (status: string = 'pending') => {
                   Coupon Code
                 </button>
                 <button
-                  onClick={() => setNewBooking({ ...newBooking, couponCodeTab: "gift-card" })}
+                  type="button"
+                  onClick={() => {
+                    setAppliedCoupon(null);
+                    setNewBooking({ ...newBooking, couponCodeTab: "gift-card" });
+                  }}
                   className={cn(
                     "pb-2 text-base font-semibold",
                     newBooking.couponCodeTab === "gift-card"
@@ -6273,21 +6380,25 @@ const handleAddBooking = async (status: string = 'pending') => {
                           id="gift-card-code"
                           placeholder="Enter gift card code"
                           value={newBooking.giftCardCode}
-                          onChange={(e) => setNewBooking({ ...newBooking, giftCardCode: e.target.value })}
+                          onChange={(e) => {
+                            setAppliedGiftCard(null);
+                            setNewBooking({ ...newBooking, giftCardCode: e.target.value });
+                          }}
                           className="flex-1 border-gray-300"
                         />
                         <Button
-                          onClick={() => {
-                            toast({
-                              title: "Gift Card Applied",
-                              description: `Gift card "${newBooking.giftCardCode}" has been applied.`,
-                            });
-                          }}
+                          type="button"
+                          onClick={applyGiftCardSelection}
                           className="bg-sky-400 hover:bg-sky-500 text-white px-6"
                         >
                           Apply
                         </Button>
                       </div>
+                      {appliedGiftCard && (
+                        <p className="mt-2 text-sm text-green-700">
+                          Applied {appliedGiftCard.code}: -${calculatedGiftCardDiscount.toFixed(2)}
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}

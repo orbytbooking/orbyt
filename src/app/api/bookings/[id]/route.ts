@@ -25,6 +25,10 @@ import { finalStatusForAdminBooking, providerIdFromBookingPayload } from '@/lib/
 import { sendCustomerBookingConfirmedEmail } from '@/lib/sendCustomerBookingConfirmedEmail';
 import { applyKeyAndJobNotesFromPayload } from '@/lib/bookingKeyJobNotes';
 import { resolveBookingTaxTotals } from '@/lib/bookingTax';
+import {
+  bookingHasGiftCardRedemption,
+  processGiftCardFromBookingBody,
+} from '@/lib/giftCardBooking';
 import { scopedIndustryTable } from '@/lib/formScopeTables';
 import type { BookingFormScope } from '@/lib/bookingFormScope';
 
@@ -154,10 +158,12 @@ export async function PUT(
     let updateData = await request.json();
     const bookingId = id;
     let addBookingFormUpdate: Record<string, unknown> | null = null;
+    let adminFormPayload: Record<string, unknown> | null = null;
 
     // If this is the add-booking form payload (full booking update), build DB-shaped update object
     if (updateData.customer_name !== undefined && typeof updateData.customer_name === 'string') {
-      const bookingData = updateData as Record<string, unknown>;
+      adminFormPayload = updateData as Record<string, unknown>;
+      const bookingData = adminFormPayload;
       let paymentMethod = 'cash';
       if (bookingData.payment_method) {
         const method = String(bookingData.payment_method).toLowerCase();
@@ -371,6 +377,33 @@ export async function PUT(
       }
       updateData = built;
       addBookingFormUpdate = built;
+    }
+
+    const alreadyRedeemedGiftCard = await bookingHasGiftCardRedemption(
+      supabase,
+      businessId,
+      bookingId,
+    );
+
+    if (adminFormPayload && !alreadyRedeemedGiftCard) {
+      const custIdForGift =
+        typeof (updateData as Record<string, unknown>).customer_id === 'string'
+          ? String((updateData as Record<string, unknown>).customer_id)
+          : null;
+      const giftCardValidate = await processGiftCardFromBookingBody(
+        supabase,
+        businessId,
+        adminFormPayload,
+        bookingId,
+        custIdForGift,
+        'validate',
+      );
+      if (!giftCardValidate.ok) {
+        return NextResponse.json(
+          { error: 'INVALID_GIFT_CARD', message: giftCardValidate.message },
+          { status: 400 },
+        );
+      }
     }
 
     // When editing a recurring booking's date/time, update the series so all recurring occurrences move (update all recurring)
@@ -685,6 +718,30 @@ export async function PUT(
     const oldSt = String(priorStatus || '');
     if (newSt === 'confirmed' && oldSt !== 'confirmed') {
       await sendCustomerBookingConfirmedEmail(supabase, businessId, booking);
+    }
+
+    if (adminFormPayload && !alreadyRedeemedGiftCard) {
+      const custIdForGift =
+        typeof booking.customer_id === 'string'
+          ? booking.customer_id
+          : typeof (updateData as Record<string, unknown>).customer_id === 'string'
+            ? String((updateData as Record<string, unknown>).customer_id)
+            : null;
+      const giftRedeem = await processGiftCardFromBookingBody(
+        supabase,
+        businessId,
+        adminFormPayload,
+        bookingId,
+        custIdForGift,
+        'redeem',
+        { redeemDescription: 'Admin booking', bookingStatus: newSt },
+      );
+      if (!giftRedeem.ok) {
+        return NextResponse.json(
+          { error: 'GIFT_CARD_REDEEM_FAILED', message: giftRedeem.message },
+          { status: 400 },
+        );
+      }
     }
 
     return NextResponse.json({

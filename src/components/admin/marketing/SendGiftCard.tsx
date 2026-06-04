@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,12 +9,31 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, Calendar, DollarSign, Gift, Image as ImageIcon } from 'lucide-react';
+import { useBusiness } from '@/contexts/BusinessContext';
+import { Gift, Image as ImageIcon, Loader2 } from 'lucide-react';
+import Link from 'next/link';
+
+type GiftCardTemplate = {
+  id: string;
+  name: string;
+  description?: string;
+  amount: number;
+  active: boolean;
+  expires_in_months: number;
+};
+
+const MIN_AMOUNT_DEFAULT = 150;
 
 export function SendGiftCard() {
   const { toast } = useToast();
+  const { currentBusiness } = useBusiness();
+  const [templates, setTemplates] = useState<GiftCardTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+
   const [formData, setFormData] = useState({
-    amount: '',
+    giftCardId: '',
     senderFirstName: '',
     senderLastName: '',
     senderEmail: '',
@@ -27,72 +46,59 @@ export function SendGiftCard() {
     excludeMinimumValidation: false,
   });
 
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  useEffect(() => {
+    if (!currentBusiness?.id) {
+      setLoadingTemplates(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setLoadingTemplates(true);
+      try {
+        const res = await fetch(
+          `/api/marketing/gift-cards?business_id=${currentBusiness.id}&active=true`,
+        );
+        const json = await res.json();
+        if (!cancelled && res.ok && Array.isArray(json.data)) {
+          setTemplates(json.data);
+          if (json.data.length === 1) {
+            setFormData((prev) => ({ ...prev, giftCardId: json.data[0].id }));
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load gift card templates', e);
+      } finally {
+        if (!cancelled) setLoadingTemplates(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentBusiness?.id]);
+
+  const selectedTemplate = useMemo(
+    () => templates.find((t) => t.id === formData.giftCardId) ?? null,
+    [templates, formData.giftCardId],
+  );
+
+  const displayAmount = selectedTemplate?.amount ?? 0;
 
   const handleInputChange = (field: string, value: string | boolean) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setSelectedImage(reader.result as string);
-      };
+      reader.onloadend = () => setSelectedImage(reader.result as string);
       reader.readAsDataURL(file);
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Validation
-    if (!formData.excludeMinimumValidation && parseFloat(formData.amount) < 150) {
-      toast({
-        title: 'Validation Error',
-        description: 'Minimum gift card amount is $150.00',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    if (!formData.senderFirstName || !formData.senderLastName || !formData.senderEmail) {
-      toast({
-        title: 'Validation Error',
-        description: 'Please fill in all sender information',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    if (!formData.recipientName || !formData.recipientEmail) {
-      toast({
-        title: 'Validation Error',
-        description: 'Please fill in all recipient information',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    if (formData.sendOption === 'later' && (!formData.scheduleDate || !formData.scheduleTime)) {
-      toast({
-        title: 'Validation Error',
-        description: 'Please select schedule date and time',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    // Success
-    toast({
-      title: 'Gift Card Sent!',
-      description: `Gift card of $${formData.amount} sent to ${formData.recipientName}`,
-    });
-
-    // Reset form
+  const resetForm = () => {
     setFormData({
-      amount: '',
+      giftCardId: templates.length === 1 ? templates[0].id : '',
       senderFirstName: '',
       senderLastName: '',
       senderEmail: '',
@@ -107,311 +113,317 @@ export function SendGiftCard() {
     setSelectedImage(null);
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!currentBusiness?.id) {
+      toast({ title: 'Business required', description: 'Select a business first.', variant: 'destructive' });
+      return;
+    }
+
+    if (!formData.giftCardId || !selectedTemplate) {
+      toast({
+        title: 'Gift card type required',
+        description: 'Choose a gift card template. Create one under Gift Card Templates if needed.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!formData.excludeMinimumValidation && displayAmount < MIN_AMOUNT_DEFAULT) {
+      toast({
+        title: 'Validation Error',
+        description: `This gift card is below the $${MIN_AMOUNT_DEFAULT.toFixed(2)} minimum. Enable "Exclude minimum" or pick another template.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!formData.senderFirstName.trim() || !formData.senderLastName.trim() || !formData.senderEmail.trim()) {
+      toast({
+        title: 'Validation Error',
+        description: 'Please fill in all sender information.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!formData.recipientName.trim() || !formData.recipientEmail.trim()) {
+      toast({
+        title: 'Validation Error',
+        description: 'Please fill in recipient name and email.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (formData.sendOption === 'later') {
+      toast({
+        title: 'Scheduled send not available yet',
+        description: 'Gift cards are sent immediately. Choose "Send Now" for now.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const purchaserName = `${formData.senderFirstName.trim()} ${formData.senderLastName.trim()}`.trim();
+      const res = await fetch('/api/marketing/gift-cards/instances', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          business_id: currentBusiness.id,
+          gift_card_id: formData.giftCardId,
+          quantity: 1,
+          purchaser_email: formData.senderEmail.trim(),
+          purchaser_name: purchaserName,
+          recipient_email: formData.recipientEmail.trim(),
+          recipient_name: formData.recipientName.trim(),
+          message: formData.message.trim() || undefined,
+          send_email: true,
+        }),
+      });
+
+      const result = await res.json();
+      if (!res.ok) {
+        throw new Error(
+          typeof result.error === 'string' ? result.error : result.details || 'Failed to send gift card',
+        );
+      }
+
+      const instance = result.data?.[0];
+      const code = instance?.unique_code ?? '';
+      const emailSent = result.email_results?.[0]?.sent;
+
+      toast({
+        title: 'Gift Card Sent!',
+        description: code
+          ? `Code ${code} created for ${formData.recipientName}.${emailSent ? ' Email delivered.' : emailSent === false ? ' Email could not be sent (check Resend config).' : ''}`
+          : `Gift card sent to ${formData.recipientName}.`,
+      });
+
+      resetForm();
+    } catch (err: unknown) {
+      toast({
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Failed to send gift card',
+        variant: 'destructive',
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Send Gift Card</h2>
-        <p className="text-muted-foreground">Create and send a personalized gift card to your customers.</p>
+        <p className="text-muted-foreground">
+          Issue a gift card and email the code to your customer.
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Form Section */}
+      {loadingTemplates ? (
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading gift card types…
+        </div>
+      ) : templates.length === 0 ? (
         <Card>
-          <CardHeader>
-            <CardTitle>Gift Card Details</CardTitle>
-            <CardDescription>Fill in the gift card information and recipient details.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Image Upload */}
-              <div className="space-y-2">
-                <Label>Gift Card Image</Label>
-                <div className="flex items-center space-x-4">
-                  <div className="flex-1">
-                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageUpload}
-                        className="hidden"
-                        id="image-upload"
-                      />
-                      <label htmlFor="image-upload" className="cursor-pointer">
-                        {selectedImage ? (
-                          <img
-                            src={selectedImage}
-                            alt="Gift card preview"
-                            className="max-h-20 mx-auto rounded"
-                          />
-                        ) : (
-                          <div className="space-y-2">
-                            <ImageIcon className="h-8 w-8 mx-auto text-gray-400" />
-                            <p className="text-sm text-gray-600">Click to upload or choose from gallery</p>
-                          </div>
-                        )}
-                      </label>
-                    </div>
-                  </div>
-                  <Button type="button" variant="outline">
-                    <Upload className="h-4 w-4 mr-2" />
-                    Gallery
-                  </Button>
-                </div>
-              </div>
-
-              {/* Amount */}
-              <div className="space-y-2">
-                <Label htmlFor="amount">Gift Card Amount</Label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <Input
-                    id="amount"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="150.00"
-                    value={formData.amount}
-                    onChange={(e) => handleInputChange('amount', e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground">Minimum amount: $150.00</p>
-              </div>
-
-              {/* Sender Information */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium">Sender Information</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="senderFirstName">First Name</Label>
-                    <Input
-                      id="senderFirstName"
-                      placeholder="John"
-                      value={formData.senderFirstName}
-                      onChange={(e) => handleInputChange('senderFirstName', e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="senderLastName">Last Name</Label>
-                    <Input
-                      id="senderLastName"
-                      placeholder="Doe"
-                      value={formData.senderLastName}
-                      onChange={(e) => handleInputChange('senderLastName', e.target.value)}
-                    />
-                  </div>
-                </div>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">
+              No active gift card templates. Create one in the{' '}
+              <Link href="/admin/marketing" className="text-primary underline">
+                Gift Card Templates
+              </Link>{' '}
+              tab first.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Gift Card Details</CardTitle>
+              <CardDescription>Choose a template and recipient details.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="space-y-2">
-                  <Label htmlFor="senderEmail">Email</Label>
-                  <Input
-                    id="senderEmail"
-                    type="email"
-                    placeholder="john@example.com"
-                    value={formData.senderEmail}
-                    onChange={(e) => handleInputChange('senderEmail', e.target.value)}
-                  />
-                </div>
-              </div>
-
-              {/* Recipient Information */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium">Recipient Information</h3>
-                <div className="space-y-2">
-                  <Label htmlFor="recipientName">Name</Label>
-                  <Input
-                    id="recipientName"
-                    placeholder="Jane Smith"
-                    value={formData.recipientName}
-                    onChange={(e) => handleInputChange('recipientName', e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="recipientEmail">Email</Label>
-                  <Input
-                    id="recipientEmail"
-                    type="email"
-                    placeholder="jane@example.com"
-                    value={formData.recipientEmail}
-                    onChange={(e) => handleInputChange('recipientEmail', e.target.value)}
-                  />
-                </div>
-              </div>
-
-              {/* Message */}
-              <div className="space-y-2">
-                <Label htmlFor="message">Message</Label>
-                <Textarea
-                  id="message"
-                  placeholder="Add a personal message..."
-                  value={formData.message}
-                  onChange={(e) => handleInputChange('message', e.target.value)}
-                  rows={3}
-                />
-              </div>
-
-              {/* Send Options */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium">Send Options</h3>
-                <div className="space-y-2">
-                  <Label>When to send</Label>
+                  <Label htmlFor="gift-card-type">Gift Card Type</Label>
                   <Select
-                    value={formData.sendOption}
-                    onValueChange={(value: 'now' | 'later') => handleInputChange('sendOption', value)}
+                    value={formData.giftCardId}
+                    onValueChange={(value) => handleInputChange('giftCardId', value)}
                   >
-                    <SelectTrigger>
-                      <SelectValue />
+                    <SelectTrigger id="gift-card-type">
+                      <SelectValue placeholder="Select gift card" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="now">Send Now</SelectItem>
-                      <SelectItem value="later">Send on Specific Date</SelectItem>
+                      {templates.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name} — ${Number(t.amount).toFixed(2)}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
 
-                {formData.sendOption === 'later' && (
+                <div className="space-y-2">
+                  <Label>Gift Card Image (preview only)</Label>
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                      id="image-upload"
+                    />
+                    <label htmlFor="image-upload" className="cursor-pointer">
+                      {selectedImage ? (
+                        <img src={selectedImage} alt="Preview" className="max-h-20 mx-auto rounded" />
+                      ) : (
+                        <div className="space-y-2">
+                          <ImageIcon className="h-8 w-8 mx-auto text-gray-400" />
+                          <p className="text-sm text-gray-600">Optional preview image</p>
+                        </div>
+                      )}
+                    </label>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-lg font-medium">Sender Information</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="scheduleDate">Date</Label>
+                      <Label htmlFor="senderFirstName">First Name</Label>
                       <Input
-                        id="scheduleDate"
-                        type="date"
-                        value={formData.scheduleDate}
-                        onChange={(e) => handleInputChange('scheduleDate', e.target.value)}
+                        id="senderFirstName"
+                        value={formData.senderFirstName}
+                        onChange={(e) => handleInputChange('senderFirstName', e.target.value)}
+                        required
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="scheduleTime">Time</Label>
+                      <Label htmlFor="senderLastName">Last Name</Label>
                       <Input
-                        id="scheduleTime"
-                        type="time"
-                        value={formData.scheduleTime}
-                        onChange={(e) => handleInputChange('scheduleTime', e.target.value)}
+                        id="senderLastName"
+                        value={formData.senderLastName}
+                        onChange={(e) => handleInputChange('senderLastName', e.target.value)}
+                        required
                       />
                     </div>
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="senderEmail">Email</Label>
+                    <Input
+                      id="senderEmail"
+                      type="email"
+                      value={formData.senderEmail}
+                      onChange={(e) => handleInputChange('senderEmail', e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-lg font-medium">Recipient Information</h3>
+                  <div className="space-y-2">
+                    <Label htmlFor="recipientName">Name</Label>
+                    <Input
+                      id="recipientName"
+                      value={formData.recipientName}
+                      onChange={(e) => handleInputChange('recipientName', e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="recipientEmail">Email</Label>
+                    <Input
+                      id="recipientEmail"
+                      type="email"
+                      value={formData.recipientEmail}
+                      onChange={(e) => handleInputChange('recipientEmail', e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="message">Message</Label>
+                  <Textarea
+                    id="message"
+                    value={formData.message}
+                    onChange={(e) => handleInputChange('message', e.target.value)}
+                    rows={3}
+                  />
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="exclude-minimum"
+                    checked={formData.excludeMinimumValidation}
+                    onCheckedChange={(checked) => handleInputChange('excludeMinimumValidation', checked)}
+                  />
+                  <Label htmlFor="exclude-minimum" className="text-sm">
+                    Allow templates under ${MIN_AMOUNT_DEFAULT.toFixed(2)}
+                  </Label>
+                </div>
+
+                <div className="flex justify-end space-x-2">
+                  <Button type="button" variant="outline" onClick={resetForm} disabled={submitting}>
+                    Reset
+                  </Button>
+                  <Button type="submit" disabled={submitting}>
+                    {submitting ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Gift className="h-4 w-4 mr-2" />
+                    )}
+                    {submitting ? 'Sending…' : 'Send Gift Card'}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Gift Card Preview</CardTitle>
+              <CardDescription>What the recipient will receive.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="bg-gradient-to-br from-pink-400 to-pink-600 rounded-lg p-8 text-white text-center">
+                <h3 className="text-2xl font-bold mb-2">Congratulations!</h3>
+                <p className="text-white/80 mb-4">You&apos;ve received a special gift</p>
+                <div className="text-4xl font-bold mb-2">
+                  ${displayAmount > 0 ? displayAmount.toFixed(2) : '0.00'}
+                </div>
+                {selectedTemplate && (
+                  <p className="text-sm text-white/90">{selectedTemplate.name}</p>
                 )}
-              </div>
-
-              {/* Exclude Minimum Validation */}
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="exclude-minimum"
-                  checked={formData.excludeMinimumValidation}
-                  onCheckedChange={(checked) => handleInputChange('excludeMinimumValidation', checked)}
-                />
-                <Label htmlFor="exclude-minimum" className="text-sm">
-                  Exclude minimum amount validation
-                </Label>
-              </div>
-
-              {/* Submit Buttons */}
-              <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline">
-                  Cancel
-                </Button>
-                <Button type="submit">
-                  <Gift className="h-4 w-4 mr-2" />
-                  Send Gift Card
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-
-        {/* Preview Section */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Gift Card Preview</CardTitle>
-            <CardDescription>See how your gift card will look.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {/* Gift Card Preview */}
-              <div className="relative">
-                <div className="bg-gradient-to-br from-pink-400 to-pink-600 rounded-lg p-8 text-white relative overflow-hidden">
-                  {/* Background Pattern */}
-                  <div className="absolute inset-0 opacity-10">
-                    <div className="absolute top-4 right-4 w-24 h-24 bg-white rounded-full"></div>
-                    <div className="absolute bottom-4 left-4 w-16 h-16 bg-white rounded-full"></div>
-                  </div>
-                  
-                  {/* House Icon */}
-                  <div className="relative z-10 text-center mb-4">
-                    <div className="w-16 h-16 mx-auto mb-4 bg-white/20 rounded-lg flex items-center justify-center">
-                      <Gift className="h-8 w-8" />
-                    </div>
-                  </div>
-
-                  {/* Congratulations Text */}
-                  <div className="relative z-10 text-center mb-6">
-                    <h3 className="text-2xl font-bold mb-2">Congratulations!</h3>
-                    <p className="text-white/80">You've received a special gift</p>
-                  </div>
-
-                  {/* Amount */}
-                  <div className="relative z-10 text-center mb-6">
-                    <div className="text-4xl font-bold">
-                      ${formData.amount || '0.00'}
-                    </div>
-                  </div>
-
-                  {/* To/From */}
-                  <div className="relative z-10 border-t border-white/20 pt-4">
-                    <div className="flex justify-between text-sm">
-                      <div>
-                        <p className="text-white/60 text-xs mb-1">To:</p>
-                        <p className="font-medium">{formData.recipientName || 'Recipient Name'}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-white/60 text-xs mb-1">From:</p>
-                        <p className="font-medium">
-                          {formData.senderFirstName && formData.senderLastName 
-                            ? `${formData.senderFirstName} ${formData.senderLastName}`
-                            : 'Sender Name'
-                          }
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Custom Image Overlay */}
-                  {selectedImage && (
-                    <div className="absolute inset-0 opacity-20 pointer-events-none">
-                      <img
-                        src={selectedImage}
-                        alt="Custom background"
-                        className="w-full h-full object-cover rounded-lg"
-                      />
-                    </div>
-                  )}
+                <div className="mt-6 pt-4 border-t border-white/20 text-sm flex justify-between">
+                  <span>To: {formData.recipientName || '—'}</span>
+                  <span>
+                    From:{' '}
+                    {formData.senderFirstName || formData.senderLastName
+                      ? `${formData.senderFirstName} ${formData.senderLastName}`.trim()
+                      : '—'}
+                  </span>
                 </div>
               </div>
-
-              {/* Message Preview */}
               {formData.message && (
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h4 className="font-medium mb-2">Personal Message:</h4>
+                <div className="bg-gray-50 rounded-lg p-4 mt-4">
                   <p className="text-sm text-gray-600">{formData.message}</p>
                 </div>
               )}
-
-              {/* Delivery Info */}
-              <div className="bg-blue-50 rounded-lg p-4">
-                <h4 className="font-medium mb-2">Delivery Information:</h4>
-                <div className="text-sm text-gray-600 space-y-1">
-                  <p><strong>To:</strong> {formData.recipientEmail || 'Not specified'}</p>
-                  <p><strong>From:</strong> {formData.senderEmail || 'Not specified'}</p>
-                  <p><strong>When:</strong> {formData.sendOption === 'now' ? 'Immediately' : 
-                    formData.scheduleDate && formData.scheduleTime 
-                      ? `${formData.scheduleDate} at ${formData.scheduleTime}`
-                      : 'Scheduled (date/time not set)'
-                  }</p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+              <p className="text-xs text-muted-foreground mt-4">
+                A unique code will be emailed to {formData.recipientEmail || 'the recipient'} when you send.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

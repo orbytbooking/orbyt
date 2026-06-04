@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
+import { sendGiftCardEmail } from '@/lib/sendGiftCardEmail';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -19,8 +20,11 @@ const purchaseGiftCardSchema = z.object({
   recipient_id: z.string().uuid().optional(),
   purchaser_email: z.string().email().optional(),
   recipient_email: z.string().email().optional(),
+  recipient_name: z.string().optional(),
+  purchaser_name: z.string().optional(),
   message: z.string().optional(),
   quantity: z.number().min(1).max(10).default(1),
+  send_email: z.boolean().optional().default(true),
 });
 
 // GET: Fetch gift card instances
@@ -142,7 +146,55 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ Inserted instances:', data);
 
-    return NextResponse.json({ data }, { status: 201 });
+    const emailResults: { instance_id: string; sent: boolean }[] = [];
+    if (validatedData.send_email && Array.isArray(data) && data.length > 0) {
+      const { data: businessRow } = await supabaseAdmin
+        .from('businesses')
+        .select('name, website')
+        .eq('id', validatedData.business_id)
+        .maybeSingle();
+
+      const businessName = String(businessRow?.name ?? 'Your service provider').trim();
+      const website = String(businessRow?.website ?? '').trim();
+      const appBase = (process.env.NEXT_PUBLIC_APP_URL ?? '').replace(/\/$/, '');
+      const bookNowUrl =
+        website && /^https?:\/\//i.test(website)
+          ? website
+          : appBase
+            ? `${appBase}/book-now?business=${validatedData.business_id}`
+            : null;
+
+      const purchaserName =
+        validatedData.purchaser_name?.trim() ||
+        validatedData.purchaser_email?.trim() ||
+        'Someone special';
+
+      for (const row of data) {
+        const recipientEmail = String(row.recipient_email ?? '').trim();
+        if (!recipientEmail) {
+          emailResults.push({ instance_id: row.id, sent: false });
+          continue;
+        }
+        const sent = await sendGiftCardEmail({
+          recipientEmail,
+          recipientName:
+            validatedData.recipient_name?.trim() ||
+            recipientEmail.split('@')[0] ||
+            'there',
+          purchaserName,
+          businessName,
+          giftCardName: giftCard.name,
+          amount: Number(row.original_amount ?? giftCard.amount),
+          uniqueCode: String(row.unique_code),
+          expiresAt: String(row.expires_at),
+          message: row.message ?? validatedData.message,
+          bookNowUrl,
+        });
+        emailResults.push({ instance_id: row.id, sent });
+      }
+    }
+
+    return NextResponse.json({ data, email_results: emailResults }, { status: 201 });
   } catch (error: any) {
     console.error('❌ POST error:', error);
     if (error instanceof z.ZodError) {
