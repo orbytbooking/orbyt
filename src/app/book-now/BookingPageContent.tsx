@@ -5139,7 +5139,11 @@ export default function BookingPageContent() {
         return { ok: r.ok, status: r.status, data: d, rawText: t };
       };
 
-      let usePendingIntent = paymentProvider === "stripe";
+      const totForPay = bookingTotalsRef.current;
+      const payableCents = Math.round(totForPay.total * 100);
+      const giftCardCoversFull =
+        payableCents < 50 && appliedGiftCard != null && totForPay.giftCardDiscount > 0;
+      let usePendingIntent = paymentProvider === "stripe" && !giftCardCoversFull;
       let res = await fetch(
         usePendingIntent ? `${basePath}?stripe_intent=1` : basePath,
         { method: "POST", headers, body: JSON.stringify(payload) }
@@ -5219,10 +5223,25 @@ export default function BookingPageContent() {
   ) => {
     setIsProcessing(true);
     try {
+      const { total, giftCardDiscount } = calculateTotal();
+      const amountInCents = Math.round(total * 100);
+      const giftCardCoversFull =
+        amountInCents < 50 && appliedGiftCard != null && giftCardDiscount > 0;
+
       const draft = await createDraftBookingForStripe(bookingValuesOverride ?? null);
       if (!draft) return;
-      const { subtotal, tax, total } = calculateTotal();
-      const amountInCents = Math.round(total * 100);
+
+      if (giftCardCoversFull) {
+        toast({
+          title: "Booking Confirmed!",
+          description: "Your gift card covered the full amount. No card payment was required.",
+        });
+        setRecentBookingId(draft.id);
+        setCurrentStep("success");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+
       if (amountInCents < 50) {
         toast({ title: "Invalid amount", description: "Minimum charge is $0.50.", variant: "destructive" });
         return;
@@ -5259,7 +5278,14 @@ export default function BookingPageContent() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const desc = [json.error, json.details].filter(Boolean).join(" ? ") || "Payment request failed. Please try again or pay on arrival.";
+        const errCode = typeof json.error === "string" ? json.error : "";
+        const desc =
+          errCode === "NO_CARD_PAYMENT_DUE"
+            ? "Your gift card covers the full total. Confirm your booking without card payment."
+            : errCode === "AMOUNT_MISMATCH"
+              ? "The payment total changed. Refresh the page and try again."
+              : [json.error, json.details, json.message].filter(Boolean).join(" — ") ||
+                "Payment request failed. Please try again or pay on arrival.";
         toast({
           title: "Payment setup failed",
           description: desc,
@@ -5426,6 +5452,8 @@ export default function BookingPageContent() {
       total,
     } = calculateTotal();
     summaryTotalRef.current = total;
+    const giftCardCoversFullPayment =
+      Math.round(total * 100) < 50 && appliedGiftCard != null && giftCardDiscount > 0;
     const bid = businessIdFromUrl;
     const paymentFreqLabel = serviceCustomization.frequency?.trim() || "";
     const paymentFreqMeta = paymentFreqLabel ? frequencyMetaByName[paymentFreqLabel] : undefined;
@@ -5576,31 +5604,47 @@ export default function BookingPageContent() {
                 </Button>
               </div>
 
-              {/* Payment via Stripe or Authorize.net (per business setting) */}
+              {/* Payment via Stripe or Authorize.net (per business setting); gift card reduces amount charged */}
               <div className="md:col-span-2">
                 <div className={styles.paymentCard}>
                   <h3 className={styles.paymentTitle}>
-                    Pay securely with {paymentProvider === "authorize_net" ? "Authorize.net" : "Stripe"}
+                    {giftCardCoversFullPayment
+                      ? "Confirm your booking"
+                      : `Pay securely with ${paymentProvider === "authorize_net" ? "Authorize.net" : "Stripe"}`}
                   </h3>
-                  <div className={styles.securityBadge}>
-                    <Lock className="h-4 w-4" />
-                    <span>
-                      Secure payment ? you&apos;ll complete payment on {paymentProvider === "authorize_net" ? "Authorize.net" : "Stripe"}&apos;s checkout page
-                    </span>
-                  </div>
-                  <p className="text-sm text-muted-foreground mt-2">
-                    {paymentProvider === "stripe" ? (
-                      <>
-                        After you click below, you&apos;ll go to Stripe to pay.{" "}
-                        <strong>Your booking is only created after payment succeeds.</strong> If you leave checkout without paying, nothing is reserved.
-                      </>
-                    ) : (
-                      <>
-                        After you click below, we&apos;ll create your booking and send you to Authorize.net to enter your card details. Your booking is
-                        confirmed once payment succeeds.
-                      </>
-                    )}
-                  </p>
+                  {giftCardCoversFullPayment ? (
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Your gift card covers the full total. Click below to confirm—no card payment is required.
+                    </p>
+                  ) : (
+                    <>
+                      <div className={styles.securityBadge}>
+                        <Lock className="h-4 w-4" />
+                        <span>
+                          Secure payment — you&apos;ll complete payment on{" "}
+                          {paymentProvider === "authorize_net" ? "Authorize.net" : "Stripe"}&apos;s checkout page
+                        </span>
+                      </div>
+                      {giftCardDiscount > 0 && (
+                        <p className="text-sm text-green-700 mt-2">
+                          Gift card applied. You&apos;ll pay ${total.toFixed(2)} after your gift card discount.
+                        </p>
+                      )}
+                      <p className="text-sm text-muted-foreground mt-2">
+                        {paymentProvider === "stripe" ? (
+                          <>
+                            After you click below, you&apos;ll go to Stripe to pay.{" "}
+                            <strong>Your booking is only created after payment succeeds.</strong> If you leave checkout without paying, nothing is reserved.
+                          </>
+                        ) : (
+                          <>
+                            After you click below, we&apos;ll create your booking and send you to Authorize.net to enter your card details. Your booking is
+                            confirmed once payment succeeds.
+                          </>
+                        )}
+                      </p>
+                    </>
+                  )}
                   <Button
                     type="button"
                     disabled={
@@ -5615,8 +5659,10 @@ export default function BookingPageContent() {
                     {isProcessing ? (
                       <>
                         <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                        Preparing checkout...
+                        {giftCardCoversFullPayment ? "Confirming booking..." : "Preparing checkout..."}
                       </>
+                    ) : giftCardCoversFullPayment ? (
+                      <>Confirm booking</>
                     ) : (
                       <>
                         <CreditCard className="mr-2 h-5 w-5" />

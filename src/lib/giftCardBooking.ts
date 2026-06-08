@@ -67,6 +67,49 @@ export function shouldRedeemGiftCardForBookingStatus(status: string | null | und
   return !["draft", "quote", "expired", "cancelled"].includes(st);
 }
 
+const parseBookingMoney = (v: unknown): number => {
+  if (v == null) return 0;
+  if (typeof v === "number" && !Number.isNaN(v)) return v;
+  const n = Number(v);
+  return Number.isNaN(n) ? 0 : n;
+};
+
+/** Booking total in dollars from checkout/booking API payload (after gift card discount). */
+export function parseBookingTotalDollarsFromBody(body: Record<string, unknown>): number {
+  const amountNum = parseBookingMoney(body.amount);
+  const totalNum = parseBookingMoney(body.total);
+  const subtotalNum = parseBookingMoney(body.subtotal);
+  const priceNum = parseBookingMoney(body.price);
+  const customization = body.customization;
+  let summaryTotal = 0;
+  if (customization && typeof customization === "object" && !Array.isArray(customization)) {
+    const ps = (customization as Record<string, unknown>).pricing_summary;
+    if (ps && typeof ps === "object" && !Array.isArray(ps)) {
+      summaryTotal = parseBookingMoney((ps as Record<string, unknown>).total);
+    }
+  }
+  return (
+    (amountNum > 0 ? amountNum : null) ??
+    (totalNum > 0 ? totalNum : null) ??
+    (summaryTotal > 0 ? summaryTotal : null) ??
+    (subtotalNum > 0 ? subtotalNum : null) ??
+    (priceNum > 0 ? priceNum : null) ??
+    0
+  );
+}
+
+export function bookingPayableCentsFromBody(body: Record<string, unknown>): number {
+  return Math.max(0, Math.round(parseBookingTotalDollarsFromBody(body) * 100));
+}
+
+/** No card charge needed: total under processor minimum but gift card redemption is present. */
+export function isGiftCardCoversFullCheckout(body: Record<string, unknown>): boolean {
+  const cents = bookingPayableCentsFromBody(body);
+  if (cents >= 50) return false;
+  const { code, amount } = parseGiftCardRedemptionFromBody(body);
+  return !!(code && amount > 0);
+}
+
 export function parseGiftCardRedemptionFromBody(body: Record<string, unknown>): {
   code: string;
   amount: number;

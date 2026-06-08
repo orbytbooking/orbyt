@@ -17,7 +17,10 @@ import { compareBookingsByScheduleAsc } from '@/lib/bookingScheduleSort';
 import { parseDurationMinutesFromBookingPayload } from '@/lib/bookingDuration';
 import { extractPricingSummaryFromCustomization } from '@/lib/customerBookingPricingDisplay';
 import { ensureCustomerRowForBusiness } from '@/lib/ensureCustomerRowForBusiness';
-import { processGiftCardFromBookingBody } from '@/lib/giftCardBooking';
+import {
+  isGiftCardCoversFullCheckout,
+  processGiftCardFromBookingBody,
+} from '@/lib/giftCardBooking';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -545,7 +548,9 @@ export async function POST(request: NextRequest) {
   const stripeIntent = request.nextUrl.searchParams.get('stripe_intent') === '1';
   const isOnlinePayment =
     body.paymentMethod === 'online' || body.payment_method === 'online';
-  if (stripeIntent && isOnlinePayment) {
+  const bodyRecord = body as Record<string, unknown>;
+  const giftCardCoversFull = isOnlinePayment && isGiftCardCoversFullCheckout(bodyRecord);
+  if (stripeIntent && isOnlinePayment && !giftCardCoversFull) {
     const amountCents = Math.round(totalPrice * 100);
     if (amountCents < 50) {
       return NextResponse.json(
@@ -605,7 +610,7 @@ export async function POST(request: NextRequest) {
     date: (date && String(date).trim()) ? String(date).trim() : null,
     time: timeForDb ?? null,
     payment_method: (body.paymentMethod === 'online' || body.payment_method === 'online') ? 'online' : 'cash',
-    payment_status: 'pending',
+    payment_status: giftCardCoversFull ? 'paid' : 'pending',
     tip_amount: body.tipAmount ?? 0,
   };
 
