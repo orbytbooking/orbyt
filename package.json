@@ -11,6 +11,7 @@
     "lint": "eslint \"src\"",
     "lint:fix": "eslint \"src\" --fix",
     "type-check": "tsc --noEmit",
+    "test:gift-cards": "node scripts/test-gift-card-flow.mjs",
     "test": "npm run lint && npm run type-check && npm run build",
     "security-audit": "npm audit --audit-level=high"
   },
