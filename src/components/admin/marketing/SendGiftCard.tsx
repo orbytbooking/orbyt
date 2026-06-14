@@ -11,7 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useBusiness } from '@/contexts/BusinessContext';
 import { Gift, Image as ImageIcon, Loader2 } from 'lucide-react';
 import Link from 'next/link';
-import { marketingApiHeaders } from '@/lib/marketingTenantGate';
+import { marketingApiHeaders } from '@/lib/marketingApiHeaders';
 
 type GiftCardTemplate = {
   id: string;

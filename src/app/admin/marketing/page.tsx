@@ -18,7 +18,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import { useBusiness } from '@/contexts/BusinessContext';
 import Link from "next/link";
-import { marketingApiHeaders } from '@/lib/marketingTenantGate';
+import { marketingApiHeaders } from '@/lib/marketingApiHeaders';
 
 type Coupon = {
   id: string;

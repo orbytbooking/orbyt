@@ -52,10 +52,3 @@ export async function gateGiftCardAdminApi(
   if (!bookingsDenied) return null;
   return marketingDenied;
 }
-
-/** Tenant header for marketing / gift card admin API calls. */
-export function marketingApiHeaders(businessId: string | null | undefined): Record<string, string> {
-  const id = businessId?.trim();
-  if (!id) return {};
-  return { 'x-business-id': id };
-}
