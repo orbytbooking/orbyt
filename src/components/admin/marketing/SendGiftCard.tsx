@@ -5,13 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { useBusiness } from '@/contexts/BusinessContext';
 import { Gift, Image as ImageIcon, Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { marketingApiHeaders } from '@/lib/marketingTenantGate';
 
 type GiftCardTemplate = {
   id: string;
@@ -22,7 +22,44 @@ type GiftCardTemplate = {
   expires_in_months: number;
 };
 
-const MIN_AMOUNT_DEFAULT = 150;
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+
+function GiftCardVisualPreview({
+  imageUrl,
+  amount,
+  templateName,
+  recipientName,
+  senderName,
+}: {
+  imageUrl: string | null;
+  amount: number;
+  templateName?: string;
+  recipientName: string;
+  senderName: string;
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-lg text-center text-white min-h-[280px]">
+      {imageUrl ? (
+        <>
+          <img src={imageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+          <div className="absolute inset-0 bg-black/45" aria-hidden />
+        </>
+      ) : (
+        <div className="absolute inset-0 bg-gradient-to-br from-pink-400 to-pink-600" aria-hidden />
+      )}
+      <div className="relative z-10 p-8">
+        <h3 className="text-2xl font-bold mb-2">Congratulations!</h3>
+        <p className="text-white/80 mb-4">You&apos;ve received a special gift</p>
+        <div className="text-4xl font-bold mb-2">${amount > 0 ? amount.toFixed(2) : '0.00'}</div>
+        {templateName && <p className="text-sm text-white/90">{templateName}</p>}
+        <div className="mt-6 pt-4 border-t border-white/20 text-sm flex justify-between gap-4">
+          <span className="truncate">To: {recipientName || '—'}</span>
+          <span className="truncate">From: {senderName || '—'}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function SendGiftCard() {
   const { toast } = useToast();
@@ -43,7 +80,6 @@ export function SendGiftCard() {
     sendOption: 'now' as 'now' | 'later',
     scheduleDate: '',
     scheduleTime: '',
-    excludeMinimumValidation: false,
   });
 
   useEffect(() => {
@@ -57,6 +93,7 @@ export function SendGiftCard() {
       try {
         const res = await fetch(
           `/api/marketing/gift-cards?business_id=${currentBusiness.id}&active=true`,
+          { headers: marketingApiHeaders(currentBusiness.id) },
         );
         const json = await res.json();
         if (!cancelled && res.ok && Array.isArray(json.data)) {
@@ -89,11 +126,31 @@ export function SendGiftCard() {
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => setSelectedImage(reader.result as string);
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: 'Invalid file',
+        description: 'Please choose an image file (JPG, PNG, GIF, etc.).',
+        variant: 'destructive',
+      });
+      e.target.value = '';
+      return;
     }
+
+    if (file.size > MAX_IMAGE_BYTES) {
+      toast({
+        title: 'Image too large',
+        description: 'Please use an image under 2 MB.',
+        variant: 'destructive',
+      });
+      e.target.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => setSelectedImage(reader.result as string);
+    reader.readAsDataURL(file);
   };
 
   const resetForm = () => {
@@ -108,7 +165,6 @@ export function SendGiftCard() {
       sendOption: 'now',
       scheduleDate: '',
       scheduleTime: '',
-      excludeMinimumValidation: false,
     });
     setSelectedImage(null);
   };
@@ -125,15 +181,6 @@ export function SendGiftCard() {
       toast({
         title: 'Gift card type required',
         description: 'Choose a gift card template. Create one under Gift Card Templates if needed.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    if (!formData.excludeMinimumValidation && displayAmount < MIN_AMOUNT_DEFAULT) {
-      toast({
-        title: 'Validation Error',
-        description: `This gift card is below the $${MIN_AMOUNT_DEFAULT.toFixed(2)} minimum. Enable "Exclude minimum" or pick another template.`,
         variant: 'destructive',
       });
       return;
@@ -171,7 +218,10 @@ export function SendGiftCard() {
       const purchaserName = `${formData.senderFirstName.trim()} ${formData.senderLastName.trim()}`.trim();
       const res = await fetch('/api/marketing/gift-cards/instances', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...marketingApiHeaders(currentBusiness.id),
+        },
         body: JSON.stringify({
           business_id: currentBusiness.id,
           gift_card_id: formData.giftCardId,
@@ -182,6 +232,7 @@ export function SendGiftCard() {
           recipient_name: formData.recipientName.trim(),
           message: formData.message.trim() || undefined,
           send_email: true,
+          ...(selectedImage ? { image_data_url: selectedImage } : {}),
         }),
       });
 
@@ -270,7 +321,7 @@ export function SendGiftCard() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Gift Card Image (preview only)</Label>
+                  <Label>Gift Card Image (optional)</Label>
                   <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
                     <input
                       type="file"
@@ -279,16 +330,27 @@ export function SendGiftCard() {
                       className="hidden"
                       id="image-upload"
                     />
-                    <label htmlFor="image-upload" className="cursor-pointer">
+                    <label htmlFor="image-upload" className="cursor-pointer block">
                       {selectedImage ? (
-                        <img src={selectedImage} alt="Preview" className="max-h-20 mx-auto rounded" />
+                        <img src={selectedImage} alt="Gift card preview" className="max-h-32 mx-auto rounded object-contain" />
                       ) : (
                         <div className="space-y-2">
                           <ImageIcon className="h-8 w-8 mx-auto text-gray-400" />
-                          <p className="text-sm text-gray-600">Optional preview image</p>
+                          <p className="text-sm text-gray-600">Click to upload — shown in preview and email</p>
                         </div>
                       )}
                     </label>
+                    {selectedImage && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="mt-2"
+                        onClick={() => setSelectedImage(null)}
+                      >
+                        Remove image
+                      </Button>
+                    )}
                   </div>
                 </div>
 
@@ -359,17 +421,6 @@ export function SendGiftCard() {
                   />
                 </div>
 
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="exclude-minimum"
-                    checked={formData.excludeMinimumValidation}
-                    onCheckedChange={(checked) => handleInputChange('excludeMinimumValidation', checked)}
-                  />
-                  <Label htmlFor="exclude-minimum" className="text-sm">
-                    Allow templates under ${MIN_AMOUNT_DEFAULT.toFixed(2)}
-                  </Label>
-                </div>
-
                 <div className="flex justify-end space-x-2">
                   <Button type="button" variant="outline" onClick={resetForm} disabled={submitting}>
                     Reset
@@ -393,25 +444,17 @@ export function SendGiftCard() {
               <CardDescription>What the recipient will receive.</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="bg-gradient-to-br from-pink-400 to-pink-600 rounded-lg p-8 text-white text-center">
-                <h3 className="text-2xl font-bold mb-2">Congratulations!</h3>
-                <p className="text-white/80 mb-4">You&apos;ve received a special gift</p>
-                <div className="text-4xl font-bold mb-2">
-                  ${displayAmount > 0 ? displayAmount.toFixed(2) : '0.00'}
-                </div>
-                {selectedTemplate && (
-                  <p className="text-sm text-white/90">{selectedTemplate.name}</p>
-                )}
-                <div className="mt-6 pt-4 border-t border-white/20 text-sm flex justify-between">
-                  <span>To: {formData.recipientName || '—'}</span>
-                  <span>
-                    From:{' '}
-                    {formData.senderFirstName || formData.senderLastName
-                      ? `${formData.senderFirstName} ${formData.senderLastName}`.trim()
-                      : '—'}
-                  </span>
-                </div>
-              </div>
+              <GiftCardVisualPreview
+                imageUrl={selectedImage}
+                amount={displayAmount}
+                templateName={selectedTemplate?.name}
+                recipientName={formData.recipientName}
+                senderName={
+                  formData.senderFirstName || formData.senderLastName
+                    ? `${formData.senderFirstName} ${formData.senderLastName}`.trim()
+                    : ''
+                }
+              />
               {formData.message && (
                 <div className="bg-gray-50 rounded-lg p-4 mt-4">
                   <p className="text-sm text-gray-600">{formData.message}</p>

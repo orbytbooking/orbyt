@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
+import { gateMarketingTenantApi } from '@/lib/marketingTenantGate';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -34,6 +35,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Business ID is required' }, { status: 400 });
     }
 
+    const gate = await gateMarketingTenantApi(request, businessId);
+    if (gate) return gate;
+
     let query = supabaseAdmin
       .from('marketing_gift_cards')
       .select('*')
@@ -61,6 +65,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const validatedData = createGiftCardSchema.parse(body);
+
+    const gate = await gateMarketingTenantApi(request, validatedData.business_id);
+    if (gate) return gate;
 
     // Check if code already exists for this business
     const { data: existingCard } = await supabaseAdmin
@@ -105,6 +112,13 @@ export async function PUT(request: NextRequest) {
 
     const validatedData = createGiftCardSchema.partial().parse(updateData);
 
+    if (!validatedData.business_id) {
+      return NextResponse.json({ error: 'Business ID is required' }, { status: 400 });
+    }
+
+    const gate = await gateMarketingTenantApi(request, validatedData.business_id);
+    if (gate) return gate;
+
     const { data, error } = await supabaseAdmin
       .from('marketing_gift_cards')
       .update({
@@ -143,6 +157,9 @@ export async function DELETE(request: NextRequest) {
     if (!id || !businessId) {
       return NextResponse.json({ error: 'Gift card ID and business ID are required' }, { status: 400 });
     }
+
+    const gate = await gateMarketingTenantApi(request, businessId);
+    if (gate) return gate;
 
     const { error } = await supabaseAdmin
       .from('marketing_gift_cards')

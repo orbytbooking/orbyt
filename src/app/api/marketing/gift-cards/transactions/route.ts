@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { gateMarketingTenantApi } from '@/lib/marketingTenantGate';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -28,6 +29,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Business ID is required' }, { status: 400 });
     }
 
+    const gate = await gateMarketingTenantApi(request, businessId);
+    if (gate) return gate;
+
     let query = supabaseAdmin
       .from('gift_card_transactions')
       .select(`
@@ -35,10 +39,7 @@ export async function GET(request: NextRequest) {
         gift_card_instance:gift_card_instances(
           unique_code,
           gift_card:marketing_gift_cards(name)
-        ),
-        customer:customers(id, first_name, last_name, email),
-        booking:bookings(id, status, total_amount),
-        processed_by_user:users(id, first_name, last_name, email)
+        )
       `)
       .eq('business_id', businessId)
       .order('transaction_date', { ascending: false })
@@ -108,6 +109,9 @@ export async function POST(request: NextRequest) {
     if (adjustment_type !== 'increase' && adjustment_type !== 'decrease') {
       return NextResponse.json({ error: 'Adjustment type must be increase or decrease' }, { status: 400 });
     }
+
+    const gate = await gateMarketingTenantApi(request, business_id);
+    if (gate) return gate;
 
     // Get current gift card instance
     const { data: cardInstance, error: cardError } = await supabaseAdmin

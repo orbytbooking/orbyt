@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseClient';
 import { z } from 'zod';
+import { gateGiftCardAdminApi } from '@/lib/marketingTenantGate';
 
 // Schema for redeeming gift cards
 const redeemGiftCardSchema = z.object({
@@ -17,6 +18,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const validatedData = redeemGiftCardSchema.parse(body);
+
+    const gate = await gateGiftCardAdminApi(request, validatedData.business_id);
+    if (gate) return gate;
 
     // Call the database function to redeem the gift card
     if (!supabaseAdmin) {
@@ -78,6 +82,9 @@ export async function GET(request: NextRequest) {
     if (!businessId || !uniqueCode) {
       return NextResponse.json({ error: 'Business ID and gift card code are required' }, { status: 400 });
     }
+
+    const gate = await gateGiftCardAdminApi(request, businessId);
+    if (gate) return gate;
 
     // Call the database function to validate the gift card
     if (!supabaseAdmin) {

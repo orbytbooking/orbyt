@@ -821,6 +821,11 @@ export default function BookingPageContent() {
   } | null>(null);
 
   const businessIdFromUrl = searchParams.get("business") ?? "";
+  const giftCardCodeFromUrl = (
+    searchParams.get("giftCard") ??
+    searchParams.get("gift_card") ??
+    ""
+  ).trim().toUpperCase();
 
   type PublicBookingStoreOptions = {
     scheduling_type?: string;
@@ -1702,6 +1707,13 @@ export default function BookingPageContent() {
     },
   });
   const addressPreference = form.watch("addressPreference");
+
+  useEffect(() => {
+    if (!giftCardCodeFromUrl || !businessIdFromUrl) return;
+    form.setValue("giftCardCode", giftCardCodeFromUrl, { shouldDirty: false });
+    form.setValue("couponCodeTab", "gift-card", { shouldDirty: false });
+  }, [giftCardCodeFromUrl, businessIdFromUrl, form]);
+
   const selectedProvider = form.watch("provider");
   const zipCode = form.watch("zipCode") ?? "";
   const watchedBookingService = form.watch("service") ?? "";

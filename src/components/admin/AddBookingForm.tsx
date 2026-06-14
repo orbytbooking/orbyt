@@ -3102,7 +3102,9 @@ const handleAddBooking = async (status: string = 'pending') => {
     }
     try {
       const params = new URLSearchParams({ business_id: currentBusiness.id, unique_code: code });
-      const res = await fetch(`/api/marketing/gift-cards/redeem?${params.toString()}`);
+      const res = await fetch(`/api/marketing/gift-cards/redeem?${params.toString()}`, {
+        headers: { 'x-business-id': currentBusiness.id },
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.valid) {
         toast({

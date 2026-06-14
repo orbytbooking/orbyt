@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Search, PlusCircle, Mail, Send, Users, Eye, Edit, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { DailyDiscountsForm } from "@/components/admin/marketing/DailyDiscountsForm";
 import { GiftCardInstances } from "@/components/admin/marketing/GiftCardInstances";
 import { SendGiftCard } from "@/components/admin/marketing/SendGiftCard";
@@ -17,6 +18,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import { useBusiness } from '@/contexts/BusinessContext';
 import Link from "next/link";
+import { marketingApiHeaders } from '@/lib/marketingTenantGate';
 
 type Coupon = {
   id: string;
@@ -92,8 +94,20 @@ type EmailCampaign = {
 
 // Database replaces localStorage for all marketing data
 
+const MARKETING_TABS = [
+  'coupons',
+  'daily-discounts',
+  'gift-cards',
+  'send-gift-card',
+  'gift-card-instances',
+  'scripts',
+  'email-campaigns',
+] as const;
+
 export default function MarketingPage() {
   const { toast } = useToast();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState('coupons');
   const [couponTab, setCouponTab] = useState('active');
   const [searchTerm, setSearchTerm] = useState('');
@@ -181,7 +195,9 @@ export default function MarketingPage() {
     if (!currentBusiness?.id) return;
     const fetchGiftCards = async () => {
       try {
-        const response = await fetch(`/api/marketing/gift-cards?business_id=${currentBusiness.id}`);
+        const response = await fetch(`/api/marketing/gift-cards?business_id=${currentBusiness.id}`, {
+          headers: marketingApiHeaders(currentBusiness.id),
+        });
         const result = await response.json();
         
         if (!response.ok) {
@@ -266,8 +282,18 @@ export default function MarketingPage() {
     fetchCampaigns();
   }, [currentBusiness]);
 
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab && MARKETING_TABS.includes(tab as (typeof MARKETING_TABS)[number])) {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
+
   const handleTabChange = (value: string) => {
     setActiveTab(value);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', value);
+    router.replace(`/admin/marketing?${params.toString()}`, { scroll: false });
   };
 
   
@@ -331,6 +357,7 @@ export default function MarketingPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...marketingApiHeaders(currentBusiness.id),
         },
         body: JSON.stringify({
           business_id: currentBusiness.id,
@@ -376,6 +403,7 @@ export default function MarketingPage() {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
+          ...marketingApiHeaders(currentBusiness.id),
         },
         body: JSON.stringify({
           id: id,
@@ -420,6 +448,7 @@ export default function MarketingPage() {
     try {
       const response = await fetch(`/api/marketing/gift-cards?id=${id}&business_id=${currentBusiness.id}`, {
         method: 'DELETE',
+        headers: marketingApiHeaders(currentBusiness.id),
       });
 
       const result = await response.json();

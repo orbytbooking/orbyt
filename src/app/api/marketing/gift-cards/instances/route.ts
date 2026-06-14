@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { sendGiftCardEmail } from '@/lib/sendGiftCardEmail';
+import { uploadGiftCardEmailImage } from '@/lib/giftCardEmailImage';
+import { resolveBusinessBookNowUrl } from '@/lib/resolveBusinessBookNowUrl';
+import { gateMarketingTenantApi } from '@/lib/marketingTenantGate';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -25,6 +28,13 @@ const purchaseGiftCardSchema = z.object({
   message: z.string().optional(),
   quantity: z.number().min(1).max(10).default(1),
   send_email: z.boolean().optional().default(true),
+  image_data_url: z
+    .string()
+    .optional()
+    .refine(
+      (v) => !v || (v.startsWith('data:image/') && v.length <= 3_000_000),
+      'Image must be a data URL under 3MB',
+    ),
 });
 
 // GET: Fetch gift card instances
@@ -40,6 +50,9 @@ export async function GET(request: NextRequest) {
     if (!businessId) {
       return NextResponse.json({ error: 'Business ID is required' }, { status: 400 });
     }
+
+    const gate = await gateMarketingTenantApi(request, businessId);
+    if (gate) return gate;
 
     let query = supabaseAdmin
       .from('gift_card_instances')
@@ -81,10 +94,17 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    console.log('🔍 Received purchase request:', JSON.stringify(body, null, 2));
+    const logBody = { ...body };
+    if (typeof logBody.image_data_url === 'string') {
+      logBody.image_data_url = `[image ${logBody.image_data_url.length} chars]`;
+    }
+    console.log('🔍 Received purchase request:', JSON.stringify(logBody, null, 2));
     
     const validatedData = purchaseGiftCardSchema.parse(body);
     console.log('✅ Validated data:', JSON.stringify(validatedData, null, 2));
+
+    const gate = await gateMarketingTenantApi(request, validatedData.business_id);
+    if (gate) return gate;
 
     // Get the gift card template
     console.log('🎁 Looking up gift card template:', validatedData.gift_card_id);
@@ -146,28 +166,49 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ Inserted instances:', data);
 
+    if (Array.isArray(data) && data.length > 0) {
+      const purchaseRows = data.map((row) => ({
+        business_id: validatedData.business_id,
+        gift_card_instance_id: row.id,
+        transaction_type: 'purchase' as const,
+        amount: Number(row.original_amount ?? 0),
+        balance_before: 0,
+        balance_after: Number(row.original_amount ?? 0),
+        description: 'Gift card issued',
+      }));
+      const { error: purchaseTxError } = await supabaseAdmin
+        .from('gift_card_transactions')
+        .insert(purchaseRows);
+      if (purchaseTxError) {
+        console.warn('Gift card purchase transaction log failed:', purchaseTxError.message);
+      }
+    }
+
     const emailResults: { instance_id: string; sent: boolean }[] = [];
     if (validatedData.send_email && Array.isArray(data) && data.length > 0) {
       const { data: businessRow } = await supabaseAdmin
         .from('businesses')
-        .select('name, website')
+        .select('name')
         .eq('id', validatedData.business_id)
         .maybeSingle();
 
       const businessName = String(businessRow?.name ?? 'Your service provider').trim();
-      const website = String(businessRow?.website ?? '').trim();
-      const appBase = (process.env.NEXT_PUBLIC_APP_URL ?? '').replace(/\/$/, '');
-      const bookNowUrl =
-        website && /^https?:\/\//i.test(website)
-          ? website
-          : appBase
-            ? `${appBase}/book-now?business=${validatedData.business_id}`
-            : null;
 
       const purchaserName =
         validatedData.purchaser_name?.trim() ||
         validatedData.purchaser_email?.trim() ||
         'Someone special';
+
+      let emailImageUrl: string | null = null;
+      if (validatedData.image_data_url?.trim()) {
+        emailImageUrl = await uploadGiftCardEmailImage(
+          validatedData.business_id,
+          validatedData.image_data_url.trim(),
+        );
+        if (!emailImageUrl) {
+          console.warn('Gift card image upload failed; email will use default layout without custom image');
+        }
+      }
 
       for (const row of data) {
         const recipientEmail = String(row.recipient_email ?? '').trim();
@@ -188,7 +229,11 @@ export async function POST(request: NextRequest) {
           uniqueCode: String(row.unique_code),
           expiresAt: String(row.expires_at),
           message: row.message ?? validatedData.message,
-          bookNowUrl,
+          bookNowUrl: resolveBusinessBookNowUrl(validatedData.business_id, {
+            giftCardCode: String(row.unique_code),
+            requestOrigin: request.nextUrl.origin,
+          }),
+          imageUrl: emailImageUrl,
         });
         emailResults.push({ instance_id: row.id, sent });
       }

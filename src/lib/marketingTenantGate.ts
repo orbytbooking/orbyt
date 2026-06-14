@@ -40,3 +40,22 @@ export function gateMarketingTenantApi(
 ): Promise<NextResponse | null> {
   return gateCrmTenantModuleApi(request, businessId, 'marketing');
 }
+
+/** Admin validate/redeem from Marketing or Add Booking (bookings module). */
+export async function gateGiftCardAdminApi(
+  request: NextRequest,
+  businessId: string | null | undefined,
+): Promise<NextResponse | null> {
+  const marketingDenied = await gateCrmTenantModuleApi(request, businessId, 'marketing');
+  if (!marketingDenied) return null;
+  const bookingsDenied = await gateCrmTenantModuleApi(request, businessId, 'bookings');
+  if (!bookingsDenied) return null;
+  return marketingDenied;
+}
+
+/** Tenant header for marketing / gift card admin API calls. */
+export function marketingApiHeaders(businessId: string | null | undefined): Record<string, string> {
+  const id = businessId?.trim();
+  if (!id) return {};
+  return { 'x-business-id': id };
+}
