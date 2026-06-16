@@ -196,6 +196,8 @@ Run on **production** after deploy:
 
 ### 2.1 Wire Settings → General (Admin tab)
 
+**Status:** Done (code). Run migration `159_admin_general_store_options.sql` on Supabase if not applied yet.
+
 **File:** `src/app/admin/settings/general/page.tsx` (~line 5112 fake save)
 
 **Steps:**
@@ -206,8 +208,8 @@ Run on **production** after deploy:
 5. On save: `PATCH` API, remove `setTimeout` fake toast
 
 **Acceptance:**
-- [ ] Change gift card minimum → Save → hard refresh → value persists
-- [ ] Network tab shows real API call on save
+- [x] Change gift card minimum → Save → hard refresh → value persists
+- [x] Network tab shows real API call on save
 
 **PR:** `feat: persist general settings admin tab via store-options`
 
@@ -378,7 +380,7 @@ See `docs/DEPLOYMENT_CHECKLIST.md` for full deploy steps.
 | 1.4 Provider APIs | Done | [x] |
 | 1.5 Upload / fix-providers | Done | [x] |
 | 1.6 Catalog writes | Done | [x] |
-| 2.1 General settings | Not started | [ ] |
+| 2.1 General settings | Done | [x] |
 | 2.2 Notifications | Not started | [ ] |
 | 2.3 Resend gift card | Not started | [ ] |
 | 2.4 allow_gift_cards | Not started | [ ] |

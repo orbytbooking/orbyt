@@ -64,6 +64,16 @@ export interface BusinessStoreOptions {
   default_provider_wage_type: 'percentage' | 'fixed' | 'hourly' | null;
   /** Customer portal: show My Drive nav and file uploads when true */
   customer_my_drive_enabled: boolean;
+  gift_card_min_amount: number;
+  gift_card_allow_edit_below_min: boolean;
+  gift_card_max_limit_enabled: boolean;
+  gift_card_max_amount: number | null;
+  referral_credit_referred: number;
+  referral_credit_referrer: number;
+  payment_card_hold_description: string | null;
+  payment_charge_booking_description: string | null;
+  payment_separate_charge_description: string | null;
+  payment_charge_invoice_description: string | null;
 }
 
 const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
@@ -112,11 +122,120 @@ const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
   default_provider_wage_type: null,
   customer_my_drive_enabled: false,
   customer_booking_form_layout: 'form1',
+  gift_card_min_amount: 150,
+  gift_card_allow_edit_below_min: false,
+  gift_card_max_limit_enabled: true,
+  gift_card_max_amount: null,
+  referral_credit_referred: 50,
+  referral_credit_referrer: 50,
+  payment_card_hold_description: 'Card hold for premierprocleaner by OrbytBooking -',
+  payment_charge_booking_description: 'Amount charged by OrbytBooking.',
+  payment_separate_charge_description: null,
+  payment_charge_invoice_description: null,
 };
+
+const ADMIN_GENERAL_STORE_OPTION_KEYS = [
+  'gift_card_min_amount',
+  'gift_card_allow_edit_below_min',
+  'gift_card_max_limit_enabled',
+  'gift_card_max_amount',
+  'referral_credit_referred',
+  'referral_credit_referrer',
+  'payment_card_hold_description',
+  'payment_charge_booking_description',
+  'payment_separate_charge_description',
+  'payment_charge_invoice_description',
+] as const;
 
 function storeOptionsErrorMissingDefaultWageColumn(message: string): boolean {
   const m = message.toLowerCase();
   return m.includes('default_provider_wage') && (m.includes('column') || m.includes('schema'));
+}
+
+function storeOptionsErrorMissingAdminGeneralColumns(message: string): boolean {
+  const m = message.toLowerCase();
+  if (!m.includes('column') && !m.includes('schema')) return false;
+  return ADMIN_GENERAL_STORE_OPTION_KEYS.some((key) => m.includes(key));
+}
+
+function parseNonNegativeMoney(value: unknown, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.round(n * 100) / 100;
+}
+
+function parseOptionalMoney(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100) / 100;
+}
+
+function parseOptionalDescription(value: unknown, fallback: string | null): string | null {
+  if (value == null) return fallback;
+  const s = String(value).trim();
+  return s || null;
+}
+
+function stripAdminGeneralFields(update: Record<string, unknown>): void {
+  for (const key of ADMIN_GENERAL_STORE_OPTION_KEYS) {
+    delete update[key];
+  }
+}
+
+function resolveAdminGeneralFields(
+  body: Record<string, unknown>,
+  prev: BusinessStoreOptions,
+): Pick<
+  BusinessStoreOptions,
+  (typeof ADMIN_GENERAL_STORE_OPTION_KEYS)[number]
+> {
+  const maxLimitEnabled =
+    'gift_card_max_limit_enabled' in body
+      ? Boolean(body.gift_card_max_limit_enabled)
+      : prev.gift_card_max_limit_enabled;
+
+  let gift_card_max_amount = prev.gift_card_max_amount;
+  if ('gift_card_max_amount' in body || 'gift_card_max_limit_enabled' in body) {
+    gift_card_max_amount = maxLimitEnabled ? parseOptionalMoney(body.gift_card_max_amount) : null;
+  }
+
+  return {
+    gift_card_min_amount:
+      'gift_card_min_amount' in body
+        ? parseNonNegativeMoney(body.gift_card_min_amount, prev.gift_card_min_amount)
+        : prev.gift_card_min_amount,
+    gift_card_allow_edit_below_min:
+      'gift_card_allow_edit_below_min' in body
+        ? Boolean(body.gift_card_allow_edit_below_min)
+        : prev.gift_card_allow_edit_below_min,
+    gift_card_max_limit_enabled: maxLimitEnabled,
+    gift_card_max_amount,
+    referral_credit_referred:
+      'referral_credit_referred' in body
+        ? parseNonNegativeMoney(body.referral_credit_referred, prev.referral_credit_referred)
+        : prev.referral_credit_referred,
+    referral_credit_referrer:
+      'referral_credit_referrer' in body
+        ? parseNonNegativeMoney(body.referral_credit_referrer, prev.referral_credit_referrer)
+        : prev.referral_credit_referrer,
+    payment_card_hold_description:
+      'payment_card_hold_description' in body
+        ? parseOptionalDescription(body.payment_card_hold_description, prev.payment_card_hold_description)
+        : prev.payment_card_hold_description,
+    payment_charge_booking_description:
+      'payment_charge_booking_description' in body
+        ? parseOptionalDescription(body.payment_charge_booking_description, prev.payment_charge_booking_description)
+        : prev.payment_charge_booking_description,
+    payment_separate_charge_description:
+      'payment_separate_charge_description' in body
+        ? parseOptionalDescription(body.payment_separate_charge_description, prev.payment_separate_charge_description)
+        : prev.payment_separate_charge_description,
+    payment_charge_invoice_description:
+      'payment_charge_invoice_description' in body
+        ? parseOptionalDescription(body.payment_charge_invoice_description, prev.payment_charge_invoice_description)
+        : prev.payment_charge_invoice_description,
+  };
 }
 
 export async function GET(request: NextRequest) {
@@ -221,6 +340,15 @@ export async function PUT(request: NextRequest) {
         ? existing.customer_my_drive_enabled
         : DEFAULT_OPTIONS.customer_my_drive_enabled;
 
+    let adminGeneralColumnsAvailable = true;
+    const prevRow: BusinessStoreOptions = {
+      ...DEFAULT_OPTIONS,
+      ...((existing ?? {}) as Partial<BusinessStoreOptions>),
+      business_id: businessId,
+      id: existing?.id ?? '',
+    };
+    const adminGeneralFields = resolveAdminGeneralFields(body as Record<string, unknown>, prevRow);
+
     if ('default_provider_wage' in body || 'default_provider_wage_type' in body) {
       const wRaw = body.default_provider_wage;
       const tRaw = body.default_provider_wage_type;
@@ -306,12 +434,17 @@ export async function PUT(request: NextRequest) {
         'customer_my_drive_enabled' in body && typeof body.customer_my_drive_enabled === 'boolean'
           ? body.customer_my_drive_enabled
           : prevCustomerMyDrive,
+      ...adminGeneralFields,
       updated_at: new Date().toISOString(),
     };
 
     if (!wageColumnsAvailable) {
       delete (update as Record<string, unknown>).default_provider_wage;
       delete (update as Record<string, unknown>).default_provider_wage_type;
+    }
+
+    if (!adminGeneralColumnsAvailable) {
+      stripAdminGeneralFields(update as Record<string, unknown>);
     }
 
     if (existing?.id) {
@@ -337,6 +470,20 @@ export async function PUT(request: NextRequest) {
         error = retry.error;
       }
 
+      if (error && storeOptionsErrorMissingAdminGeneralColumns(error.message || '')) {
+        adminGeneralColumnsAvailable = false;
+        const update2 = { ...update } as Record<string, unknown>;
+        stripAdminGeneralFields(update2);
+        const retry = await supabase
+          .from('business_store_options')
+          .update(update2)
+          .eq('business_id', businessId)
+          .select()
+          .single();
+        data = retry.data;
+        error = retry.error;
+      }
+
       if (error) {
         console.error('Store options update error:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
@@ -345,6 +492,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({
         options: merged,
         default_provider_wage_migration_required: !wageColumnsAvailable,
+        admin_general_settings_migration_required: !adminGeneralColumnsAvailable,
       });
     }
 
@@ -368,6 +516,19 @@ export async function PUT(request: NextRequest) {
       error = retry.error;
     }
 
+    if (error && storeOptionsErrorMissingAdminGeneralColumns(error.message || '')) {
+      adminGeneralColumnsAvailable = false;
+      const update2 = { ...update } as Record<string, unknown>;
+      stripAdminGeneralFields(update2);
+      const retry = await supabase
+        .from('business_store_options')
+        .insert({ business_id: businessId, ...update2 })
+        .select()
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
+
     if (error) {
       console.error('Store options insert error:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
@@ -376,6 +537,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({
       options: merged,
       default_provider_wage_migration_required: !wageColumnsAvailable,
+      admin_general_settings_migration_required: !adminGeneralColumnsAvailable,
     });
   } catch (e) {
     console.error('Store options PUT:', e);

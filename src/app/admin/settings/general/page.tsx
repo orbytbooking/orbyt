@@ -121,6 +121,16 @@ interface StoreOptions {
   default_provider_wage_type?: 'percentage' | 'fixed' | 'hourly' | null;
   /** Customer portal My Drive nav (view files admins add in CRM) */
   customer_my_drive_enabled?: boolean;
+  gift_card_min_amount?: number;
+  gift_card_allow_edit_below_min?: boolean;
+  gift_card_max_limit_enabled?: boolean;
+  gift_card_max_amount?: number | null;
+  referral_credit_referred?: number;
+  referral_credit_referrer?: number;
+  payment_card_hold_description?: string | null;
+  payment_charge_booking_description?: string | null;
+  payment_separate_charge_description?: string | null;
+  payment_charge_invoice_description?: string | null;
 }
 
 // All IANA time zones (from Intl when available, else fallback list)
@@ -178,6 +188,16 @@ const SCHEDULING_DEFAULT_OPTIONS: StoreOptions = {
   default_provider_wage_type: null,
   customer_my_drive_enabled: false,
 };
+
+const DEFAULT_ADMIN_PAYMENT_CARD_HOLD = 'Card hold for premierprocleaner by OrbytBooking -';
+const DEFAULT_ADMIN_PAYMENT_CHARGE_BOOKING = 'Amount charged by OrbytBooking.';
+
+function formatStoreMoney(value: unknown, fallback: string): string {
+  if (value == null || value === '') return fallback;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return n.toFixed(2);
+}
 
 // Simple rich text editor for reschedule/cancellation messages
 function RescheduleMessageEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
@@ -473,6 +493,27 @@ export default function GeneralSettingsPage() {
   const [chargeInvoiceDescription, setChargeInvoiceDescription] = useState('');
   const [adminSettingsSaving, setAdminSettingsSaving] = useState(false);
 
+  const applyAdminTabFromStoreOptions = (options: StoreOptions) => {
+    setGiftCardMinAmount(formatStoreMoney(options.gift_card_min_amount, '150.00'));
+    setGiftCardEditBelowMin(options.gift_card_allow_edit_below_min ? 'yes' : 'no');
+    setGiftCardMaxLimitEnabled(options.gift_card_max_limit_enabled === false ? 'no' : 'yes');
+    setGiftCardMaxAmount(
+      options.gift_card_max_amount != null
+        ? formatStoreMoney(options.gift_card_max_amount, '')
+        : '',
+    );
+    setReferralCreditsReferred(formatStoreMoney(options.referral_credit_referred, '50.00'));
+    setReferralCreditsReferrer(formatStoreMoney(options.referral_credit_referrer, '50.00'));
+    setCardHoldDescription(
+      options.payment_card_hold_description?.trim() || DEFAULT_ADMIN_PAYMENT_CARD_HOLD,
+    );
+    setChargeBookingDescription(
+      options.payment_charge_booking_description?.trim() || DEFAULT_ADMIN_PAYMENT_CHARGE_BOOKING,
+    );
+    setSeparateChargeDescription(options.payment_separate_charge_description?.trim() || '');
+    setChargeInvoiceDescription(options.payment_charge_invoice_description?.trim() || '');
+  };
+
   const fetchAccessSettings = async () => {
     if (!currentBusiness?.id) return;
     setAccessSettingsLoading(true);
@@ -664,6 +705,7 @@ export default function GeneralSettingsPage() {
         if (typeof data.options.customer_my_drive_enabled === 'boolean') {
           setCustomerMyDriveEnabled(data.options.customer_my_drive_enabled ? 'yes' : 'no');
         }
+        applyAdminTabFromStoreOptions(opts);
       }
     } catch {
       toast.error("Failed to load scheduling settings");
@@ -745,6 +787,81 @@ export default function GeneralSettingsPage() {
       toast.error(e instanceof Error ? e.message : "Failed to save");
     } finally {
       setSchedulingSaving(false);
+    }
+  };
+
+  const handleSaveAdminSettings = async () => {
+    if (!currentBusiness?.id) return;
+
+    const minAmount = Number(giftCardMinAmount);
+    if (!Number.isFinite(minAmount) || minAmount < 0) {
+      toast.error('Enter a valid minimum gift card amount.');
+      return;
+    }
+
+    let maxAmount: number | null = null;
+    if (giftCardMaxLimitEnabled === 'yes') {
+      maxAmount = Number(giftCardMaxAmount);
+      if (!Number.isFinite(maxAmount) || maxAmount < 0) {
+        toast.error('Enter a valid maximum gift card amount.');
+        return;
+      }
+      if (maxAmount < minAmount) {
+        toast.error('Maximum gift card amount must be at least the minimum.');
+        return;
+      }
+    }
+
+    const referredAmount = Number(referralCreditsReferred);
+    const referrerAmount = Number(referralCreditsReferrer);
+    if (!Number.isFinite(referredAmount) || referredAmount < 0) {
+      toast.error('Enter a valid referral credit amount for the person being referred.');
+      return;
+    }
+    if (!Number.isFinite(referrerAmount) || referrerAmount < 0) {
+      toast.error('Enter a valid referral credit amount for the referrer.');
+      return;
+    }
+
+    setAdminSettingsSaving(true);
+    try {
+      const res = await fetch('/api/admin/store-options', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'x-business-id': currentBusiness.id },
+        body: JSON.stringify({
+          ...schedulingOptions,
+          businessId: currentBusiness.id,
+          gift_card_min_amount: minAmount,
+          gift_card_allow_edit_below_min: giftCardEditBelowMin === 'yes',
+          gift_card_max_limit_enabled: giftCardMaxLimitEnabled === 'yes',
+          gift_card_max_amount: maxAmount,
+          referral_credit_referred: referredAmount,
+          referral_credit_referrer: referrerAmount,
+          payment_card_hold_description: cardHoldDescription.trim() || null,
+          payment_charge_booking_description: chargeBookingDescription.trim() || null,
+          payment_separate_charge_description: separateChargeDescription.trim() || null,
+          payment_charge_invoice_description: chargeInvoiceDescription.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save admin settings');
+
+      if (data.options) {
+        const opts = { ...SCHEDULING_DEFAULT_OPTIONS, ...data.options };
+        setSchedulingOptions(opts);
+        applyAdminTabFromStoreOptions(opts);
+      }
+
+      toast.success('Admin settings saved.');
+      if (data.admin_general_settings_migration_required) {
+        toast.warning(
+          'Other settings saved. Admin tab fields need DB migration: run database/migrations/159_admin_general_store_options.sql in Supabase SQL Editor, then save again.',
+        );
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to save admin settings.');
+    } finally {
+      setAdminSettingsSaving(false);
     }
   };
 
@@ -5106,19 +5223,8 @@ export default function GeneralSettingsPage() {
                 </div>
 
                 <Button
-                  onClick={async () => {
-                    setAdminSettingsSaving(true);
-                    try {
-                      // TODO: wire to API when backend is ready
-                      await new Promise((r) => setTimeout(r, 400));
-                      toast.success('Admin settings saved.');
-                    } catch {
-                      toast.error('Failed to save admin settings.');
-                    } finally {
-                      setAdminSettingsSaving(false);
-                    }
-                  }}
-                  disabled={adminSettingsSaving}
+                  onClick={handleSaveAdminSettings}
+                  disabled={adminSettingsSaving || schedulingLoading}
                 >
                   {adminSettingsSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                   Save
