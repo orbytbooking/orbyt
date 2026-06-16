@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl) throw new Error("NEXT_PUBLIC_SUPABASE_URL is not set");
-if (!supabaseServiceRoleKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+  type ServiceSupabase,
+} from "@/lib/adminTenantContext";
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return bytes + " B";
@@ -22,7 +20,7 @@ function getFileType(fileName: string): "document" | "image" | "video" | "other"
 }
 
 async function assertProviderInBusiness(
-  supabaseAdmin: ReturnType<typeof createClient>,
+  supabaseAdmin: ServiceSupabase,
   providerId: string,
   businessId: string
 ) {
@@ -47,23 +45,25 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId: ctxBusinessId } = ctx;
+
     const { id: providerId } = await params;
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
-    const businessId = (formData.get("businessId") as string) || request.headers.get("x-business-id");
+    const formBusinessId = (formData.get("businessId") as string) || request.headers.get("x-business-id");
     const parentId = formData.get("parentId") as string | null;
     const parentIdValue = parentId === "null" || !parentId ? null : parentId;
 
+    const mismatch = assertBusinessIdMatchesContext(formBusinessId, ctxBusinessId);
+    if (mismatch) return mismatch;
+    const businessId = ctxBusinessId;
+
     if (!providerId)
       return NextResponse.json({ error: "Provider ID is required" }, { status: 400 });
-    if (!businessId)
-      return NextResponse.json({ error: "Business ID is required" }, { status: 400 });
     if (!file)
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
 
     const check = await assertProviderInBusiness(supabaseAdmin, providerId, businessId);
     if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });

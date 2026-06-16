@@ -1,39 +1,27 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from '@/lib/adminTenantContext';
 
 export async function GET(request: NextRequest) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId } = ctx;
+
     console.log('=== GET AVAILABLE PROVIDERS API ===');
-    
+
     const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get('businessId');
     const serviceId = searchParams.get('serviceId');
     const date = searchParams.get('date');
     const time = searchParams.get('time');
-    
-    if (!businessId) {
-      return NextResponse.json(
-        { error: 'Business ID is required' },
-        { status: 400 }
-      );
-    }
-
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    
-    if (!supabaseUrl || !supabaseServiceRoleKey) {
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
-    }
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      searchParams.get('businessId')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     // Get available providers for this business
     let query = supabaseAdmin

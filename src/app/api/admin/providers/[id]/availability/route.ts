@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl) throw new Error("NEXT_PUBLIC_SUPABASE_URL is not set");
-if (!supabaseServiceRoleKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+  type ServiceSupabase,
+} from "@/lib/adminTenantContext";
 
 type AvailabilityItemInput = {
   day_of_week: number;
@@ -20,7 +18,7 @@ function normalizeTime(t: string) {
   return t.length === 5 ? `${t}:00` : t;
 }
 
-async function assertProviderInBusiness(supabaseAdmin: any, providerId: string, businessId: string) {
+async function assertProviderInBusiness(supabaseAdmin: ServiceSupabase, providerId: string, businessId: string) {
   const { data: provider, error } = await supabaseAdmin
     .from("service_providers")
     .select("id, business_id")
@@ -38,16 +36,21 @@ async function assertProviderInBusiness(supabaseAdmin: any, providerId: string, 
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId: ctxBusinessId } = ctx;
+
     const { id: providerId } = await params;
     const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get("businessId") || request.headers.get("x-business-id");
+    const hinted =
+      request.headers.get("x-business-id")?.trim() ||
+      searchParams.get("businessId")?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, ctxBusinessId);
+    if (mismatch) return mismatch;
+    const businessId = ctxBusinessId;
 
     if (!providerId) return NextResponse.json({ error: "Provider ID is required" }, { status: 400 });
-    if (!businessId) return NextResponse.json({ error: "Business ID is required" }, { status: 400 });
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
 
     const check = await assertProviderInBusiness(supabaseAdmin, providerId, businessId);
     if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
@@ -74,18 +77,23 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId: ctxBusinessId } = ctx;
+
     const { id: providerId } = await params;
     const body = await request.json().catch(() => ({}));
-    const businessId = body?.businessId || request.headers.get("x-business-id");
+    const hinted =
+      request.headers.get("x-business-id")?.trim() ||
+      (typeof body?.businessId === "string" ? body.businessId.trim() : "") ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, ctxBusinessId);
+    if (mismatch) return mismatch;
+    const businessId = ctxBusinessId;
     const items: AvailabilityItemInput[] = Array.isArray(body?.items) ? body.items : body?.item ? [body.item] : [];
 
     if (!providerId) return NextResponse.json({ error: "Provider ID is required" }, { status: 400 });
-    if (!businessId) return NextResponse.json({ error: "Business ID is required" }, { status: 400 });
     if (!items.length) return NextResponse.json({ error: "items is required" }, { status: 400 });
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
 
     const check = await assertProviderInBusiness(supabaseAdmin, providerId, businessId);
     if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
@@ -124,19 +132,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId: ctxBusinessId } = ctx;
+
     const { id: providerId } = await params;
     const body = await request.json().catch(() => ({}));
-    const businessId = body?.businessId || request.headers.get("x-business-id");
+    const hinted =
+      request.headers.get("x-business-id")?.trim() ||
+      (typeof body?.businessId === "string" ? body.businessId.trim() : "") ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, ctxBusinessId);
+    if (mismatch) return mismatch;
+    const businessId = ctxBusinessId;
     const availabilityId = body?.availabilityId;
     const patch: Partial<AvailabilityItemInput> = body?.patch || {};
 
     if (!providerId) return NextResponse.json({ error: "Provider ID is required" }, { status: 400 });
-    if (!businessId) return NextResponse.json({ error: "Business ID is required" }, { status: 400 });
     if (!availabilityId) return NextResponse.json({ error: "availabilityId is required" }, { status: 400 });
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
 
     const check = await assertProviderInBusiness(supabaseAdmin, providerId, businessId);
     if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
@@ -177,18 +190,23 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId: ctxBusinessId } = ctx;
+
     const { id: providerId } = await params;
     const body = await request.json().catch(() => ({}));
-    const businessId = body?.businessId || request.headers.get("x-business-id");
+    const hinted =
+      request.headers.get("x-business-id")?.trim() ||
+      (typeof body?.businessId === "string" ? body.businessId.trim() : "") ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, ctxBusinessId);
+    if (mismatch) return mismatch;
+    const businessId = ctxBusinessId;
     const availabilityId = body?.availabilityId;
 
     if (!providerId) return NextResponse.json({ error: "Provider ID is required" }, { status: 400 });
-    if (!businessId) return NextResponse.json({ error: "Business ID is required" }, { status: 400 });
     if (!availabilityId) return NextResponse.json({ error: "availabilityId is required" }, { status: 400 });
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
 
     const check = await assertProviderInBusiness(supabaseAdmin, providerId, businessId);
     if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });

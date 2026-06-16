@@ -1,36 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { getRealTimeProviderAvailability, getProviderPerformanceMetrics } from '@/lib/adminProviderSync';
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from '@/lib/adminTenantContext';
 
 export async function GET(request: NextRequest) {
   try {
-    console.log('=== ADMIN PROVIDER REALTIME STATUS API ===');
-    
-    // Create service role client for server-side operations
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
-      }
-    );
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId } = ctx;
 
-    // Get business ID from query params
+    console.log('=== ADMIN PROVIDER REALTIME STATUS API ===');
+
     const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get('businessId');
     const providerId = searchParams.get('providerId');
     const date = searchParams.get('date') || new Date().toISOString().split('T')[0];
     const time = searchParams.get('time') || new Date().toTimeString().split(' ')[0].substring(0, 5);
-
-    if (!businessId) {
-      return NextResponse.json(
-        { error: 'Business ID is required' },
-        { status: 400 }
-      );
-    }
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      searchParams.get('businessId')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     // Get real-time provider status
     const { data: providers, error: providersError } = await supabaseAdmin
@@ -152,24 +144,24 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId } = ctx;
+
     console.log('=== UPDATE PROVIDER STATUS API ===');
-    
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
-      }
-    );
 
-    const { providerId, businessId, status, notes } = await request.json();
+    const { providerId, businessId: bodyBusinessId, status, notes } = await request.json();
 
-    if (!providerId || !businessId || !status) {
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      (typeof bodyBusinessId === 'string' ? bodyBusinessId.trim() : '') ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
+
+    if (!providerId || !status) {
       return NextResponse.json(
-        { error: 'Provider ID, business ID, and status are required' },
+        { error: 'Provider ID and status are required' },
         { status: 400 }
       );
     }

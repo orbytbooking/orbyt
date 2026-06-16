@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { getStoreOptionsScheduling, isDateHoliday } from '@/lib/schedulingFilters';
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from '@/lib/adminTenantContext';
 
 /**
  * GET /api/admin/providers/[id]/available-slots
@@ -12,11 +15,21 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Handle params as Promise for Next.js 15+
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId: ctxBusinessId } = ctx;
+
     const resolvedParams = await params;
     const providerId = resolvedParams.id;
     const { searchParams } = new URL(request.url);
     const date = searchParams.get('date');
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      searchParams.get('businessId')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, ctxBusinessId);
+    if (mismatch) return mismatch;
+    const businessId = ctxBusinessId;
 
     if (!date) {
       return NextResponse.json(
@@ -34,32 +47,11 @@ export async function GET(
       );
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !supabaseServiceRoleKey) {
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
-    }
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    });
-
-    // Get business ID from query params or headers for business isolation
-    const { searchParams: urlSearchParams } = new URL(request.url);
-    const businessId = urlSearchParams.get('businessId') || request.headers.get('x-business-id');
-
-    // Get provider to verify it exists and belongs to the business
     const { data: provider, error: providerError } = await supabaseAdmin
       .from('service_providers')
       .select('id, business_id, status')
       .eq('id', providerId)
+      .eq('business_id', businessId)
       .single();
 
     if (providerError || !provider) {
@@ -73,15 +65,6 @@ export async function GET(
     if (provider.status !== 'active') {
       return NextResponse.json(
         { error: 'Provider is not active and cannot be assigned', slots: [] },
-        { status: 403 }
-      );
-    }
-
-    // BUSINESS ISOLATION: Verify provider belongs to the requesting business
-    if (businessId && provider.business_id !== businessId) {
-      console.error(`Business isolation violation: Provider ${providerId} belongs to business ${provider.business_id}, but request is for business ${businessId}`);
-      return NextResponse.json(
-        { error: 'Provider not found or access denied' },
         { status: 403 }
       );
     }

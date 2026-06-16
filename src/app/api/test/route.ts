@@ -1,7 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { blockInProduction } from '@/lib/devRouteGuard';
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  const blocked = blockInProduction(request);
+  if (blocked) return blocked;
+
   try {
     console.log('Test API called');
     

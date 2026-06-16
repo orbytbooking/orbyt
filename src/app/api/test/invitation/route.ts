@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
+import { blockInProduction } from '@/lib/devRouteGuard';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,6 +9,9 @@ const supabase = createClient(
 );
 
 export async function POST(request: NextRequest) {
+  const blocked = blockInProduction(request);
+  if (blocked) return blocked;
+
   try {
     const body = await request.json();
     const { email, businessId } = body;

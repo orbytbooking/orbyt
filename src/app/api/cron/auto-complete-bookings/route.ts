@@ -2,8 +2,8 @@
  * Auto-complete bookings when job length has passed (for businesses with automatic completion mode).
  * Call this via Vercel Cron, cron-job.org, or similar.
  *
- * Set CRON_SECRET in env and pass as Authorization: Bearer <CRON_SECRET>
- * If CRON_SECRET is not set, the route will still run (for dev).
+ * Production: CRON_SECRET is required; pass as Authorization: Bearer <CRON_SECRET>.
+ * Dev: if CRON_SECRET is unset, the route runs without auth for local testing.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
@@ -28,6 +28,16 @@ async function handleRequest(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     const cronSecret = process.env.CRON_SECRET;
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    if (isProduction && !cronSecret) {
+      console.error('[auto-complete-bookings] CRON_SECRET is not set in production');
+      return NextResponse.json(
+        { error: 'Cron endpoint misconfigured: CRON_SECRET required in production' },
+        { status: 500 }
+      );
+    }
+
     if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

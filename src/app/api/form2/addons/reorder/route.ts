@@ -3,10 +3,14 @@ import { extrasService } from "@/lib/extras";
 import { FORM2_ADDON_SCOPE } from "@/lib/form2AddonsApi";
 import { requireIndustryBelongsToBusiness } from "@/lib/industryTenantGuard";
 import { supabaseAdmin } from "@/lib/supabaseClient";
+import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from "@/lib/auth-helpers";
+import { userCanManageBookingsForBusiness } from "@/lib/bookingApiAuth";
 
 /** Reorder Form 2 add-ons in `industry_form2_addons` only. */
 export async function POST(request: NextRequest) {
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const body = await request.json();
     const { updates, industryId, businessId, business_id } = body;
     const resolvedBusinessId = businessId ?? business_id;
@@ -32,6 +36,12 @@ export async function POST(request: NextRequest) {
     if (!supabaseAdmin) {
       return NextResponse.json({ error: "Server configuration error" }, { status: 503 });
     }
+    const allowed = await userCanManageBookingsForBusiness(
+      supabaseAdmin,
+      user.id,
+      String(resolvedBusinessId),
+    );
+    if (!allowed) return createForbiddenResponse("You do not have access to this business");
     const tenant = await requireIndustryBelongsToBusiness(
       supabaseAdmin,
       String(resolvedBusinessId),

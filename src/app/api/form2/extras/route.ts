@@ -3,6 +3,8 @@ import { extrasService, pickIndustryExtraWritePayload } from "@/lib/extras";
 import { FORM2_EXTRA_SCOPE, normalizeForm2ExtraWritePayload } from "@/lib/form2ExtrasApi";
 import { requireIndustryBelongsToBusiness } from "@/lib/industryTenantGuard";
 import { supabaseAdmin } from "@/lib/supabaseClient";
+import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from "@/lib/auth-helpers";
+import { userCanManageBookingsForBusiness } from "@/lib/bookingApiAuth";
 
 function queryBusinessId(request: NextRequest, searchParams: URLSearchParams): string | null {
   return (
@@ -75,6 +77,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const body = await request.json();
     const extraData = normalizeForm2ExtraWritePayload(
       pickIndustryExtraWritePayload(body) as Record<string, unknown>,
@@ -96,6 +100,12 @@ export async function POST(request: NextRequest) {
     if (!supabaseAdmin) {
       return NextResponse.json({ error: "Server configuration error" }, { status: 503 });
     }
+    const allowed = await userCanManageBookingsForBusiness(
+      supabaseAdmin,
+      user.id,
+      String(extraData.business_id),
+    );
+    if (!allowed) return createForbiddenResponse("You do not have access to this business");
     const tenant = await requireIndustryBelongsToBusiness(
       supabaseAdmin,
       String(extraData.business_id),
@@ -119,6 +129,8 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const body = await request.json();
     const { id, business_id: bodyBusinessId, industry_id: bodyIndustryId, ...rest } = body;
 
@@ -134,6 +146,8 @@ export async function PUT(request: NextRequest) {
     if (!supabaseAdmin) {
       return NextResponse.json({ error: "Server configuration error" }, { status: 503 });
     }
+    const allowed = await userCanManageBookingsForBusiness(supabaseAdmin, user.id, String(bodyBusinessId));
+    if (!allowed) return createForbiddenResponse("You do not have access to this business");
     const tenantPut = await requireIndustryBelongsToBusiness(
       supabaseAdmin,
       bodyBusinessId,
@@ -178,6 +192,8 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     const industryId = searchParams.get("industryId");
@@ -196,6 +212,8 @@ export async function DELETE(request: NextRequest) {
     if (!supabaseAdmin) {
       return NextResponse.json({ error: "Server configuration error" }, { status: 503 });
     }
+    const allowed = await userCanManageBookingsForBusiness(supabaseAdmin, user.id, String(businessId));
+    if (!allowed) return createForbiddenResponse("You do not have access to this business");
     const tenantDel = await requireIndustryBelongsToBusiness(supabaseAdmin, businessId, industryId);
     if (!tenantDel.ok) {
       return NextResponse.json({ error: "Extra not found" }, { status: 404 });

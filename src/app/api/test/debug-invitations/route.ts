@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { blockInProduction } from '@/lib/devRouteGuard';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -7,6 +8,9 @@ const supabase = createClient(
 );
 
 export async function GET(request: NextRequest) {
+  const blocked = blockInProduction(request);
+  if (blocked) return blocked;
+
   try {
     const { searchParams } = new URL(request.url);
     const email = searchParams.get('email');

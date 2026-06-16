@@ -1,12 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseServiceRoleKey) {
-  throw new Error('Missing Supabase env vars');
-}
+import { requireAdminTenantContext } from '@/lib/adminTenantContext';
 
 /**
  * Create an auth user for a provider that has user_id = null.
@@ -17,6 +10,10 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
+
     const { id: providerId } = await params;
     const body = await request.json();
     const { password } = body;
@@ -35,17 +32,11 @@ export async function POST(
       );
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
-
     const { data: provider, error: fetchError } = await supabase
       .from('service_providers')
       .select('id, user_id, first_name, last_name, email, phone, address, business_id, provider_type')
       .eq('id', providerId)
+      .eq('business_id', businessId)
       .single();
 
     if (fetchError || !provider) {
@@ -87,7 +78,8 @@ export async function POST(
           const { error: updateError } = await supabase
             .from('service_providers')
             .update({ user_id: existing.id, updated_at: new Date().toISOString() })
-            .eq('id', providerId);
+            .eq('id', providerId)
+            .eq('business_id', businessId);
           if (!updateError) {
             return NextResponse.json({
               success: true,
@@ -116,7 +108,8 @@ export async function POST(
         user_id: authData.user.id,
         updated_at: new Date().toISOString()
       })
-      .eq('id', providerId);
+      .eq('id', providerId)
+      .eq('business_id', businessId);
 
     if (updateError) {
       return NextResponse.json(

@@ -1,40 +1,30 @@
-import { createClient } from '@supabase/supabase-js';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
 import { syncBookingCreated } from '@/lib/googleCalendar';
 import { notifyProviderOfBooking } from '@/lib/notifyProviderBooking';
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from '@/lib/adminTenantContext';
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId: ctxBusinessId } = ctx;
+
     console.log('=== ENHANCED BOOKING API ===');
-    
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    
-    if (!supabaseUrl || !supabaseServiceRoleKey) {
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
-    }
 
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
-
-    // Parse request body
     const bookingData = await request.json();
-    const { businessId, autoAssign = true } = bookingData;
+    const { businessId: bodyBusinessId, autoAssign = true } = bookingData;
 
-    if (!businessId) {
-      return NextResponse.json(
-        { error: 'Business ID is required' },
-        { status: 400 }
-      );
-    }
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      (typeof bodyBusinessId === 'string' ? bodyBusinessId.trim() : '') ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, ctxBusinessId);
+    if (mismatch) return mismatch;
+    const businessId = ctxBusinessId;
 
     let providerId = bookingData.providerId || null;
     let bookingStatus = bookingData.providerId ? 'confirmed' : 'pending';

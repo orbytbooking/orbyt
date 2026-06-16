@@ -1,7 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { blockInProduction } from '@/lib/devRouteGuard';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const blocked = blockInProduction(request);
+  if (blocked) return blocked;
+
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

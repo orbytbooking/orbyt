@@ -28,6 +28,7 @@ export default function FixProvidersPage() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<FixResult | null>(null);
+  const isProduction = process.env.NODE_ENV === 'production';
 
   const handleFixProviders = async () => {
     setLoading(true);
@@ -107,6 +108,12 @@ export default function FixProvidersPage() {
 
           {!result ? (
             <div className="text-center space-y-4">
+              {isProduction ? (
+                <p className="text-amber-400">
+                  This repair tool is disabled in production. Use it in a local or staging environment only.
+                </p>
+              ) : (
+                <>
               <p className="text-gray-400">
                 This tool will scan for provider accounts that have NULL user_id values 
                 and automatically link them to their corresponding auth accounts.
@@ -128,6 +135,8 @@ export default function FixProvidersPage() {
                   </>
                 )}
               </Button>
+                </>
+              )}
             </div>
           ) : (
             <div className="space-y-4">

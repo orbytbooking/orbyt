@@ -1,21 +1,29 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseServiceRoleKey) {
-  throw new Error('Missing Supabase environment variables');
-}
+import { requireAdminTenantContext } from '@/lib/adminTenantContext';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId } = ctx;
+
     const { id } = await params;
     if (!id) {
       return NextResponse.json({ error: 'Provider ID required' }, { status: 400 });
+    }
+
+    const { data: provider, error: providerError } = await supabaseAdmin
+      .from('service_providers')
+      .select('id')
+      .eq('id', id)
+      .eq('business_id', businessId)
+      .single();
+
+    if (providerError || !provider) {
+      return NextResponse.json({ error: 'Provider not found' }, { status: 404 });
     }
 
     const formData = await request.formData();
@@ -26,10 +34,6 @@ export async function POST(
     if (file.size > 5 * 1024 * 1024) {
       return NextResponse.json({ error: 'File size max 5MB' }, { status: 400 });
     }
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
 
     const ext = file.name.split('.').pop() || 'jpg';
     const filePath = `providers/${id}-${Date.now()}.${ext}`;
@@ -51,7 +55,8 @@ export async function POST(
     const { error: updateError } = await supabaseAdmin
       .from('service_providers')
       .update({ profile_image_url: publicUrl, updated_at: new Date().toISOString() })
-      .eq('id', id);
+      .eq('id', id)
+      .eq('business_id', businessId);
 
     if (updateError) {
       return NextResponse.json({ error: 'Failed to update provider' }, { status: 500 });

@@ -3,6 +3,8 @@ import { pricingVariablesService } from '@/lib/pricing-variables';
 import { parseBookingFormScopeParam, type BookingFormScope } from '@/lib/bookingFormScope';
 import { requireIndustryBelongsToBusiness } from '@/lib/industryTenantGuard';
 import { supabaseAdmin } from '@/lib/supabaseClient';
+import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
 
 function queryBusinessId(searchParams: URLSearchParams): string | null {
   return searchParams.get('businessId') || searchParams.get('business_id');
@@ -77,7 +79,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  let bookingFormScope: BookingFormScope = 'form1';
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const body = await request.json();
     const { industryId, businessId, variables: variablesPayload, variable } = body;
 
@@ -91,15 +96,16 @@ export async function POST(request: NextRequest) {
     if (!supabaseAdmin) {
       return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
     }
+    const allowed = await userCanManageBookingsForBusiness(supabaseAdmin, user.id, String(businessId));
+    if (!allowed) return createForbiddenResponse('You do not have access to this business');
     const tenant = await requireIndustryBelongsToBusiness(supabaseAdmin, String(businessId), String(industryId));
     if (!tenant.ok) {
       return NextResponse.json({ error: 'Industry not found for this business' }, { status: 404 });
     }
 
-    const bookingFormScope: BookingFormScope =
-      parseBookingFormScopeParam(
-        typeof body.bookingFormScope === 'string' ? body.bookingFormScope : null,
-      ) ?? 'form1';
+    bookingFormScope =
+      parseBookingFormScopeParam(typeof body.bookingFormScope === 'string' ? body.bookingFormScope : null) ??
+      'form1';
 
     // Create one item/variable (used by Form 2 Add item page flow)
     if (variable && typeof variable === 'object' && !Array.isArray(variable)) {
@@ -179,6 +185,8 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const industryId = searchParams.get('industryId');
@@ -198,6 +206,8 @@ export async function DELETE(request: NextRequest) {
     if (!supabaseAdmin) {
       return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
     }
+    const allowed = await userCanManageBookingsForBusiness(supabaseAdmin, user.id, String(businessId));
+    if (!allowed) return createForbiddenResponse('You do not have access to this business');
     const tenant = await requireIndustryBelongsToBusiness(supabaseAdmin, businessId, industryId);
     if (!tenant.ok) {
       return NextResponse.json({ error: 'Item not found' }, { status: 404 });

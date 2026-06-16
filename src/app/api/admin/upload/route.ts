@@ -1,15 +1,15 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import {
+  requireAdminTenantContext,
+} from '@/lib/adminTenantContext';
+import { createForbiddenResponse } from '@/lib/auth-helpers';
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('=== PROFILE UPLOAD API DEBUG ===');
-    
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, user } = ctx;
+
     const formData = await request.formData();
     const file = formData.get('file') as File;
     const userId = formData.get('userId') as string;
@@ -22,31 +22,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No user ID provided' }, { status: 400 });
     }
 
-    console.log('Upload request:', { fileName: file.name, fileSize: file.size, userId });
-    
-    // Validate file type
+    if (userId !== user.id) {
+      return createForbiddenResponse('You can only upload a profile picture for your own account');
+    }
+
     if (!file.type.startsWith('image/')) {
       return NextResponse.json({ error: 'Only image files are allowed' }, { status: 400 });
     }
-    
-    // Validate file size (max 5MB)
-    const maxSize = 5 * 1024 * 1024; // 5MB
+
+    const maxSize = 5 * 1024 * 1024;
     if (file.size > maxSize) {
       return NextResponse.json({ error: 'File size should not be more than 5MB' }, { status: 400 });
     }
 
-    // Create unique file name
     const fileExt = file.name.split('.').pop();
     const fileName = `${userId}-${Date.now()}.${fileExt}`;
-    const filePath = `${fileName}`; // Store directly in avatars bucket, not in subfolder
+    const filePath = `${fileName}`;
 
-    console.log('Uploading to path:', filePath);
-    
-    // Convert File to Buffer
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // Upload to Supabase Storage
     const { data, error } = await supabase.storage
       .from('avatars')
       .upload(filePath, buffer, {
@@ -60,16 +55,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to upload file: ' + error.message }, { status: 500 });
     }
 
-    console.log('Upload successful:', data);
-
-    // Get public URL
     const { data: { publicUrl } } = supabase.storage
       .from('avatars')
       .getPublicUrl(filePath);
 
-    console.log('Public URL:', publicUrl);
-    
-    // Update user profile with new picture
     const { data: profile, error: updateError } = await supabase
       .from('profiles')
       .update({
@@ -79,19 +68,15 @@ export async function POST(request: NextRequest) {
       .eq('id', userId)
       .select()
       .single();
-    
+
     if (updateError) {
-      console.error('Profile update error:', updateError);
-      // Don't fail the upload if profile update fails, just log it
-      console.warn('File uploaded but profile update failed');
-    } else {
-      console.log('Profile updated successfully:', profile);
+      console.warn('File uploaded but profile update failed:', updateError);
     }
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       url: publicUrl,
       path: filePath,
-      profile: profile
+      profile: profile ?? null
     });
 
   } catch (error) {

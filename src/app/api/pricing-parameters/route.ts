@@ -5,6 +5,8 @@ import { requireIndustryBelongsToBusiness } from '@/lib/industryTenantGuard';
 import { supabaseAdmin } from '@/lib/supabaseClient';
 import { scopedIndustryTable } from '@/lib/formScopeTables';
 import { seedForm4DefaultsIfEmpty } from '@/lib/seedForm4Defaults';
+import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
 import {
   backfillForm2DefaultPackageIcons,
   backfillForm2PackageBookingScope,
@@ -93,6 +95,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const paramData = await request.json();
     
     console.log('Received pricing parameter data:', JSON.stringify(paramData, null, 2));
@@ -114,6 +118,12 @@ export async function POST(request: NextRequest) {
     if (!supabaseAdmin) {
       return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
     }
+    const allowed = await userCanManageBookingsForBusiness(
+      supabaseAdmin,
+      user.id,
+      String(paramData.business_id),
+    );
+    if (!allowed) return createForbiddenResponse('You do not have access to this business');
     const tenant = await requireIndustryBelongsToBusiness(
       supabaseAdmin,
       String(paramData.business_id),
@@ -197,6 +207,8 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const body = await request.json();
     const { id, industry_id: bodyIndustryId, business_id: bodyBusinessId, ...updateData } = body;
 
@@ -220,6 +232,8 @@ export async function PUT(request: NextRequest) {
     if (!supabaseAdmin) {
       return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
     }
+    const allowed = await userCanManageBookingsForBusiness(supabaseAdmin, user.id, String(bodyBusinessId));
+    if (!allowed) return createForbiddenResponse('You do not have access to this business');
     const tenantPut = await requireIndustryBelongsToBusiness(supabaseAdmin, bodyBusinessId, bodyIndustryId);
     if (!tenantPut.ok) {
       return NextResponse.json({ error: 'Pricing parameter not found' }, { status: 404 });
@@ -265,6 +279,8 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const industryId = searchParams.get('industryId');
@@ -287,6 +303,8 @@ export async function DELETE(request: NextRequest) {
     if (!supabaseAdmin) {
       return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
     }
+    const allowed = await userCanManageBookingsForBusiness(supabaseAdmin, user.id, String(businessId));
+    if (!allowed) return createForbiddenResponse('You do not have access to this business');
     const tenantDel = await requireIndustryBelongsToBusiness(supabaseAdmin, businessId, industryId);
     if (!tenantDel.ok) {
       return NextResponse.json({ error: 'Pricing parameter not found' }, { status: 404 });

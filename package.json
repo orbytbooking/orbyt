@@ -12,6 +12,8 @@
     "lint:fix": "eslint \"src\" --fix",
     "type-check": "tsc --noEmit",
     "test:gift-cards": "node scripts/test-gift-card-flow.mjs",
+    "test:phase1-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/phase1-smoke-test.ps1",
+    "test:phase1-smoke:prod": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/phase1-smoke-test.ps1 -ExpectProductionGuards",
     "test": "npm run lint && npm run type-check && npm run build",
     "security-audit": "npm audit --audit-level=high"
   },

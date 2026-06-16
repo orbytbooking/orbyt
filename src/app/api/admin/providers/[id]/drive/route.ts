@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl) throw new Error("NEXT_PUBLIC_SUPABASE_URL is not set");
-if (!supabaseServiceRoleKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+  type ServiceSupabase,
+} from "@/lib/adminTenantContext";
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return bytes + " B";
@@ -14,7 +12,7 @@ function formatFileSize(bytes: number): string {
 }
 
 async function assertProviderInBusiness(
-  supabaseAdmin: ReturnType<typeof createClient>,
+  supabaseAdmin: ServiceSupabase,
   providerId: string,
   businessId: string
 ) {
@@ -39,20 +37,24 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId: ctxBusinessId } = ctx;
+
     const { id: providerId } = await params;
     const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get("businessId") || request.headers.get("x-business-id");
     const parentId = searchParams.get("parentId");
     const parentIdValue = parentId === "null" || !parentId ? null : parentId;
+    const hinted =
+      request.headers.get("x-business-id")?.trim() ||
+      searchParams.get("businessId")?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, ctxBusinessId);
+    if (mismatch) return mismatch;
+    const businessId = ctxBusinessId;
 
     if (!providerId)
       return NextResponse.json({ error: "Provider ID is required" }, { status: 400 });
-    if (!businessId)
-      return NextResponse.json({ error: "Business ID is required" }, { status: 400 });
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
 
     const check = await assertProviderInBusiness(supabaseAdmin, providerId, businessId);
     if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
@@ -100,22 +102,27 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId: ctxBusinessId } = ctx;
+
     const { id: providerId } = await params;
     const body = await request.json().catch(() => ({}));
-    const businessId = body?.businessId || request.headers.get("x-business-id");
+    const hinted =
+      request.headers.get("x-business-id")?.trim() ||
+      (typeof body?.businessId === "string" ? body.businessId.trim() : "") ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, ctxBusinessId);
+    if (mismatch) return mismatch;
+    const businessId = ctxBusinessId;
     const { name, type, parentId, fileType, sizeBytes, storagePath, storageUrl } = body || {};
 
     if (!providerId) return NextResponse.json({ error: "Provider ID is required" }, { status: 400 });
-    if (!businessId) return NextResponse.json({ error: "Business ID is required" }, { status: 400 });
     if (!name || !type) return NextResponse.json({ error: "Name and type are required" }, { status: 400 });
 
     if (type !== "folder" && type !== "file") {
       return NextResponse.json({ error: "Invalid type" }, { status: 400 });
     }
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
 
     const check = await assertProviderInBusiness(supabaseAdmin, providerId, businessId);
     if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
@@ -185,20 +192,24 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId: ctxBusinessId } = ctx;
+
     const { id: providerId } = await params;
     const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get("businessId") || request.headers.get("x-business-id");
     const fileId = searchParams.get("fileId");
+    const hinted =
+      request.headers.get("x-business-id")?.trim() ||
+      searchParams.get("businessId")?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, ctxBusinessId);
+    if (mismatch) return mismatch;
+    const businessId = ctxBusinessId;
 
     if (!providerId)
       return NextResponse.json({ error: "Provider ID is required" }, { status: 400 });
-    if (!businessId)
-      return NextResponse.json({ error: "Business ID is required" }, { status: 400 });
     if (!fileId) return NextResponse.json({ error: "fileId is required" }, { status: 400 });
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
 
     const check = await assertProviderInBusiness(supabaseAdmin, providerId, businessId);
     if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });

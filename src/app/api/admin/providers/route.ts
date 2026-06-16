@@ -1,44 +1,29 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { EmailService } from '@/lib/emailService';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from '@/lib/adminTenantContext';
 
 export async function GET(request: NextRequest) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId } = ctx;
+
     console.log('=== FETCH PROVIDERS API ===');
-    
+
     const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get('businessId');
     const includeInactive = searchParams.get('includeInactive') === 'true';
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      searchParams.get('businessId')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     console.log('📥 businessId:', businessId, 'includeInactive:', includeInactive);
-
-    if (!businessId) {
-      return NextResponse.json(
-        { error: 'Business ID is required' },
-        { status: 400 }
-      );
-    }
-
-    // Load environment variables
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    
-    if (!supabaseUrl || !supabaseServiceRoleKey) {
-      console.error('❌ Missing Supabase configuration');
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
-    }
-
-    // Create admin client
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
 
     console.log('📊 Fetching providers for business:', businessId);
 
@@ -98,33 +83,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('=== PROVIDER INVITATION API ===');
-    
-    // Load environment variables
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    
-    console.log('Environment check:');
-    console.log('- NEXT_PUBLIC_SUPABASE_URL:', supabaseUrl ? 'SET' : 'NOT SET');
-    console.log('- SUPABASE_SERVICE_ROLE_KEY:', supabaseServiceRoleKey ? 'SET' : 'NOT SET');
-    
-    if (!supabaseUrl || !supabaseServiceRoleKey) {
-      console.error('❌ Missing Supabase configuration');
-      return NextResponse.json(
-        { 
-          error: 'Server configuration error',
-          details: 'Missing Supabase configuration',
-          troubleshooting: [
-            '1. Check your .env file contains both NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY',
-            '2. Restart your development server (npm run dev)',
-            '3. Visit /api/test-env to verify environment variables are loaded'
-          ]
-        },
-        { status: 500 }
-      );
-    }
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId } = ctx;
 
-    console.log('✅ Environment variables loaded successfully');
+    console.log('=== PROVIDER INVITATION API ===');
 
     const body = await request.json();
     const {
@@ -134,13 +97,20 @@ export async function POST(request: NextRequest) {
       phone,
       address,
       type,
-      businessId
+      businessId: bodyBusinessId,
     } = body;
+
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      (typeof bodyBusinessId === 'string' ? bodyBusinessId.trim() : '') ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
     console.log('Provider invitation data:', { firstName, lastName, email, businessId });
 
     // Validate required fields
-    if (!firstName || !lastName || !email || !phone || !address || !businessId) {
+    if (!firstName || !lastName || !email || !phone || !address) {
       console.error('❌ Missing required fields');
       return NextResponse.json(
         { error: 'Missing required fields' },
@@ -148,15 +118,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create admin client
-    console.log('Creating Supabase admin client...');
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
-    console.log('✅ Admin client created successfully');
+    console.log('✅ Environment variables loaded successfully');
 
     // Get business information
     const { data: businessData, error: businessError } = await supabaseAdmin

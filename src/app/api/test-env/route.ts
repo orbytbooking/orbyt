@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { blockInProduction } from '@/lib/devRouteGuard';
 
 export async function GET(request: NextRequest) {
+  const blocked = blockInProduction(request);
+  if (blocked) return blocked;
+
   console.log('=== ENV TEST ENDPOINT ===');
   console.log('NEXT_PUBLIC_SUPABASE_URL:', process.env.NEXT_PUBLIC_SUPABASE_URL ? 'SET' : 'NOT SET');
   console.log('NEXT_PUBLIC_SUPABASE_ANON_KEY:', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'SET' : 'NOT SET');

@@ -3,9 +3,13 @@ import { extrasService } from '@/lib/extras';
 import { parseBookingFormScopeParam, parseListingKindParam } from '@/lib/bookingFormScope';
 import { requireIndustryBelongsToBusiness } from '@/lib/industryTenantGuard';
 import { supabaseAdmin } from '@/lib/supabaseClient';
+import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth-helpers';
+import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return createUnauthorizedResponse();
     const body = await request.json();
     const { updates, industryId, businessId, business_id, bookingFormScope: scopeRaw, listingKind: kindRaw } =
       body;
@@ -36,6 +40,12 @@ export async function POST(request: NextRequest) {
     if (!supabaseAdmin) {
       return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
     }
+    const allowed = await userCanManageBookingsForBusiness(
+      supabaseAdmin,
+      user.id,
+      String(resolvedBusinessId),
+    );
+    if (!allowed) return createForbiddenResponse('You do not have access to this business');
     const tenant = await requireIndustryBelongsToBusiness(
       supabaseAdmin,
       String(resolvedBusinessId),

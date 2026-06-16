@@ -1,36 +1,24 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  requireAdminTenantContext,
+  assertBusinessIdMatchesContext,
+} from '@/lib/adminTenantContext';
 
 export async function GET(request: NextRequest) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId } = ctx;
+
     console.log('=== PROVIDERS API ===');
-    
+
     const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get('businessId');
-    
-    if (!businessId) {
-      return NextResponse.json(
-        { error: 'Business ID is required' },
-        { status: 400 }
-      );
-    }
-
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    
-    if (!supabaseUrl || !supabaseServiceRoleKey) {
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
-    }
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      searchParams.get('businessId')?.trim() ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
 
       // Fetch provider data
     const { data: providers, error } = await supabaseAdmin
@@ -205,8 +193,12 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId } = ctx;
+
     console.log('=== CREATE PROVIDER API ===');
-    
+
     const body = await request.json();
     const {
       // Basic provider info
@@ -215,7 +207,7 @@ export async function POST(request: NextRequest) {
       email,
       phone,
       address,
-      businessId,
+      businessId: bodyBusinessId,
       
       // Provider-specific
       hourlyRate,
@@ -238,30 +230,20 @@ export async function POST(request: NextRequest) {
       preferences
     } = body;
 
+    const hinted =
+      request.headers.get('x-business-id')?.trim() ||
+      (typeof bodyBusinessId === 'string' ? bodyBusinessId.trim() : '') ||
+      null;
+    const mismatch = assertBusinessIdMatchesContext(hinted, businessId);
+    if (mismatch) return mismatch;
+
     // Validate required fields
-    if (!firstName || !lastName || !email || !phone || !address || !businessId) {
+    if (!firstName || !lastName || !email || !phone || !address) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
       );
     }
-
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    
-    if (!supabaseUrl || !supabaseServiceRoleKey) {
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
-    }
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
 
     // Check if provider already exists
     const { data: existingProvider } = await supabaseAdmin

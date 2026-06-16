@@ -1,25 +1,24 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  requireAdminTenantContext,
+} from '@/lib/adminTenantContext';
+import { blockInProduction } from '@/lib/devRouteGuard';
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('=== FIX PROVIDER USER IDs API ===');
-    
-    // Create admin client
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    
-    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
+    const blocked = blockInProduction(request);
+    if (blocked) return blocked;
 
-    // Get providers with NULL user_id
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase, businessId } = ctx;
+
+    console.log('=== FIX PROVIDER USER IDs API ===');
+
     const { data: providersWithNullUserId, error: fetchError } = await supabase
       .from('service_providers')
       .select('id, first_name, last_name, email, business_id')
+      .eq('business_id', businessId)
       .is('user_id', null);
 
     if (fetchError) {
@@ -44,12 +43,10 @@ export async function POST(request: NextRequest) {
     const fixedProviders = [];
     const failedProviders = [];
 
-    // Fix each provider
     for (const provider of providersWithNullUserId) {
       try {
-        // Find corresponding auth user
         const { data: authData, error: authError } = await supabase.auth.admin.listUsers();
-        
+
         if (authError) {
           console.error('Error fetching auth users:', authError);
           failedProviders.push({
@@ -61,8 +58,8 @@ export async function POST(request: NextRequest) {
         }
 
         const users = authData.users || [];
-        const matchingUser = users.find((user: any) => 
-          user.email === provider.email && 
+        const matchingUser = users.find((user) =>
+          user.email === provider.email &&
           user.user_metadata?.role === 'provider'
         );
 
@@ -76,14 +73,14 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        // Update provider with correct user_id
         const { error: updateError } = await supabase
           .from('service_providers')
-          .update({ 
+          .update({
             user_id: matchingUser.id,
             updated_at: new Date().toISOString()
           })
-          .eq('id', provider.id);
+          .eq('id', provider.id)
+          .eq('business_id', businessId);
 
         if (updateError) {
           console.error(`Error updating provider ${provider.id}:`, updateError);
@@ -103,12 +100,13 @@ export async function POST(request: NextRequest) {
           userId: matchingUser.id
         });
 
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
         console.error(`Error fixing provider ${provider.id}:`, error);
         failedProviders.push({
           providerId: provider.id,
           email: provider.email,
-          error: error.message
+          error: message
         });
       }
     }
@@ -122,10 +120,11 @@ export async function POST(request: NextRequest) {
       failedProviders
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Fix provider user IDs error:', error);
     return NextResponse.json(
-      { error: 'Internal server error', details: error.message },
+      { error: 'Internal server error', details: message },
       { status: 500 }
     );
   }

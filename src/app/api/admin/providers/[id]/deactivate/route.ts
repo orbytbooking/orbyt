@@ -1,12 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseServiceRoleKey) {
-  throw new Error('Missing Supabase environment variables');
-}
+import { requireAdminTenantContext } from '@/lib/adminTenantContext';
 
 /**
  * POST /api/admin/providers/[id]/deactivate
@@ -18,6 +11,10 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId } = ctx;
+
     const { id } = await params;
     const body = await request.json().catch(() => ({}));
     const { unassignBookings = false } = body;
@@ -26,15 +23,11 @@ export async function POST(
       return NextResponse.json({ error: 'Provider ID is required' }, { status: 400 });
     }
 
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-
-    // Verify provider exists and get business_id
     const { data: provider, error: providerError } = await supabaseAdmin
       .from('service_providers')
       .select('id, business_id')
       .eq('id', id)
+      .eq('business_id', businessId)
       .single();
 
     if (providerError || !provider) {
@@ -80,6 +73,7 @@ export async function POST(
       .from('service_providers')
       .update({ status: 'inactive', updated_at: new Date().toISOString() })
       .eq('id', id)
+      .eq('business_id', businessId)
       .select()
       .single();
 

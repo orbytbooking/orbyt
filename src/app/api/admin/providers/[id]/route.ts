@@ -1,22 +1,15 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl) {
-  throw new Error('NEXT_PUBLIC_SUPABASE_URL is not set');
-}
-
-if (!supabaseServiceRoleKey) {
-  throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set');
-}
+import { requireAdminTenantContext } from '@/lib/adminTenantContext';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId } = ctx;
+
     const { id } = await params;
 
     if (!id) {
@@ -26,15 +19,6 @@ export async function GET(
       );
     }
 
-    // Create admin client
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
-
-    // Fetch provider by ID
     const { data: provider, error } = await supabaseAdmin
       .from('service_providers')
       .select(`
@@ -63,6 +47,7 @@ export async function GET(
         stripe_connect_enabled
       `)
       .eq('id', id)
+      .eq('business_id', businessId)
       .single();
 
     if (error) {
@@ -92,6 +77,10 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const ctx = await requireAdminTenantContext(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const { supabase: supabaseAdmin, businessId } = ctx;
+
     const { id } = await params;
     const body = await request.json();
 
@@ -102,17 +91,8 @@ export async function PUT(
       );
     }
 
-    // Create admin client
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
-
     // Handle password update separately
     if (body.password) {
-      // Update password in auth.users
       const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
         body.user_id,
         { password: body.password }
@@ -126,13 +106,11 @@ export async function PUT(
         );
       }
 
-      // Remove password from body before updating provider record
       const { password, ...providerData } = body;
       if (providerData.performance_score !== undefined) {
         const v = Number(providerData.performance_score);
         (providerData as Record<string, unknown>).performance_score = Number.isNaN(v) ? 0 : Math.max(0, Math.min(100, v));
       }
-      // Update provider record (without password)
       const { data: provider, error } = await supabaseAdmin
         .from('service_providers')
         .update({
@@ -140,6 +118,7 @@ export async function PUT(
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
+        .eq('business_id', businessId)
         .select()
         .single();
 
@@ -157,7 +136,6 @@ export async function PUT(
         message: 'Provider and password updated successfully'
       });
     } else {
-      // Regular provider update (no password change)
       const updateData: Record<string, unknown> = {
         first_name: body.first_name,
         last_name: body.last_name,
@@ -183,6 +161,7 @@ export async function PUT(
         .from('service_providers')
         .update(updateData)
         .eq('id', id)
+        .eq('business_id', businessId)
         .select()
         .single();
 

@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
+import { blockInProduction } from '@/lib/devRouteGuard';
 
 export async function POST(request: NextRequest) {
+  const blocked = blockInProduction(request);
+  if (blocked) return blocked;
+
   try {
     const body = await request.json();
     const { email } = body;
