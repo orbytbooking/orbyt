@@ -39,7 +39,9 @@ import {
   Table2,
   Undo2,
   Redo2,
+  Loader2,
 } from "lucide-react";
+import { withTenantBusiness } from "@/lib/adminTenantFetch";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Switch as Toggle } from "@/components/ui/switch";
@@ -87,6 +89,26 @@ type MasterTemplate = Pick<
   BusinessNotificationTemplate,
   "id" | "name" | "enabled" | "subject" | "body" | "is_default"
 >;
+
+type CoreNotificationPreferences = {
+  emailBookings: boolean;
+  emailCancellations: boolean;
+  emailPayments: boolean;
+  smsReminders: boolean;
+  pushNotifications: boolean;
+};
+
+const DEFAULT_CORE_PREFERENCES: CoreNotificationPreferences = {
+  emailBookings: true,
+  emailCancellations: true,
+  emailPayments: true,
+  smsReminders: false,
+  pushNotifications: true,
+};
+
+function defaultSupportEmail(businessName?: string | null): string {
+  return `support@${businessName?.toLowerCase().replace(/\s+/g, "") || "business"}.com`;
+}
 
 
 export default function NotificationsSettingsPage() {
@@ -154,6 +176,9 @@ export default function NotificationsSettingsPage() {
   const [displayName, setDisplayName] = useState(currentBusiness?.name || 'Your Business');
   const [adminEmail, setAdminEmail] = useState(`support@${currentBusiness?.name?.toLowerCase().replace(/\s+/g, '') || 'business'}.com`);
   const [replyToEmail, setReplyToEmail] = useState(`support@${currentBusiness?.name?.toLowerCase().replace(/\s+/g, '') || 'business'}.com`);
+  const [corePreferences, setCorePreferences] = useState<CoreNotificationPreferences>(DEFAULT_CORE_PREFERENCES);
+  const [preferencesLoading, setPreferencesLoading] = useState(true);
+  const [preferencesSaving, setPreferencesSaving] = useState(false);
   const [notificationTemplates, setNotificationTemplates] = useState<MasterTemplate[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [shortCodesDialogOpen, setShortCodesDialogOpen] = useState(false);
@@ -197,6 +222,85 @@ export default function NotificationsSettingsPage() {
   useEffect(() => {
     void fetchTemplates();
   }, [fetchTemplates]);
+
+  const applyPreferencesToForm = useCallback(
+    (prefs: Record<string, unknown>, businessName?: string | null) => {
+      const fallbackEmail = defaultSupportEmail(businessName);
+      setSenderEmail(
+        typeof prefs.senderEmail === "string" && prefs.senderEmail.trim()
+          ? prefs.senderEmail.trim()
+          : fallbackEmail,
+      );
+      setDisplayName(
+        typeof prefs.displayName === "string" && prefs.displayName.trim()
+          ? prefs.displayName.trim()
+          : businessName || "Your Business",
+      );
+      setAdminEmail(
+        typeof prefs.adminEmail === "string" && prefs.adminEmail.trim()
+          ? prefs.adminEmail.trim()
+          : fallbackEmail,
+      );
+      setReplyToEmail(
+        typeof prefs.replyToEmail === "string" && prefs.replyToEmail.trim()
+          ? prefs.replyToEmail.trim()
+          : fallbackEmail,
+      );
+      setQuietHours(typeof prefs.quietHours === "boolean" ? prefs.quietHours : false);
+      setEmailFrequency(
+        prefs.emailFrequency === "hourly" ||
+          prefs.emailFrequency === "daily" ||
+          prefs.emailFrequency === "weekly"
+          ? prefs.emailFrequency
+          : "instant",
+      );
+      setCorePreferences({
+        emailBookings:
+          typeof prefs.emailBookings === "boolean" ? prefs.emailBookings : DEFAULT_CORE_PREFERENCES.emailBookings,
+        emailCancellations:
+          typeof prefs.emailCancellations === "boolean"
+            ? prefs.emailCancellations
+            : DEFAULT_CORE_PREFERENCES.emailCancellations,
+        emailPayments:
+          typeof prefs.emailPayments === "boolean" ? prefs.emailPayments : DEFAULT_CORE_PREFERENCES.emailPayments,
+        smsReminders:
+          typeof prefs.smsReminders === "boolean" ? prefs.smsReminders : DEFAULT_CORE_PREFERENCES.smsReminders,
+        pushNotifications:
+          typeof prefs.pushNotifications === "boolean"
+            ? prefs.pushNotifications
+            : DEFAULT_CORE_PREFERENCES.pushNotifications,
+      });
+    },
+    [],
+  );
+
+  const fetchPreferences = useCallback(async () => {
+    if (!currentBusiness?.id) return;
+    setPreferencesLoading(true);
+    try {
+      const res = await fetch(
+        "/api/admin/notification-preferences",
+        withTenantBusiness(currentBusiness.id),
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to load notification preferences");
+      if (data.preferences && typeof data.preferences === "object") {
+        applyPreferencesToForm(data.preferences as Record<string, unknown>, currentBusiness.name);
+      }
+    } catch (e) {
+      toast({
+        title: "Could not load preferences",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setPreferencesLoading(false);
+    }
+  }, [applyPreferencesToForm, currentBusiness?.id, currentBusiness?.name, toast]);
+
+  useEffect(() => {
+    void fetchPreferences();
+  }, [fetchPreferences]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -342,12 +446,61 @@ export default function NotificationsSettingsPage() {
     }));
   };
 
-  const handleSave = () => {
-    console.log("Saving notification preferences:", rolePreferences);
-  };
+  const handleSave = async () => {
+    if (!currentBusiness?.id) return;
 
-  const handleResendVerification = () => {
-    console.log('Resending verification email to:', senderEmail);
+    for (const [label, value] of [
+      ["Sender email", senderEmail],
+      ["Admin email", adminEmail],
+      ["Reply-to email", replyToEmail],
+    ] as const) {
+      const trimmed = value.trim();
+      if (!trimmed || !trimmed.includes("@")) {
+        toast({
+          title: "Invalid email",
+          description: `Enter a valid ${label.toLowerCase()}.`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    setPreferencesSaving(true);
+    try {
+      const res = await fetch(
+        "/api/admin/notification-preferences",
+        withTenantBusiness(currentBusiness.id, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...corePreferences,
+            senderEmail: senderEmail.trim(),
+            displayName: displayName.trim(),
+            adminEmail: adminEmail.trim(),
+            replyToEmail: replyToEmail.trim(),
+            quietHours,
+            emailFrequency,
+          }),
+        }),
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to save notification preferences");
+      if (data.preferences && typeof data.preferences === "object") {
+        applyPreferencesToForm(data.preferences as Record<string, unknown>, currentBusiness.name);
+      }
+      toast({
+        title: "Preferences saved",
+        description: "Your notification settings have been updated.",
+      });
+    } catch (e) {
+      toast({
+        title: "Could not save",
+        description: e instanceof Error ? e.message : "Failed to save notification preferences",
+        variant: "destructive",
+      });
+    } finally {
+      setPreferencesSaving(false);
+    }
   };
 
   const adminNotificationSections: AdminNotificationSection[] = [
@@ -1252,13 +1405,18 @@ export default function NotificationsSettingsPage() {
                           className="flex-1"
                           placeholder="support@orbytcleaners.com"
                         />
-                        <Button 
-                          onClick={handleResendVerification}
-                          className="bg-blue-600 hover:bg-blue-700"
+                        <Button
+                          type="button"
+                          disabled
+                          variant="outline"
+                          title="Custom sender domains are verified in Resend"
                         >
                           Resend Verification Email
                         </Button>
                       </div>
+                      <p className="text-xs text-muted-foreground">
+                        Custom sender domains are verified through Resend. Contact support if you need help adding your domain.
+                      </p>
                     </div>
 
                     {/* Display Name */}
@@ -1338,10 +1496,12 @@ export default function NotificationsSettingsPage() {
               </div>
 
               <div className="flex justify-end pt-4">
-                <Button 
-                  onClick={handleSave}
+                <Button
+                  onClick={() => void handleSave()}
+                  disabled={preferencesLoading || preferencesSaving}
                   className="bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700"
                 >
+                  {preferencesSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                   Update
                 </Button>
               </div>
@@ -1986,10 +2146,12 @@ export default function NotificationsSettingsPage() {
               </div>
 
               <div className="flex justify-end pt-4">
-                <Button 
-                  onClick={handleSave}
+                <Button
+                  onClick={() => void handleSave()}
+                  disabled={preferencesLoading || preferencesSaving}
                   className="bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700"
                 >
+                  {preferencesSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                   Save Preferences
                 </Button>
               </div>
@@ -2114,10 +2276,12 @@ export default function NotificationsSettingsPage() {
               </div>
 
               <div className="flex justify-end pt-4">
-                <Button 
-                  onClick={handleSave}
+                <Button
+                  onClick={() => void handleSave()}
+                  disabled={preferencesLoading || preferencesSaving}
                   className="bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700"
                 >
+                  {preferencesSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                   Save Preferences
                 </Button>
               </div>
@@ -2191,10 +2355,12 @@ export default function NotificationsSettingsPage() {
               </div>
 
               <div className="flex justify-end pt-4">
-                <Button 
-                  onClick={handleSave}
+                <Button
+                  onClick={() => void handleSave()}
+                  disabled={preferencesLoading || preferencesSaving}
                   className="bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700"
                 >
+                  {preferencesSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                   Save Preferences
                 </Button>
               </div>

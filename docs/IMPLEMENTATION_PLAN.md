@@ -217,15 +217,17 @@ Run on **production** after deploy:
 
 ### 2.2 Wire Settings → Notifications
 
+**Status:** Done (code).
+
 **File:** `src/app/admin/settings/notifications/page.tsx`
 
 **Steps:**
-1. Replace `console.log` save with `PATCH /api/admin/notification-preferences` (route exists)
+1. Replace `console.log` save with `PUT /api/admin/notification-preferences` (route exists)
 2. Load preferences on mount from same API
 3. Resend verification: wire to Resend/domain verification flow or disable button with honest “contact support” until wired
 
 **Acceptance:**
-- [ ] Toggle notification preference → save → reload → unchanged toggles persist
+- [x] Toggle notification preference → save → reload → unchanged toggles persist
 
 **PR:** `fix: wire notification preferences save to API`
 
@@ -381,7 +383,7 @@ See `docs/DEPLOYMENT_CHECKLIST.md` for full deploy steps.
 | 1.5 Upload / fix-providers | Done | [x] |
 | 1.6 Catalog writes | Done | [x] |
 | 2.1 General settings | Done | [x] |
-| 2.2 Notifications | Not started | [ ] |
+| 2.2 Notifications | Done | [x] |
 | 2.3 Resend gift card | Not started | [ ] |
 | 2.4 allow_gift_cards | Not started | [ ] |
 | 2.5 Daily discounts redirect | Not started | [ ] |
