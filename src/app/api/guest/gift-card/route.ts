@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseClient";
-import { validateGiftCardForBusiness } from "@/lib/giftCardBooking";
+import { couponAllowsGiftCardsForBusiness, validateGiftCardForBusiness } from "@/lib/giftCardBooking";
 
 /**
  * Public gift card validation for book-now / guest checkout.
@@ -16,6 +16,17 @@ export async function GET(request: NextRequest) {
 
   if (!businessId || !uniqueCode) {
     return NextResponse.json({ error: "business_id and unique_code are required" }, { status: 400 });
+  }
+
+  const couponCode = searchParams.get("coupon_code")?.trim();
+  if (couponCode) {
+    const couponCheck = await couponAllowsGiftCardsForBusiness(supabaseAdmin, businessId, couponCode);
+    if (!couponCheck.allowed) {
+      return NextResponse.json(
+        { valid: false, error_message: couponCheck.message },
+        { status: 400 },
+      );
+    }
   }
 
   const result = await validateGiftCardForBusiness(supabaseAdmin, businessId, uniqueCode);

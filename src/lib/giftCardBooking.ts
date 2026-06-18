@@ -110,6 +110,53 @@ export function isGiftCardCoversFullCheckout(body: Record<string, unknown>): boo
   return !!(code && amount > 0);
 }
 
+export const GIFT_CARD_COUPON_COMBO_BLOCKED =
+  "This coupon cannot be combined with gift cards.";
+
+/** Active marketing coupon must explicitly allow gift cards when both are on a booking. */
+export async function couponAllowsGiftCardsForBusiness(
+  supabase: SupabaseClient,
+  businessId: string,
+  couponCode: string,
+): Promise<{ allowed: true } | { allowed: false; message: string }> {
+  const code = couponCode.trim();
+  if (!code) return { allowed: true };
+
+  const { data, error } = await supabase
+    .from("marketing_coupons")
+    .select("allow_gift_cards")
+    .eq("business_id", businessId)
+    .ilike("code", code)
+    .eq("active", true)
+    .maybeSingle();
+
+  if (error) {
+    console.error("marketing_coupons allow_gift_cards:", error);
+    return { allowed: false, message: "Could not verify coupon rules." };
+  }
+  if (!data) return { allowed: true };
+  if (data.allow_gift_cards !== true) {
+    return { allowed: false, message: GIFT_CARD_COUPON_COMBO_BLOCKED };
+  }
+  return { allowed: true };
+}
+
+export async function assertCouponAllowsGiftCardRedemption(
+  supabase: SupabaseClient,
+  businessId: string,
+  body: Record<string, unknown>,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { code, amount } = parseGiftCardRedemptionFromBody(body);
+  if (!code || amount <= 0) return { ok: true };
+
+  const couponCode = String(body.coupon_code ?? body.couponCode ?? "").trim();
+  if (!couponCode) return { ok: true };
+
+  const check = await couponAllowsGiftCardsForBusiness(supabase, businessId, couponCode);
+  if (!check.allowed) return { ok: false, message: check.message };
+  return { ok: true };
+}
+
 export function parseGiftCardRedemptionFromBody(body: Record<string, unknown>): {
   code: string;
   amount: number;
@@ -203,6 +250,9 @@ export async function processGiftCardFromBookingBody(
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const { code, amount } = parseGiftCardRedemptionFromBody(body);
   if (!code || amount <= 0) return { ok: true };
+
+  const couponGate = await assertCouponAllowsGiftCardRedemption(supabase, businessId, body);
+  if (!couponGate.ok) return couponGate;
 
   if (phase === "validate") {
     const gate = await assertGiftCardRedemptionAllowed(supabase, businessId, code, amount);

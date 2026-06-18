@@ -53,6 +53,7 @@ import {
   shouldEnforceMarketingCouponLocationSubset,
 } from "@/lib/marketingCouponGate";
 import { couponRequiresCustomerEmailForScope } from "@/lib/marketingCouponCustomerScope";
+import { GIFT_CARD_COUPON_COMBO_BLOCKED } from "@/lib/giftCardBooking";
 import { popupDisplayAppliesToSurface } from "@/lib/frequencyPopupDisplay";
 import { getExtraCustomerDisplayName } from "@/lib/form1CustomerBooking";
 import {
@@ -264,6 +265,8 @@ type AppliedCoupon = {
   discountType: "fixed" | "percentage";
   discountValue: number;
   discountAmount: number;
+  /** Marketing coupon only — gift cards allowed when true. */
+  allowGiftCards?: boolean;
 };
 
 type AppliedGiftCard = {
@@ -550,6 +553,9 @@ export function AddBookingForm({
   const [timeAdjustmentNoteEnabled, setTimeAdjustmentNoteEnabled] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null);
   const [appliedGiftCard, setAppliedGiftCard] = useState<AppliedGiftCard | null>(null);
+  const couponBlocksGiftCards = Boolean(
+    appliedCoupon?.mode === "coupon-code" && appliedCoupon.allowGiftCards !== true,
+  );
   const form2ServiceDependencyKey = useMemo(
     () => buildForm2ServiceDependencyKey(newBooking.service, serviceCategories),
     [newBooking.service, serviceCategories],
@@ -2904,7 +2910,7 @@ const handleAddBooking = async (status: string = 'pending') => {
       const today = getTodayLocalDate();
       const { data, error } = await supabase
         .from("marketing_coupons")
-        .select("code, discount_type, discount_value, active, start_date, end_date, min_order, coupon_config")
+        .select("code, discount_type, discount_value, active, start_date, end_date, min_order, coupon_config, allow_gift_cards")
         .eq("business_id", currentBusiness.id)
         .ilike("code", rawInput)
         .eq("active", true)
@@ -3040,12 +3046,19 @@ const handleAddBooking = async (status: string = 'pending') => {
         ? Math.max(0, Math.min(baseTotalBeforeCoupon, (baseTotalBeforeCoupon * discountValue) / 100))
         : Math.max(0, Math.min(baseTotalBeforeCoupon, discountValue));
 
+      const allowGiftCards = data.allow_gift_cards === true;
+      if (!allowGiftCards) {
+        setAppliedGiftCard(null);
+        setNewBooking((prev) => ({ ...prev, couponCodeTab: "coupon-code" }));
+      }
+
       setAppliedCoupon({
         mode: "coupon-code",
         code: data.code,
         discountType,
         discountValue,
         discountAmount,
+        allowGiftCards,
       });
       toast({
         title: "Coupon applied",
@@ -3094,6 +3107,15 @@ const handleAddBooking = async (status: string = 'pending') => {
     const code = (newBooking.giftCardCode || "").trim().toUpperCase();
     if (!code) {
       toast({ title: "Gift card required", description: "Enter a gift card code.", variant: "destructive" });
+      return;
+    }
+    if (couponBlocksGiftCards) {
+      setAppliedGiftCard(null);
+      toast({
+        title: "Not allowed",
+        description: GIFT_CARD_COUPON_COMBO_BLOCKED,
+        variant: "destructive",
+      });
       return;
     }
     if (!currentBusiness?.id) {
@@ -6257,7 +6279,10 @@ const handleAddBooking = async (status: string = 'pending') => {
                 </button>
                 <button
                   type="button"
+                  disabled={couponBlocksGiftCards}
+                  title={couponBlocksGiftCards ? GIFT_CARD_COUPON_COMBO_BLOCKED : undefined}
                   onClick={() => {
+                    if (couponBlocksGiftCards) return;
                     setAppliedCoupon(null);
                     setNewBooking({ ...newBooking, couponCodeTab: "gift-card" });
                   }}
@@ -6270,6 +6295,7 @@ const handleAddBooking = async (status: string = 'pending') => {
                       : embedded
                         ? "text-gray-500 hover:text-gray-700"
                         : "text-gray-400 hover:text-gray-300",
+                    couponBlocksGiftCards && "cursor-not-allowed opacity-50",
                   )}
                 >
                   Gift Cards
@@ -6368,6 +6394,10 @@ const handleAddBooking = async (status: string = 'pending') => {
                       )}
                     </div>
                   </div>
+                ) : couponBlocksGiftCards ? (
+                  <p className={cn("text-sm", embedded ? "text-gray-600" : "text-gray-300")}>
+                    {GIFT_CARD_COUPON_COMBO_BLOCKED}
+                  </p>
                 ) : (
                   <div className="space-y-6">
                     <div>

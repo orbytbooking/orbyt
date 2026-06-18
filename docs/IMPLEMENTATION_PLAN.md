@@ -269,8 +269,8 @@ Run on **production** after deploy:
 - Admin `AddBookingForm.tsx` if coupon + gift card used there
 
 **Acceptance:**
-- [ ] Coupon with “allow gift cards” off → gift card rejected with clear message
-- [ ] Coupon with flag on → gift card works as today
+- [x] Coupon with “allow gift cards” off → gift card rejected with clear message
+- [x] Coupon with flag on → gift card works as today
 
 **PR:** `fix: enforce allow_gift_cards coupon rule at checkout`
 
@@ -387,7 +387,7 @@ See `docs/DEPLOYMENT_CHECKLIST.md` for full deploy steps.
 | 2.1 General settings | Done | [x] |
 | 2.2 Notifications | Done | [x] |
 | 2.3 Resend gift card | Done | [x] |
-| 2.4 allow_gift_cards | Not started | [ ] |
+| 2.4 allow_gift_cards | Done | [x] |
 | 2.5 Daily discounts redirect | Not started | [ ] |
 | 3.x Lifecycle | Deferred | [ ] |
 | 4.x Revenue | Deferred | [ ] |

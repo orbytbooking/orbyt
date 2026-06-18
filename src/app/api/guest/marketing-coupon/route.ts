@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from("marketing_coupons")
-    .select("code, discount_type, discount_value, active, start_date, end_date, min_order, coupon_config")
+    .select("code, discount_type, discount_value, active, start_date, end_date, min_order, coupon_config, allow_gift_cards")
     .eq("business_id", businessId)
     .ilike("code", code)
     .eq("active", true)

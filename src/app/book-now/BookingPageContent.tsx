@@ -152,6 +152,7 @@ import {
   shouldEnforceMarketingCouponLocationSubset,
 } from "@/lib/marketingCouponGate";
 import { couponRequiresCustomerEmailForScope } from "@/lib/marketingCouponCustomerScope";
+import { GIFT_CARD_COUPON_COMBO_BLOCKED } from "@/lib/giftCardBooking";
 import { getTodayLocalDate } from "@/lib/date-utils";
 import {
   popupDisplayAppliesToSurface,
@@ -288,6 +289,8 @@ type AppliedCoupon = {
   code: string;
   discountType: "percentage" | "fixed";
   discountValue: number;
+  /** From marketing_coupons.allow_gift_cards — gift cards only when true. */
+  allowGiftCards: boolean;
 };
 
 type AppliedGiftCard = {
@@ -1062,6 +1065,7 @@ export default function BookingPageContent() {
   const [cancellationPolicyDisclaimer, setCancellationPolicyDisclaimer] = useState<string | null>(null);
   const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null);
   const [appliedGiftCard, setAppliedGiftCard] = useState<AppliedGiftCard | null>(null);
+  const couponBlocksGiftCards = Boolean(appliedCoupon && !appliedCoupon.allowGiftCards);
 
   const getCouponDiscountAmount = useCallback((subtotal: number) => {
     if (!appliedCoupon || subtotal <= 0) return 0;
@@ -4679,6 +4683,7 @@ export default function BookingPageContent() {
         end_date: string | null;
         min_order: number | null;
         coupon_config: unknown;
+        allow_gift_cards?: boolean;
       };
     };
     const data = couponPayload.coupon;
@@ -4831,7 +4836,12 @@ export default function BookingPageContent() {
     }
 
     const normalizedCode = (data.code || codeRaw).trim();
-    setAppliedCoupon({ code: normalizedCode, discountType, discountValue });
+    const allowGiftCards = data.allow_gift_cards === true;
+    if (!allowGiftCards) {
+      setAppliedGiftCard(null);
+      form.setValue("couponCodeTab", "coupon-code");
+    }
+    setAppliedCoupon({ code: normalizedCode, discountType, discountValue, allowGiftCards });
     const discountAmount =
       discountType === "percentage"
         ? Math.max(0, Math.min(baseBeforeCoupon, (baseBeforeCoupon * discountValue) / 100))
@@ -4866,14 +4876,27 @@ export default function BookingPageContent() {
       toast({ title: "Business required", description: "Missing business context.", variant: "destructive" });
       return;
     }
+    if (couponBlocksGiftCards) {
+      setAppliedGiftCard(null);
+      toast({
+        title: "Not allowed",
+        description: GIFT_CARD_COUPON_COMBO_BLOCKED,
+        variant: "destructive",
+      });
+      return;
+    }
     if (!codeRaw) {
       toast({ title: "Missing gift card", description: "Enter a gift card code first.", variant: "destructive" });
       return;
     }
 
-    const res = await fetch(
-      `/api/guest/gift-card?business_id=${encodeURIComponent(currentBusinessId)}&unique_code=${encodeURIComponent(codeRaw)}`,
-    );
+    const giftCardUrl = new URL("/api/guest/gift-card", window.location.origin);
+    giftCardUrl.searchParams.set("business_id", currentBusinessId);
+    giftCardUrl.searchParams.set("unique_code", codeRaw);
+    if (appliedCoupon?.code) {
+      giftCardUrl.searchParams.set("coupon_code", appliedCoupon.code);
+    }
+    const res = await fetch(giftCardUrl.toString());
     const result = (await res.json().catch(() => ({}))) as {
       valid?: boolean;
       instance_id?: string;
@@ -4937,7 +4960,7 @@ export default function BookingPageContent() {
       title: "Gift card applied",
       description: `${codeRaw} applied: -$${giftDisc.toFixed(2)} (${(balance - giftDisc).toFixed(2)} remaining after this booking)`,
     });
-  }, [form, businessIdFromUrl, toast, getCouponDiscountAmount]);
+  }, [form, businessIdFromUrl, toast, getCouponDiscountAmount, couponBlocksGiftCards, appliedCoupon?.code]);
 
   // Handle cash payment
   const handleCashPayment = async (bookingValuesOverride?: z.infer<typeof formSchema>) => {
@@ -7190,12 +7213,15 @@ export default function BookingPageContent() {
                             </button>
                             <button
                               type="button"
+                              disabled={couponBlocksGiftCards}
+                              title={couponBlocksGiftCards ? GIFT_CARD_COUPON_COMBO_BLOCKED : undefined}
                               onClick={() => {
+                                if (couponBlocksGiftCards) return;
                                 setAppliedCoupon(null);
                                 setAppliedGiftCard(null);
                                 form.setValue("couponCodeTab", "gift-card");
                               }}
-                              className={`pb-2 text-base font-semibold ${form.watch("couponCodeTab") === "gift-card" ? (useForm2Layout ? "text-cyan-600 border-b-2 border-cyan-500" : "text-blue-600 border-b-2 border-blue-600") : "text-gray-500 hover:text-gray-700"}`}
+                              className={`pb-2 text-base font-semibold ${form.watch("couponCodeTab") === "gift-card" ? (useForm2Layout ? "text-cyan-600 border-b-2 border-cyan-500" : "text-blue-600 border-b-2 border-blue-600") : "text-gray-500 hover:text-gray-700"} ${couponBlocksGiftCards ? "cursor-not-allowed opacity-50" : ""}`}
                             >
                               Gift Cards
                             </button>
@@ -7256,6 +7282,8 @@ export default function BookingPageContent() {
                                   )}
                                 </div>
                               </div>
+                            ) : couponBlocksGiftCards ? (
+                              <p className="text-sm text-gray-600">{GIFT_CARD_COUPON_COMBO_BLOCKED}</p>
                             ) : (
                               <div className="space-y-6">
                                 <div>
