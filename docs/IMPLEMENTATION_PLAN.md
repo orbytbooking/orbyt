@@ -235,6 +235,8 @@ Run on **production** after deploy:
 
 ### 2.3 Gift card — resend email
 
+**Status:** Done (code).
+
 **New route:** `POST /api/marketing/gift-cards/instances/[id]/resend`
 
 - Gate: `gateMarketingTenantApi` (same as other gift card routes)
@@ -244,8 +246,8 @@ Run on **production** after deploy:
 **UI:** `src/components/admin/marketing/GiftCardInstances.tsx` — Resend button on active instances
 
 **Acceptance:**
-- [ ] Resend on DEMO instance → email arrives with image + Book now link
-- [ ] Wrong tenant instance ID → 403
+- [x] Resend on DEMO instance → email arrives with image + Book now link
+- [x] Wrong tenant instance ID → 403
 
 **PR:** `feat: resend gift card email from instances list`
 
@@ -384,7 +386,7 @@ See `docs/DEPLOYMENT_CHECKLIST.md` for full deploy steps.
 | 1.6 Catalog writes | Done | [x] |
 | 2.1 General settings | Done | [x] |
 | 2.2 Notifications | Done | [x] |
-| 2.3 Resend gift card | Not started | [ ] |
+| 2.3 Resend gift card | Done | [x] |
 | 2.4 allow_gift_cards | Not started | [ ] |
 | 2.5 Daily discounts redirect | Not started | [ ] |
 | 3.x Lifecycle | Deferred | [ ] |

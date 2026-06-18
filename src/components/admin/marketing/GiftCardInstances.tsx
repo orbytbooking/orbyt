@@ -19,7 +19,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Plus, Eye, Gift, Calendar, DollarSign, Trash2, History, Loader2 } from 'lucide-react';
+import { Search, Plus, Eye, Gift, Calendar, DollarSign, Trash2, History, Loader2, Mail } from 'lucide-react';
 import { marketingApiHeaders } from '@/lib/marketingApiHeaders';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -100,6 +100,7 @@ export function GiftCardInstances() {
   } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<GiftCardInstance | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [resendBusyId, setResendBusyId] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
 
   const [purchaseForm, setPurchaseForm] = useState({
@@ -271,6 +272,42 @@ export function GiftCardInstances() {
         description: error instanceof Error ? error.message : 'Validation failed',
         variant: 'destructive',
       });
+    }
+  };
+
+  const handleResendEmail = async (instance: GiftCardInstance) => {
+    if (!currentBusiness?.id) return;
+    if (!instance.recipient_email?.trim()) {
+      toast({
+        title: 'No recipient email',
+        description: 'This gift card has no recipient email on file.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setResendBusyId(instance.id);
+    try {
+      const res = await fetch(
+        `/api/marketing/gift-cards/instances/${encodeURIComponent(instance.id)}/resend?business_id=${encodeURIComponent(currentBusiness.id)}`,
+        { method: 'POST', headers: marketingApiHeaders(currentBusiness.id) },
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Resend failed');
+
+      toast({
+        title: 'Gift card email sent',
+        description: `Resent to ${json.to || instance.recipient_email}.`,
+      });
+      if (instanceTab === 'history') await refreshHistory();
+    } catch (err: unknown) {
+      toast({
+        title: 'Resend failed',
+        description: err instanceof Error ? err.message : 'Try again',
+        variant: 'destructive',
+      });
+    } finally {
+      setResendBusyId(null);
     }
   };
 
@@ -578,7 +615,7 @@ export function GiftCardInstances() {
                       <TableHead>Purchased</TableHead>
                       <TableHead>Expires</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead className="w-[80px]">Actions</TableHead>
+                      <TableHead className="w-[100px]">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -623,7 +660,33 @@ export function GiftCardInstances() {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          {instance.status !== 'cancelled' ? (
+                          {instance.status === 'active' && instance.recipient_email?.trim() ? (
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0"
+                                onClick={() => void handleResendEmail(instance)}
+                                disabled={resendBusyId === instance.id}
+                                title="Resend gift card email"
+                              >
+                                {resendBusyId === instance.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Mail className="h-4 w-4" />
+                                )}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8 w-8 p-0"
+                                onClick={() => setDeleteTarget(instance)}
+                                title="Cancel gift card"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ) : instance.status !== 'cancelled' ? (
                             <Button
                               variant="ghost"
                               size="sm"
