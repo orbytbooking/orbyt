@@ -284,7 +284,7 @@ Run on **production** after deploy:
 **Option B:** Wire to same logic as `DailyDiscountsForm.tsx`
 
 **Acceptance:**
-- [ ] Standalone page no longer shows fake success toast
+- [x] Standalone page no longer shows fake success toast
 
 **PR:** `chore: redirect legacy daily-discounts page to marketing tab`
 
@@ -388,6 +388,6 @@ See `docs/DEPLOYMENT_CHECKLIST.md` for full deploy steps.
 | 2.2 Notifications | Done | [x] |
 | 2.3 Resend gift card | Done | [x] |
 | 2.4 allow_gift_cards | Done | [x] |
-| 2.5 Daily discounts redirect | Not started | [ ] |
+| 2.5 Daily discounts redirect | Done | [x] |
 | 3.x Lifecycle | Deferred | [ ] |
 | 4.x Revenue | Deferred | [ ] |
