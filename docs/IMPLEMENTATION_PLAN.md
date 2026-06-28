@@ -304,27 +304,38 @@ Run on **production** after deploy:
 
 ## Phase 3 — Gift card lifecycle (when refunds matter)
 
-**Defer until Phase 1–2 done.**
+**Status:** Implemented (requires migration `160_gift_card_lifecycle.sql` on Supabase).
 
 ### 3.1 Cancel / refund → restore balance
 
-**Rules to document first:**
-- Cancel unused instance → full face value restored / status cancelled
-- Booking cancelled after partial redemption → restore redeemed amount to card?
-- Expired cards → no restore
+**Rules:**
+- Cancel unused instance → balance zeroed, status cancelled, `refund` transaction logged
+- Booking cancelled after redemption → restore redeemed amount via `refund_gift_card_for_booking` RPC (not for expired/cancelled cards)
+- Expired cards → no restore on booking cancel
 
 **Implementation:**
-- Extend `DELETE` `src/app/api/marketing/gift-cards/instances/[id]/route.ts` or add `POST .../restore`
-- Log `transaction_type: 'refund'` in gift card transactions
-- Hook booking cancel/refund flow to call restore helper
+- `database/migrations/160_gift_card_lifecycle.sql` — RPC + columns
+- `src/lib/giftCardLifecycle.ts` — `restoreGiftCardRedemptionForBooking`, shared email helper
+- Admin booking cancel + customer cancel → restore hook
+- `DELETE` gift card instance → zero balance + refund transaction
+
+**Acceptance:**
+- [x] Cancel booking with gift card redemption → balance restored
+- [x] Admin cancel instance → cancelled with refund log
+- [x] Expired card → no restore on booking cancel
 
 ### 3.2 Scheduled gift card send
 
-- Add `scheduled_send_at` on instance (migration)
-- `SendGiftCard.tsx`: remove blocking toast; POST with schedule time
-- Cron or Vercel scheduled function: send when `scheduled_send_at <= now` and `status = pending_send`
+- Migration adds `scheduled_send_at`, `pending_send` status
+- `SendGiftCard.tsx` — schedule date/time POST
+- `POST /api/marketing/gift-cards/instances` — defer email when scheduled
+- `GET/POST /api/cron/send-scheduled-gift-cards` — cron (Bearer CRON_SECRET)
 
-**Depends on:** Phase 1.3 cron secret pattern
+**Acceptance:**
+- [x] Schedule gift card → status `pending_send`, no immediate email
+- [x] Cron processes due cards → email sent, status `active`
+
+**Cron setup:** Call `/api/cron/send-scheduled-gift-cards` every 5–15 minutes with `Authorization: Bearer <CRON_SECRET>` (same pattern as auto-complete-bookings).
 
 ---
 
@@ -389,5 +400,5 @@ See `docs/DEPLOYMENT_CHECKLIST.md` for full deploy steps.
 | 2.3 Resend gift card | Done | [x] |
 | 2.4 allow_gift_cards | Done | [x] |
 | 2.5 Daily discounts redirect | Done | [x] |
-| 3.x Lifecycle | Deferred | [ ] |
+| 3.x Lifecycle | Done | [x] |
 | 4.x Revenue | Deferred | [ ] |

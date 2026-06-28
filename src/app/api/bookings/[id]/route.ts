@@ -29,6 +29,7 @@ import {
   bookingHasGiftCardRedemption,
   processGiftCardFromBookingBody,
 } from '@/lib/giftCardBooking';
+import { restoreGiftCardRedemptionForBooking } from '@/lib/giftCardLifecycle';
 import { scopedIndustryTable } from '@/lib/formScopeTables';
 import type { BookingFormScope } from '@/lib/bookingFormScope';
 
@@ -672,6 +673,12 @@ export async function PUT(
 
     if (booking.status === 'cancelled') {
       await syncBookingCancelled(businessId, booking).catch(() => {});
+      if (priorStatus !== 'cancelled') {
+        const giftRestore = await restoreGiftCardRedemptionForBooking(supabase, businessId, bookingId);
+        if (!giftRestore.ok) {
+          console.warn('[bookings] gift card restore on cancel:', giftRestore.message);
+        }
+      }
     } else if (
       didPromoteRecurring &&
       booking.recurring_series_id &&

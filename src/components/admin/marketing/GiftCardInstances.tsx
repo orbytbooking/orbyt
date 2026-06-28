@@ -37,7 +37,7 @@ type GiftCardInstance = {
   recipient_email?: string;
   purchase_date: string;
   expires_at: string;
-  status: 'active' | 'expired' | 'fully_redeemed' | 'cancelled';
+  status: 'active' | 'pending_send' | 'expired' | 'fully_redeemed' | 'cancelled';
   message?: string;
   gift_card?: {
     name: string;
@@ -343,6 +343,7 @@ export function GiftCardInstances() {
   const getStatusBadge = (status: string) => {
     const variants: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
       active: 'default',
+      pending_send: 'secondary',
       expired: 'destructive',
       fully_redeemed: 'secondary',
       cancelled: 'outline',
@@ -581,6 +582,7 @@ export function GiftCardInstances() {
               <SelectContent className="dark:text-white">
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="pending_send">Scheduled</SelectItem>
                 <SelectItem value="expired">Expired</SelectItem>
                 <SelectItem value="fully_redeemed">Fully Redeemed</SelectItem>
                 <SelectItem value="cancelled">Cancelled</SelectItem>

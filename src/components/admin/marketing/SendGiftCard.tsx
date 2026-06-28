@@ -205,17 +205,40 @@ export function SendGiftCard() {
     }
 
     if (formData.sendOption === 'later') {
-      toast({
-        title: 'Scheduled send not available yet',
-        description: 'Gift cards are sent immediately. Choose "Send Now" for now.',
-        variant: 'destructive',
-      });
-      return;
+      if (!formData.scheduleDate.trim() || !formData.scheduleTime.trim()) {
+        toast({
+          title: 'Schedule required',
+          description: 'Choose a date and time to send this gift card.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      const scheduledLocal = new Date(`${formData.scheduleDate.trim()}T${formData.scheduleTime.trim()}`);
+      if (Number.isNaN(scheduledLocal.getTime())) {
+        toast({
+          title: 'Invalid schedule',
+          description: 'Could not read the date and time you entered.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      if (scheduledLocal.getTime() <= Date.now() + 60_000) {
+        toast({
+          title: 'Schedule too soon',
+          description: 'Pick a send time at least one minute in the future, or choose Send Now.',
+          variant: 'destructive',
+        });
+        return;
+      }
     }
 
     setSubmitting(true);
     try {
       const purchaserName = `${formData.senderFirstName.trim()} ${formData.senderLastName.trim()}`.trim();
+      const scheduledSendAt =
+        formData.sendOption === 'later'
+          ? new Date(`${formData.scheduleDate.trim()}T${formData.scheduleTime.trim()}`).toISOString()
+          : undefined;
       const res = await fetch('/api/marketing/gift-cards/instances', {
         method: 'POST',
         headers: {
@@ -232,6 +255,7 @@ export function SendGiftCard() {
           recipient_name: formData.recipientName.trim(),
           message: formData.message.trim() || undefined,
           send_email: true,
+          ...(scheduledSendAt ? { scheduled_send_at: scheduledSendAt } : {}),
           ...(selectedImage ? { image_data_url: selectedImage } : {}),
         }),
       });
@@ -246,12 +270,17 @@ export function SendGiftCard() {
       const instance = result.data?.[0];
       const code = instance?.unique_code ?? '';
       const emailSent = result.email_results?.[0]?.sent;
+      const isScheduled = Boolean(result.scheduled);
 
       toast({
-        title: 'Gift Card Sent!',
-        description: code
-          ? `Code ${code} created for ${formData.recipientName}.${emailSent ? ' Email delivered.' : emailSent === false ? ' Email could not be sent (check Resend config).' : ''}`
-          : `Gift card sent to ${formData.recipientName}.`,
+        title: isScheduled ? 'Gift Card Scheduled!' : 'Gift Card Sent!',
+        description: isScheduled
+          ? code
+            ? `Code ${code} will be emailed to ${formData.recipientName} on ${new Date(result.scheduled_send_at).toLocaleString()}.`
+            : `Gift card scheduled for ${formData.recipientName}.`
+          : code
+            ? `Code ${code} created for ${formData.recipientName}.${emailSent ? ' Email delivered.' : emailSent === false ? ' Email could not be sent (check Resend config).' : ''}`
+            : `Gift card sent to ${formData.recipientName}.`,
       });
 
       resetForm();

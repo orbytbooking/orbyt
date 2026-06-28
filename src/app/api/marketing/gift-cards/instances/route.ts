@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
-import { sendGiftCardEmail } from '@/lib/sendGiftCardEmail';
 import { uploadGiftCardEmailImage } from '@/lib/giftCardEmailImage';
-import { resolveBusinessBookNowUrl } from '@/lib/resolveBusinessBookNowUrl';
 import { gateMarketingTenantApi } from '@/lib/marketingTenantGate';
+import { sendGiftCardInstanceEmail } from '@/lib/giftCardLifecycle';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -28,6 +27,7 @@ const purchaseGiftCardSchema = z.object({
   message: z.string().optional(),
   quantity: z.number().min(1).max(10).default(1),
   send_email: z.boolean().optional().default(true),
+  scheduled_send_at: z.string().optional(),
   image_data_url: z
     .string()
     .optional()
@@ -127,6 +127,30 @@ export async function POST(request: NextRequest) {
     const expiresAt = new Date();
     expiresAt.setMonth(expiresAt.getMonth() + giftCard.expires_in_months);
 
+    const scheduledSendAtRaw = validatedData.scheduled_send_at?.trim();
+    const scheduledSendAt = scheduledSendAtRaw ? new Date(scheduledSendAtRaw) : null;
+    const scheduleInFuture =
+      scheduledSendAt != null &&
+      !Number.isNaN(scheduledSendAt.getTime()) &&
+      scheduledSendAt.getTime() > Date.now() + 60_000;
+
+    let emailImageUrl: string | null = null;
+    if (validatedData.image_data_url?.trim()) {
+      emailImageUrl = await uploadGiftCardEmailImage(
+        validatedData.business_id,
+        validatedData.image_data_url.trim(),
+      );
+      if (!emailImageUrl) {
+        console.warn('Gift card image upload failed; email will use default layout without custom image');
+      }
+    }
+
+    const purchaserName =
+      validatedData.purchaser_name?.trim() ||
+      validatedData.purchaser_email?.trim() ||
+      null;
+    const recipientName = validatedData.recipient_name?.trim() || null;
+
     // Create gift card instances
     const instances = [];
     for (let i = 0; i < validatedData.quantity; i++) {
@@ -142,9 +166,13 @@ export async function POST(request: NextRequest) {
         recipient_id: validatedData.recipient_id || null,
         purchaser_email: validatedData.purchaser_email || null,
         recipient_email: validatedData.recipient_email || null,
+        purchaser_name: purchaserName,
+        recipient_name: recipientName,
         purchase_date: new Date().toISOString(),
         expires_at: expiresAt.toISOString(),
-        status: 'active',
+        status: scheduleInFuture ? 'pending_send' : 'active',
+        scheduled_send_at: scheduleInFuture ? scheduledSendAt!.toISOString() : null,
+        email_image_url: emailImageUrl,
         message: validatedData.message || null,
       };
       
@@ -184,62 +212,41 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const emailResults: { instance_id: string; sent: boolean }[] = [];
-    if (validatedData.send_email && Array.isArray(data) && data.length > 0) {
-      const { data: businessRow } = await supabaseAdmin
-        .from('businesses')
-        .select('name')
-        .eq('id', validatedData.business_id)
-        .maybeSingle();
-
-      const businessName = String(businessRow?.name ?? 'Your service provider').trim();
-
-      const purchaserName =
-        validatedData.purchaser_name?.trim() ||
-        validatedData.purchaser_email?.trim() ||
-        'Someone special';
-
-      let emailImageUrl: string | null = null;
-      if (validatedData.image_data_url?.trim()) {
-        emailImageUrl = await uploadGiftCardEmailImage(
-          validatedData.business_id,
-          validatedData.image_data_url.trim(),
-        );
-        if (!emailImageUrl) {
-          console.warn('Gift card image upload failed; email will use default layout without custom image');
-        }
-      }
-
+    const emailResults: { instance_id: string; sent: boolean; scheduled?: boolean }[] = [];
+    const shouldSendNow = validatedData.send_email && !scheduleInFuture;
+    if (shouldSendNow && Array.isArray(data) && data.length > 0) {
       for (const row of data) {
         const recipientEmail = String(row.recipient_email ?? '').trim();
         if (!recipientEmail) {
           emailResults.push({ instance_id: row.id, sent: false });
           continue;
         }
-        const sent = await sendGiftCardEmail({
-          recipientEmail,
-          recipientName:
-            validatedData.recipient_name?.trim() ||
-            recipientEmail.split('@')[0] ||
-            'there',
-          purchaserName,
-          businessName,
-          giftCardName: giftCard.name,
-          amount: Number(row.original_amount ?? giftCard.amount),
-          uniqueCode: String(row.unique_code),
-          expiresAt: String(row.expires_at),
-          message: row.message ?? validatedData.message,
-          bookNowUrl: resolveBusinessBookNowUrl(validatedData.business_id, {
-            giftCardCode: String(row.unique_code),
-            requestOrigin: request.nextUrl.origin,
-          }),
+        const result = await sendGiftCardInstanceEmail(supabaseAdmin, {
+          businessId: validatedData.business_id,
+          instance: {
+            ...row,
+            gift_card: giftCard,
+          },
+          requestOrigin: request.nextUrl.origin,
           imageUrl: emailImageUrl,
         });
-        emailResults.push({ instance_id: row.id, sent });
+        emailResults.push({ instance_id: row.id, sent: result.sent });
+      }
+    } else if (scheduleInFuture && Array.isArray(data)) {
+      for (const row of data) {
+        emailResults.push({ instance_id: row.id, sent: false, scheduled: true });
       }
     }
 
-    return NextResponse.json({ data, email_results: emailResults }, { status: 201 });
+    return NextResponse.json(
+      {
+        data,
+        email_results: emailResults,
+        scheduled: scheduleInFuture,
+        scheduled_send_at: scheduleInFuture ? scheduledSendAt!.toISOString() : null,
+      },
+      { status: 201 },
+    );
   } catch (error: any) {
     console.error('❌ POST error:', error);
     if (error instanceof z.ZodError) {

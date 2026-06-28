@@ -6,6 +6,7 @@ import { syncBookingCancelled } from '@/lib/googleCalendar';
 import { formatFrequencyRepeatsForDisplay } from '@/lib/industryFrequencyRepeats';
 import { extractPricingSummaryFromCustomization } from '@/lib/customerBookingPricingDisplay';
 import { ensureCustomerRowForBusiness } from '@/lib/ensureCustomerRowForBusiness';
+import { restoreGiftCardRedemptionForBooking } from '@/lib/giftCardLifecycle';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -399,6 +400,15 @@ export async function PATCH(
       });
     } else {
       await syncBookingCancelled(booking.business_id, booking).catch(() => {});
+      const giftRestore = await restoreGiftCardRedemptionForBooking(
+        supabase,
+        booking.business_id,
+        bookingId,
+        'Customer cancelled booking — gift card balance restored',
+      );
+      if (!giftRestore.ok) {
+        console.warn('[customer/bookings] gift card restore on cancel:', giftRestore.message);
+      }
       await createAdminNotification(booking.business_id, 'cancellation_request', {
         title: 'Cancellation request',
         message: `Customer requested to cancel ${bkRef}.`,

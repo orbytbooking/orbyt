@@ -46,10 +46,16 @@ export async function DELETE(
       return NextResponse.json({ success: true, data: instance, message: 'Already cancelled' });
     }
 
+    if (instance.status === 'expired') {
+      return NextResponse.json({ error: 'Expired gift cards cannot be cancelled' }, { status: 400 });
+    }
+
     const { data: updated, error: updateError } = await supabaseAdmin
       .from('gift_card_instances')
       .update({
+        current_balance: 0,
         status: 'cancelled',
+        scheduled_send_at: null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
@@ -64,10 +70,10 @@ export async function DELETE(
     await supabaseAdmin.from('gift_card_transactions').insert({
       business_id: businessId,
       gift_card_instance_id: id,
-      transaction_type: 'adjustment',
-      amount: 0,
+      transaction_type: Number(instance.current_balance ?? 0) > 0 ? 'refund' : 'adjustment',
+      amount: Number(instance.current_balance ?? 0),
       balance_before: instance.current_balance,
-      balance_after: instance.current_balance,
+      balance_after: 0,
       description: `Gift card ${instance.unique_code} cancelled by admin`,
     });
 
