@@ -5,6 +5,7 @@ import { createAdminNotification } from '@/lib/adminProviderSync';
 import { syncBookingCreated, createRecurringCalendarEvent } from '@/lib/googleCalendar';
 import { getStoreOptionsScheduling, isDateHoliday } from '@/lib/schedulingFilters';
 import { logNewDraftOrQuote } from '@/lib/draftQuoteLogs';
+import { logBookingCreatedFromAdminRequest, resolveCustomerDisplayName } from '@/lib/bookingActivityLogs';
 import { ensureCustomerForAdminBooking } from '@/lib/ensureCustomerForAdminBooking';
 import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProviderWage';
 import { resolveFrequencyRepeatsForBooking } from '@/lib/industryFrequencyRepeats';
@@ -526,7 +527,25 @@ export async function POST(request: Request) {
           link: '/admin/bookings',
         });
         if (firstBooking && (firstBooking.status === 'draft' || firstBooking.status === 'quote')) {
-          await logNewDraftOrQuote(supabase, request, user, businessId, firstBooking.id, firstBooking.status);
+          await logNewDraftOrQuote(
+            supabase,
+            request,
+            user,
+            businessId,
+            firstBooking.id,
+            firstBooking.status,
+            resolveCustomerDisplayName(firstBooking),
+            firstBooking as Record<string, unknown>
+          );
+        } else if (firstBooking) {
+          await logBookingCreatedFromAdminRequest(
+            supabase,
+            request,
+            user,
+            businessId,
+            firstBooking,
+            resolveCustomerDisplayName(firstBooking)
+          );
         }
         if (firstBooking) {
           const giftRedeem = await processGiftCardFromBookingBody(
@@ -656,7 +675,25 @@ export async function POST(request: Request) {
           await supabase.from('bookings').update({ google_calendar_event_id: eventIdRetry }).eq('id', retryBooking.id).eq('business_id', businessId);
         }
         if (retryBooking.status === 'draft' || retryBooking.status === 'quote') {
-          await logNewDraftOrQuote(supabase, request, user, businessId, retryBooking.id, retryBooking.status);
+          await logNewDraftOrQuote(
+            supabase,
+            request,
+            user,
+            businessId,
+            retryBooking.id,
+            retryBooking.status,
+            resolveCustomerDisplayName(retryBooking),
+            retryBooking as Record<string, unknown>
+          );
+        } else {
+          await logBookingCreatedFromAdminRequest(
+            supabase,
+            request,
+            user,
+            businessId,
+            retryBooking,
+            resolveCustomerDisplayName(retryBooking)
+          );
         }
         const bkRef = `BK${String(retryBooking.id).slice(-6).toUpperCase()}`;
         const assignMsg = retryBooking.provider_id ? ' and assigned to provider' : '';
@@ -704,7 +741,25 @@ export async function POST(request: Request) {
     });
 
     if (booking.status === 'draft' || booking.status === 'quote') {
-      await logNewDraftOrQuote(supabase, request, user, businessId, booking.id, booking.status);
+      await logNewDraftOrQuote(
+        supabase,
+        request,
+        user,
+        businessId,
+        booking.id,
+        booking.status,
+        resolveCustomerDisplayName(booking),
+        booking as Record<string, unknown>
+      );
+    } else {
+      await logBookingCreatedFromAdminRequest(
+        supabase,
+        request,
+        user,
+        businessId,
+        booking,
+        resolveCustomerDisplayName(booking)
+      );
     }
 
     console.log('[googleCalendar] Attempting sync for booking', booking.id, 'business', businessId, { scheduled_date: booking.scheduled_date ?? booking.date, scheduled_time: booking.scheduled_time ?? booking.time });

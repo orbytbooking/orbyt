@@ -302,11 +302,12 @@ export function DailyDiscountsForm() {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-medium">
+          <h3 className="text-lg font-medium dark:text-white">
             {editingId ? 'Edit Discount' : 'Add New Discount'}
           </h3>
           <Button
             variant="ghost"
+            className="dark:text-white dark:hover:text-white dark:hover:bg-white/10"
             onClick={() => {
               resetForm();
               setShowForm(false);
@@ -315,13 +316,34 @@ export function DailyDiscountsForm() {
             Back to List
           </Button>
         </div>
-        <form onSubmit={onSubmit} className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <form onSubmit={onSubmit}>
+          <div className="rounded-md border bg-white p-4 space-y-6">
             <div className="space-y-2">
               <Label htmlFor="name">Name</Label>
-              <Input id="name" name="name" placeholder="Happy Hour" value={form.name} onChange={onChange} required />
+              <Input
+                id="name"
+                name="name"
+                placeholder="Happy Hour"
+                value={form.name}
+                onChange={onChange}
+                required
+                className="dark:placeholder:text-gray-400"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="description">Description</Label>
+              <Textarea
+                id="description"
+                name="description"
+                placeholder="Describe this discount..."
+                value={form.description}
+                onChange={onChange}
+                rows={3}
+                className="dark:placeholder:text-gray-400"
+              />
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <Label htmlFor="discountType">Discount Type</Label>
               <Select 
@@ -343,18 +365,19 @@ export function DailyDiscountsForm() {
             <div className="space-y-2">
               <Label htmlFor="discountValue">Discount Value</Label>
               <div className="relative">
-                <Input 
-                  id="discountValue" 
-                  name="discountValue" 
-                  type="number" 
-                  min="0" 
-                  step="0.01" 
+                <Input
+                  id="discountValue"
+                  name="discountValue"
+                  type="number"
+                  min="0"
+                  step="0.01"
                   placeholder={form.discountType === 'percentage' ? 'e.g. 15' : 'e.g. 10.00'}
-                  value={form.discountValue} 
-                  onChange={onChange} 
-                  required 
+                  value={form.discountValue}
+                  onChange={onChange}
+                  required
+                  className="dark:placeholder:text-gray-400"
                 />
-                <span className="absolute right-3 top-2.5 text-muted-foreground text-sm">
+                <span className="absolute right-3 top-2.5 text-muted-foreground dark:text-gray-400 text-sm">
                   {form.discountType === 'percentage' ? '%' : '$'}
                 </span>
               </div>
@@ -396,7 +419,7 @@ export function DailyDiscountsForm() {
               <Label>Time Range</Label>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label htmlFor="startTime" className="text-xs text-muted-foreground">Start Time</Label>
+                  <Label htmlFor="startTime" className="text-xs text-muted-foreground dark:text-gray-400">Start Time</Label>
                   <Input 
                     id="startTime" 
                     name="startTime" 
@@ -407,7 +430,7 @@ export function DailyDiscountsForm() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="endTime" className="text-xs text-muted-foreground">End Time</Label>
+                  <Label htmlFor="endTime" className="text-xs text-muted-foreground dark:text-gray-400">End Time</Label>
                   <Input 
                     id="endTime" 
                     name="endTime" 
@@ -424,7 +447,7 @@ export function DailyDiscountsForm() {
               <Label>Date Range</Label>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label htmlFor="startDate" className="text-xs text-muted-foreground">Start Date</Label>
+                  <Label htmlFor="startDate" className="text-xs text-muted-foreground dark:text-gray-400">Start Date</Label>
                   <Input 
                     id="startDate" 
                     name="startDate" 
@@ -435,7 +458,7 @@ export function DailyDiscountsForm() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="endDate" className="text-xs text-muted-foreground">End Date</Label>
+                  <Label htmlFor="endDate" className="text-xs text-muted-foreground dark:text-gray-400">End Date</Label>
                   <Input 
                     id="endDate" 
                     name="endDate" 
@@ -448,22 +471,10 @@ export function DailyDiscountsForm() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea 
-                id="description" 
-                name="description" 
-                placeholder="Describe this discount..." 
-                value={form.description} 
-                onChange={onChange} 
-                rows={3} 
-              />
-            </div>
-
-            <div className="flex items-center justify-between pt-6">
+            <div className="flex items-center justify-between pt-6 md:col-span-2">
               <div className="space-y-0.5">
                 <Label htmlFor="active" className="text-base">Active</Label>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground dark:text-gray-400">
                   {form.active ? 'This discount is active' : 'This discount is inactive'}
                 </p>
               </div>
@@ -473,10 +484,11 @@ export function DailyDiscountsForm() {
                 onCheckedChange={(checked) => setForm((s) => ({ ...s, active: checked }))} 
               />
             </div>
-          </div>
+            </div>
 
-          <div className="flex justify-end pt-4">
-            <Button type="submit" className="ml-auto">Save Changes</Button>
+            <div className="flex justify-end pt-2 border-t border-gray-200 dark:border-cyan-500/20">
+              <Button type="submit" className="ml-auto">Save Changes</Button>
+            </div>
           </div>
         </form>
       </div>

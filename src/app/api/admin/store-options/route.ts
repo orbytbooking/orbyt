@@ -74,6 +74,10 @@ export interface BusinessStoreOptions {
   payment_charge_booking_description: string | null;
   payment_separate_charge_description: string | null;
   payment_charge_invoice_description: string | null;
+  /** Store Info: customer may pay by card at checkout */
+  accepted_payment_credit_card: boolean;
+  /** Store Info: customer may pay cash/check at checkout */
+  accepted_payment_cash_check: boolean;
 }
 
 const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
@@ -132,6 +136,8 @@ const DEFAULT_OPTIONS: Omit<BusinessStoreOptions, 'id' | 'business_id'> = {
   payment_charge_booking_description: 'Amount charged by OrbytBooking.',
   payment_separate_charge_description: null,
   payment_charge_invoice_description: null,
+  accepted_payment_credit_card: true,
+  accepted_payment_cash_check: false,
 };
 
 const ADMIN_GENERAL_STORE_OPTION_KEYS = [
@@ -146,6 +152,33 @@ const ADMIN_GENERAL_STORE_OPTION_KEYS = [
   'payment_separate_charge_description',
   'payment_charge_invoice_description',
 ] as const;
+
+function storeOptionsErrorMissingAcceptedPaymentColumns(message: string): boolean {
+  const m = message.toLowerCase();
+  if (!m.includes('column') && !m.includes('schema')) return false;
+  return m.includes('accepted_payment_credit_card') || m.includes('accepted_payment_cash_check');
+}
+
+function stripAcceptedPaymentFields(update: Record<string, unknown>): void {
+  delete update.accepted_payment_credit_card;
+  delete update.accepted_payment_cash_check;
+}
+
+function resolveAcceptedPaymentFields(
+  body: Record<string, unknown>,
+  prev: BusinessStoreOptions,
+): Pick<BusinessStoreOptions, 'accepted_payment_credit_card' | 'accepted_payment_cash_check'> {
+  return {
+    accepted_payment_credit_card:
+      'accepted_payment_credit_card' in body
+        ? Boolean(body.accepted_payment_credit_card)
+        : prev.accepted_payment_credit_card,
+    accepted_payment_cash_check:
+      'accepted_payment_cash_check' in body
+        ? Boolean(body.accepted_payment_cash_check)
+        : prev.accepted_payment_cash_check,
+  };
+}
 
 function storeOptionsErrorMissingDefaultWageColumn(message: string): boolean {
   const m = message.toLowerCase();
@@ -348,6 +381,8 @@ export async function PUT(request: NextRequest) {
       id: existing?.id ?? '',
     };
     const adminGeneralFields = resolveAdminGeneralFields(body as Record<string, unknown>, prevRow);
+    const acceptedPaymentFields = resolveAcceptedPaymentFields(body as Record<string, unknown>, prevRow);
+    let acceptedPaymentColumnsAvailable = true;
 
     if ('default_provider_wage' in body || 'default_provider_wage_type' in body) {
       const wRaw = body.default_provider_wage;
@@ -435,6 +470,7 @@ export async function PUT(request: NextRequest) {
           ? body.customer_my_drive_enabled
           : prevCustomerMyDrive,
       ...adminGeneralFields,
+      ...acceptedPaymentFields,
       updated_at: new Date().toISOString(),
     };
 
@@ -445,6 +481,10 @@ export async function PUT(request: NextRequest) {
 
     if (!adminGeneralColumnsAvailable) {
       stripAdminGeneralFields(update as Record<string, unknown>);
+    }
+
+    if (!acceptedPaymentColumnsAvailable) {
+      stripAcceptedPaymentFields(update as Record<string, unknown>);
     }
 
     if (existing?.id) {
@@ -484,6 +524,20 @@ export async function PUT(request: NextRequest) {
         error = retry.error;
       }
 
+      if (error && storeOptionsErrorMissingAcceptedPaymentColumns(error.message || '')) {
+        acceptedPaymentColumnsAvailable = false;
+        const update2 = { ...update } as Record<string, unknown>;
+        stripAcceptedPaymentFields(update2);
+        const retry = await supabase
+          .from('business_store_options')
+          .update(update2)
+          .eq('business_id', businessId)
+          .select()
+          .single();
+        data = retry.data;
+        error = retry.error;
+      }
+
       if (error) {
         console.error('Store options update error:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
@@ -493,6 +547,7 @@ export async function PUT(request: NextRequest) {
         options: merged,
         default_provider_wage_migration_required: !wageColumnsAvailable,
         admin_general_settings_migration_required: !adminGeneralColumnsAvailable,
+        accepted_payment_forms_migration_required: !acceptedPaymentColumnsAvailable,
       });
     }
 
@@ -529,6 +584,19 @@ export async function PUT(request: NextRequest) {
       error = retry.error;
     }
 
+    if (error && storeOptionsErrorMissingAcceptedPaymentColumns(error.message || '')) {
+      acceptedPaymentColumnsAvailable = false;
+      const update2 = { ...update } as Record<string, unknown>;
+      stripAcceptedPaymentFields(update2);
+      const retry = await supabase
+        .from('business_store_options')
+        .insert({ business_id: businessId, ...update2 })
+        .select()
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
+
     if (error) {
       console.error('Store options insert error:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
@@ -538,6 +606,7 @@ export async function PUT(request: NextRequest) {
       options: merged,
       default_provider_wage_migration_required: !wageColumnsAvailable,
       admin_general_settings_migration_required: !adminGeneralColumnsAvailable,
+      accepted_payment_forms_migration_required: !acceptedPaymentColumnsAvailable,
     });
   } catch (e) {
     console.error('Store options PUT:', e);

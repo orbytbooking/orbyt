@@ -100,6 +100,8 @@ import { SendQuoteEmailFlow } from "@/components/admin/SendQuoteEmailFlow";
 import { DraftQuoteLogsDialog } from "@/components/admin/DraftQuoteLogsDialog";
 import { AdminBookingsCalendar, type CalendarBooking } from "@/components/admin/AdminBookingsCalendar";
 import { EditBookingSheet } from "@/components/admin/EditBookingSheet";
+import { CancelBookingDialog } from "@/components/admin/CancelBookingDialog";
+import { readCancellationMetaFromBooking } from "@/lib/bookingCancellationMeta";
 import { getOccurrenceDatesForSeriesSync, statusForRecurringOccurrence } from "@/lib/recurringBookings";
 import { compareBookingsByScheduleDesc } from "@/lib/bookingScheduleSort";
 import {
@@ -112,6 +114,12 @@ import {
   type AdminCalendarPrefsState,
 } from "@/lib/adminCalendarPrefs";
 import { differenceInCalendarDays, format, parseISO, startOfDay } from "date-fns";
+import {
+  enrichBookingDisplayFields,
+  formatBookingServiceSummaryLabel,
+  loadServiceCategoryNameById,
+  resolveBookingServiceLabel,
+} from "@/lib/resolveBookingServiceLabel";
 
 // Bookings are now loaded from Supabase only.
 
@@ -298,6 +306,8 @@ export default function BookingsPage() {
   const [frequencyFilter, setFrequencyFilter] = useState("all");
   const [draftQuoteDeleteTarget, setDraftQuoteDeleteTarget] = useState<Booking | null>(null);
   const [draftQuoteDeleting, setDraftQuoteDeleting] = useState(false);
+  const [cancelledBookingDeleteTarget, setCancelledBookingDeleteTarget] = useState<Booking | null>(null);
+  const [cancelledBookingDeleting, setCancelledBookingDeleting] = useState(false);
   const [sendQuoteFlowOpen, setSendQuoteFlowOpen] = useState(false);
   const [sendQuoteFlowBooking, setSendQuoteFlowBooking] = useState<Booking | null>(null);
   const [draftQuoteLogsOpen, setDraftQuoteLogsOpen] = useState(false);
@@ -308,12 +318,20 @@ export default function BookingsPage() {
   const [changeExpirySaving, setChangeExpirySaving] = useState(false);
   const [sheetEditBookingId, setSheetEditBookingId] = useState<string | null>(null);
   const [confirmMarkCompleteOpen, setConfirmMarkCompleteOpen] = useState(false);
+  const [cancelBookingTarget, setCancelBookingTarget] = useState<Booking | null>(null);
+  const [cancelledSubView, setCancelledSubView] = useState<'requests' | 'cancelled'>('cancelled');
+  const [cancellationRequestActionLoading, setCancellationRequestActionLoading] = useState(false);
+  const [serviceCategoryById, setServiceCategoryById] = useState<Record<string, string>>({});
 
   // Sync activeTab with URL
   useEffect(() => {
     const tab = searchParams.get("tab") || "all";
     if (["all", "today", "upcoming", "unassigned", "draft", "cancelled", "history"].includes(tab)) {
       setActiveTab(tab);
+    }
+    const cancelView = searchParams.get("cancelView");
+    if (cancelView === "requests" || cancelView === "cancelled") {
+      setCancelledSubView(cancelView);
     }
   }, [searchParams]);
 
@@ -334,17 +352,38 @@ export default function BookingsPage() {
     router.replace(`/admin/bookings${query ? `?${query}` : ""}`, { scroll: false });
   }, [searchParams, router]);
 
-  // Open booking summary when ?id=xxx in URL (e.g. from booking-charges)
+  const clearBookingDeepLinkFromUrl = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (!params.has("booking") && !params.has("id") && !params.has("date")) return;
+    params.delete("booking");
+    params.delete("id");
+    params.delete("date");
+    const query = params.toString();
+    router.replace(`/admin/bookings${query ? `?${query}` : ""}`, { scroll: false });
+  };
+
+  // Open booking summary when ?id=xxx or ?booking=xxx in URL (e.g. from dashboard or booking-charges)
   useEffect(() => {
     const id = searchParams.get("id") || searchParams.get("booking");
-    if (id && bookings.length > 0) {
-      const b = bookings.find((x) => String(x.id) === String(id));
-      if (b) {
-        setSelectedBooking(b);
-        setShowDetails(true);
-      }
+    const dateParam = searchParams.get("date");
+    if (!id || bookings.length === 0) return;
+
+    let b =
+      dateParam &&
+      bookings.find(
+        (x) =>
+          String(x.id) === String(id) &&
+          String(x.date ?? (x as { scheduled_date?: string }).scheduled_date ?? "").slice(0, 10) ===
+            dateParam.slice(0, 10),
+      );
+    if (!b) {
+      b = bookings.find((x) => String(x.id) === String(id));
     }
-  }, [searchParams, bookings]);
+    if (b) {
+      setSelectedBooking(b);
+      setShowDetails(true);
+    }
+  }, [searchParams, bookings.length]);
   const [excludeParamNames, setExcludeParamNames] = useState<Record<string, string>>({});
   const [industries, setIndustries] = useState<{ id: string; name: string }[]>([]);
   const [extrasMap, setExtrasMap] = useState<Record<string, string>>({});
@@ -500,10 +539,14 @@ export default function BookingsPage() {
         }).catch(() => {});
       }
       if (cancelled) return;
-      // Fetch bookings immediately
+      // Fetch bookings with customer + recurring series joins (service lives on row or series)
       const { data: bookingsData, error } = await supabase
         .from('bookings')
-        .select('*')
+        .select(`
+          *,
+          customers(name, email, phone),
+          recurring_series(service, customization, customer_name, customer_email, customer_phone, scheduled_time)
+        `)
         .eq('business_id', currentBusiness?.id)
         .order('scheduled_date', { ascending: false, nullsFirst: false })
         .order('date', { ascending: false });
@@ -518,12 +561,13 @@ export default function BookingsPage() {
 
       let list: any[] = bookingsData || [];
       const recurringIds = [...new Set(list.filter((b: any) => b.recurring_series_id).map((b: any) => b.recurring_series_id))];
+      let seriesById: Record<string, any> = {};
       if (recurringIds.length > 0) {
         const { data: seriesList } = await supabase
           .from('recurring_series')
-          .select('id, start_date, end_date, frequency, frequency_repeats, occurrences_ahead, scheduled_time, duration_minutes')
+          .select('id, start_date, end_date, frequency, frequency_repeats, occurrences_ahead, scheduled_time, duration_minutes, customer_name, customer_email, customer_phone, service')
           .in('id', recurringIds);
-        const seriesById = (seriesList || []).reduce((acc: Record<string, any>, s: any) => { acc[s.id] = s; return acc; }, {});
+        seriesById = (seriesList || []).reduce((acc: Record<string, any>, s: any) => { acc[s.id] = s; return acc; }, {});
         const expanded: any[] = [];
         for (const booking of list) {
           if (booking.recurring_series_id && seriesById[booking.recurring_series_id]) {
@@ -602,24 +646,30 @@ export default function BookingsPage() {
         }
       }
       if (cancelled) return;
-      
-      // Map bookings to include provider name
+
+      const categoryNameById = await loadServiceCategoryNameById(supabase, currentBusiness.id);
+      if (!cancelled) setServiceCategoryById(categoryNameById);
+
+      // Map bookings to include provider name and resolved customer/service/time
       const bookingsWithProvider = list.map((booking: any) => {
         let providerName = booking.assignedProvider || null;
         
         if (booking.provider_id && providersMap[booking.provider_id]) {
           providerName = providersMap[booking.provider_id].displayName;
         }
-        
+
+        const series = booking.recurring_series_id
+          ? (booking.recurring_series ?? seriesById[booking.recurring_series_id])
+          : booking.recurring_series ?? null;
+        const enriched = enrichBookingDisplayFields(booking, series, categoryNameById);
         const normalizedDate = String(booking.date ?? booking.scheduled_date ?? "").trim();
-        const normalizedTime = String(booking.time ?? booking.scheduled_time ?? "").trim();
 
         return {
           ...booking,
+          ...enriched,
           date: normalizedDate,
-          time: normalizedTime,
           scheduled_date: booking.scheduled_date ?? (normalizedDate || null),
-          scheduled_time: booking.scheduled_time ?? (normalizedTime || null),
+          scheduled_time: booking.scheduled_time ?? (enriched.time || null),
           assignedProvider: providerName,
           provider_id: booking.provider_id || null,
         };
@@ -707,6 +757,23 @@ export default function BookingsPage() {
     return bookings.filter(booking => booking.status === 'cancelled');
   };
 
+  const getCancellationRequestBookings = () => {
+    const byId = new Map<string, Booking>();
+    for (const booking of bookings) {
+      const b = booking as Booking & {
+        cancellation_request_status?: string;
+        pending_cancellation_occurrence_dates?: string[];
+      };
+      const fullPending = b.cancellation_request_status === 'pending' && b.status !== 'cancelled';
+      const pendingDates = b.pending_cancellation_occurrence_dates;
+      const hasPendingDates = Array.isArray(pendingDates) && pendingDates.length > 0;
+      if ((fullPending || hasPendingDates) && !byId.has(booking.id)) {
+        byId.set(booking.id, booking);
+      }
+    }
+    return Array.from(byId.values());
+  };
+
   const getHistoryBookings = () => {
     const today = new Date().toISOString().split('T')[0];
     return bookings.filter(booking => 
@@ -725,7 +792,9 @@ export default function BookingsPage() {
       case 'draft':
         return getDraftQuoteBookings();
       case 'cancelled':
-        return getCancelledBookings();
+        return cancelledSubView === 'requests'
+          ? getCancellationRequestBookings()
+          : getCancelledBookings();
       case 'history':
         return getHistoryBookings();
       default:
@@ -755,7 +824,63 @@ export default function BookingsPage() {
 
       return matchesSearch && matchesStatus && matchesFrequency;
     });
-  }, [bookings, activeTab, searchTerm, statusFilter, frequencyFilter]);
+  }, [bookings, activeTab, cancelledSubView, searchTerm, statusFilter, frequencyFilter]);
+
+  const handleCancellationRequestAction = async (
+    bookingId: string,
+    action: 'approve' | 'reject'
+  ) => {
+    if (!currentBusiness?.id) return;
+    setCancellationRequestActionLoading(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) {
+        toast({ title: 'Sign in required', variant: 'destructive' });
+        return;
+      }
+      const res = await fetch(
+        `/api/admin/bookings/${encodeURIComponent(bookingId)}/cancellation-request`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            'x-business-id': currentBusiness.id,
+          },
+          body: JSON.stringify({ action }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({
+          title: 'Error',
+          description: typeof data.error === 'string' ? data.error : 'Request failed',
+          variant: 'destructive',
+        });
+        return;
+      }
+      toast({
+        title: action === 'approve' ? 'Cancellation approved' : 'Cancellation request rejected',
+      });
+      setShowDetails(false);
+      setSelectedBooking(null);
+      setRefreshKey((k) => k + 1);
+    } finally {
+      setCancellationRequestActionLoading(false);
+    }
+  };
+
+  const bookingHasPendingCancellationRequest = (booking: Booking | null) => {
+    if (!booking) return false;
+    const b = booking as Booking & {
+      cancellation_request_status?: string;
+      pending_cancellation_occurrence_dates?: string[];
+    };
+    const fullPending = b.cancellation_request_status === 'pending' && b.status !== 'cancelled';
+    const pendingDates = b.pending_cancellation_occurrence_dates;
+    return fullPending || (Array.isArray(pendingDates) && pendingDates.length > 0);
+  };
 
   const changeExpiryCreatedOnDisplay = useMemo(() => {
     const raw = changeExpiryBooking?.created_at;
@@ -777,17 +902,57 @@ export default function BookingsPage() {
     return `at 11:59 PM (${days} day(s))`;
   }, [changeExpiryDate]);
 
-  const handleViewDetails = (booking: CalendarBooking | Booking) => {
+  const handleViewDetails = async (booking: CalendarBooking | Booking) => {
     const clickedDate = String((booking as CalendarBooking).date ?? "").trim();
     const byOccurrence =
       clickedDate &&
       filteredBookings.find(
         (b) => b.id === booking.id && String(b.date ?? "").trim() === clickedDate,
       );
-    const resolved =
-      byOccurrence ??
-      filteredBookings.find((b) => b.id === booking.id) ??
-      (booking as Booking);
+    let resolved: Booking =
+      (byOccurrence ??
+        filteredBookings.find((b) => b.id === booking.id) ??
+        (booking as Booking)) as Booking;
+
+    if (!resolveBookingServiceLabel(resolved, { serviceCategoryById, emptyFallback: null }) && currentBusiness?.id) {
+      const seriesId = (resolved as { recurring_series_id?: string }).recurring_series_id;
+      if (seriesId) {
+        const { data: series } = await supabase
+          .from("recurring_series")
+          .select("service, customization, customer_name, customer_email, customer_phone, scheduled_time")
+          .eq("id", seriesId)
+          .eq("business_id", currentBusiness.id)
+          .maybeSingle();
+        if (series) {
+          const enriched = enrichBookingDisplayFields(resolved, series, serviceCategoryById);
+          if (enriched.service) {
+            resolved = { ...resolved, service: enriched.service };
+          }
+        }
+      }
+      if (!resolveBookingServiceLabel(resolved, { serviceCategoryById, emptyFallback: null })) {
+        const { data: fresh } = await supabase
+          .from("bookings")
+          .select("service, service_id, customization, recurring_series_id")
+          .eq("id", resolved.id)
+          .eq("business_id", currentBusiness.id)
+          .maybeSingle();
+        if (fresh) {
+          const enriched = enrichBookingDisplayFields(fresh, null, serviceCategoryById);
+          if (enriched.service) {
+            resolved = { ...resolved, service: enriched.service };
+          }
+        }
+      }
+      if (resolveBookingServiceLabel(resolved, { serviceCategoryById, emptyFallback: null })) {
+        const serviceLabel = resolveBookingServiceLabel(resolved, { serviceCategoryById, emptyFallback: null })!;
+        resolved = { ...resolved, service: serviceLabel };
+        setBookings((prev) =>
+          prev.map((b) => (b.id === resolved.id ? { ...b, service: serviceLabel } : b)),
+        );
+      }
+    }
+
     setSelectedBooking(resolved);
     setShowDetails(true);
   };
@@ -851,6 +1016,13 @@ export default function BookingsPage() {
     const raw = (booking as any).total_price ?? booking.amount;
     const n = typeof raw === "string" ? parseFloat(raw) : Number(raw);
     if (!Number.isFinite(n)) return "";
+    return `$${n.toFixed(2)}`;
+  };
+
+  const formatBookingListAmount = (booking: Booking) => {
+    const raw = (booking as any).total_price ?? booking.amount;
+    const n = typeof raw === "string" ? parseFloat(raw) : Number(raw);
+    if (!Number.isFinite(n)) return "—";
     return `$${n.toFixed(2)}`;
   };
 
@@ -956,6 +1128,33 @@ export default function BookingsPage() {
     }
     setDraftQuoteDeleteTarget(null);
     toast({ title: "Deleted", description: "Draft or quote was removed." });
+  };
+
+  const handleConfirmDeleteCancelledBooking = async () => {
+    if (!cancelledBookingDeleteTarget?.id || !currentBusiness?.id) return;
+    setCancelledBookingDeleting(true);
+    const { error } = await supabase
+      .from("bookings")
+      .delete()
+      .eq("id", cancelledBookingDeleteTarget.id)
+      .eq("business_id", currentBusiness.id);
+    setCancelledBookingDeleting(false);
+    if (error) {
+      toast({
+        title: "Delete failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      return;
+    }
+    setBookings((prev) => prev.filter((b) => b.id !== cancelledBookingDeleteTarget.id));
+    if (selectedBooking?.id === cancelledBookingDeleteTarget.id) {
+      setShowDetails(false);
+      setSelectedBooking(null);
+      clearBookingDeepLinkFromUrl();
+    }
+    setCancelledBookingDeleteTarget(null);
+    toast({ title: "Deleted", description: "Cancelled booking was removed." });
   };
 
   const createBookingNotification = async (title: string, description: string) => {
@@ -1338,9 +1537,14 @@ export default function BookingsPage() {
         value={activeTab}
         onValueChange={(v) => {
           setActiveTab(v);
+          setShowDetails(false);
+          setSelectedBooking(null);
           const params = new URLSearchParams(searchParams.toString());
           if (v === "all") params.delete("tab");
           else params.set("tab", v);
+          params.delete("booking");
+          params.delete("id");
+          params.delete("date");
           router.replace(`/admin/bookings${params.toString() ? `?${params.toString()}` : ""}`, { scroll: false });
         }}
         className="space-y-4"
@@ -1368,7 +1572,12 @@ export default function BookingsPage() {
           </TabsTrigger>
           <TabsTrigger value="cancelled" className="flex items-center gap-2">
             <XCircle className="h-4 w-4" />
-            Cancelled
+            Cancellations
+            {getCancellationRequestBookings().length > 0 && (
+              <span className="ml-1 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                {getCancellationRequestBookings().length}
+              </span>
+            )}
           </TabsTrigger>
           <TabsTrigger value="history" className="flex items-center gap-2">
             <History className="h-4 w-4" />
@@ -1447,6 +1656,37 @@ export default function BookingsPage() {
               </CardContent>
             </Card>
           </div>
+
+          {activeTab === "cancelled" && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              <Button
+                size="sm"
+                variant={cancelledSubView === "cancelled" ? "default" : "outline"}
+                onClick={() => {
+                  setCancelledSubView("cancelled");
+                  const params = new URLSearchParams(searchParams.toString());
+                  params.set("tab", "cancelled");
+                  params.set("cancelView", "cancelled");
+                  router.replace(`/admin/bookings?${params.toString()}`, { scroll: false });
+                }}
+              >
+                Cancelled bookings ({getCancelledBookings().length})
+              </Button>
+              <Button
+                size="sm"
+                variant={cancelledSubView === "requests" ? "default" : "outline"}
+                onClick={() => {
+                  setCancelledSubView("requests");
+                  const params = new URLSearchParams(searchParams.toString());
+                  params.set("tab", "cancelled");
+                  params.set("cancelView", "requests");
+                  router.replace(`/admin/bookings?${params.toString()}`, { scroll: false });
+                }}
+              >
+                Cancellation requests ({getCancellationRequestBookings().length})
+              </Button>
+            </div>
+          )}
 
       {/* List View — Draft/Quote tab: dedicated table + Options menu */}
       {viewMode === "list" && activeTab === "draft" && (
@@ -1661,32 +1901,34 @@ export default function BookingsPage() {
                       key={`${booking.id}-${booking.date ?? ''}-${booking.time ?? ''}-${idx}`}
                       className={cn(
                         "border-b border-border transition-colors",
+                        tone.light,
                         tone.dark,
-                        "text-white",
                         booking.status === "completed"
-                          ? "hover:bg-green-900/80"
+                          ? "hover:bg-green-100 dark:hover:bg-green-900/80"
                           : booking.status === "cancelled"
-                          ? "hover:bg-red-900/80"
+                          ? "hover:bg-red-100 dark:hover:bg-red-900/80"
                           : booking.status === "in_progress"
-                          ? "hover:bg-amber-900/80"
+                          ? "hover:bg-amber-100 dark:hover:bg-amber-900/80"
                           : booking.status === "confirmed"
-                          ? "hover:bg-blue-900/80"
+                          ? "hover:bg-blue-100 dark:hover:bg-blue-900/80"
                           : booking.status === "pending"
-                          ? "hover:bg-yellow-900/40"
+                          ? "hover:bg-yellow-100 dark:hover:bg-yellow-900/40"
                           : "hover:bg-muted/60"
                       )}
                     >
                       <td className="py-3 px-4">
-                        <div className="text-sm font-medium">{booking.customer_name}</div>
-                        <div className="text-xs text-muted-foreground">{booking.customer_email}</div>
+                        <div className="text-sm font-medium text-foreground">{booking.customer_name || "—"}</div>
+                        <div className="text-xs text-muted-foreground">{booking.customer_email || "—"}</div>
                       </td>
-                      <td className="py-3 px-4 text-sm">{booking.service}</td>
-                      <td className="py-3 px-4 text-sm">
-                        <div>{booking.date}</div>
-                        <div className="text-xs text-muted-foreground">{booking.time}</div>
+                      <td className="py-3 px-4 text-sm text-foreground">
+                        {formatBookingServiceSummaryLabel(booking, { serviceCategoryById })}
+                      </td>
+                      <td className="py-3 px-4 text-sm text-foreground">
+                        <div>{booking.date || "—"}</div>
+                        <div className="text-xs text-muted-foreground">{booking.time || "—"}</div>
                       </td>
                       <td className="py-3 px-4">{getStatusBadge(booking.status)}</td>
-                      <td className="py-3 px-4 text-sm font-medium text-right">{booking.amount}</td>
+                      <td className="py-3 px-4 text-sm font-medium text-right text-foreground">{formatBookingListAmount(booking)}</td>
                       <td className="py-3 px-4 text-center">
                         <Button
                           variant="ghost"
@@ -1752,6 +1994,38 @@ export default function BookingsPage() {
               }}
             >
               {draftQuoteDeleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={cancelledBookingDeleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !cancelledBookingDeleting) setCancelledBookingDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this cancelled booking?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This cannot be undone.
+              {cancelledBookingDeleteTarget
+                ? ` ${cancelledBookingDeleteTarget.customer_name ? `${cancelledBookingDeleteTarget.customer_name} — ` : ""}BK${String(cancelledBookingDeleteTarget.id).slice(-6).toUpperCase()} will be permanently removed.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancelledBookingDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={cancelledBookingDeleting}
+              onClick={(e) => {
+                e.preventDefault();
+                void handleConfirmDeleteCancelledBooking();
+              }}
+            >
+              {cancelledBookingDeleting ? "Deleting…" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1885,7 +2159,16 @@ export default function BookingsPage() {
       />
 
       {/* Booking Summary - right side panel */}
-      <Sheet open={showDetails} onOpenChange={setShowDetails}>
+      <Sheet
+        open={showDetails}
+        onOpenChange={(open) => {
+          setShowDetails(open);
+          if (!open) {
+            setSelectedBooking(null);
+            clearBookingDeepLinkFromUrl();
+          }
+        }}
+      >
         <SheetContent side="right" className="w-full sm:max-w-lg p-0 flex flex-col h-screen max-h-screen overflow-hidden [&>button]:text-red-500 [&>button]:hover:text-red-600">
           <SheetHeader className="px-6 pt-6 pb-4 shrink-0 border-b border-transparent flex flex-row items-center justify-between gap-4">
             <SheetTitle className="text-lg font-bold">Booking summary</SheetTitle>
@@ -1954,7 +2237,17 @@ export default function BookingsPage() {
                         value={getResolvedBookingZipForSummary(selectedBooking) || "—"}
                       />
                       {industries[0]?.name && <DetailRow label="Industry" value={industries[0].name} />}
-                      {selectedBooking.service && <DetailRow label="Service" value={selectedBooking.service} />}
+                      <DetailRow
+                        label="Service"
+                        value={formatBookingServiceSummaryLabel(selectedBooking, { serviceCategoryById })}
+                      />
+                      {(() => {
+                        const d = (selectedBooking as any).scheduled_date ?? selectedBooking.date;
+                        const t = (selectedBooking as any).scheduled_time ?? selectedBooking.time;
+                        const line = formatServiceDateTimeForSummary(d, t);
+                        if (line === "—") return null;
+                        return <DetailRow label="Service date" value={line} />;
+                      })()}
                       {(selectedBooking as any).frequency && (
                         <div className="flex justify-between items-start gap-4 py-1.5 min-w-0">
                           <span className="text-muted-foreground text-sm shrink-0">Frequency</span>
@@ -1986,13 +2279,6 @@ export default function BookingsPage() {
                             : `${(selectedBooking as any).duration_minutes} Min`}
                         />
                       )}
-                      {(() => {
-                        const d = (selectedBooking as any).scheduled_date ?? selectedBooking.date;
-                        const t = (selectedBooking as any).scheduled_time ?? selectedBooking.time;
-                        const line = formatServiceDateTimeForSummary(d, t);
-                        if (line === "—") return null;
-                        return <DetailRow label="Service date" value={line} />;
-                      })()}
                       <DetailRow label="Assigned to" value={selectedBooking.assignedProvider || (selectedBooking as any).provider_name || "Unassigned"} />
                       {(() => {
                         const wageLabel = formatProviderWageDisplay(
@@ -2028,6 +2314,30 @@ export default function BookingsPage() {
                           <>
                             <DetailRow label="Key information" value={keyLine ?? "—"} className="text-right" />
                             <DetailRow label="Job notes" value={jobNotes ?? "—"} className="text-right" />
+                          </>
+                        );
+                      })()}
+                      {(() => {
+                        if (selectedBooking.status !== "cancelled" && (selectedBooking as any).status !== "cancelled") {
+                          return null;
+                        }
+                        const cancelMeta = readCancellationMetaFromBooking(selectedBooking as any);
+                        return (
+                          <>
+                            {cancelMeta.reasonLabel && (
+                              <DetailRow
+                                label="Cancellation reason"
+                                value={cancelMeta.reasonLabel}
+                                className="text-right"
+                              />
+                            )}
+                            {cancelMeta.comment && (
+                              <DetailRow
+                                label="Cancellation comment"
+                                value={cancelMeta.comment}
+                                className="text-right"
+                              />
+                            )}
                           </>
                         );
                       })()}
@@ -2146,8 +2456,107 @@ export default function BookingsPage() {
                 </Collapsible>
               </div>
 
-              {/* Action buttons - 9 full-width colored buttons */}
+              {/* Action buttons */}
               <div className="space-y-2 mt-auto pt-2">
+                {selectedBooking.status === "cancelled" ? (
+                  <>
+                    <Button
+                      className="w-full text-white bg-blue-600 hover:bg-blue-700"
+                      onClick={() => {
+                        const id = selectedBooking?.id != null ? String(selectedBooking.id).trim() : "";
+                        setShowDetails(false);
+                        if (id && id !== "undefined") {
+                          setSheetEditBookingId(id);
+                        } else {
+                          router.push("/admin/add-booking");
+                        }
+                      }}
+                    >
+                      <Pencil className="h-4 w-4 mr-2" />Edit
+                    </Button>
+                    <Button
+                      className="w-full text-white bg-red-600 hover:bg-red-700"
+                      onClick={() => setCancelledBookingDeleteTarget(selectedBooking)}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />Delete
+                    </Button>
+                    <Button className="w-full text-white bg-emerald-500 hover:bg-emerald-600" onClick={() => router.push(`/admin/leads?addBooking=${selectedBooking.id}`)}>
+                      Add to leads funnel
+                    </Button>
+                    <Button
+                      className="w-full text-white bg-pink-500 hover:bg-pink-600"
+                      disabled={sendAddCardLoading}
+                      onClick={async () => {
+                        if (!selectedBooking?.id) return;
+                        setSendAddCardLoading(true);
+                        try {
+                          const res = await fetch(`/api/admin/bookings/${encodeURIComponent(String(selectedBooking.id))}/send-add-card-link`, {
+                            method: "POST",
+                          });
+                          const data = await res.json().catch(() => ({}));
+                          if (!res.ok) {
+                            toast({
+                              title: "Error",
+                              description: typeof data.error === "string" ? data.error : "Failed to send add-card link",
+                              variant: "destructive",
+                            });
+                            return;
+                          }
+                          toast({
+                            title: "Link sent",
+                            description: typeof data.sentTo === "string"
+                              ? `We emailed a secure add-card link to ${data.sentTo}.`
+                              : "We emailed a secure add-card link to the booking customer email.",
+                          });
+                        } catch {
+                          toast({ title: "Error", description: "Failed to send add-card link", variant: "destructive" });
+                        } finally {
+                          setSendAddCardLoading(false);
+                        }
+                      }}
+                    >
+                      {sendAddCardLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CreditCard className="h-4 w-4 mr-2" />}
+                      {sendAddCardLoading ? "Sending…" : "Send \"Add card\" link"}
+                    </Button>
+                  </>
+                ) : bookingHasPendingCancellationRequest(selectedBooking) ? (
+                  <>
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm text-amber-900 dark:text-amber-100">
+                      <p className="font-medium">Cancellation request pending</p>
+                      <p className="mt-1 text-amber-800/90 dark:text-amber-200/90">
+                        The customer requested to cancel this booking. Approve to cancel it, or reject to keep it active.
+                      </p>
+                      {Array.isArray((selectedBooking as any).pending_cancellation_occurrence_dates) &&
+                        (selectedBooking as any).pending_cancellation_occurrence_dates.length > 0 && (
+                          <p className="mt-2 text-xs">
+                            Pending dates:{" "}
+                            {(selectedBooking as any).pending_cancellation_occurrence_dates.join(", ")}
+                          </p>
+                        )}
+                    </div>
+                    <Button
+                      className="w-full text-white bg-emerald-600 hover:bg-emerald-700"
+                      disabled={cancellationRequestActionLoading}
+                      onClick={() => void handleCancellationRequestAction(selectedBooking.id, "approve")}
+                    >
+                      {cancellationRequestActionLoading ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4 mr-2" />
+                      )}
+                      Approve cancellation
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="w-full border-red-300 text-red-700 hover:bg-red-50"
+                      disabled={cancellationRequestActionLoading}
+                      onClick={() => void handleCancellationRequestAction(selectedBooking.id, "reject")}
+                    >
+                      Reject request
+                    </Button>
+                  </>
+                ) : (
+                  <>
                 {!selectedBooking.provider_id && !selectedBooking.assignedProvider && (
                   <>
                     <Button className="w-full text-white" style={{ backgroundColor: "#00BCD4" }} onClick={() => { setSelectedProvider(null); setShowProviderDialog(true); }}>
@@ -2205,7 +2614,10 @@ export default function BookingsPage() {
                     <CheckCircle2 className="h-4 w-4 mr-2" />Mark as completed
                   </Button>
                 )}
-                <Button className="w-full text-white bg-red-600 hover:bg-red-700" onClick={() => handleStatusChange(selectedBooking.id, "cancelled")} disabled={selectedBooking.status === "cancelled"}>
+                <Button
+                  className="w-full text-white bg-red-600 hover:bg-red-700"
+                  onClick={() => setCancelBookingTarget(selectedBooking)}
+                >
                   <XCircle className="h-4 w-4 mr-2" />Cancel
                 </Button>
                 <Button className="w-full text-white bg-emerald-500 hover:bg-emerald-600" onClick={() => router.push(`/admin/leads?addBooking=${selectedBooking.id}`)}>
@@ -2279,7 +2691,10 @@ export default function BookingsPage() {
                   {resendReceiptLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Receipt className="h-4 w-4 mr-2" />}
                   {resendReceiptLoading ? "Sending…" : "Resend Receipt"}
                 </Button>
-                <Button className="w-full text-white bg-amber-400 hover:bg-amber-500" onClick={() => router.push(`/admin/logs?booking=${selectedBooking.id}`)}>
+                <Button
+                  className="w-full text-white bg-amber-400 hover:bg-amber-500"
+                  onClick={() => openDraftQuoteLogs(selectedBooking)}
+                >
                   <FileText className="h-4 w-4 mr-2" />View Booking Log
                 </Button>
                 <Button className="w-full text-white bg-rose-400 hover:bg-rose-500" onClick={() => router.push(`/admin/booking-charges?precharge=${selectedBooking.id}`)}>
@@ -2302,33 +2717,20 @@ export default function BookingsPage() {
                 >
                   <Image className="h-4 w-4 mr-2" />Job Media
                 </Button>
-                <Button
-                  variant="outline"
-                  className="w-full border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-800"
-                  onClick={() => {
-                    setShowDetails(false);
-                    const params = new URLSearchParams(searchParams.toString());
-                    params.delete("booking");
-                    params.delete("id");
-                    router.replace(`/admin/bookings${params.toString() ? `?${params.toString()}` : ""}`, { scroll: false });
-                  }}
-                >
-                  View in Bookings
-                </Button>
                 <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
                   <Button
                     variant="outline"
                     onClick={() => {
                       setShowDetails(false);
-                      const params = new URLSearchParams(searchParams.toString());
-                      params.delete("booking");
-                      params.delete("id");
-                      router.replace(`/admin/bookings${params.toString() ? `?${params.toString()}` : ""}`, { scroll: false });
+                      setSelectedBooking(null);
+                      clearBookingDeepLinkFromUrl();
                     }}
                   >
                     Close
                   </Button>
                 </div>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -2490,6 +2892,29 @@ export default function BookingsPage() {
           if (!open) setSheetEditBookingId(null);
         }}
         onSaved={() => setRefreshKey((k) => k + 1)}
+      />
+
+      <CancelBookingDialog
+        open={!!cancelBookingTarget}
+        onOpenChange={(open) => {
+          if (!open) setCancelBookingTarget(null);
+        }}
+        bookingId={cancelBookingTarget?.id ?? null}
+        businessId={currentBusiness?.id}
+        bookingLabel={
+          cancelBookingTarget
+            ? `${cancelBookingTarget.customer_name || "Booking"} (BK${String(cancelBookingTarget.id).slice(-6).toUpperCase()})`
+            : undefined
+        }
+        onSuccess={(message) => toast({ title: message })}
+        onError={(message) =>
+          toast({ title: "Error", description: message, variant: "destructive" })
+        }
+        onCancelled={() => {
+          setShowDetails(false);
+          setSelectedBooking(null);
+          setRefreshKey((k) => k + 1);
+        }}
       />
     </div>
   );

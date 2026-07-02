@@ -142,7 +142,11 @@ import {
   normalizeFrequencyRepeatKey,
 } from "@/lib/frequencyRepeatWeekdayCalendar";
 import { serializePricingSummaryForCustomization } from "@/lib/customerBookingPricingDisplay";
-import { CustomerBookingCheckoutPaymentSummary } from "@/components/customer/CustomerBookingCheckoutPaymentSummary";
+import type { CustomerPortalPricingSummary } from "@/lib/customerBookingPricingDisplay";
+import {
+  CustomerBookingCheckoutPaymentSummary,
+  type CustomerCheckoutPaymentLines,
+} from "@/components/customer/CustomerBookingCheckoutPaymentSummary";
 import {
   resolveBookingTaxConfig,
   type PublicBookingTaxSettings,
@@ -671,6 +675,88 @@ function frequencyMetaForCalendar(
   return undefined;
 }
 
+/** Payment lines from the booking saved at checkout (customization.pricing_summary). */
+function paymentLinesFromStoredBooking(
+  booking: Booking,
+  taxLabel: string,
+  taxesEnabled: boolean,
+): CustomerCheckoutPaymentLines {
+  const ps: CustomerPortalPricingSummary | undefined = booking.pricingSummary;
+  if (ps) {
+    const total = ps.total > 0 ? ps.total : booking.price;
+    return {
+      effectiveServiceTotal: ps.effectiveServiceTotal,
+      extrasSubtotal: ps.extrasSubtotal,
+      partialCleaningDiscount: ps.partialCleaningDiscount,
+      frequencyDiscount: ps.frequencyDiscount,
+      couponDiscount: ps.couponDiscount,
+      giftCardDiscount: ps.giftCardDiscount ?? 0,
+      tax: ps.tax,
+      taxLabel: ps.taxLabel?.trim() || taxLabel,
+      taxesEnabled: taxesEnabled || ps.tax > 0,
+      total,
+    };
+  }
+  const price = booking.price > 0 ? booking.price : 0;
+  return {
+    effectiveServiceTotal: price,
+    extrasSubtotal: 0,
+    partialCleaningDiscount: 0,
+    frequencyDiscount: 0,
+    couponDiscount: 0,
+    giftCardDiscount: 0,
+    tax: 0,
+    taxLabel,
+    taxesEnabled: false,
+    total: price,
+  };
+}
+
+function mergeEditBookingPaymentLines(
+  live: CustomerCheckoutPaymentLines,
+  snapshot: Booking | null,
+  preferStored: boolean,
+  taxLabel: string,
+  taxesEnabled: boolean,
+): CustomerCheckoutPaymentLines {
+  if (!preferStored || !snapshot) return live;
+  const stored = paymentLinesFromStoredBooking(snapshot, taxLabel, taxesEnabled);
+  if (stored.total > 0 || snapshot.pricingSummary) return stored;
+  return live;
+}
+
+function applyBasicBookingFieldsToForm(
+  sourceBooking: Booking,
+  form: ReturnType<typeof useForm<z.infer<typeof bookingSchema>>>,
+) {
+  form.setValue("service", sourceBooking.service);
+  if (sourceBooking.address) {
+    form.setValue("address", sourceBooking.address);
+    form.setValue("addressPreference", "new");
+  }
+  form.setValue("notes", sourceBooking.notes ?? "");
+  if (sourceBooking.time) {
+    form.setValue("time", sourceBooking.time);
+  }
+  const parsedDate = new Date(`${sourceBooking.date}T00:00:00`);
+  if (!Number.isNaN(parsedDate.getTime())) {
+    form.setValue("date", parsedDate);
+  }
+  const contactRaw = String(sourceBooking.contact ?? "").trim();
+  if (contactRaw.includes("@")) {
+    form.setValue("email", contactRaw);
+  } else if (contactRaw) {
+    const e164 = normalizeStoredPhoneToE164(contactRaw, guessDefaultCountry());
+    if (e164) form.setValue("phone", e164);
+  }
+  const zipPref =
+    (sourceBooking.zipCode && String(sourceBooking.zipCode).trim()) ||
+    extractZipFromAddressForRebook(sourceBooking.address);
+  if (zipPref) {
+    form.setValue("zipCode", zipPref);
+  }
+}
+
 export default function BookingPageContent() {
   const { toast } = useToast();
   const router = useRouter();
@@ -838,14 +924,23 @@ export default function BookingPageContent() {
     show_provider_availability_to_customers?: boolean;
     location_management?: "zip" | "name" | "none";
     wildcard_zip_enabled?: boolean;
+    accepted_payment_credit_card?: boolean;
+    accepted_payment_cash_check?: boolean;
   };
 
   const [publicBookingStoreOptions, setPublicBookingStoreOptions] = useState<PublicBookingStoreOptions | null>(null);
   const [publicBookingStoreLoaded, setPublicBookingStoreLoaded] = useState(false);
+  const acceptedCardPayment = useMemo(
+    () => publicBookingStoreOptions?.accepted_payment_credit_card !== false,
+    [publicBookingStoreOptions],
+  );
+  const acceptedCashPayment = useMemo(
+    () => publicBookingStoreOptions?.accepted_payment_cash_check === true,
+    [publicBookingStoreOptions],
+  );
   const [bookingTaxSettings, setBookingTaxSettings] = useState<PublicBookingTaxSettings | null>(null);
   const [taxSettingsLoaded, setTaxSettingsLoaded] = useState(false);
   /** Form 2: pay on arrival vs Stripe checkout on the same page */
-  const [form2PayMode, setForm2PayMode] = useState<"cash" | "online">("online");
    const [form2OpenFaqId, setForm2OpenFaqId] = useState<string | null>(null);
   const [form2Faqs, setForm2Faqs] = useState<Array<{ id: string; question: string; answer: string }>>([]);
   const [form2ReviewIdx, setForm2ReviewIdx] = useState(0);
@@ -982,13 +1077,13 @@ export default function BookingPageContent() {
   // Form 2: skip category step before paint (avoids full-page spinner flash) and auto-pick first industry when none selected.
   useLayoutEffect(() => {
     if (!useForm2Layout) return;
-    if (!selectedCategory && industryOptions.length > 0) {
+    if (!selectedCategory && industryOptions.length > 0 && !bookingIdParam) {
       setSelectedCategory(industryOptions[0].key);
     }
     if (currentStep === "category") {
       setCurrentStep("details");
     }
-  }, [useForm2Layout, selectedCategory, industryOptions, currentStep]);
+  }, [useForm2Layout, selectedCategory, industryOptions, currentStep, bookingIdParam]);
 
   useEffect(() => {
     setForm2ActiveItemId(null);
@@ -1084,11 +1179,14 @@ export default function BookingPageContent() {
   const [prefilledBookingId, setPrefilledBookingId] = useState<string | null>(null);
   /** Loaded from API; customization applied in a second step when pricing tiers exist. */
   const [rebookSourceBooking, setRebookSourceBooking] = useState<Booking | null>(null);
+  /** Persisted booking loaded for edit/reschedule — used for payment summary when live totals are unavailable. */
+  const [editingBookingSnapshot, setEditingBookingSnapshot] = useState<Booking | null>(null);
   const rebookWaitStartedAtRef = useRef<number | null>(null);
   /** Avoid infinite retries when rebook fetch or service match fails for this URL. */
   const rebookGiveUpRef = useRef<string | null>(null);
   const [recentBookingId, setRecentBookingId] = useState<string | null>(null);
   const [rescheduleMessageLimitedEdit, setRescheduleMessageLimitedEdit] = useState<string | null>(null);
+  const [reschedulePolicyDisclaimer, setReschedulePolicyDisclaimer] = useState<string | null>(null);
 
   const selectedIndustry = useMemo(
     () => industryOptions.find((option) => option.key === selectedCategory) ?? null,
@@ -1439,24 +1537,19 @@ export default function BookingPageContent() {
     getBusinessContext();
   }, [businessIdFromUrl]);
 
-  // Fetch cancellation policy when on payment step (or Form 2 details) for Booking Summary disclaimer
+  // Fetch cancellation policy when on payment step for Booking Summary disclaimer
   useEffect(() => {
-    const onPaymentOrForm2Details =
-      currentStep === "payment" || (useForm2Layout && currentStep === "details");
-    if (!onPaymentOrForm2Details) return;
+    if (currentStep !== "payment") return;
     if (!businessIdFromUrl) return;
     fetch(`/api/cancellation-policy?businessId=${encodeURIComponent(businessIdFromUrl)}`)
       .then((r) => r.json())
       .then((data) => setCancellationPolicyDisclaimer(data.disclaimerText ?? null))
       .catch(() => setCancellationPolicyDisclaimer(null));
-  }, [currentStep, businessIdFromUrl, useForm2Layout]);
+  }, [currentStep, businessIdFromUrl]);
 
-  // Fetch payment provider (Stripe vs Authorize.net) when on payment step or Form 2 details
+  // Fetch payment provider (Stripe vs Authorize.net) when on payment step
   useEffect(() => {
-    const needProvider =
-      businessIdFromUrl &&
-      (currentStep === "payment" || (useForm2Layout && currentStep === "details"));
-    if (!needProvider) return;
+    if (!businessIdFromUrl || currentStep !== "payment") return;
     fetch(`/api/public/payment-provider?business=${encodeURIComponent(businessIdFromUrl)}`)
       .then((r) => r.json())
       .then((data) => {
@@ -1464,7 +1557,7 @@ export default function BookingPageContent() {
         setPaymentProvider(p === "authorize_net" ? "authorize_net" : "stripe");
       })
       .catch(() => setPaymentProvider("stripe"));
-  }, [currentStep, businessIdFromUrl, useForm2Layout]);
+  }, [currentStep, businessIdFromUrl]);
 
   // Only clear selection when the selected industry was actually removed (not when options are loading/empty)
   useEffect(() => {
@@ -3224,6 +3317,7 @@ export default function BookingPageContent() {
   useEffect(() => {
     setPrefilledBookingId(null);
     setRebookSourceBooking(null);
+    setEditingBookingSnapshot(null);
     rebookWaitStartedAtRef.current = null;
     rebookGiveUpRef.current = null;
   }, [bookingIdParam]);
@@ -3276,6 +3370,8 @@ export default function BookingPageContent() {
           return;
         }
 
+        setEditingBookingSnapshot(sourceBooking);
+
         const zipPref =
           (sourceBooking.zipCode && String(sourceBooking.zipCode).trim()) ||
           extractZipFromAddressForRebook(sourceBooking.address);
@@ -3310,6 +3406,28 @@ export default function BookingPageContent() {
 
         if (!resolved) {
           rebookGiveUpRef.current = bookingIdParam;
+          if (limitedEditMode) {
+            applyBasicBookingFieldsToForm(sourceBooking, form);
+            const presetCustomization = (sourceBooking.customization as BookingCustomization) ?? {};
+            const freqNorm =
+              normalizeSelectValue(sourceBooking.frequency, FREQUENCY_OPTIONS) ||
+              normalizeSelectValue(presetCustomization.frequency, FREQUENCY_OPTIONS) ||
+              "";
+            if (freqNorm) setBookingFrequencyForFilters(freqNorm);
+            setServiceCustomization({
+              frequency: freqNorm,
+              squareMeters: presetCustomization.squareMeters ?? "",
+              bedroom: presetCustomization.bedroom ?? "",
+              bathroom: presetCustomization.bathroom ?? "",
+              extras: normalizeExtrasArray(normalizeExtrasFromString(presetCustomization.extras)),
+              isPartialCleaning: false,
+              excludedAreas: [],
+              excludeQuantities: {},
+              variableCategories: presetCustomization.variableCategories ?? {},
+            });
+            setPrefilledBookingId(bookingIdParam);
+            return;
+          }
           if (!cancelled) {
             toast({
               title: "Service unavailable",
@@ -3494,6 +3612,7 @@ export default function BookingPageContent() {
     businessIdFromUrl,
     form,
     toast,
+    limitedEditMode,
   ]);
 
   useEffect(() => {
@@ -3504,6 +3623,26 @@ export default function BookingPageContent() {
       .then((data) => setRescheduleMessageLimitedEdit(data.reschedule_message ?? null))
       .catch(() => setRescheduleMessageLimitedEdit(null));
   }, [limitedEditMode, businessIdFromUrl]);
+
+  const isRescheduleMode = Boolean(bookingIdParam && !limitedEditMode);
+
+  useEffect(() => {
+    if (!isRescheduleMode || !businessIdFromUrl) {
+      setReschedulePolicyDisclaimer(null);
+      return;
+    }
+    const bookingTotal = editingBookingSnapshot?.price ?? rebookSourceBooking?.price;
+    const qs =
+      bookingTotal != null && Number.isFinite(bookingTotal) && bookingTotal > 0
+        ? `&bookingTotal=${encodeURIComponent(String(bookingTotal))}`
+        : "";
+    fetch(
+      `/api/reschedule-policy?businessId=${encodeURIComponent(businessIdFromUrl)}${qs}`,
+    )
+      .then((r) => r.json())
+      .then((data) => setReschedulePolicyDisclaimer(data.disclaimerText ?? null))
+      .catch(() => setReschedulePolicyDisclaimer(null));
+  }, [isRescheduleMode, businessIdFromUrl, editingBookingSnapshot?.price, rebookSourceBooking?.price]);
 
   // When returning from Authorize.net success: mark booking paid and send receipt (like Stripe webhook)
   useEffect(() => {
@@ -3751,6 +3890,77 @@ export default function BookingPageContent() {
     };
 
     const currentBusinessId = businessIdFromUrl.trim() || null;
+    const isRescheduleMode = Boolean(bookingIdParam && !limitedEditMode);
+
+    if (isRescheduleMode && bookingIdParam && currentBusinessId) {
+      try {
+        const supabase = getSupabaseCustomerClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          toast({
+            title: "Please sign in",
+            description: "You need to be signed in to reschedule your booking.",
+            variant: "destructive",
+          });
+          return null;
+        }
+        const fullName = `${data.firstName ?? ""} ${data.lastName ?? ""}`.trim();
+        const addressWithApt = data.aptNo ? `${data.address}, Apt ${data.aptNo}` : data.address;
+        const res = await fetch(
+          `/api/customer/bookings/${encodeURIComponent(bookingIdParam)}?business=${encodeURIComponent(currentBusinessId)}`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+              reschedule: true,
+              customer_name: fullName || undefined,
+              customer_email: data.email ?? "",
+              customer_phone: String(data.phone ?? ""),
+              address: addressWithApt ?? "",
+              notes: data.notes ?? "",
+              zip_code: data.zipCode ?? "",
+              date: formattedDate,
+              time: data.time,
+            }),
+          },
+        );
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast({
+            title: "Reschedule failed",
+            description: payload?.error ?? "Could not save your reschedule.",
+            variant: "destructive",
+          });
+          return null;
+        }
+        const fee = payload?.rescheduleFeeApplied as
+          | { amount?: number; currency?: string; feeType?: '$' | '%'; configuredRate?: number }
+          | null
+          | undefined;
+        setRecentBookingId(bookingIdParam);
+        const feeMessage =
+          fee?.amount != null && Number(fee.amount) > 0
+            ? fee.feeType === '%' && fee.configuredRate != null
+              ? `Your appointment was updated. A reschedule fee of ${fee.configuredRate}% ($${Number(fee.amount).toFixed(2)}) applies.`
+              : `Your appointment was updated. A reschedule fee of $${Number(fee.amount).toFixed(2)} applies.`
+            : null;
+        toast({
+          title: "Booking rescheduled",
+          description: feeMessage ?? "Your appointment date and time have been updated.",
+        });
+        return { ...newBooking, id: bookingIdParam };
+      } catch {
+        toast({
+          title: "Reschedule failed",
+          description: "Could not save. Please try again.",
+          variant: "destructive",
+        });
+        return null;
+      }
+    }
 
     // Same pattern as admin add-booking: single POST with x-business-id and snake_case body
     try {
@@ -3948,6 +4158,7 @@ export default function BookingPageContent() {
     locationManagement,
     locationInputValidForBooking,
     locationInputMeetsMinLength,
+    bookingIdParam,
   ]);
 
   // Handle service selection (persist to card customizations so selection survives re-renders)
@@ -4294,15 +4505,6 @@ export default function BookingPageContent() {
         toast({ title: "Update failed", description: "Could not save. Please try again.", variant: "destructive" });
         return;
       }
-    }
-
-    if (useForm2Layout && !limitedEditMode) {
-      if (form2PayMode === "cash") {
-        await handleCashPayment(values);
-      } else {
-        await handleOnlinePayment(undefined, values);
-      }
-      return;
     }
 
     setCurrentStep("payment");
@@ -5026,6 +5228,13 @@ export default function BookingPageContent() {
       });
       return null;
     }
+
+    if (bookingIdParam && !limitedEditMode) {
+      const saved = await addBookingToStorage("online", bookingValuesOverride ?? null);
+      if (!saved?.id) return null;
+      return { id: saved.id, usePendingIntent: false };
+    }
+
     const bookingDate = bd.date instanceof Date ? bd.date : new Date(bd.date);
     let formattedDate: string;
     if (Number.isNaN(bookingDate.getTime())) {
@@ -5249,6 +5458,8 @@ export default function BookingPageContent() {
     locationInputMeetsMinLength,
     toast,
     form,
+    addBookingToStorage,
+    bookingIdParam,
   ]);
 
   // Handle online payment via Stripe Checkout (redirect)
@@ -5474,7 +5685,34 @@ export default function BookingPageContent() {
   }
 
   // Payment Screen
-  if (currentStep === "payment" && bookingData && selectedService && serviceCustomization) {
+  const paymentStepReady =
+    currentStep === "payment" &&
+    bookingData &&
+    (limitedEditMode && editingBookingSnapshot
+      ? true
+      : Boolean(selectedService && serviceCustomization));
+
+  if (paymentStepReady) {
+    const liveTotals = calculateTotal();
+    const livePaymentLines: CustomerCheckoutPaymentLines = {
+      effectiveServiceTotal: liveTotals.effectiveServiceTotal,
+      extrasSubtotal: liveTotals.extrasSubtotal,
+      partialCleaningDiscount: liveTotals.partialCleaningDiscount,
+      frequencyDiscount: liveTotals.frequencyDiscount,
+      couponDiscount: liveTotals.couponDiscount,
+      giftCardDiscount: liveTotals.giftCardDiscount,
+      tax: liveTotals.tax,
+      taxLabel: liveTotals.taxLabel ?? bookingTaxConfig.label,
+      taxesEnabled: taxSettingsLoaded && bookingTaxConfig.taxesEnabled,
+      total: liveTotals.total,
+    };
+    const paymentLines = mergeEditBookingPaymentLines(
+      livePaymentLines,
+      editingBookingSnapshot,
+      Boolean(bookingIdParam && (limitedEditMode || liveTotals.total <= 0)),
+      bookingTaxConfig.label,
+      taxSettingsLoaded && bookingTaxConfig.taxesEnabled,
+    );
     const {
       effectiveServiceTotal,
       extrasSubtotal,
@@ -5485,12 +5723,21 @@ export default function BookingPageContent() {
       tax,
       taxLabel,
       total,
-    } = calculateTotal();
+    } = paymentLines;
     summaryTotalRef.current = total;
     const giftCardCoversFullPayment =
       Math.round(total * 100) < 50 && appliedGiftCard != null && giftCardDiscount > 0;
     const bid = businessIdFromUrl;
-    const paymentFreqLabel = serviceCustomization.frequency?.trim() || "";
+    const paymentServiceName =
+      selectedService?.customerDisplayName?.trim() ||
+      selectedService?.name ||
+      editingBookingSnapshot?.service ||
+      "—";
+    const paymentFreqLabel =
+      serviceCustomization?.frequency?.trim() ||
+      editingBookingSnapshot?.frequency ||
+      editingBookingSnapshot?.customization?.frequency?.trim() ||
+      "";
     const paymentFreqMeta = paymentFreqLabel ? frequencyMetaByName[paymentFreqLabel] : undefined;
     const paymentIsRecurring = paymentFreqMeta?.occurrence_time === "recurring";
     const paymentLengthMins = getEstimatedDurationMinutes();
@@ -5544,13 +5791,13 @@ export default function BookingPageContent() {
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Service</span>
                       <span className="font-medium text-right max-w-[180px]">
-                        {selectedService.customerDisplayName?.trim() || selectedService.name}
+                        {paymentServiceName}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Frequency</span>
                       <span className="font-medium text-right max-w-[180px]">
-                        {serviceCustomization.frequency || "Not selected"}
+                        {paymentFreqLabel || "Not selected"}
                       </span>
                     </div>
                     <div className="flex justify-between">
@@ -5645,13 +5892,19 @@ export default function BookingPageContent() {
                   <h3 className={styles.paymentTitle}>
                     {giftCardCoversFullPayment
                       ? "Confirm your booking"
-                      : `Pay securely with ${paymentProvider === "authorize_net" ? "Authorize.net" : "Stripe"}`}
+                      : acceptedCashPayment && !acceptedCardPayment
+                        ? "Confirm your booking"
+                        : `Pay securely with ${paymentProvider === "authorize_net" ? "Authorize.net" : "Stripe"}`}
                   </h3>
                   {giftCardCoversFullPayment ? (
                     <p className="text-sm text-muted-foreground mt-2">
                       Your gift card covers the full total. Click below to confirm—no card payment is required.
                     </p>
-                  ) : (
+                  ) : acceptedCashPayment && !acceptedCardPayment ? (
+                    <p className="text-sm text-muted-foreground mt-2">
+                      This business accepts cash or check on arrival. Confirm below to complete your booking—no online card payment is required.
+                    </p>
+                  ) : acceptedCardPayment ? (
                     <>
                       <div className={styles.securityBadge}>
                         <Lock className="h-4 w-4" />
@@ -5679,32 +5932,66 @@ export default function BookingPageContent() {
                         )}
                       </p>
                     </>
+                  ) : (
+                    <p className="text-sm text-destructive mt-2">
+                      Online booking payment is not available for this business. Please contact the business to book.
+                    </p>
                   )}
-                  <Button
-                    type="button"
-                    disabled={
-                      isProcessing ||
-                      (!limitedEditMode &&
-                        locationManagement !== "none" &&
-                        !locationInputValidForBooking)
-                    }
-                    onClick={() => handleOnlinePayment()}
-                    className="w-full h-12 text-base mt-6"
-                  >
-                    {isProcessing ? (
-                      <>
-                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                        {giftCardCoversFullPayment ? "Confirming booking..." : "Preparing checkout..."}
-                      </>
-                    ) : giftCardCoversFullPayment ? (
-                      <>Confirm booking</>
-                    ) : (
-                      <>
-                        <CreditCard className="mr-2 h-5 w-5" />
-                        Pay ${total.toFixed(2)} with {paymentProvider === "authorize_net" ? "Authorize.net" : "Stripe"}
-                      </>
-                    )}
-                  </Button>
+                  {(giftCardCoversFullPayment || acceptedCardPayment) && (
+                    <Button
+                      type="button"
+                      disabled={
+                        isProcessing ||
+                        (!limitedEditMode &&
+                          locationManagement !== "none" &&
+                          !locationInputValidForBooking)
+                      }
+                      onClick={() => handleOnlinePayment()}
+                      className="w-full h-12 text-base mt-6"
+                    >
+                      {isProcessing ? (
+                        <>
+                          <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                          {giftCardCoversFullPayment ? "Confirming booking..." : "Preparing checkout..."}
+                        </>
+                      ) : giftCardCoversFullPayment ? (
+                        <>Confirm booking</>
+                      ) : (
+                        <>
+                          <CreditCard className="mr-2 h-5 w-5" />
+                          Pay ${total.toFixed(2)} with {paymentProvider === "authorize_net" ? "Authorize.net" : "Stripe"}
+                        </>
+                      )}
+                    </Button>
+                  )}
+                  {!giftCardCoversFullPayment && acceptedCashPayment && !acceptedCardPayment && (
+                    <Button
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={() => void handleCashPayment()}
+                      className="w-full h-12 text-base mt-6"
+                    >
+                      {isProcessing ? (
+                        <>
+                          <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                          Confirming booking...
+                        </>
+                      ) : (
+                        <>Confirm booking (cash/check on arrival)</>
+                      )}
+                    </Button>
+                  )}
+                  {!giftCardCoversFullPayment && acceptedCashPayment && acceptedCardPayment && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={isProcessing}
+                      onClick={() => void handleCashPayment()}
+                      className="w-full h-12 text-base mt-3"
+                    >
+                      Pay with cash/check on arrival instead
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
@@ -5715,12 +6002,10 @@ export default function BookingPageContent() {
   }
 
   // Booking Details Form
-  if (currentStep === "details" && selectedCategory) {
+  if (currentStep === "details" && (selectedCategory || (bookingIdParam && editingBookingSnapshot))) {
     const hasServiceSelection = Boolean(selectedService && serviceCustomization);
     const summaryTotals = calculateTotal();
-    const detailsFreqLabel = serviceCustomization?.frequency?.trim() || "";
-    const detailsFreqMeta = detailsFreqLabel ? frequencyMetaByName[detailsFreqLabel] : undefined;
-    const detailsPaymentLines = {
+    const liveDetailsLines: CustomerCheckoutPaymentLines = {
       effectiveServiceTotal: summaryTotals.effectiveServiceTotal,
       extrasSubtotal: summaryTotals.extrasSubtotal,
       partialCleaningDiscount: summaryTotals.partialCleaningDiscount,
@@ -5732,6 +6017,21 @@ export default function BookingPageContent() {
       taxesEnabled: taxSettingsLoaded && bookingTaxConfig.taxesEnabled,
       total: summaryTotals.total,
     };
+    const detailsPaymentLines = mergeEditBookingPaymentLines(
+      liveDetailsLines,
+      editingBookingSnapshot,
+      Boolean(bookingIdParam && (limitedEditMode || summaryTotals.total <= 0)),
+      bookingTaxConfig.label,
+      taxSettingsLoaded && bookingTaxConfig.taxesEnabled,
+    );
+    const snapshotServiceName = editingBookingSnapshot?.service?.trim() || "";
+    const snapshotFrequency =
+      editingBookingSnapshot?.frequency?.trim() ||
+      editingBookingSnapshot?.customization?.frequency?.trim() ||
+      "";
+    const detailsFreqLabel =
+      serviceCustomization?.frequency?.trim() || snapshotFrequency || "";
+    const detailsFreqMeta = detailsFreqLabel ? frequencyMetaByName[detailsFreqLabel] : undefined;
     /** Form 2: date / time / provider at the start of the main form (after packages-added on the page). */
     const form2ScheduleAtFormStart =
       (useForm2Layout || bookingFormScopeForCatalog === "form3") && !limitedEditMode;
@@ -5974,6 +6274,12 @@ export default function BookingPageContent() {
                 className="rounded-lg border border-amber-200 bg-amber-50/80 dark:border-amber-800 dark:bg-amber-950/30 p-4 mb-6 text-sm text-amber-900 dark:text-amber-100"
                 dangerouslySetInnerHTML={{ __html: rescheduleMessageLimitedEdit }}
               />
+            )}
+
+            {isRescheduleMode && reschedulePolicyDisclaimer && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50/80 dark:border-amber-800 dark:bg-amber-950/30 p-4 mb-6 text-sm text-amber-900 dark:text-amber-100">
+                {reschedulePolicyDisclaimer}
+              </div>
             )}
 
             <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] lg:items-start lg:gap-10">
@@ -7362,55 +7668,6 @@ export default function BookingPageContent() {
                         </div>
                       )}
 
-                    {useForm2Layout && !limitedEditMode && (
-                      <div className="col-span-full rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-card space-y-4">
-                        <h3 className={cn(styles.form2SectionTitle, "text-lg text-slate-800 dark:text-slate-100")}>
-                          Payment information
-                        </h3>
-                        <RadioGroup
-                          value={form2PayMode}
-                          onValueChange={(v) => setForm2PayMode(v === "cash" ? "cash" : "online")}
-                          className="flex flex-col gap-3"
-                        >
-                          <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="online" id="form2-pay-online" />
-                            <Label htmlFor="form2-pay-online" className="font-normal cursor-pointer">
-                              New credit card ({paymentProvider === "authorize_net" ? "Authorize.net" : "Stripe"} checkout)
-                            </Label>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="cash" id="form2-pay-cash" />
-                            <Label htmlFor="form2-pay-cash" className="font-normal cursor-pointer">
-                              Cash / check (pay on arrival)
-                            </Label>
-                          </div>
-                        </RadioGroup>
-                        {form2PayMode === "online" && (
-                          <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-600 dark:bg-slate-900/40">
-                            <p className="text-xs text-muted-foreground">
-                              Card details are entered on the secure checkout step after you save this booking.
-                            </p>
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                              <Input
-                                readOnly
-                                disabled
-                                className="bg-white sm:col-span-3"
-                                placeholder="Card number"
-                                aria-hidden
-                              />
-                              <Input readOnly disabled className="bg-white" placeholder="MM / YY" aria-hidden />
-                              <Input readOnly disabled className="bg-white" placeholder="CVC" aria-hidden />
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                              <span className="rounded border border-slate-200 px-1.5 py-0.5">Visa</span>
-                              <span className="rounded border border-slate-200 px-1.5 py-0.5">MC</span>
-                              <span className="rounded border border-slate-200 px-1.5 py-0.5">Amex</span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
                     {/* Submit Button */}
                     <div className="col-span-full pt-4">
                       <button
@@ -7429,8 +7686,6 @@ export default function BookingPageContent() {
                             <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                             Processing...
                           </>
-                        ) : useForm2Layout && !limitedEditMode ? (
-                          <>Save Booking</>
                         ) : (
                           <>
                             Confirm Booking
@@ -7470,13 +7725,13 @@ export default function BookingPageContent() {
                         <span className="font-medium text-right max-w-[180px]">
                           {selectedService
                             ? selectedService.customerDisplayName?.trim() || selectedService.name
-                            : "Not selected"}
+                            : snapshotServiceName || "Not selected"}
                         </span>
                       </div>
                       <div className="flex justify-between gap-2">
                         <span className="text-muted-foreground">Frequency</span>
                         <span className="font-medium text-right max-w-[180px]">
-                          {serviceCustomization?.frequency || "Not selected"}
+                          {detailsFreqLabel || "Not selected"}
                         </span>
                       </div>
                       {serviceCustomization?.bedroom != null && String(serviceCustomization.bedroom) !== "" && (

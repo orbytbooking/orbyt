@@ -227,6 +227,7 @@ async function main() {
         payment_status: "pending",
         total_price: 50,
         address: "Phase 3 test address",
+        service: "Automation Test Service",
         scheduled_date: new Date().toISOString().slice(0, 10),
       })
       .select("id")

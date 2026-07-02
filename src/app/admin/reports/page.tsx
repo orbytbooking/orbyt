@@ -199,7 +199,7 @@ export default function ReportsPage() {
           <ArrowLeft className="h-4 w-4 mr-1.5" />
           Back
         </Button>
-        <h1 className="text-2xl font-bold">Reports dashboard</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Reports dashboard</h1>
       </div>
 
       <Card>

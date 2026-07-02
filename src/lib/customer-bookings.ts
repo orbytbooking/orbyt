@@ -10,6 +10,8 @@ export type BookingStatus = "scheduled" | "completed" | "canceled" | "confirmed"
 export type Booking = {
   id: string;
   service: string;
+  /** Service category id from booking.service_id (used for cancellation rules). */
+  serviceId?: string;
   provider: string;
   frequency: string;
   /** Human-readable repeat rule from recurring_series (matches admin "Repeats" line). */

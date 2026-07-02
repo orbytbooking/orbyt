@@ -3,6 +3,8 @@ import { format } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -11,7 +13,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -749,111 +750,120 @@ export default function OnboardingTab() {
               </Button>
             </div>
             <div className="flex items-end md:col-span-2">
-              <Dialog open={addFunnelOpen} onOpenChange={setAddFunnelOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-9 w-full" disabled={noBusiness}>
-                    Add funnel
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="w-[95vw] max-w-2xl max-h-[85vh] overflow-hidden">
-                  <DialogHeader>
-                    <DialogTitle>Add funnel</DialogTitle>
-                    <DialogDescription>
-                      Enter a funnel name and configure columns. This funnel is saved in this browser per business.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-3 overflow-y-auto max-h-[62vh] pr-1">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-slate-700">Funnel name</label>
-                      <Input
-                        placeholder="e.g. Warehouse Hiring"
-                        value={newFunnelName}
-                        onChange={(e) => setNewFunnelName(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium text-slate-700">Columns</p>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-8">#</TableHead>
-                            <TableHead>Column name</TableHead>
-                            <TableHead className="w-32 text-right">Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {newFunnelColumns.map((col, index) => (
-                            <TableRow key={col.id}>
-                              <TableCell className="text-xs text-muted-foreground">{index + 1}</TableCell>
-                              <TableCell>
-                                <Input
-                                  value={col.name}
-                                  onChange={(e) =>
-                                    handleNewFunnelColumnNameChange(col.id, e.target.value)
-                                  }
-                                />
-                              </TableCell>
-                              <TableCell className="text-right space-x-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  disabled={index === 0}
-                                  onClick={() => moveNewFunnelColumn(col.id, -1)}
-                                >
-                                  <ChevronUp className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  disabled={index === newFunnelColumns.length - 1}
-                                  onClick={() => moveNewFunnelColumn(col.id, 1)}
-                                >
-                                  <ChevronDown className="h-4 w-4" />
-                                </Button>
-                                {index > 0 ? (
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="text-red-600"
-                                    disabled={newFunnelColumns.length <= 1}
-                                    onClick={() => deleteNewFunnelColumn(col.id)}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                ) : null}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={handleAddColumnToNewFunnel}
-                      >
-                        <Plus className="h-4 w-4 mr-1" />
-                        Add column
-                      </Button>
-                    </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 w-full"
+                disabled={noBusiness}
+                onClick={() => setAddFunnelOpen(true)}
+              >
+                Add funnel
+              </Button>
+              <Modal
+                isOpen={addFunnelOpen}
+                onClose={() => {
+                  setAddFunnelOpen(false);
+                  setNewFunnelName("");
+                  setNewFunnelColumns(DEFAULT_FUNNEL_COLUMNS);
+                }}
+                title="Add funnel"
+              >
+                <p className="text-sm text-muted-foreground dark:text-gray-400 mb-4">
+                  Enter a funnel name and configure columns. This funnel is saved in this browser per business.
+                </p>
+                <div className="space-y-3 overflow-y-auto max-h-[50vh] pr-1">
+                  <div className="space-y-2">
+                    <Label htmlFor="new-funnel-name">Funnel name</Label>
+                    <Input
+                      id="new-funnel-name"
+                      placeholder="e.g. Warehouse Hiring"
+                      value={newFunnelName}
+                      onChange={(e) => setNewFunnelName(e.target.value)}
+                    />
                   </div>
-                  <DialogFooter>
+                  <div className="space-y-2">
+                    <Label>Columns</Label>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-8">#</TableHead>
+                          <TableHead>Column name</TableHead>
+                          <TableHead className="w-32 text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {newFunnelColumns.map((col, index) => (
+                          <TableRow key={col.id}>
+                            <TableCell className="text-xs text-muted-foreground">{index + 1}</TableCell>
+                            <TableCell>
+                              <Input
+                                value={col.name}
+                                onChange={(e) =>
+                                  handleNewFunnelColumnNameChange(col.id, e.target.value)
+                                }
+                              />
+                            </TableCell>
+                            <TableCell className="text-right space-x-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                disabled={index === 0}
+                                onClick={() => moveNewFunnelColumn(col.id, -1)}
+                              >
+                                <ChevronUp className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                disabled={index === newFunnelColumns.length - 1}
+                                onClick={() => moveNewFunnelColumn(col.id, 1)}
+                              >
+                                <ChevronDown className="h-4 w-4" />
+                              </Button>
+                              {index > 0 ? (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-red-600"
+                                  disabled={newFunnelColumns.length <= 1}
+                                  onClick={() => deleteNewFunnelColumn(col.id)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              ) : null}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                     <Button
+                      type="button"
                       variant="outline"
-                      onClick={() => {
-                        setAddFunnelOpen(false);
-                        setNewFunnelName("");
-                        setNewFunnelColumns(DEFAULT_FUNNEL_COLUMNS);
-                      }}
+                      size="sm"
+                      onClick={handleAddColumnToNewFunnel}
                     >
-                      Cancel
+                      <Plus className="h-4 w-4 mr-1" />
+                      Add column
                     </Button>
-                    <Button onClick={handleAddFunnel} disabled={!newFunnelName.trim()}>
-                      Create funnel
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => {
+                      setAddFunnelOpen(false);
+                      setNewFunnelName("");
+                      setNewFunnelColumns(DEFAULT_FUNNEL_COLUMNS);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button className="flex-1" onClick={handleAddFunnel} disabled={!newFunnelName.trim()}>
+                    Create funnel
+                  </Button>
+                </div>
+              </Modal>
             </div>
           </div>
 
@@ -886,44 +896,44 @@ export default function OnboardingTab() {
               </Button>
             </div>
             <div className="md:col-span-2">
-              <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-                <DialogTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-9 w-full"
-                    disabled={noBusiness || !activeFunnelId}
-                  >
-                    Funnel settings
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="w-[95vw] max-w-3xl max-h-[85vh] overflow-hidden">
-                  <DialogHeader>
-                    <DialogTitle>Funnel settings</DialogTitle>
-                    <DialogDescription>
-                      Manage your funnels. Layout and funnel names are stored in this browser per business.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="mt-4 overflow-y-auto max-h-[62vh] pr-1">
-                    <p className="text-sm font-medium mb-2">Funnels</p>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Funnel name</TableHead>
-                          <TableHead className="w-24 text-right">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {funnels.map((f) => (
-                          <TableRow key={f.id}>
-                            <TableCell>
-                              <Input
-                                value={f.name}
-                                onChange={(e) => handleFunnelNameChange(f.id, e.target.value)}
-                              />
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="inline-flex items-center justify-end gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 w-full"
+                disabled={noBusiness || !activeFunnelId}
+                onClick={() => setSettingsOpen(true)}
+              >
+                Funnel settings
+              </Button>
+              <Modal
+                isOpen={settingsOpen}
+                onClose={() => setSettingsOpen(false)}
+                title="Funnel settings"
+                panelClassName="w-[95vw] max-w-3xl max-h-[85vh]"
+              >
+                <p className="text-sm text-muted-foreground dark:text-gray-400 mb-4">
+                  Manage your funnels. Layout and funnel names are stored in this browser per business.
+                </p>
+                <div className="overflow-y-auto max-h-[62vh] pr-1">
+                  <Label className="mb-2 block">Funnels</Label>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Funnel name</TableHead>
+                        <TableHead className="w-24 text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {funnels.map((f) => (
+                        <TableRow key={f.id}>
+                          <TableCell>
+                            <Input
+                              value={f.name}
+                              onChange={(e) => handleFunnelNameChange(f.id, e.target.value)}
+                            />
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="inline-flex items-center justify-end gap-1">
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -940,113 +950,112 @@ export default function OnboardingTab() {
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                  <DialogFooter />
-                </DialogContent>
-              </Dialog>
-            </div>
-          </div>
-
-          <Dialog open={editFunnelOpen} onOpenChange={setEditFunnelOpen}>
-            <DialogContent className="w-[95vw] max-w-5xl max-h-[90vh] overflow-hidden">
-              <DialogHeader>
-                <DialogTitle>Edit funnel</DialogTitle>
-                <DialogDescription>
-                  Update funnel name and column setup for this funnel.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="mt-2 overflow-y-auto max-h-[68vh] pr-1 space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-700">Funnel name</label>
-                  <Input
-                    value={editFunnelName}
-                    onChange={(e) => setEditFunnelName(e.target.value)}
-                    placeholder="Enter funnel name"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-slate-700">Columns</p>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-8">#</TableHead>
-                        <TableHead>Column name</TableHead>
-                        <TableHead className="w-32 text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {editFunnelColumns.map((col, index) => (
-                        <TableRow key={col.id}>
-                          <TableCell className="text-xs text-muted-foreground">{index + 1}</TableCell>
-                          <TableCell>
-                            <Input
-                              value={col.name}
-                              onChange={(e) =>
-                                handleEditingFunnelColumnNameChange(col.id, e.target.value)
-                              }
-                            />
-                          </TableCell>
-                          <TableCell className="text-right space-x-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              disabled={index === 0}
-                              onClick={() => moveEditingFunnelColumn(col.id, -1)}
-                            >
-                              <ChevronUp className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              disabled={index === editFunnelColumns.length - 1}
-                              onClick={() => moveEditingFunnelColumn(col.id, 1)}
-                            >
-                              <ChevronDown className="h-4 w-4" />
-                            </Button>
-                            {index > 0 ? (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="text-red-600"
-                                disabled={editFunnelColumns.length <= 1}
-                                onClick={() => deleteEditingFunnelColumn(col.id)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            ) : null}
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
                   </Table>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleAddColumnToEditingFunnel}
-                  >
-                    <Plus className="h-4 w-4 mr-1" />
-                    Add new column
-                  </Button>
                 </div>
+              </Modal>
+            </div>
+          </div>
+
+          <Modal
+            isOpen={editFunnelOpen}
+            onClose={() => setEditFunnelOpen(false)}
+            title="Edit funnel"
+            panelClassName="w-[95vw] max-w-5xl max-h-[90vh]"
+          >
+            <p className="text-sm text-muted-foreground dark:text-gray-400 mb-4">
+              Update funnel name and column setup for this funnel.
+            </p>
+            <div className="overflow-y-auto max-h-[68vh] pr-1 space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-funnel-name">Funnel name</Label>
+                <Input
+                  id="edit-funnel-name"
+                  value={editFunnelName}
+                  onChange={(e) => setEditFunnelName(e.target.value)}
+                  placeholder="Enter funnel name"
+                />
               </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setEditFunnelOpen(false)}>
-                  Cancel
+
+              <div className="space-y-2">
+                <Label>Columns</Label>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-8">#</TableHead>
+                      <TableHead>Column name</TableHead>
+                      <TableHead className="w-32 text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {editFunnelColumns.map((col, index) => (
+                      <TableRow key={col.id}>
+                        <TableCell className="text-xs text-muted-foreground">{index + 1}</TableCell>
+                        <TableCell>
+                          <Input
+                            value={col.name}
+                            onChange={(e) =>
+                              handleEditingFunnelColumnNameChange(col.id, e.target.value)
+                            }
+                          />
+                        </TableCell>
+                        <TableCell className="text-right space-x-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={index === 0}
+                            onClick={() => moveEditingFunnelColumn(col.id, -1)}
+                          >
+                            <ChevronUp className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={index === editFunnelColumns.length - 1}
+                            onClick={() => moveEditingFunnelColumn(col.id, 1)}
+                          >
+                            <ChevronDown className="h-4 w-4" />
+                          </Button>
+                          {index > 0 ? (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-red-600"
+                              disabled={editFunnelColumns.length <= 1}
+                              onClick={() => deleteEditingFunnelColumn(col.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          ) : null}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAddColumnToEditingFunnel}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add new column
                 </Button>
-                <Button onClick={handleSaveEditFunnel} disabled={!editFunnelName.trim()}>
-                  Save
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <Button variant="outline" className="flex-1" onClick={() => setEditFunnelOpen(false)}>
+                Cancel
+              </Button>
+              <Button className="flex-1" onClick={handleSaveEditFunnel} disabled={!editFunnelName.trim()}>
+                Save
+              </Button>
+            </div>
+          </Modal>
 
           <Dialog
             open={addStatusOpen}

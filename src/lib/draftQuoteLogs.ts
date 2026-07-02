@@ -43,38 +43,47 @@ export function describeDraftQuoteStatusChange(
   oldStatus: string | null | undefined,
   newStatus: string | null | undefined,
   bookingId: string,
-  actorName: string
+  actorName: string,
+  customerName?: string | null
 ): string | null {
   if (!newStatus || oldStatus === newStatus) return null;
   const ref = shortBookingRefForLogs(bookingId);
+  const customer = (customerName || "").trim() || "Customer";
+  const suffix = ` for ${customer} by ${actorName}`;
   const prefix = `#${ref} -`;
   if (oldStatus === "draft" && newStatus === "quote") {
-    return `${prefix} quote converted from draft by ${actorName}`;
+    return `${prefix} quote converted from draft${suffix}`;
   }
   if (oldStatus === "quote" && newStatus === "draft") {
-    return `${prefix} quote reverted to draft by ${actorName}`;
+    return `${prefix} quote reverted to draft${suffix}`;
   }
   if ((oldStatus === "draft" || oldStatus === "quote") && ["pending", "confirmed", "in_progress"].includes(newStatus)) {
-    return `${prefix} booking submitted from ${oldStatus} by ${actorName}`;
+    return `${prefix} booking submitted from ${oldStatus}${suffix}`;
   }
   if (oldStatus === "draft" && newStatus === "draft") return null;
   if (oldStatus === "quote" && newStatus === "quote") return null;
   return null;
 }
 
+import {
+  buildBookingLogMetadata,
+  type BookingLogMetadata,
+} from "./bookingLogSnapshot";
+
 export async function insertQuoteActivityLog(
   supabase: SupabaseClient,
   row: {
     business_id: string;
     booking_id: string;
-    actor_user_id: string;
-    actor_name: string;
+    actor_user_id?: string | null;
+    actor_name: string | null;
     activity_text: string;
     event_key?: string;
     ip_address?: string | null;
+    metadata?: BookingLogMetadata | null;
   }
 ): Promise<void> {
-  const { error } = await supabase.from("booking_quote_activity_logs").insert({
+  const payload: Record<string, unknown> = {
     business_id: row.business_id,
     booking_id: row.booking_id,
     actor_user_id: row.actor_user_id,
@@ -82,7 +91,18 @@ export async function insertQuoteActivityLog(
     activity_text: row.activity_text,
     event_key: row.event_key ?? null,
     ip_address: row.ip_address ?? null,
-  });
+  };
+  if (row.metadata) payload.metadata = row.metadata;
+
+  const { error } = await supabase.from("booking_quote_activity_logs").insert(payload);
+  if (error && row.metadata && /column|metadata|schema cache/i.test(String(error.message))) {
+    delete payload.metadata;
+    const retry = await supabase.from("booking_quote_activity_logs").insert(payload);
+    if (retry.error) {
+      console.warn("booking_quote_activity_logs insert:", retry.error.message);
+    }
+    return;
+  }
   if (error) {
     console.warn("booking_quote_activity_logs insert:", error.message);
     if (/relation|does not exist|42P01/i.test(String(error.message))) {
@@ -125,13 +145,22 @@ export async function logNewDraftOrQuote(
   user: User,
   businessId: string,
   bookingId: string,
-  status: string
+  status: string,
+  customerName?: string | null,
+  booking?: Record<string, unknown> | null
 ): Promise<void> {
   if (status !== "draft" && status !== "quote") return;
   const actor = formatQuoteLogActorName(user);
   const ref = shortBookingRefForLogs(bookingId);
+  const customer = (customerName || "").trim() || "Customer";
   const kind = status === "quote" ? "new quote created" : "new draft created";
-  const text = `#${ref} - ${kind} by ${actor}`;
+  const text = `#${ref} - ${kind} for ${customer} by ${actor}`;
+
+  let metadata: BookingLogMetadata | null = null;
+  if (booking) {
+    metadata = await buildBookingLogMetadata(supabase, booking, null);
+  }
+
   await insertQuoteActivityLog(supabase, {
     business_id: businessId,
     booking_id: bookingId,
@@ -140,5 +169,6 @@ export async function logNewDraftOrQuote(
     activity_text: text,
     event_key: kind.replace(/\s+/g, "_"),
     ip_address: getRequestClientIp(request),
+    metadata,
   });
 }

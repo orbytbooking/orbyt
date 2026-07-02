@@ -5,6 +5,7 @@ import {
   checkoutAmountMismatch,
   resolveExpectedCheckoutCents,
 } from "@/lib/payments/resolveBookingPayableCents";
+import { loadAcceptedPaymentForms } from "@/lib/acceptedPaymentMethods";
 
 /** Unified checkout: uses business payment_provider (stripe | authorize_net) for the post-gift-card balance. */
 export async function POST(request: Request) {
@@ -54,6 +55,20 @@ export async function POST(request: Request) {
 
     if (!resolved.ok) {
       return NextResponse.json({ error: resolved.message }, { status: 400 });
+    }
+
+    const checkoutBusinessId = businessId ? String(businessId).trim() : null;
+    if (checkoutBusinessId) {
+      const accepted = await loadAcceptedPaymentForms(supabase, checkoutBusinessId);
+      if (!accepted.creditCard) {
+        return NextResponse.json(
+          {
+            error: "PAYMENT_METHOD_NOT_ALLOWED",
+            message: "Credit/debit card payment is not available for this business.",
+          },
+          { status: 400 },
+        );
+      }
     }
 
     if (resolved.giftCardCoversFull || resolved.payableCents < 50) {

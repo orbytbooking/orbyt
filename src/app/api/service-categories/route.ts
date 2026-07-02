@@ -6,6 +6,7 @@ import { getAuthenticatedUser, createUnauthorizedResponse, createForbiddenRespon
 import { userCanManageBookingsForBusiness } from '@/lib/bookingApiAuth';
 import { requireIndustryBelongsToBusiness } from '@/lib/industryTenantGuard';
 import { repairLegacyForm3DefaultServiceCategoryName } from '@/lib/seedForm3DefaultServiceCategories';
+import { loadServiceCategoriesForBusiness } from '@/lib/resolveBookingServiceLabel';
 
 function queryBusinessId(request: NextRequest, searchParams: URLSearchParams): string | null {
   return (
@@ -115,6 +116,19 @@ export async function GET(request: NextRequest) {
         industryId,
         String(industryRow?.name ?? ''),
       );
+    }
+
+    // Without an explicit form scope, categories may live in form-specific tables (form2–form5).
+    if (!bookingFormScope && businessId?.trim()) {
+      console.log('📊 Fetching service categories from all form tables...');
+      const categories = await loadServiceCategoriesForBusiness(
+        supabase,
+        businessId.trim(),
+        industryId,
+      );
+      console.log('📦 Query result:');
+      console.log('  - categories length:', categories.length);
+      return NextResponse.json({ serviceCategories: categories });
     }
 
     let query = supabase

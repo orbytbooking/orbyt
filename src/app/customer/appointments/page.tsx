@@ -30,6 +30,7 @@ import {
 import { useCustomerBookings } from "@/hooks/useCustomerBookings";
 import { useCustomerAccount } from "@/hooks/useCustomerAccount";
 import { Booking } from "@/lib/customer-bookings";
+import { canCustomerCancelBookingForCategory } from "@/lib/customerSelfCancel";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
@@ -104,12 +105,14 @@ const CustomerAppointmentsPage = () => {
   const [detailsCancellationDisclaimer, setDetailsCancellationDisclaimer] = useState<string | null>(null);
   const [rescheduleSettingsLoading, setRescheduleSettingsLoading] = useState(false);
   const [selfCancelAllowed, setSelfCancelAllowed] = useState<boolean | null>(null);
+  const [allowedCancelCategoryIds, setAllowedCancelCategoryIds] = useState<string[] | null>(null);
   const [selfCancelBlockedMessageHtml, setSelfCancelBlockedMessageHtml] = useState(DEFAULT_SELF_CANCEL_BLOCKED_HTML);
   const [cancelBlockedBooking, setCancelBlockedBooking] = useState<Booking | null>(null);
 
   useEffect(() => {
     if (!businessId) {
       setSelfCancelAllowed(null);
+      setAllowedCancelCategoryIds(null);
       setSelfCancelBlockedMessageHtml(DEFAULT_SELF_CANCEL_BLOCKED_HTML);
       return;
     }
@@ -119,6 +122,11 @@ const CustomerAppointmentsPage = () => {
       .then((data) => {
         if (cancelled || data.error) return;
         setSelfCancelAllowed(data.allow_customer_self_cancel !== false);
+        setAllowedCancelCategoryIds(
+          Array.isArray(data.customer_cancel_category_ids)
+            ? data.customer_cancel_category_ids.filter((id: unknown) => typeof id === "string")
+            : [],
+        );
         if (typeof data.customer_self_cancel_blocked_message === "string") {
           setSelfCancelBlockedMessageHtml(data.customer_self_cancel_blocked_message);
         }
@@ -230,10 +238,17 @@ const CustomerAppointmentsPage = () => {
       .join("") || "PP"
   ), [customerName]);
 
+  const canCancelBookingForService = (booking: Booking) => {
+    if (selfCancelAllowed === false) return false;
+    if (allowedCancelCategoryIds === null) return false;
+    return canCustomerCancelBookingForCategory(allowedCancelCategoryIds, booking);
+  };
+
   const handleCancelBookingClick = async (booking: Booking) => {
     if (businessId) {
       let allowed = selfCancelAllowed;
-      if (allowed === null) {
+      let categoryIds = allowedCancelCategoryIds;
+      if (allowed === null || categoryIds === null) {
         try {
           const res = await fetch(
             `/api/customer/cancellation-settings?businessId=${encodeURIComponent(businessId)}`
@@ -241,18 +256,24 @@ const CustomerAppointmentsPage = () => {
           const data = await res.json().catch(() => ({}));
           if (!res.ok || data.error) {
             allowed = true;
+            categoryIds = null;
           } else {
             allowed = data.allow_customer_self_cancel !== false;
+            categoryIds = Array.isArray(data.customer_cancel_category_ids)
+              ? data.customer_cancel_category_ids.filter((id: unknown) => typeof id === "string")
+              : [];
             if (typeof data.customer_self_cancel_blocked_message === "string") {
               setSelfCancelBlockedMessageHtml(data.customer_self_cancel_blocked_message);
             }
             setSelfCancelAllowed(allowed);
+            setAllowedCancelCategoryIds(categoryIds);
           }
         } catch {
           allowed = true;
+          categoryIds = null;
         }
       }
-      if (allowed === false) {
+      if (allowed === false || !canCustomerCancelBookingForCategory(categoryIds, booking)) {
         setCancelBlockedBooking(booking);
         return;
       }
@@ -304,6 +325,32 @@ const CustomerAppointmentsPage = () => {
           title: "Cancel failed",
           description: err?.error ?? `Failed to cancel booking (${res.status})`,
           variant: "destructive",
+        });
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      if (data.cancellationPending) {
+        updateBookings((prev) =>
+          prev.map((item) => {
+            const sameRow =
+              item.id === booking.id &&
+              (item.occurrenceDate ?? "") === (booking.occurrenceDate ?? "");
+            return sameRow
+              ? {
+                  ...item,
+                  cancellationRequestPending: true,
+                  pendingCancellationOccurrenceDates: booking.occurrenceDate
+                    ? [...new Set([...(item.pendingCancellationOccurrenceDates ?? []), booking.occurrenceDate])]
+                    : item.pendingCancellationOccurrenceDates,
+                }
+              : item;
+          }),
+        );
+        toast({
+          title: "Cancellation request submitted",
+          description:
+            data.message ??
+            "Your request is pending admin approval. The booking will stay on your dashboard until confirmed.",
         });
         return;
       }
@@ -467,6 +514,7 @@ const CustomerAppointmentsPage = () => {
                 bookings={filteredBookings}
                 emptyMessage="No appointments yet. Schedule your first service to get started."
                 onCancelBooking={handleCancelBookingClick}
+                canCancelBooking={canCancelBookingForService}
                 onViewDetails={handleViewDetails}
                 onEditReschedule={handleEditReschedule}
               />
@@ -531,14 +579,18 @@ const CustomerAppointmentsPage = () => {
                           <div className="space-y-1 overflow-y-auto max-h-[200px]">
                             {events.map((event, idx) => {
                               const st = event.status?.toLowerCase() ?? "";
-                              const chipClass =
-                                st === "completed"
-                                  ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-                                  : st === "canceled" || st === "cancelled"
-                                    ? "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300"
-                                    : st === "in_progress"
-                                      ? "bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
-                                      : "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-300";
+                              const pendingCancel =
+                                (event as { cancellationRequestPending?: boolean }).cancellationRequestPending ||
+                                ((event as { pendingCancellationOccurrenceDates?: string[] }).pendingCancellationOccurrenceDates ?? []).includes(day.iso);
+                              const chipClass = pendingCancel
+                                ? "bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+                                : st === "completed"
+                                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                : st === "canceled" || st === "cancelled"
+                                  ? "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300"
+                                  : st === "in_progress"
+                                    ? "bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
+                                    : "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-300";
                               return (
                                 <button
                                   key={`${event.id}-${event.occurrenceDate ?? event.date}-${event.time}-${idx}`}
@@ -615,7 +667,7 @@ const CustomerAppointmentsPage = () => {
                 {cancelBlockedBooking && (
                   <div className="space-y-4 py-2">
                     <p className="text-sm text-muted-foreground">
-                      Online cancellation is turned off for this business. You can still view your appointment details below.
+                      This service cannot be canceled online. Please contact the business for help.
                     </p>
                     <div
                       className="rounded-lg border bg-muted/50 p-4 text-sm prose prose-sm max-w-none dark:prose-invert [&_a]:text-primary"

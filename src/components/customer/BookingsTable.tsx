@@ -22,6 +22,7 @@ type BookingsTableProps = {
   bookings: Booking[];
   emptyMessage: string;
   onCancelBooking?: (booking: Booking) => void;
+  canCancelBooking?: (booking: Booking) => boolean;
   onViewDetails?: (booking: Booking) => void;
   onEditReschedule?: (booking: Booking) => void;
   customActions?: (booking: Booking) => CustomAction[];
@@ -83,7 +84,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-export const BookingsTable = ({ bookings, emptyMessage, onCancelBooking, onViewDetails, onEditReschedule, customActions }: BookingsTableProps) => {
+export const BookingsTable = ({ bookings, emptyMessage, onCancelBooking, canCancelBooking, onViewDetails, onEditReschedule, customActions }: BookingsTableProps) => {
   const showActions = Boolean(onCancelBooking || onViewDetails || onEditReschedule || customActions);
   const colCount = 7 + (showActions ? 1 : 0); // +1 for Status column
 
@@ -155,7 +156,7 @@ export const BookingsTable = ({ bookings, emptyMessage, onCancelBooking, onViewD
                           Edit / Reschedule
                         </DropdownMenuItem>
                       )}
-                      {onCancelBooking && (
+                      {onCancelBooking && (canCancelBooking ? canCancelBooking(booking) : true) && (
                         <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
                           onSelect={(event) => {

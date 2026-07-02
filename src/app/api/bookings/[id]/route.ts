@@ -3,6 +3,11 @@ import { NextResponse } from 'next/server';
 import { createAdminNotification } from '@/lib/adminProviderSync';
 import { getCancellationFeeForBooking } from '@/lib/cancellationFee';
 import {
+  applyRescheduleFeeFields,
+  detectRescheduleChange,
+  type BusinessRescheduleSettings,
+} from '@/lib/rescheduleFee';
+import {
   createRecurringCalendarEvent,
   syncBookingCancelled,
   syncBookingUpdated,
@@ -15,6 +20,11 @@ import {
   insertQuoteActivityLog,
   shortBookingRefForLogs,
 } from '@/lib/draftQuoteLogs';
+import {
+  logBookingUpdatedFromAdminRequest,
+  resolveCustomerDisplayName,
+} from '@/lib/bookingActivityLogs';
+import { buildBookingLogMetadata } from '@/lib/bookingLogSnapshot';
 import { ensureCustomerForAdminBooking } from '@/lib/ensureCustomerForAdminBooking';
 import { resolveProviderWageFromBodyOrStoreDefault } from '@/lib/bookingProviderWage';
 import {
@@ -410,6 +420,52 @@ export async function PUT(
     // When editing a recurring booking's date/time, update the series so all recurring occurrences move (update all recurring)
     const newDate = (updateData as Record<string, unknown>).scheduled_date ?? (updateData as Record<string, unknown>).date;
     const newTime = (updateData as Record<string, unknown>).scheduled_time ?? (updateData as Record<string, unknown>).time;
+    const hasScheduleChange =
+      (newDate != null && typeof newDate === 'string' && newDate.trim().length >= 10) ||
+      (newTime != null && typeof newTime === 'string' && String(newTime).trim().length > 0);
+
+    if (hasScheduleChange) {
+      const { data: existingForReschedule } = await supabase
+        .from('bookings')
+        .select('scheduled_date, scheduled_time, date, time, total_price, amount')
+        .eq('id', bookingId)
+        .eq('business_id', businessId)
+        .maybeSingle();
+
+      if (existingForReschedule) {
+        const mergedAfter = {
+          ...existingForReschedule,
+          scheduled_date:
+            newDate != null && typeof newDate === 'string' ? newDate.trim() : existingForReschedule.scheduled_date,
+          date: newDate != null && typeof newDate === 'string' ? newDate.trim() : existingForReschedule.date,
+          scheduled_time:
+            newTime != null && typeof newTime === 'string'
+              ? String(newTime).trim()
+              : existingForReschedule.scheduled_time,
+          time:
+            newTime != null && typeof newTime === 'string'
+              ? String(newTime).trim()
+              : existingForReschedule.time,
+        };
+        const change = detectRescheduleChange(existingForReschedule, mergedAfter);
+
+        if (change.dateChanged || change.timeChanged) {
+          const { data: rescheduleSettingsRow } = await supabase
+            .from('business_reschedule_settings')
+            .select('settings')
+            .eq('business_id', businessId)
+            .maybeSingle();
+
+          applyRescheduleFeeFields(
+            updateData as Record<string, unknown>,
+            existingForReschedule,
+            change,
+            (rescheduleSettingsRow?.settings as BusinessRescheduleSettings) || null,
+          );
+        }
+      }
+    }
+
     if (newDate && typeof newDate === 'string' && newDate.trim().length >= 10) {
       const { data: existingBooking } = await supabase
         .from('bookings')
@@ -629,12 +685,27 @@ export async function PUT(
     }
 
     const actorName = formatQuoteLogActorName(user);
-    const transitionText = describeDraftQuoteStatusChange(priorStatus, booking.status, bookingId, actorName);
+    const customerName = resolveCustomerDisplayName(
+      booking as { customer_name?: string | null },
+      (existingBefore as { customer_name?: string | null } | null)?.customer_name
+    );
+    const transitionText = describeDraftQuoteStatusChange(
+      priorStatus,
+      booking.status,
+      bookingId,
+      actorName,
+      customerName
+    );
     const newExpiryRaw = (booking as { draft_quote_expires_on?: string | null }).draft_quote_expires_on;
     const expiryChanged =
       normalizeExpiryDateValue(priorExpiryRaw) !== normalizeExpiryDateValue(newExpiryRaw);
 
     if (transitionText) {
+      const metadata = await buildBookingLogMetadata(
+        supabase,
+        booking as Record<string, unknown>,
+        (existingBefore as Record<string, unknown> | null) ?? null
+      );
       await insertQuoteActivityLog(supabase, {
         business_id: businessId,
         booking_id: bookingId,
@@ -643,6 +714,7 @@ export async function PUT(
         activity_text: transitionText,
         event_key: 'draft_quote_status_change',
         ip_address: getRequestClientIp(request),
+        metadata,
       });
     } else if (
       expiryChanged &&
@@ -660,15 +732,32 @@ export async function PUT(
     } else if (booking.status === 'draft' || booking.status === 'quote') {
       const ref = shortBookingRefForLogs(bookingId);
       const kind = booking.status === 'quote' ? 'quote' : 'draft';
+      const metadata = await buildBookingLogMetadata(
+        supabase,
+        booking as Record<string, unknown>,
+        (existingBefore as Record<string, unknown> | null) ?? null
+      );
       await insertQuoteActivityLog(supabase, {
         business_id: businessId,
         booking_id: bookingId,
         actor_user_id: user.id,
         actor_name: actorName,
-        activity_text: `#${ref} - ${kind} updated by ${actorName}`,
+        activity_text: `#${ref} - ${kind} updated for ${customerName} by ${actorName}`,
         event_key: `${kind}_updated`,
         ip_address: getRequestClientIp(request),
+        metadata,
       });
+    } else {
+      await logBookingUpdatedFromAdminRequest(
+        supabase,
+        request,
+        user,
+        businessId,
+        bookingId,
+        booking as Record<string, unknown>,
+        customerName,
+        (existingBefore as Record<string, unknown> | null) ?? null
+      );
     }
 
     if (booking.status === 'cancelled') {

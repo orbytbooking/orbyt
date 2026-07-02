@@ -258,7 +258,7 @@ export default function NewCouponPage() {
             <ArrowLeft className="h-5 w-5 text-muted-foreground" />
           </button>
           <div>
-            <h2 className="text-xl font-semibold">Add new coupon</h2>
+            <h2 className="text-xl font-semibold dark:text-white">Add new coupon</h2>
             <p className="text-muted-foreground text-sm">You can add in a coupon here.</p>
           </div>
         </div>
@@ -266,7 +266,7 @@ export default function NewCouponPage() {
 
       <form onSubmit={onSubmit} className="space-y-6">
         <div className="space-y-6">
-          <div className="space-y-6">
+          <div className="rounded-md border bg-white p-4 space-y-4">
             <div className="space-y-2">
               <Label htmlFor="name">Name</Label>
               <Input id="name" name="name" placeholder="Ex: special-20" value={form.name} onChange={onChange} />
@@ -279,7 +279,8 @@ export default function NewCouponPage() {
               <Label htmlFor="description">Description</Label>
               <Textarea id="description" name="description" placeholder="Optional" value={form.description} onChange={onChange} />
             </div>
-            <div className="space-y-3">
+          </div>
+          <div className="space-y-3">
               <div className="flex items-center gap-3">
                 <Checkbox id="active" checked={form.active} onCheckedChange={(v) => setForm((s) => ({ ...s, active: !!v }))} />
                 <Label htmlFor="active" className="font-normal">Make this coupon active</Label>
@@ -302,7 +303,6 @@ export default function NewCouponPage() {
                 </div>
               </div>
             </div>
-          </div>
 
           <div className="space-y-6">
             <div className="rounded-md border bg-white p-4">
@@ -411,7 +411,7 @@ export default function NewCouponPage() {
             <TabsContent value="discount">
               <div className="rounded-md border bg-white p-4 space-y-6">
                 <div className="space-y-2">
-                  <div className="text-sm font-medium">Discount for customers</div>
+                  <div className="text-sm font-medium dark:text-white">Discount for customers</div>
                   <div className="flex items-center gap-3 max-w-md">
                     <Input
                       placeholder="Amount"
@@ -423,7 +423,7 @@ export default function NewCouponPage() {
                       onChange={onChange}
                     />
                     <Select value={discountUnit} onValueChange={(v) => setDiscountUnit(v as 'amount' | 'percent')}>
-                      <SelectTrigger className="w-28">
+                      <SelectTrigger className="w-28 dark:text-white">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -435,7 +435,7 @@ export default function NewCouponPage() {
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <div className="text-sm font-medium">Discount for service providers</div>
+                    <div className="text-sm font-medium dark:text-white">Discount for service providers</div>
                     <div className="flex flex-col items-end gap-2">
                       <Switch checked={providerDiscountEnabled} onCheckedChange={(v) => setProviderDiscountEnabled(!!v)} />
                       <span className={`px-2 py-0.5 rounded-full text-xs ${providerDiscountEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>

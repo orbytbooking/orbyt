@@ -90,6 +90,12 @@ CREATE TABLE public.bookings (
   assignment_source text DEFAULT 'manual'::text CHECK (assignment_source IS NULL OR (assignment_source = ANY (ARRAY['manual'::text, 'auto'::text, 'invitation'::text, 'grab'::text]))),
   cancellation_fee_amount numeric,
   cancellation_fee_currency text,
+  cancellation_reason_id uuid,
+  cancellation_reason_label text,
+  cancellation_comment text,
+  cancellation_request_status text,
+  cancellation_requested_at timestamp with time zone,
+  pending_cancellation_occurrence_dates text[] NOT NULL DEFAULT '{}'::text[],
   exclude_cancellation_fee boolean NOT NULL DEFAULT false,
   exclude_customer_notification boolean NOT NULL DEFAULT false,
   exclude_provider_notification boolean NOT NULL DEFAULT false,
@@ -230,6 +236,8 @@ CREATE TABLE public.business_store_options (
   admin_calendar_multi_booking_layout text NOT NULL DEFAULT 'side_by_side'::text CHECK (admin_calendar_multi_booking_layout = ANY (ARRAY['side_by_side'::text, 'overlapped'::text])),
   admin_calendar_hide_non_working_hours boolean NOT NULL DEFAULT false,
   customer_booking_form_layout text NOT NULL DEFAULT 'form1'::text CHECK (customer_booking_form_layout = ANY (ARRAY['form1'::text, 'form2'::text])),
+  accepted_payment_credit_card boolean NOT NULL DEFAULT true,
+  accepted_payment_cash_check boolean NOT NULL DEFAULT false,
   CONSTRAINT business_store_options_pkey PRIMARY KEY (id),
   CONSTRAINT business_store_options_business_id_fkey FOREIGN KEY (business_id) REFERENCES public.businesses(id)
 );

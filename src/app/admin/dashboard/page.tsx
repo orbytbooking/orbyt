@@ -34,9 +34,20 @@ import {
   Image,
   Shield,
   Loader2,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import Link from "next/link";
@@ -46,11 +57,19 @@ import { formatProviderWageDisplay } from "@/lib/formatProviderWage";
 import { supabase } from "@/lib/supabaseClient";
 import { AdminBookingsCalendar } from "@/components/admin/AdminBookingsCalendar";
 import { EditBookingSheet } from "@/components/admin/EditBookingSheet";
+import { CancelBookingDialog } from "@/components/admin/CancelBookingDialog";
+import { BookingLogsDialog } from "@/components/admin/BookingLogsDialog";
+import { readCancellationMetaFromBooking } from "@/lib/bookingCancellationMeta";
 import { getOccurrenceDatesForSeriesSync, statusForRecurringOccurrence } from "@/lib/recurringBookings";
 import { minutesFromCustomization } from "@/lib/bookingDuration";
 import { getBookingSummaryVariableRows } from "@/lib/bookingSummaryVariableRows";
 import { formatKeyInformationSummary, getJobNotesFromCustomization } from "@/lib/bookingKeyJobNotes";
 import { compareBookingsByScheduleDesc } from "@/lib/bookingScheduleSort";
+import {
+  enrichBookingDisplayFields,
+  formatBookingServiceSummaryLabel,
+  loadServiceCategoryNameById,
+} from "@/lib/resolveBookingServiceLabel";
 
 // Icon mapping for API responses
 const iconMap: Record<string, any> = {
@@ -197,9 +216,15 @@ const Dashboard = () => {
   const [sendAddCardLoading, setSendAddCardLoading] = useState(false);
   const [resendReceiptLoading, setResendReceiptLoading] = useState(false);
   const [checklistOpen, setChecklistOpen] = useState(false);
+  const [bookingLogsOpen, setBookingLogsOpen] = useState(false);
+  const [bookingLogsBookingId, setBookingLogsBookingId] = useState<string | null>(null);
   const [sheetEditBookingId, setSheetEditBookingId] = useState<string | null>(null);
   const [calendarBookings, setCalendarBookings] = useState<Booking[]>([]);
+  const [serviceCategoryById, setServiceCategoryById] = useState<Record<string, string>>({});
   const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
+  const [cancelledBookingDeleteTarget, setCancelledBookingDeleteTarget] = useState<Booking | null>(null);
+  const [cancelledBookingDeleting, setCancelledBookingDeleting] = useState(false);
+  const [cancelBookingTarget, setCancelBookingTarget] = useState<Booking | null>(null);
   const { config } = useWebsiteConfig();
   const { currentBusiness } = useBusiness(); // Get current business
   const router = useRouter();
@@ -371,7 +396,11 @@ const Dashboard = () => {
       if (cancelled) return;
       const { data: bookingsData, error } = await supabase
         .from("bookings")
-        .select("*")
+        .select(`
+          *,
+          customers(name, email, phone),
+          recurring_series(service, customization, customer_name, customer_email, customer_phone, scheduled_time)
+        `)
         .eq("business_id", currentBusiness.id)
         .order("scheduled_date", { ascending: false, nullsFirst: false })
         .order("date", { ascending: false });
@@ -381,11 +410,12 @@ const Dashboard = () => {
       }
       let list: any[] = bookingsData || [];
       let seriesDurationById: Record<string, number | null> = {};
+      let seriesById: Record<string, any> = {};
       const recurringIds = [...new Set(list.filter((b: any) => b.recurring_series_id).map((b: any) => b.recurring_series_id))];
       if (recurringIds.length > 0) {
         const { data: seriesList } = await supabase
           .from("recurring_series")
-          .select("id, start_date, end_date, frequency, frequency_repeats, occurrences_ahead, scheduled_time, duration_minutes")
+          .select("id, start_date, end_date, frequency, frequency_repeats, occurrences_ahead, scheduled_time, duration_minutes, service, customization, customer_name, customer_email, customer_phone")
           .eq("business_id", currentBusiness.id)
           .in("id", recurringIds);
         seriesDurationById = Object.fromEntries(
@@ -394,7 +424,7 @@ const Dashboard = () => {
             s.duration_minutes != null ? Number(s.duration_minutes) : null,
           ]),
         ) as Record<string, number | null>;
-        const seriesById = (seriesList || []).reduce((acc: Record<string, any>, s: any) => {
+        seriesById = (seriesList || []).reduce((acc: Record<string, any>, s: any) => {
           acc[s.id] = s;
           return acc;
         }, {});
@@ -454,8 +484,15 @@ const Dashboard = () => {
             ),
           );
       }
+      const categoryNameById = await loadServiceCategoryNameById(supabase, currentBusiness.id);
+      if (!cancelled) setServiceCategoryById(categoryNameById);
+
       const normalized: Booking[] = list.map((b: any) => {
-        const name = b.customer_name || "Unassigned";
+        const series = b.recurring_series_id
+          ? (b.recurring_series ?? seriesById?.[b.recurring_series_id])
+          : b.recurring_series ?? null;
+        const enriched = enrichBookingDisplayFields(b, series, categoryNameById);
+        const name = enriched.customer_name || b.customer_name || "Unassigned";
         const fromRow = b.duration_minutes != null ? Number(b.duration_minutes) : null;
         const fromSeries =
           b.recurring_series_id && seriesDurationById[b.recurring_series_id] != null
@@ -471,9 +508,9 @@ const Dashboard = () => {
         return {
           id: b.id,
           date: b.date || b.scheduled_date || "",
-          time: typeof b.scheduled_time === "string" ? b.scheduled_time : (b.time || ""),
+          time: enriched.time || (typeof b.scheduled_time === "string" ? b.scheduled_time : (b.time || "")),
           status: b.status || "pending",
-          service: b.service || "Service",
+          service: enriched.service ?? "",
           amount: `$${Number(b.total_price ?? b.amount ?? 0).toFixed(2)}`,
           customerName: name,
           customer_id: b.customer_id ?? null,
@@ -559,6 +596,33 @@ const Dashboard = () => {
     const name = selectedBooking.provider?.name || selectedBooking.customer?.name || selectedBooking.customerName || 'Unknown';
     toast({ title: 'Booking accepted', description: `${name} • ${selectedBooking.service} is now confirmed.` });
     fetchDashboardData(false);
+  };
+
+  const handleConfirmDeleteCancelledBooking = async () => {
+    if (!cancelledBookingDeleteTarget?.id || !currentBusiness?.id) return;
+    setCancelledBookingDeleting(true);
+    const { error } = await supabase
+      .from("bookings")
+      .delete()
+      .eq("id", cancelledBookingDeleteTarget.id)
+      .eq("business_id", currentBusiness.id);
+    setCancelledBookingDeleting(false);
+    if (error) {
+      toast({
+        title: "Delete failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (selectedBooking?.id === cancelledBookingDeleteTarget.id) {
+      setSelectedBooking(null);
+    }
+    setCalendarBookings((prev) => prev.filter((b) => b.id !== cancelledBookingDeleteTarget.id));
+    setCancelledBookingDeleteTarget(null);
+    toast({ title: "Deleted", description: "Cancelled booking was removed." });
+    fetchDashboardData(false);
+    setCalendarRefreshKey((k) => k + 1);
   };
 
   const handleAssignProvider = async () => {
@@ -1024,7 +1088,10 @@ const Dashboard = () => {
                       <DetailRow label="Zip/Postal code" value={selectedBooking.zipCode || (selectedBooking as any).zip_code} />
                     )}
                     {industries[0]?.name && <DetailRow label="Industry" value={industries[0].name} />}
-                    {selectedBooking.service && <DetailRow label="Service" value={selectedBooking.service} />}
+                    <DetailRow
+                      label="Service"
+                      value={formatBookingServiceSummaryLabel(selectedBooking as any, { serviceCategoryById })}
+                    />
                     {(selectedBooking.frequency || (selectedBooking as any).frequency) && (
                       <DetailRow label="Frequency" value={selectedBooking.frequency || (selectedBooking as any).frequency} />
                     )}
@@ -1091,6 +1158,28 @@ const Dashboard = () => {
                         </>
                       );
                     })()}
+                    {(() => {
+                      if ((selectedBooking as any).status !== "cancelled") return null;
+                      const cancelMeta = readCancellationMetaFromBooking(selectedBooking as any);
+                      return (
+                        <>
+                          {cancelMeta.reasonLabel && (
+                            <DetailRow
+                              label="Cancellation reason"
+                              value={cancelMeta.reasonLabel}
+                              className="text-right"
+                            />
+                          )}
+                          {cancelMeta.comment && (
+                            <DetailRow
+                              label="Cancellation comment"
+                              value={cancelMeta.comment}
+                              className="text-right"
+                            />
+                          )}
+                        </>
+                      );
+                    })()}
                     {(selectedBooking as any).status === "cancelled" && (selectedBooking as any).cancellation_fee_amount != null && Number((selectedBooking as any).cancellation_fee_amount) > 0 && (
                       <div className="flex justify-between items-center gap-4 py-1.5">
                         <span className="text-muted-foreground text-sm shrink-0">Cancellation fee (applied)</span>
@@ -1154,6 +1243,71 @@ const Dashboard = () => {
 
             {/* Action buttons - same stack as Bookings page */}
             <div className="space-y-2 mt-auto pt-2">
+              {selectedBooking.status === "cancelled" ? (
+                <>
+                  <Button
+                    className="w-full text-white bg-blue-600 hover:bg-blue-700"
+                    onClick={() => {
+                      const id =
+                        selectedBooking?.id &&
+                        String(selectedBooking.id).trim() &&
+                        String(selectedBooking.id) !== "undefined"
+                          ? String(selectedBooking.id)
+                          : "";
+                      setSelectedBooking(null);
+                      if (id) setSheetEditBookingId(id);
+                      else router.push("/admin/add-booking");
+                    }}
+                  >
+                    <Pencil className="h-4 w-4 mr-2" />Edit
+                  </Button>
+                  <Button
+                    className="w-full text-white bg-red-600 hover:bg-red-700"
+                    onClick={() => setCancelledBookingDeleteTarget(selectedBooking)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />Delete
+                  </Button>
+                  <Button className="w-full text-white bg-emerald-500 hover:bg-emerald-600" onClick={() => { router.push(`/admin/leads?addBooking=${selectedBooking.id}`); setSelectedBooking(null); }}>
+                    Add to leads funnel
+                  </Button>
+                  <Button
+                    className="w-full text-white bg-pink-500 hover:bg-pink-600"
+                    disabled={sendAddCardLoading}
+                    onClick={async () => {
+                      if (!selectedBooking?.id) return;
+                      setSendAddCardLoading(true);
+                      try {
+                        const res = await fetch(`/api/admin/bookings/${encodeURIComponent(String(selectedBooking.id))}/send-add-card-link`, {
+                          method: "POST",
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok) {
+                          toast({
+                            title: "Error",
+                            description: typeof data.error === "string" ? data.error : "Failed to send add-card link",
+                            variant: "destructive",
+                          });
+                          return;
+                        }
+                        toast({
+                          title: "Link sent",
+                          description: typeof data.sentTo === "string"
+                            ? `We emailed a secure add-card link to ${data.sentTo}.`
+                            : "We emailed a secure add-card link to the booking customer email.",
+                        });
+                      } catch {
+                        toast({ title: "Error", description: "Failed to send add-card link", variant: "destructive" });
+                      } finally {
+                        setSendAddCardLoading(false);
+                      }
+                    }}
+                  >
+                    {sendAddCardLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CreditCard className="h-4 w-4 mr-2" />}
+                    {sendAddCardLoading ? "Sending…" : "Send \"Add card\" link"}
+                  </Button>
+                </>
+              ) : (
+                <>
               {!selectedBooking.provider && (
                 <>
                   <Button className="w-full text-white" style={{ backgroundColor: "#00BCD4" }} onClick={() => setShowProviderDialog(true)}>
@@ -1207,14 +1361,10 @@ const Dashboard = () => {
               >
                 <Pencil className="h-4 w-4 mr-2" />Edit
               </Button>
-              <Button className="w-full text-white bg-red-600 hover:bg-red-700" onClick={async () => {
-                if (!selectedBooking?.id) return;
-                const { error } = await supabase.from("bookings").update({ status: "cancelled", updated_at: new Date().toISOString() }).eq("id", selectedBooking.id);
-                if (error) { toast({ title: "Error", description: error.message, variant: "destructive" }); return; }
-                toast({ title: "Booking cancelled" });
-                fetchDashboardData(false);
-                setSelectedBooking(null);
-              }} disabled={selectedBooking.status === "cancelled"}>
+              <Button
+                className="w-full text-white bg-red-600 hover:bg-red-700"
+                onClick={() => setCancelBookingTarget(selectedBooking)}
+              >
                 <XCircle className="h-4 w-4 mr-2" />Cancel
               </Button>
               <Button className="w-full text-white bg-emerald-500 hover:bg-emerald-600" onClick={() => { router.push(`/admin/leads?addBooking=${selectedBooking.id}`); setSelectedBooking(null); }}>
@@ -1288,7 +1438,13 @@ const Dashboard = () => {
                 {resendReceiptLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Receipt className="h-4 w-4 mr-2" />}
                 {resendReceiptLoading ? "Sending…" : "Resend Receipt"}
               </Button>
-              <Button className="w-full text-white bg-amber-400 hover:bg-amber-500" onClick={() => { router.push(`/admin/logs?booking=${selectedBooking.id}`); setSelectedBooking(null); }}>
+              <Button
+                className="w-full text-white bg-amber-400 hover:bg-amber-500"
+                onClick={() => {
+                  setBookingLogsBookingId(String(selectedBooking.id));
+                  setBookingLogsOpen(true);
+                }}
+              >
                 <FileText className="h-4 w-4 mr-2" />View Booking Log
               </Button>
               <Button className="w-full text-white bg-rose-400 hover:bg-rose-500" onClick={() => { router.push(`/admin/booking-charges?precharge=${selectedBooking.id}`); setSelectedBooking(null); }}>
@@ -1311,24 +1467,61 @@ const Dashboard = () => {
               >
                 <Image className="h-4 w-4 mr-2" />Job Media
               </Button>
-              <Button
-                variant="outline"
-                className="w-full border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-800"
-                onClick={() => { router.push(`/admin/bookings?booking=${selectedBooking.id}`); setSelectedBooking(null); }}
-              >
-                View in Bookings
-              </Button>
               <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
                 <Button variant="outline" onClick={() => setSelectedBooking(null)}>Close</Button>
                 {selectedBooking?.status === "pending" && selectedBooking?.provider && (
                   <Button onClick={acceptBooking} variant="default">Accept Booking</Button>
                 )}
               </div>
+                </>
+              )}
             </div>
           </div>
         )}
       </SheetContent>
     </Sheet>
+
+    <AlertDialog
+      open={cancelledBookingDeleteTarget !== null}
+      onOpenChange={(open) => {
+        if (!open && !cancelledBookingDeleting) setCancelledBookingDeleteTarget(null);
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this cancelled booking?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This cannot be undone.
+            {cancelledBookingDeleteTarget
+              ? ` ${cancelledBookingDeleteTarget.customer?.name || cancelledBookingDeleteTarget.customerName ? `${cancelledBookingDeleteTarget.customer?.name || cancelledBookingDeleteTarget.customerName} — ` : ""}BK${String(cancelledBookingDeleteTarget.id).slice(-6).toUpperCase()} will be permanently removed.`
+              : ""}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={cancelledBookingDeleting}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            disabled={cancelledBookingDeleting}
+            onClick={(e) => {
+              e.preventDefault();
+              void handleConfirmDeleteCancelledBooking();
+            }}
+          >
+            {cancelledBookingDeleting ? "Deleting…" : "Delete"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    <BookingLogsDialog
+      open={bookingLogsOpen}
+      onOpenChange={(o) => {
+        setBookingLogsOpen(o);
+        if (!o) setBookingLogsBookingId(null);
+      }}
+      bookingId={bookingLogsBookingId}
+      businessId={currentBusiness?.id ?? ""}
+    />
 
     <Dialog open={checklistOpen} onOpenChange={setChecklistOpen}>
       <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
@@ -1452,6 +1645,27 @@ const Dashboard = () => {
         if (!open) setSheetEditBookingId(null);
       }}
       onSaved={() => {
+        fetchDashboardData(false);
+        setCalendarRefreshKey((k) => k + 1);
+      }}
+    />
+
+    <CancelBookingDialog
+      open={!!cancelBookingTarget}
+      onOpenChange={(open) => {
+        if (!open) setCancelBookingTarget(null);
+      }}
+      bookingId={cancelBookingTarget?.id ?? null}
+      businessId={currentBusiness?.id}
+      bookingLabel={
+        cancelBookingTarget
+          ? `${cancelBookingTarget.customer?.name || cancelBookingTarget.customerName || "Booking"} (BK${String(cancelBookingTarget.id).slice(-6).toUpperCase()})`
+          : undefined
+      }
+      onSuccess={(message) => toast({ title: message })}
+      onError={(message) => toast({ title: "Error", description: message, variant: "destructive" })}
+      onCancelled={() => {
+        setSelectedBooking(null);
         fetchDashboardData(false);
         setCalendarRefreshKey((k) => k + 1);
       }}

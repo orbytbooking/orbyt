@@ -899,11 +899,6 @@ export default function NotificationsSettingsPage() {
       ],
     },
     {
-      id: "checklist",
-      label: "Checklist",
-      items: [],
-    },
-    {
       id: "invoice",
       label: "Invoice",
       items: [
@@ -1069,7 +1064,24 @@ export default function NotificationsSettingsPage() {
         },
       ],
     },
-    { id: "reminders", label: "Reminders", items: [] },
+    {
+      id: "reminders",
+      label: "Reminders",
+      items: [
+        {
+          id: "customer_booking_reminder",
+          name: "Booking reminder",
+          description:
+            "This email notification is sent to the customer reminding them of their booking that is coming up in 24 hours or whatever time you have it set to. Make sure to change the subject of the email as well if you change the delivery time from default.",
+        },
+        {
+          id: "customer_booking_reminder_2",
+          name: "Booking reminder 2",
+          description:
+            "This email notification is sent to the customer reminding them of their booking that is coming up in 48 hours or whatever time you have it set to. Make sure to change the subject of the email as well if you change the delivery time from default.",
+        },
+      ],
+    },
     {
       id: "completed_booking",
       label: "Completed booking",
@@ -1167,7 +1179,48 @@ export default function NotificationsSettingsPage() {
         },
       ],
     },
-    { id: "rating_review", label: "Rating & review", items: [] },
+    {
+      id: "rating_review",
+      label: "Rating & review",
+      items: [
+        {
+          id: "customer_rate_us",
+          name: "Rate us",
+          description:
+            "This email notification is sent to the customer to rate the service after it has been completed. If you do not allow the customer to rate service in Store Options, this notification will not be sent, even if you have enabled it.",
+        },
+        {
+          id: "customer_happy_rating_ot_v1",
+          name: "50% off your service (happy rating ot v1)",
+          description:
+            "This email notification is sent to the customer when they leave a happy rating of 4 out of 5 or higher enticing them to sign up for recurring services at a discounted rate.",
+        },
+        {
+          id: "customer_happy_rating_ot_v2",
+          name: "Happy rating (ot v2)",
+          description:
+            "This email notification is sent to the customer when they leave a happy rating of 4 out of 5 or higher thanking them.",
+        },
+        {
+          id: "customer_happy_rating_rec",
+          name: "Happy rating (rec)",
+          description:
+            "This email notification is sent to the customer when they leave a happy rating of 4 out of 5 or higher on a recurring service.",
+        },
+        {
+          id: "customer_average_rating",
+          name: "Average rating",
+          description:
+            "This email notification is sent to the customer when they leave an average rating of 3 out of 5.",
+        },
+        {
+          id: "customer_poor_rating",
+          name: "Poor rating",
+          description:
+            "This email notification is sent to the customer when they leave a poor rating of 2 out of 5 or lower.",
+        },
+      ],
+    },
     {
       id: "gift_card_referral",
       label: "Gift card & referral",
@@ -1224,10 +1277,121 @@ export default function NotificationsSettingsPage() {
         },
       ],
     },
-    { id: "quote", label: "Quote", items: [] },
-    { id: "customer_checklist", label: "Checklist", items: [] },
-    { id: "separate_charge", label: "Separate charge", items: [] },
-    { id: "customer_invoice", label: "Invoice", items: [] },
+    {
+      id: "quote",
+      label: "Quote",
+      items: [
+        {
+          id: "customer_send_quote",
+          name: "Send quote",
+          description:
+            "This email notification is sent to the customer letting them know you sent them a quote for a booking.",
+        },
+        {
+          id: "customer_quote_reminder",
+          name: "Quote reminder",
+          description:
+            "This email notification is sent to the customer to remind them of the quote they received.",
+        },
+      ],
+    },
+    {
+      id: "separate_charge",
+      label: "Separate charge",
+      items: [
+        {
+          id: "customer_separate_charge",
+          name: "Separate charge",
+          description:
+            "This email notification is sent to the customer when a separate charge has been processed.",
+        },
+        {
+          id: "customer_separate_charge_authentication",
+          name: "Separate charge authentication",
+          description:
+            "This email notification is sent to the customer to authenticate their card for a separate charge.",
+        },
+        {
+          id: "customer_separate_charge_refund",
+          name: "Separate charge refund",
+          description: "This email notification is sent when a separate charge has been refunded.",
+        },
+      ],
+    },
+    {
+      id: "customer_invoice",
+      label: "Invoice",
+      items: [
+        {
+          id: "customer_new_invoice",
+          name: "New invoice",
+          description:
+            "This email notification is sent to the customer when a new invoice has been generated.",
+        },
+        {
+          id: "customer_update_invoice",
+          name: "Update invoice",
+          description: "This email notification is sent to the customer when an invoice has been updated.",
+        },
+        {
+          id: "customer_resend_invoice",
+          name: "Resend invoice",
+          description: "This email notification is sent to the customer when a merchant resends an invoice.",
+        },
+        {
+          id: "customer_invoice_partial_charge",
+          name: "Invoice partial charge",
+          description:
+            "This email notification is sent to the customer when an invoice has been partially paid.",
+        },
+        {
+          id: "customer_invoice_charge",
+          name: "Invoice charge",
+          description: "This email notification is sent to the customer when an invoice has been fully paid.",
+        },
+        {
+          id: "customer_invoice_card_declined",
+          name: "Invoice card declined",
+          description:
+            "This email notification is sent to the customer when an invoice card payment is declined.",
+        },
+        {
+          id: "customer_custom_invoice_refund",
+          name: "Custom invoice refund",
+          description: "This email notification is sent to the customer when a custom invoice is refunded.",
+        },
+        {
+          id: "customer_invoice_charge_authentication",
+          name: "Invoice charge authentication",
+          description:
+            "This email notification is sent to the customer to authenticate their card for a charge.",
+        },
+        {
+          id: "customer_invoice_due_today_reminder",
+          name: "Invoice due today reminder",
+          description:
+            "This email notification is sent to the customer as a reminder that an invoice is due today.",
+        },
+        {
+          id: "customer_invoice_overdue_reminder",
+          name: "Invoice overdue reminder",
+          description:
+            "This email notification is sent to the customer as a reminder that an invoice is overdue.",
+        },
+        {
+          id: "customer_upcoming_payment_for_invoice_reminder",
+          name: "Upcoming payment for invoice reminder",
+          description:
+            "This email notification is sent to the customer as a reminder that a payment is due soon.",
+        },
+        {
+          id: "customer_invoice_contract_otp",
+          name: "Invoice contract otp",
+          description:
+            "This email notification is sent to the customer to provide a one-time password (OTP) for an invoice contract.",
+        },
+      ],
+    },
   ];
 
   const providerNotificationSections: AdminNotificationSection[] = [
@@ -1286,16 +1450,196 @@ export default function NotificationsSettingsPage() {
         },
       ],
     },
-    { id: "drive", label: "Drive", items: [] },
-    { id: "new_modified_booking", label: "New & modified booking", items: [] },
-    { id: "cancel_postponed_booking", label: "Canceled & postponed booking", items: [] },
-    { id: "unassigned_booking", label: "Unassigned booking", items: [] },
-    { id: "reminders", label: "Reminders", items: [] },
-    { id: "rating_review", label: "Rating & review", items: [] },
-    { id: "payments", label: "Payments", items: [] },
-    { id: "payment_processor", label: "Payment processor", items: [] },
-    { id: "schedule_settings", label: "Schedule & settings", items: [] },
-    { id: "checklist", label: "Checklist", items: [] },
+    {
+      id: "drive",
+      label: "Drive",
+      items: [
+        {
+          id: "provider_document_uploaded_to_drive",
+          name: "Document uploaded to drive",
+          description:
+            "This email notification is sent to the provider when there has been a document uploaded to their my drive.",
+        },
+      ],
+    },
+    {
+      id: "new_modified_booking",
+      label: "New & modified booking",
+      items: [
+        {
+          id: "provider_new_booking",
+          name: "New booking",
+          description: "This email notification is sent to the provider when they have a new booking.",
+        },
+        {
+          id: "provider_booking_modified",
+          name: "Booking modified",
+          description:
+            "This email notification is sent to the provider when a booking that they are scheduled to work on has been modified.",
+        },
+        {
+          id: "provider_booking_modified_after_5_pm",
+          name: "Booking modified after 5 pm",
+          description:
+            "This email notification is sent to the provider when a booking that they are scheduled to work on has been modified after 5 pm the day before it is scheduled to be done.",
+        },
+      ],
+    },
+    {
+      id: "cancel_postponed_booking",
+      label: "Canceled & postponed booking",
+      items: [
+        {
+          id: "provider_booking_canceled",
+          name: "Booking canceled",
+          description:
+            "This email notification is sent to the provider when a booking that they are scheduled to work has been canceled.",
+        },
+        {
+          id: "provider_booking_canceled_after_5_pm",
+          name: "Booking canceled after 5 pm",
+          description:
+            "This email notification is sent to the provider when a booking that they are scheduled to work has been canceled after 5 pm the day before it is scheduled to be done.",
+        },
+        {
+          id: "provider_postpone_booking",
+          name: "Postpone booking",
+          description:
+            "This email notification is sent to the provider when a booking that they are supposed to work has been postponed.",
+        },
+      ],
+    },
+    {
+      id: "unassigned_booking",
+      label: "Unassigned booking",
+      items: [
+        {
+          id: "provider_new_booking_in_unassigned_folder",
+          name: "New booking in unassigned folder",
+          description:
+            "This email notification is sent to the provider when a new booking lands in the unassigned folder.",
+        },
+        {
+          id: "provider_new_invite_for_job_in_unassigned_folder",
+          name: "New invite for a job in unassigned folder",
+          description:
+            "This email notification is sent to the provider asking them if they want to pick up an extra job that is in the unassigned folder.",
+        },
+      ],
+    },
+    {
+      id: "reminders",
+      label: "Reminders",
+      items: [
+        {
+          id: "provider_reminder_for_job_in_unassigned_folder",
+          name: "Reminder for job in unassigned folder",
+          description:
+            "This email notification is sent to the provider as a reminder that there is a job in the unassigned folder.",
+        },
+        {
+          id: "provider_one_day_reminder",
+          name: "One day reminder",
+          description:
+            "This email notification is sent to the provider as a reminder that their booking starts in 24 hours.",
+        },
+        {
+          id: "provider_one_hour_reminder",
+          name: "One hour reminder",
+          description:
+            "This email notification is sent to the provider as a reminder that their booking starts in 1 hour.",
+        },
+      ],
+    },
+    {
+      id: "rating_review",
+      label: "Rating & review",
+      items: [
+        {
+          id: "provider_new_review",
+          name: "New review",
+          description:
+            "This email notification is sent to the provider when they have a new review from the customer.",
+        },
+      ],
+    },
+    {
+      id: "payments",
+      label: "Payments",
+      items: [
+        {
+          id: "provider_payment_received",
+          name: "Payment received",
+          description: "This email notification is sent to the provider when they have received a new payment.",
+        },
+        {
+          id: "provider_new_tip",
+          name: "New tip",
+          description:
+            "This email notification is sent to the provider when they have received a new tip from a customer.",
+        },
+      ],
+    },
+    {
+      id: "payment_processor",
+      label: "Payment processor",
+      items: [
+        {
+          id: "provider_payment_processor_account_pending",
+          name: "Payment processor account pending",
+          description:
+            "This email notification is sent to the provider when their payment processor account has been created with restricted status due to insufficient information.",
+        },
+        {
+          id: "provider_payment_processor_account_verification_failed",
+          name: "Payment processor account verification failed",
+          description:
+            "This email notification is sent to the provider when their payment processor account's verification has failed.",
+        },
+        {
+          id: "provider_payment_processor_account_connected",
+          name: "Payment processor account connected",
+          description:
+            "This email notification is sent to the provider when their payment processor account is successfully connected with your account.",
+        },
+        {
+          id: "provider_payment_processor_account_onboarding_completed",
+          name: "Payment processor account onboarding completed",
+          description:
+            "This email notification is sent to the provider when the onboarding process of their payment processor account has been completed.",
+        },
+        {
+          id: "provider_payment_processor_account_restricted",
+          name: "Payment processor account restricted",
+          description:
+            "This email notification is sent to the provider when their payment processor account becomes restricted from the payment processor dashboard.",
+        },
+        {
+          id: "provider_payment_processor_account_rejected",
+          name: "Payment processor account rejected",
+          description:
+            "This email notification is sent to the provider when you reject their account from the payment processor dashboard.",
+        },
+      ],
+    },
+    {
+      id: "schedule_settings",
+      label: "Schedule & settings",
+      items: [
+        {
+          id: "provider_schedule_modification_request_response",
+          name: "Schedule modification request response",
+          description:
+            "This email notification is sent to the provider when you have responded to their schedule modification request.",
+        },
+        {
+          id: "provider_send_schedule",
+          name: "Send schedule",
+          description:
+            "This email notification is sent to the provider with their schedule for a certain date range.",
+        },
+      ],
+    },
   ];
 
   const staffNotificationSections: AdminNotificationSection[] = [

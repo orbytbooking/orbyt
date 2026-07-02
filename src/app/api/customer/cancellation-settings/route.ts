@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { getAllowedCustomerCancelCategoryIds } from '@/lib/customerSelfCancel';
 
 const DEFAULT_BLOCKED_MESSAGE = '<p>Please contact admin to cancel your booking.</p>';
 
@@ -37,10 +38,14 @@ export async function GET(request: NextRequest) {
     const rawMsg = settings.customerSelfCancelBlockedMessage;
     const customer_self_cancel_blocked_message =
       typeof rawMsg === 'string' && rawMsg.trim() !== '' ? rawMsg : DEFAULT_BLOCKED_MESSAGE;
+    const customer_cancel_category_ids = getAllowedCustomerCancelCategoryIds(
+      settings as { customerCancelCategoryIds?: Record<string, boolean> },
+    );
 
     return NextResponse.json({
       allow_customer_self_cancel,
       customer_self_cancel_blocked_message,
+      customer_cancel_category_ids,
     });
   } catch (e) {
     console.error('Customer cancellation settings GET:', e);

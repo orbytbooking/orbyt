@@ -244,7 +244,7 @@ export default function ProviderPaymentsPage() {
               <div className="lg:col-span-1 relative">
                 <Calendar className="h-4 w-4 absolute left-3 top-2.5 text-muted-foreground" />
                 <Input
-                  className="pl-9"
+                  className="pl-9 dark:text-muted-foreground dark:[color-scheme:dark]"
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
@@ -252,6 +252,7 @@ export default function ProviderPaymentsPage() {
               </div>
               <div className="lg:col-span-1">
                 <Input
+                  className="dark:text-muted-foreground dark:[color-scheme:dark]"
                   type="date"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}

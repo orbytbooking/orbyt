@@ -19,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/use-toast";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { useLogo } from "@/contexts/LogoContext";
@@ -1035,21 +1036,22 @@ const Customers = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Add Customer Dialog */}
-      <Dialog open={showAddCustomer} onOpenChange={(open) => {
-        setShowAddCustomer(open);
-        if (!open && searchParams.get("add") === "true") {
-          router.push("/admin/customers");
-        }
-      }}>
-        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-semibold">Add customer</DialogTitle>
-            <DialogDescription>
-              Creating a new customer profile here allows you to easily search for and add customer information to bookings. A profile will be created upon saving, and an invitation to create a password will be automatically sent out to the customer.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 py-4">
+      {/* Add Customer Modal */}
+      <Modal
+        isOpen={showAddCustomer}
+        onClose={() => {
+          setShowAddCustomer(false);
+          if (searchParams.get("add") === "true") {
+            router.push("/admin/customers");
+          }
+        }}
+        title="Add customer"
+        panelClassName="w-[95vw] sm:max-w-4xl max-h-[90vh]"
+      >
+        <p className="text-sm text-muted-foreground dark:text-gray-400 mb-4">
+          Creating a new customer profile here allows you to easily search for and add customer information to bookings. A profile will be created upon saving, and an invitation to create a password will be automatically sent out to the customer.
+        </p>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 overflow-y-auto max-h-[calc(90vh-16rem)] pr-1">
             {/* Left column - Customer details */}
             <div className="lg:col-span-2 space-y-4">
               <div className="space-y-2">
@@ -1087,7 +1089,7 @@ const Customers = () => {
               <div className="space-y-2">
                 <Label>Gender</Label>
                 <div className="flex items-center gap-6 mt-2 text-sm">
-                  <label className="flex items-center gap-2 cursor-pointer">
+                  <label className="flex items-center gap-2 cursor-pointer dark:text-white">
                     <input
                       type="radio"
                       name="gender"
@@ -1097,7 +1099,7 @@ const Customers = () => {
                     />
                     Male
                   </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
+                  <label className="flex items-center gap-2 cursor-pointer dark:text-white">
                     <input
                       type="radio"
                       name="gender"
@@ -1107,7 +1109,7 @@ const Customers = () => {
                     />
                     Female
                   </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
+                  <label className="flex items-center gap-2 cursor-pointer dark:text-white">
                     <input
                       type="radio"
                       name="gender"
@@ -1137,8 +1139,8 @@ const Customers = () => {
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium leading-none">Phone no.</span>
-                  <button type="button" className="text-blue-500 hover:text-blue-600" title="Add another phone">
+                  <Label className="mb-0">Phone no.</Label>
+                  <button type="button" className="text-blue-500 hover:text-blue-600 dark:text-cyan-400 dark:hover:text-cyan-300" title="Add another phone">
                     <Plus className="h-4 w-4" />
                   </button>
                 </div>
@@ -1153,7 +1155,7 @@ const Customers = () => {
                 />
                 <p className="text-xs text-muted-foreground">{PHONE_FIELD_HELPER_TEXT}</p>
               </div>
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <label className="flex items-center gap-2 text-sm cursor-pointer dark:text-white">
                 <input
                   type="checkbox"
                   checked={newCustomer.smsReminders}
@@ -1197,28 +1199,36 @@ const Customers = () => {
               />
             </div>
           </div>
-          <div className="border-t pt-4 space-y-3">
-            <div>
-              <h4 className="font-medium text-sm">Send invitation</h4>
-              <p className="text-sm text-muted-foreground mt-1">
-                An invite can be sent via email or SMS upon saving, allowing the customer to access and create a password for their new account. The password can be changed or reset on their behalf from their profile.
-              </p>
-            </div>
-            <div className="flex gap-3 justify-end">
-              <Button variant="outline" onClick={() => setShowAddCustomer(false)}>
-                Cancel
-              </Button>
-              <Button
-                onClick={handleAddCustomer}
-                disabled={(!newCustomer.firstName && !newCustomer.lastName) || !newCustomer.email}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                Save
-              </Button>
-            </div>
+        <div className="border-t border-gray-200 dark:border-cyan-500/20 pt-4 mt-4 space-y-3">
+          <div>
+            <h4 className="font-medium text-sm dark:text-white">Send invitation</h4>
+            <p className="text-sm text-muted-foreground dark:text-gray-400 mt-1">
+              An invite can be sent via email or SMS upon saving, allowing the customer to access and create a password for their new account. The password can be changed or reset on their behalf from their profile.
+            </p>
           </div>
-        </DialogContent>
-      </Dialog>
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => {
+                setShowAddCustomer(false);
+                if (searchParams.get("add") === "true") {
+                  router.push("/admin/customers");
+                }
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={handleAddCustomer}
+              disabled={(!newCustomer.firstName && !newCustomer.lastName) || !newCustomer.email}
+            >
+              Save
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

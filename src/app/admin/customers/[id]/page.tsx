@@ -3265,16 +3265,6 @@ export default function CustomerProfilePage() {
               </Collapsible>
               </div>
 
-              <Button
-                variant="outline"
-                className="w-full mt-4 border-gray-300 text-gray-700 hover:bg-gray-50"
-                onClick={() => {
-                  router.push(`/admin/bookings?booking=${selectedBooking.id}`);
-                  setSelectedBooking(null);
-                }}
-              >
-                View in Bookings
-              </Button>
             </div>
           )}
         </DialogContent>

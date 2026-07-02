@@ -24,6 +24,7 @@ import { adminImpersonateProvider } from "@/lib/adminProviderImpersonation";
 import { getDayOfWeekUTC, getTodayLocalDate } from "@/lib/date-utils";
 import { useBusiness } from "@/contexts/BusinessContext";
 import { AdminProviderDrive } from "@/components/drive/AdminProviderDrive";
+import { BookingLogsDialog } from "@/components/admin/BookingLogsDialog";
 
 
 type ProviderStatus = "active" | "inactive" | "suspended";
@@ -216,6 +217,8 @@ export default function ProviderProfilePage() {
   const [allBookings, setAllBookings] = useState<Booking[]>([]);
   const [calendarBookingSummaryOpen, setCalendarBookingSummaryOpen] = useState(false);
   const [selectedCalendarBooking, setSelectedCalendarBooking] = useState<Booking | null>(null);
+  const [bookingLogsOpen, setBookingLogsOpen] = useState(false);
+  const [bookingLogsBookingId, setBookingLogsBookingId] = useState<string | null>(null);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [calView, setCalView] = useState<"month" | "week" | "day">("month");
 
@@ -2605,7 +2608,13 @@ export default function ProviderProfilePage() {
                 <Button className="w-full bg-pink-100 hover:bg-pink-200 text-pink-900" onClick={() => router.push(`/admin/bookings?id=${encodeURIComponent(String(selectedCalendarBooking.id))}`)}>
                   Send "Add card" link
                 </Button>
-                <Button className="w-full bg-slate-100 hover:bg-slate-200 text-slate-900" onClick={() => router.push(`/admin/logs?bookingId=${encodeURIComponent(String(selectedCalendarBooking.id))}`)}>
+                <Button
+                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-900"
+                  onClick={() => {
+                    setBookingLogsBookingId(String(selectedCalendarBooking.id));
+                    setBookingLogsOpen(true);
+                  }}
+                >
                   View Booking Log
                 </Button>
                 <Button className="w-full bg-cyan-100 hover:bg-cyan-200 text-cyan-900" onClick={() => router.push(`/admin/booking-charges?precharge=${encodeURIComponent(String(selectedCalendarBooking.id))}`)}>
@@ -2700,6 +2709,16 @@ export default function ProviderProfilePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BookingLogsDialog
+        open={bookingLogsOpen}
+        onOpenChange={(o) => {
+          setBookingLogsOpen(o);
+          if (!o) setBookingLogsBookingId(null);
+        }}
+        bookingId={bookingLogsBookingId}
+        businessId={currentBusiness?.id ?? ""}
+      />
     </div>
   );
 }

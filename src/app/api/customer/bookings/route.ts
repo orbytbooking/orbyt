@@ -21,6 +21,13 @@ import {
   isGiftCardCoversFullCheckout,
   processGiftCardFromBookingBody,
 } from '@/lib/giftCardBooking';
+import {
+  assertBookingPaymentMethodAllowed,
+  loadAcceptedPaymentForms,
+  normalizeBookingPaymentMethod,
+} from '@/lib/acceptedPaymentMethods';
+import { logBookingCreated, resolveCustomerDisplayName } from '@/lib/bookingActivityLogs';
+import { formatQuoteLogActorName, getRequestClientIp } from '@/lib/draftQuoteLogs';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -116,6 +123,7 @@ function dbToCustomerBooking(
   return {
     id: row.id,
     service: row.service ?? '',
+    serviceId: row.service_id ?? undefined,
     provider: providerName || 'Unassigned',
     frequency: row.frequency && String(row.frequency).trim() ? String(row.frequency).trim() : '',
     date,
@@ -136,6 +144,13 @@ function dbToCustomerBooking(
       ? { durationMinutes: Number(row.duration_minutes) }
       : {}),
     ...(pricingSummary ? { pricingSummary } : {}),
+    cancellationRequestPending:
+      row.cancellation_request_status === 'pending' ||
+      (Array.isArray(row.pending_cancellation_occurrence_dates) &&
+        row.pending_cancellation_occurrence_dates.length > 0),
+    pendingCancellationOccurrenceDates: Array.isArray(row.pending_cancellation_occurrence_dates)
+      ? row.pending_cancellation_occurrence_dates
+      : [],
   };
 }
 
@@ -549,6 +564,27 @@ export async function POST(request: NextRequest) {
   const isOnlinePayment =
     body.paymentMethod === 'online' || body.payment_method === 'online';
   const bodyRecord = body as Record<string, unknown>;
+  const requestedPaymentMethod = normalizeBookingPaymentMethod(bodyRecord);
+  const acceptedPaymentForms = await loadAcceptedPaymentForms(supabase, businessId);
+  const paymentMethodCheck = assertBookingPaymentMethodAllowed(
+    requestedPaymentMethod,
+    acceptedPaymentForms,
+  );
+  if (!paymentMethodCheck.ok) {
+    return NextResponse.json(
+      { error: paymentMethodCheck.code, message: paymentMethodCheck.error },
+      { status: 400 },
+    );
+  }
+  if (stripeIntent && !acceptedPaymentForms.creditCard) {
+    return NextResponse.json(
+      {
+        error: 'PAYMENT_METHOD_NOT_ALLOWED',
+        message: 'Credit/debit card payment is not available for this business.',
+      },
+      { status: 400 },
+    );
+  }
   const giftCardCoversFull = isOnlinePayment && isGiftCardCoversFullCheckout(bodyRecord);
   if (stripeIntent && isOnlinePayment && !giftCardCoversFull) {
     const amountCents = Math.round(totalPrice * 100);
@@ -693,6 +729,16 @@ export async function POST(request: NextRequest) {
       }).catch((e) => console.warn('Scheduling processing failed:', e));
 
       if (firstBooking?.id) {
+        await logBookingCreated(supabase, {
+          businessId: String(businessId),
+          bookingId: String(firstBooking.id),
+          customerName: resolveCustomerDisplayName(firstBooking, customer?.name ?? null),
+          actorName: (customer?.name || formatQuoteLogActorName(user)).trim() || 'Customer',
+          actorUserId: user.id,
+          source: 'book now',
+          ipAddress: getRequestClientIp(request),
+          booking: firstBooking as Record<string, unknown>,
+        });
         await processGiftCardFromBookingBody(
           supabase,
           String(businessId),
@@ -766,6 +812,17 @@ export async function POST(request: NextRequest) {
     String(customer.id),
     'redeem',
   );
+
+  await logBookingCreated(supabase, {
+    businessId: String(businessId),
+    bookingId: String(booking.id),
+    customerName: resolveCustomerDisplayName(booking, customer?.name ?? null),
+    actorName: (customer?.name || formatQuoteLogActorName(user)).trim() || 'Customer',
+    actorUserId: user.id,
+    source: 'book now',
+    ipAddress: getRequestClientIp(request),
+    booking: booking as Record<string, unknown>,
+  });
 
   await processBookingScheduling(booking.id, businessId, {
     providerId: booking.provider_id,

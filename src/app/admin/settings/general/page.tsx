@@ -59,6 +59,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import Link from 'next/link';
 import { TaxPerLocationRates } from '@/app/admin/settings/general/TaxPerLocationRates';
+import { CancellationReasonsManager } from '@/components/admin/CancellationReasonsManager';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -313,6 +314,7 @@ export default function GeneralSettingsPage() {
   const [storePhoneFormat, setStorePhoneFormat] = useState('999-999-9999');
   const [paymentCreditCard, setPaymentCreditCard] = useState(true);
   const [paymentCashCheck, setPaymentCashCheck] = useState(false);
+  const [storeInfoSaving, setStoreInfoSaving] = useState(false);
   const [formBooking, setFormBooking] = useState(true);
   const [calendarColorManagement, setCalendarColorManagement] = useState<'booking' | 'provider'>('booking');
   const [rememberFilter, setRememberFilter] = useState<'yes' | 'no'>('no');
@@ -406,10 +408,14 @@ export default function GeneralSettingsPage() {
   const [cancellationIndustries, setCancellationIndustries] = useState<{ id: string; name: string }[]>([]);
   const [cancellationSettingsLoading, setCancellationSettingsLoading] = useState(false);
   const [cancellationSettingsSaving, setCancellationSettingsSaving] = useState(false);
+  const [cancellationReasonsModalOpen, setCancellationReasonsModalOpen] = useState(false);
   const [reschedulingFeesExpanded, setReschedulingFeesExpanded] = useState(false);
-  const [chargeRescheduleFee, setChargeRescheduleFee] = useState<'yes' | 'no'>('yes');
+  const [chargeRescheduleFee, setChargeRescheduleFee] = useState<'yes' | 'no'>('no');
   const [rescheduleFeeAmount, setRescheduleFeeAmount] = useState('');
-  const [rescheduleFeeCurrency, setRescheduleFeeCurrency] = useState('$');
+  const [rescheduleFeeType, setRescheduleFeeType] = useState<'$' | '%'>('$');
+  const [rescheduleSettingsLoading, setRescheduleSettingsLoading] = useState(false);
+  const [rescheduleSettingsSaving, setRescheduleSettingsSaving] = useState(false);
+  const [rescheduleSettingsMigrationRequired, setRescheduleSettingsMigrationRequired] = useState(false);
   const [overrideServiceCategoryReschedule, setOverrideServiceCategoryReschedule] = useState(false);
   const [rescheduleConsiderDate, setRescheduleConsiderDate] = useState(false);
   const [rescheduleConsiderTime, setRescheduleConsiderTime] = useState(false);
@@ -706,6 +712,12 @@ export default function GeneralSettingsPage() {
           setCustomerMyDriveEnabled(data.options.customer_my_drive_enabled ? 'yes' : 'no');
         }
         applyAdminTabFromStoreOptions(opts);
+        if (typeof data.options.accepted_payment_credit_card === 'boolean') {
+          setPaymentCreditCard(data.options.accepted_payment_credit_card);
+        }
+        if (typeof data.options.accepted_payment_cash_check === 'boolean') {
+          setPaymentCashCheck(data.options.accepted_payment_cash_check);
+        }
       }
     } catch {
       toast.error("Failed to load scheduling settings");
@@ -750,6 +762,46 @@ export default function GeneralSettingsPage() {
       setEligibilityProviders([]);
     } finally {
       setEligibilityLoading(false);
+    }
+  };
+
+  const handleSaveStoreInfo = async () => {
+    if (!currentBusiness?.id) return;
+    if (!paymentCreditCard && !paymentCashCheck) {
+      toast.error('Select at least one accepted payment method.');
+      return;
+    }
+    setStoreInfoSaving(true);
+    try {
+      const currentRes = await fetch(`/api/admin/store-options?businessId=${encodeURIComponent(currentBusiness.id)}`, {
+        headers: { 'x-business-id': currentBusiness.id },
+      });
+      const currentData = await currentRes.json();
+      if (!currentRes.ok) throw new Error(currentData.error || 'Failed to load current settings');
+      const merged = {
+        ...(currentData.options ?? schedulingOptions),
+        businessId: currentBusiness.id,
+        accepted_payment_credit_card: paymentCreditCard,
+        accepted_payment_cash_check: paymentCashCheck,
+      };
+      const res = await fetch('/api/admin/store-options', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'x-business-id': currentBusiness.id },
+        body: JSON.stringify(merged),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save store info');
+      if (data.accepted_payment_forms_migration_required) {
+        toast.error(
+          'Payment method settings need DB migration: run database/migrations/166_accepted_payment_forms_store_options.sql in Supabase SQL Editor, then save again.',
+        );
+        return;
+      }
+      toast.success('Store info saved');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to save store info');
+    } finally {
+      setStoreInfoSaving(false);
     }
   };
 
@@ -1116,11 +1168,142 @@ export default function GeneralSettingsPage() {
       if (typeof s.customerSelfCancelBlockedMessage === 'string') {
         setCustomerSelfCancelBlockedMessage(s.customerSelfCancelBlockedMessage);
       }
+      if (s.cancellationReasonsSetup !== undefined) {
+        setCancellationReasonsSetup(s.cancellationReasonsSetup === 'no' ? 'no' : 'yes');
+      }
+      if (s.cancellationReasonOptional !== undefined) {
+        setCancellationReasonOptional(s.cancellationReasonOptional === 'yes' ? 'yes' : 'no');
+      }
+      if (s.cancellationCommentBox !== undefined) {
+        setCancellationCommentBox(s.cancellationCommentBox === 'no' ? 'no' : 'yes');
+      }
+      if (s.cancellationBookingTypeOneTime !== undefined) {
+        setCancellationBookingTypeOneTime(!!s.cancellationBookingTypeOneTime);
+      }
+      if (s.cancellationBookingTypeRecurring !== undefined) {
+        setCancellationBookingTypeRecurring(!!s.cancellationBookingTypeRecurring);
+      }
+      if (s.cancellationReasonsDisplay !== undefined) {
+        setCancellationReasonsDisplay(s.cancellationReasonsDisplay === 'admin_only' ? 'admin_only' : 'both');
+      }
+      if (s.cancellationServiceReasons && typeof s.cancellationServiceReasons === 'object') {
+        setCancellationServiceReasons(s.cancellationServiceReasons as Record<string, boolean>);
+      }
+      if (s.cancellationStopRecurring !== undefined) {
+        setCancellationStopRecurring(s.cancellationStopRecurring === 'no' ? 'no' : 'yes');
+      }
     } catch (e) {
       console.error(e);
       toast.error(e instanceof Error ? e.message : 'Failed to load cancellation settings');
     } finally {
       setCancellationSettingsLoading(false);
+    }
+  };
+
+  const fetchRescheduleSettings = async () => {
+    if (!currentBusiness?.id) return;
+    setRescheduleSettingsLoading(true);
+    try {
+      const res = await fetch(
+        `/api/admin/reschedule-settings?businessId=${encodeURIComponent(currentBusiness.id)}`,
+        { headers: { 'x-business-id': currentBusiness.id } }
+      );
+      const data = await res.json();
+      if (data.reschedule_settings_migration_required) {
+        setRescheduleSettingsMigrationRequired(true);
+        toast.warning(
+          `Rescheduling fee settings need a database migration. Run ${data.migration_hint ?? 'database/migrations/168_business_reschedule_settings.sql'} in the Supabase SQL Editor, then reload this page.`
+        );
+        return;
+      }
+      setRescheduleSettingsMigrationRequired(false);
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch reschedule settings');
+      const s = data.settings || {};
+      if (s.chargeFee !== undefined) setChargeRescheduleFee(s.chargeFee === 'yes' ? 'yes' : 'no');
+      if (s.feeAmount !== undefined) {
+        const parsed = parseInt(String(s.feeAmount ?? ''), 10);
+        setRescheduleFeeAmount(Number.isFinite(parsed) && parsed > 0 ? String(parsed) : '');
+      }
+      if (s.feeType === '$' || s.feeType === '%') setRescheduleFeeType(s.feeType);
+      if (s.overrideServiceCategory !== undefined) setOverrideServiceCategoryReschedule(!!s.overrideServiceCategory);
+      if (s.considerDate !== undefined) setRescheduleConsiderDate(!!s.considerDate);
+      if (s.considerTime !== undefined) setRescheduleConsiderTime(!!s.considerTime);
+      if (s.considerAnyChanges !== undefined) setRescheduleConsiderAnyChanges(!!s.considerAnyChanges);
+      if (s.chargeWhen !== undefined) {
+        setChargeRescheduleWhen(s.chargeWhen === 'hours_before' ? 'hours_before' : 'after_time_day_before');
+      }
+      if (s.afterTime !== undefined) setChargeAfterTime(s.afterTime || '01:00');
+      if (s.afterAmPm !== undefined) setChargeAfterAmPm(s.afterAmPm === 'PM' ? 'PM' : 'AM');
+      if (s.hoursBefore !== undefined) setChargeHoursBefore(s.hoursBefore || '1');
+      if (s.excludeSameDay !== undefined) setExcludeSameDayBookings(!!s.excludeSameDay);
+      if (s.chargeMultipleFeesOneDay !== undefined) setChargeMultipleFeesOneDay(!!s.chargeMultipleFeesOneDay);
+      if (s.chargeFeeOnPostpone !== undefined) setChargeFeeOnPostpone(!!s.chargeFeeOnPostpone);
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : 'Failed to load reschedule settings');
+    } finally {
+      setRescheduleSettingsLoading(false);
+    }
+  };
+
+  const saveRescheduleSettings = async () => {
+    if (!currentBusiness?.id) return;
+    if (chargeRescheduleFee === 'yes') {
+      const amount = parseInt(rescheduleFeeAmount, 10);
+      if (!rescheduleFeeAmount.trim() || Number.isNaN(amount) || amount <= 0) {
+        toast.error('Enter a rescheduling fee amount when charging a fee.');
+        return;
+      }
+      if (rescheduleFeeType !== '$' && rescheduleFeeType !== '%') {
+        toast.error('Select fixed price ($) or percentage (%) for the rescheduling fee.');
+        return;
+      }
+      if (rescheduleFeeType === '%' && amount > 100) {
+        toast.error('Percentage rescheduling fee cannot exceed 100%.');
+        return;
+      }
+    }
+    setRescheduleSettingsSaving(true);
+    try {
+      const res = await fetch('/api/admin/reschedule-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'x-business-id': currentBusiness.id },
+        body: JSON.stringify({
+          businessId: currentBusiness.id,
+          chargeFee: chargeRescheduleFee,
+          feeAmount: rescheduleFeeAmount,
+          feeType: rescheduleFeeType,
+          overrideServiceCategory: overrideServiceCategoryReschedule,
+          considerDate: rescheduleConsiderDate,
+          considerTime: rescheduleConsiderTime,
+          considerAnyChanges: rescheduleConsiderAnyChanges,
+          chargeWhen: chargeRescheduleWhen,
+          afterTime: chargeAfterTime,
+          afterAmPm: chargeAfterAmPm,
+          hoursBefore: chargeHoursBefore,
+          excludeSameDay: excludeSameDayBookings,
+          chargeMultipleFeesOneDay,
+          chargeFeeOnPostpone,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.reschedule_settings_migration_required) {
+          setRescheduleSettingsMigrationRequired(true);
+          toast.warning(
+            `Could not save rescheduling fee settings. Run ${data.migration_hint ?? 'database/migrations/168_business_reschedule_settings.sql'} in the Supabase SQL Editor, then try again.`
+          );
+          return;
+        }
+        throw new Error(data.error || 'Failed to save reschedule settings');
+      }
+      setRescheduleSettingsMigrationRequired(false);
+      toast.success('Rescheduling fee settings saved');
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : 'Failed to save reschedule settings');
+    } finally {
+      setRescheduleSettingsSaving(false);
     }
   };
 
@@ -1159,6 +1342,14 @@ export default function GeneralSettingsPage() {
           adminConfirmCancellationScope,
           refundPrechargedOnCustomerCancel,
           customerSelfCancelBlockedMessage,
+          cancellationReasonsSetup,
+          cancellationReasonOptional,
+          cancellationCommentBox,
+          cancellationBookingTypeOneTime,
+          cancellationBookingTypeRecurring,
+          cancellationReasonsDisplay,
+          cancellationServiceReasons,
+          cancellationStopRecurring,
         }),
       });
       const data = await res.json();
@@ -1171,6 +1362,12 @@ export default function GeneralSettingsPage() {
       setCancellationSettingsSaving(false);
     }
   };
+
+  useEffect(() => {
+    if (reschedulingFeesExpanded && currentBusiness?.id) {
+      fetchRescheduleSettings();
+    }
+  }, [reschedulingFeesExpanded, currentBusiness?.id]);
 
   useEffect(() => {
     if ((cancellationExpanded || customerCancellationExpanded) && currentBusiness?.id) {
@@ -1636,11 +1833,29 @@ export default function GeneralSettingsPage() {
                             </div>
                             <div className="flex flex-row flex-wrap gap-4 pt-1">
                               <label className="flex items-center gap-2 cursor-pointer">
-                                <Checkbox checked={paymentCreditCard} onCheckedChange={(c) => setPaymentCreditCard(!!c)} />
+                                <Checkbox
+                                  checked={paymentCreditCard}
+                                  onCheckedChange={(c) => {
+                                    if (!c && !paymentCashCheck) {
+                                      toast.error('At least one accepted payment method is required.');
+                                      return;
+                                    }
+                                    setPaymentCreditCard(!!c);
+                                  }}
+                                />
                                 <span className="text-sm dark:text-white">Credit/Debit card</span>
                               </label>
                               <label className="flex items-center gap-2 cursor-pointer">
-                                <Checkbox checked={paymentCashCheck} onCheckedChange={(c) => setPaymentCashCheck(!!c)} />
+                                <Checkbox
+                                  checked={paymentCashCheck}
+                                  onCheckedChange={(c) => {
+                                    if (!c && !paymentCreditCard) {
+                                      toast.error('At least one accepted payment method is required.');
+                                      return;
+                                    }
+                                    setPaymentCashCheck(!!c);
+                                  }}
+                                />
                                 <span className="text-sm dark:text-white">Cash/Check</span>
                               </label>
                             </div>
@@ -1751,6 +1966,18 @@ export default function GeneralSettingsPage() {
                               </div>
                             )}
                           </div>
+                        </div>
+                        <div className="pt-2">
+                          <Button onClick={handleSaveStoreInfo} disabled={storeInfoSaving}>
+                            {storeInfoSaving ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                Saving...
+                              </>
+                            ) : (
+                              'Save store info'
+                            )}
+                          </Button>
                         </div>
                       </TooltipProvider>
                     </div>
@@ -2116,6 +2343,13 @@ export default function GeneralSettingsPage() {
                     <div className="border-t bg-muted/30 px-6 py-6 space-y-6 dark:[&_label]:text-white dark:[&_p]:text-white dark:[&_span]:text-white dark:[&_input]:text-white dark:[&_button]:text-white dark:[&_td]:text-white dark:[&_th]:text-white dark:[&_.font-semibold]:text-white dark:[&_.font-medium]:text-white dark:[&_.text-muted-foreground]:text-white dark:[&_input::placeholder]:text-white">
                       <TooltipProvider>
                         <div className="space-y-6">
+                          {rescheduleSettingsMigrationRequired && (
+                            <div className="rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-3 text-sm text-amber-900 dark:text-amber-200">
+                              Rescheduling fee settings require a database migration. Run{' '}
+                              <code className="text-xs">database/migrations/168_business_reschedule_settings.sql</code>{' '}
+                              in the Supabase SQL Editor, then reload this page.
+                            </div>
+                          )}
                           <div className="space-y-2">
                             <div className="flex items-center gap-1.5">
                               <Label className="font-semibold text-sm">Would you like to charge a rescheduling fee?</Label>
@@ -2145,29 +2379,43 @@ export default function GeneralSettingsPage() {
                               </label>
                             </RadioGroup>
                             {chargeRescheduleFee === 'yes' && (
-                              <div className="flex items-center gap-2 pt-2">
-                                <Input
-                                  placeholder="Amount"
-                                  type="number"
-                                  min={0}
-                                  step="0.01"
-                                  value={rescheduleFeeAmount}
-                                  onChange={(e) => setRescheduleFeeAmount(e.target.value)}
-                                  className="w-32"
-                                />
-                                <Select value={rescheduleFeeCurrency} onValueChange={setRescheduleFeeCurrency}>
-                                  <SelectTrigger className="w-24">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="$">$</SelectItem>
-                                    <SelectItem value="€">€</SelectItem>
-                                    <SelectItem value="£">£</SelectItem>
-                                    <SelectItem value="USD">USD</SelectItem>
-                                    <SelectItem value="EUR">EUR</SelectItem>
-                                    <SelectItem value="GBP">GBP</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                              <div className="space-y-2 pt-2">
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    placeholder="Amount"
+                                    type="number"
+                                    min={1}
+                                    max={rescheduleFeeType === '%' ? 100 : undefined}
+                                    step={1}
+                                    inputMode="numeric"
+                                    value={rescheduleFeeAmount}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      if (v === '') {
+                                        setRescheduleFeeAmount('');
+                                        return;
+                                      }
+                                      if (/^\d+$/.test(v)) {
+                                        setRescheduleFeeAmount(v);
+                                      }
+                                    }}
+                                    className="w-32"
+                                  />
+                                  <Select value={rescheduleFeeType} onValueChange={(v) => setRescheduleFeeType(v as '$' | '%')}>
+                                    <SelectTrigger className="w-24">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="$">$</SelectItem>
+                                      <SelectItem value="%">%</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  {rescheduleFeeType === '%'
+                                    ? 'Percentage is calculated from the booking total when a reschedule fee applies.'
+                                    : 'Fixed price is charged as a flat dollar amount when a reschedule fee applies.'}
+                                </p>
                               </div>
                             )}
                           </div>
@@ -2183,6 +2431,8 @@ export default function GeneralSettingsPage() {
                               If the above option is not selected, then the reschedule fee will be applied based on the service category settings. Please enable the reschedule fee in the service categories if it is not enabled already or select the above option to apply global settings but it will not be based on the service categories.
                             </div>
                           </div>
+                          {chargeRescheduleFee === 'yes' && (
+                            <>
                           <div className="space-y-2">
                             <div className="flex items-center gap-1.5">
                               <Label className="font-semibold text-sm">What do you consider a rescheduled booking?</Label>
@@ -2295,6 +2545,20 @@ export default function GeneralSettingsPage() {
                               <Checkbox checked={chargeFeeOnPostpone} onCheckedChange={(c) => setChargeFeeOnPostpone(!!c)} />
                               <span className="text-sm">Check this box if you would like to charge reschedule fee on booking postpone.</span>
                             </label>
+                          </div>
+                            </>
+                          )}
+                          <div className="pt-4 border-t">
+                            <Button onClick={saveRescheduleSettings} disabled={rescheduleSettingsSaving || rescheduleSettingsLoading}>
+                              {rescheduleSettingsSaving ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                  Saving...
+                                </>
+                              ) : (
+                                'Save rescheduling fee settings'
+                              )}
+                            </Button>
                           </div>
                         </div>
                       </TooltipProvider>
@@ -2555,7 +2819,13 @@ export default function GeneralSettingsPage() {
                               </label>
                             </RadioGroup>
                             {cancellationReasonsSetup === 'yes' && (
-                              <Link href="#" className="text-sm text-primary hover:underline pt-1 block">Manage reasons</Link>
+                              <button
+                                type="button"
+                                onClick={() => setCancellationReasonsModalOpen(true)}
+                                className="text-sm text-primary hover:underline pt-1 block text-left"
+                              >
+                                Manage reasons
+                              </button>
                             )}
                           </div>
                           <div className="space-y-2">
@@ -2631,31 +2901,19 @@ export default function GeneralSettingsPage() {
                                   <Loader2 className="h-4 w-4 animate-spin" />
                                   <span className="text-sm">Loading service categories…</span>
                                 </div>
-                              ) : cancellationServiceCategories.length === 0 ? (
-                                <p className="text-sm text-muted-foreground py-2">No service categories added yet. Add categories in Settings → Industries.</p>
                               ) : (
                                 (() => {
                                   const byIndustry = cancellationIndustries.length > 0
                                     ? cancellationIndustries.map((ind) => ({
                                         industry: ind,
                                         categories: cancellationServiceCategories.filter((c) => c.industry_id === ind.id),
-                                      })).filter((g) => g.categories.length > 0)
+                                      }))
                                     : [];
-                                  const uncategorized = cancellationServiceCategories.filter((c) => !c.industry_id || !cancellationIndustries.some((i) => i.id === c.industry_id));
-                                  const hasGroups = byIndustry.length > 0 || uncategorized.length > 0;
-                                  if (!hasGroups) {
+                                  if (byIndustry.length === 0) {
                                     return (
-                                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                        {cancellationServiceCategories.map((cat) => (
-                                          <label key={cat.id} className="flex items-center gap-2 cursor-pointer">
-                                            <Checkbox
-                                              checked={cancellationServiceReasons[cat.id] ?? false}
-                                              onCheckedChange={(c) => setCancellationServiceReasons((prev) => ({ ...prev, [cat.id]: !!c }))}
-                                            />
-                                            <span className="text-sm">{cat.name}</span>
-                                          </label>
-                                        ))}
-                                      </div>
+                                      <p className="text-sm text-muted-foreground py-2">
+                                        No industries added yet. Add industries in Settings → Industries.
+                                      </p>
                                     );
                                   }
                                   return (
@@ -2663,35 +2921,25 @@ export default function GeneralSettingsPage() {
                                       {byIndustry.map(({ industry, categories }) => (
                                         <div key={industry.id}>
                                           <p className="font-medium text-sm mb-2">{industry.name}</p>
-                                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                            {categories.map((cat) => (
-                                              <label key={cat.id} className="flex items-center gap-2 cursor-pointer">
-                                                <Checkbox
-                                                  checked={cancellationServiceReasons[cat.id] ?? false}
-                                                  onCheckedChange={(c) => setCancellationServiceReasons((prev) => ({ ...prev, [cat.id]: !!c }))}
-                                                />
-                                                <span className="text-sm">{cat.name}</span>
-                                              </label>
-                                            ))}
-                                          </div>
+                                          {categories.length === 0 ? (
+                                            <p className="text-sm text-muted-foreground py-2">
+                                              No service categories in this industry yet. Add them under Settings → Industries.
+                                            </p>
+                                          ) : (
+                                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                              {categories.map((cat) => (
+                                                <label key={cat.id} className="flex items-center gap-2 cursor-pointer">
+                                                  <Checkbox
+                                                    checked={cancellationServiceReasons[cat.id] ?? false}
+                                                    onCheckedChange={(c) => setCancellationServiceReasons((prev) => ({ ...prev, [cat.id]: !!c }))}
+                                                  />
+                                                  <span className="text-sm">{cat.name}</span>
+                                                </label>
+                                              ))}
+                                            </div>
+                                          )}
                                         </div>
                                       ))}
-                                      {uncategorized.length > 0 && (
-                                        <div>
-                                          <p className="font-medium text-sm mb-2">Other</p>
-                                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                            {uncategorized.map((cat) => (
-                                              <label key={cat.id} className="flex items-center gap-2 cursor-pointer">
-                                                <Checkbox
-                                                  checked={cancellationServiceReasons[cat.id] ?? false}
-                                                  onCheckedChange={(c) => setCancellationServiceReasons((prev) => ({ ...prev, [cat.id]: !!c }))}
-                                                />
-                                                <span className="text-sm">{cat.name}</span>
-                                              </label>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      )}
                                     </div>
                                   );
                                 })()
@@ -4209,14 +4457,9 @@ export default function GeneralSettingsPage() {
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                     <span className="text-sm">Loading service categories…</span>
                                   </div>
-                                ) : cancellationServiceCategories.length === 0 ? (
-                                  <p className="text-sm text-muted-foreground py-2">
-                                    No service categories added yet. Add categories in Settings → Industries.
-                                  </p>
                                 ) : (
                                   <div className="space-y-4">
                                     {(() => {
-                                      const OTHER_TAB = '__other_uncategorized__';
                                       const byIndustry =
                                         cancellationIndustries.length > 0
                                           ? cancellationIndustries.map((ind) => ({
@@ -4224,11 +4467,16 @@ export default function GeneralSettingsPage() {
                                               categories: cancellationServiceCategories.filter((c) => c.industry_id === ind.id),
                                             }))
                                           : [];
-                                      const uncategorized = cancellationServiceCategories.filter(
-                                        (c) => !c.industry_id || !cancellationIndustries.some((i) => i.id === c.industry_id)
+                                      if (byIndustry.length === 0) {
+                                        return (
+                                          <p className="text-sm text-muted-foreground py-2">
+                                            No industries added yet. Add industries in Settings → Industries.
+                                          </p>
+                                        );
+                                      }
+                                      const allBusinessCategoryIds = byIndustry.flatMap(({ categories }) =>
+                                        categories.map((c) => c.id)
                                       );
-                                      const hasGroups = byIndustry.length > 0 || uncategorized.length > 0;
-                                      const allBusinessCategoryIds = cancellationServiceCategories.map((c) => c.id);
                                       const syncGlobalAllFlag = (next: Record<string, boolean>) =>
                                         allBusinessCategoryIds.length > 0 &&
                                         allBusinessCategoryIds.every((id) => !!next[id]);
@@ -4289,15 +4537,9 @@ export default function GeneralSettingsPage() {
                                             {categories.map((cat) => categoryCheckbox(cat))}
                                           </div>
                                         );
-                                      if (!hasGroups) {
-                                        const cats = cancellationServiceCategories;
-                                        return categoryBlockWithAll(cats);
-                                      }
                                       const useIndustryTabs = cancellationIndustries.length >= 2;
                                       if (useIndustryTabs) {
-                                        const defaultTab =
-                                          byIndustry[0]?.industry.id ??
-                                          (uncategorized.length > 0 ? OTHER_TAB : '');
+                                        const defaultTab = byIndustry[0]?.industry.id ?? '';
                                         return (
                                           <Tabs defaultValue={defaultTab} className="w-full">
                                             <TabsList className="h-auto w-full flex-wrap justify-start gap-1 bg-muted/50 p-1">
@@ -4310,25 +4552,12 @@ export default function GeneralSettingsPage() {
                                                   {industry.name}
                                                 </TabsTrigger>
                                               ))}
-                                              {uncategorized.length > 0 && (
-                                                <TabsTrigger
-                                                  value={OTHER_TAB}
-                                                  className="text-sm shrink-0 data-[state=active]:bg-background"
-                                                >
-                                                  Other
-                                                </TabsTrigger>
-                                              )}
                                             </TabsList>
                                             {byIndustry.map(({ industry, categories }) => (
                                               <TabsContent key={industry.id} value={industry.id} className="mt-3 focus-visible:outline-none">
                                                 {categoryBlockWithAll(categories)}
                                               </TabsContent>
                                             ))}
-                                            {uncategorized.length > 0 && (
-                                              <TabsContent value={OTHER_TAB} className="mt-3 focus-visible:outline-none">
-                                                {categoryBlockWithAll(uncategorized)}
-                                              </TabsContent>
-                                            )}
                                           </Tabs>
                                         );
                                       }
@@ -4340,12 +4569,6 @@ export default function GeneralSettingsPage() {
                                               {categoryBlockWithAll(categories)}
                                             </div>
                                           ))}
-                                          {uncategorized.length > 0 && (
-                                            <div>
-                                              <p className="font-medium text-sm mb-2">Other</p>
-                                              {categoryBlockWithAll(uncategorized)}
-                                            </div>
-                                          )}
                                         </>
                                       );
                                     })()}
@@ -6698,6 +6921,12 @@ export default function GeneralSettingsPage() {
           </Sheet>
         </TabsContent>
       </Tabs>
+
+      <CancellationReasonsManager
+        open={cancellationReasonsModalOpen}
+        onOpenChange={setCancellationReasonsModalOpen}
+        businessId={currentBusiness?.id}
+      />
     </div>
   );
 }

@@ -209,7 +209,7 @@
   /* Apply glassmorphism to all cards and containers in admin theme */
   .admin-theme .card,
   .admin-theme [class*="card"],
-  .admin-theme div[class*="bg-white"],
+  .admin-theme div[class*="bg-white"]:not(.orbyt-admin-modal),
   .admin-theme div[class*="bg-card"],
   .admin-theme section[class*="bg-"],
   .admin-theme .glass,
@@ -224,7 +224,7 @@
   /* Apply glassmorphism to light theme cards and containers */
   .light-theme .card,
   .light-theme [class*="card"],
-  .light-theme div[class*="bg-white"],
+  .light-theme div[class*="bg-white"]:not(.orbyt-admin-modal),
   .light-theme div[class*="bg-card"],
   .light-theme section[class*="bg-"],
   .light-theme .glass,
@@ -243,6 +243,23 @@
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
     box-shadow: none !important;
+  }
+
+  /* Shared admin Modal: solid white in light mode, glass panel in dark mode */
+  .light-theme .orbyt-admin-modal {
+    background-color: #ffffff !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border: 1px solid #e5e7eb !important;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15) !important;
+  }
+
+  .admin-theme .orbyt-admin-modal {
+    background: rgba(15, 8, 30, 0.92) !important;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(0, 212, 232, 0.15) !important;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
   }
 
   /* Website preview card: true glass (transparent + blur), no solid white */
@@ -355,6 +372,34 @@
   .admin-theme select:focus {
     border-color: rgba(0, 212, 232, 0.5);
     box-shadow: 0 0 0 2px rgba(0, 212, 232, 0.1);
+  }
+
+  /* Date/time inputs: match search placeholder gray in dark admin mode */
+  .admin-theme.dark input[type="date"],
+  .admin-theme.dark input[type="time"] {
+    color: hsl(var(--muted-foreground));
+    color-scheme: dark;
+  }
+
+  .admin-theme.dark input[type="date"]::-webkit-datetime-edit,
+  .admin-theme.dark input[type="time"]::-webkit-datetime-edit,
+  .admin-theme.dark input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+  .admin-theme.dark input[type="time"]::-webkit-datetime-edit-fields-wrapper,
+  .admin-theme.dark input[type="date"]::-webkit-datetime-edit-text,
+  .admin-theme.dark input[type="time"]::-webkit-datetime-edit-text,
+  .admin-theme.dark input[type="date"]::-webkit-datetime-edit-month-field,
+  .admin-theme.dark input[type="date"]::-webkit-datetime-edit-day-field,
+  .admin-theme.dark input[type="date"]::-webkit-datetime-edit-year-field,
+  .admin-theme.dark input[type="time"]::-webkit-datetime-edit-hour-field,
+  .admin-theme.dark input[type="time"]::-webkit-datetime-edit-minute-field,
+  .admin-theme.dark input[type="time"]::-webkit-datetime-edit-ampm-field {
+    color: hsl(var(--muted-foreground));
+  }
+
+  .admin-theme.dark input::placeholder,
+  .admin-theme.dark textarea::placeholder {
+    color: #9ca3af;
+    opacity: 1;
   }
 }
 

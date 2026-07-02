@@ -33,6 +33,15 @@ export interface CancellationSettingsPayload {
   refundPrechargedOnCustomerCancel?: 'yes' | 'no';
   /** Rich HTML shown when allowCustomerSelfCancel is no */
   customerSelfCancelBlockedMessage?: string;
+  /** Store options → Cancellation → reasons setup */
+  cancellationReasonsSetup?: 'yes' | 'no';
+  cancellationReasonOptional?: 'yes' | 'no';
+  cancellationCommentBox?: 'yes' | 'no';
+  cancellationBookingTypeOneTime?: boolean;
+  cancellationBookingTypeRecurring?: boolean;
+  cancellationReasonsDisplay?: 'admin_only' | 'both';
+  cancellationServiceReasons?: Record<string, boolean>;
+  cancellationStopRecurring?: 'yes' | 'no';
   multipleFees?: Array<{
     id: string;
     fee: string;
@@ -99,6 +108,16 @@ export async function PUT(request: NextRequest) {
           )
         : {};
 
+    const rawServiceReasons = body.cancellationServiceReasons;
+    const cancellationServiceReasons: Record<string, boolean> =
+      rawServiceReasons && typeof rawServiceReasons === 'object' && !Array.isArray(rawServiceReasons)
+        ? Object.fromEntries(
+            Object.entries(rawServiceReasons as Record<string, unknown>).filter(
+              ([, v]) => typeof v === 'boolean'
+            ) as [string, boolean][]
+          )
+        : {};
+
     const settings: CancellationSettingsPayload = {
       chargeFee: body.chargeFee === 'no' ? 'no' : (body.chargeFee || 'yes'),
       feeType: body.feeType === 'multiple' ? 'multiple' : 'single',
@@ -133,6 +152,15 @@ export async function PUT(request: NextRequest) {
         body.refundPrechargedOnCustomerCancel === 'no' ? 'no' : (body.refundPrechargedOnCustomerCancel || 'yes'),
       customerSelfCancelBlockedMessage:
         typeof body.customerSelfCancelBlockedMessage === 'string' ? body.customerSelfCancelBlockedMessage : '',
+      cancellationReasonsSetup: body.cancellationReasonsSetup === 'no' ? 'no' : (body.cancellationReasonsSetup || 'yes'),
+      cancellationReasonOptional: body.cancellationReasonOptional === 'yes' ? 'yes' : (body.cancellationReasonOptional || 'no'),
+      cancellationCommentBox: body.cancellationCommentBox === 'no' ? 'no' : (body.cancellationCommentBox || 'yes'),
+      cancellationBookingTypeOneTime: body.cancellationBookingTypeOneTime !== false,
+      cancellationBookingTypeRecurring: body.cancellationBookingTypeRecurring !== false,
+      cancellationReasonsDisplay:
+        body.cancellationReasonsDisplay === 'admin_only' ? 'admin_only' : (body.cancellationReasonsDisplay || 'both'),
+      cancellationServiceReasons,
+      cancellationStopRecurring: body.cancellationStopRecurring === 'no' ? 'no' : (body.cancellationStopRecurring || 'yes'),
       multipleFees: Array.isArray(body.multipleFees) ? body.multipleFees : undefined,
     };
 

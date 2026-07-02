@@ -1,16 +1,10 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import React, { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Modal } from "@/components/ui/modal";
 import { PhoneField } from "@/components/ui/phone-field";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -63,8 +57,8 @@ export function ProspectNoteEditor({
   };
 
   return (
-    <div className="border rounded-lg overflow-hidden bg-white">
-      <div className="border-b bg-muted/40 px-3 py-1.5 flex items-center gap-1.5 flex-wrap">
+    <div className="border border-input rounded-lg overflow-hidden bg-white dark:bg-transparent">
+      <div className="border-b border-input bg-muted/40 px-3 py-1.5 flex items-center gap-1.5 flex-wrap">
         <Button
           type="button"
           variant="ghost"
@@ -156,10 +150,10 @@ export function ProspectNoteEditor({
         contentEditable
         onInput={handleInput}
         data-placeholder="Add a note..."
-        className="min-h-[140px] px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20 prose prose-sm max-w-none [&:empty:before]:text-muted-foreground [&:empty:before]:content-[attr(data-placeholder)]"
+        className="min-h-[140px] px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20 prose prose-sm max-w-none dark:prose-invert [&:empty:before]:text-muted-foreground [&:empty:before]:content-[attr(data-placeholder)]"
         style={{ whiteSpace: "pre-wrap" }}
       />
-      <div className="flex justify-end px-3 py-1 text-[11px] text-muted-foreground bg-slate-50 border-t">
+      <div className="flex justify-end px-3 py-1 text-[11px] text-muted-foreground bg-slate-50 dark:bg-muted/30 border-t border-input">
         {value
           ? `${value.replace(/<[^>]*>/g, "").trim().split(/\s+/).filter(Boolean).length} word(s)`
           : "0 word(s)"}
@@ -263,18 +257,33 @@ export function AddHiringProspectDialog({
     }
   };
 
+  const wrappedTrigger =
+    trigger && React.isValidElement(trigger)
+      ? React.cloneElement(trigger as React.ReactElement<{ onClick?: (e: React.MouseEvent) => void }>, {
+          onClick: (e: React.MouseEvent) => {
+            (trigger as React.ReactElement<{ onClick?: (e: React.MouseEvent) => void }>).props.onClick?.(e);
+            onOpenChange(true);
+          },
+        })
+      : trigger;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
-      <DialogContent className="max-w-3xl p-0 max-h-[90vh] overflow-hidden flex flex-col">
-        <div className="border-b bg-slate-50 px-6 py-4">
-          <DialogTitle className="text-xl font-semibold text-slate-900">Add prospect</DialogTitle>
-        </div>
-        <div className="px-6 py-4 space-y-6 overflow-y-auto min-h-0">
+    <>
+      {wrappedTrigger}
+      <Modal
+        isOpen={open}
+        onClose={() => {
+          if (!submitting) onOpenChange(false);
+        }}
+        title="Add prospect"
+        panelClassName="max-w-3xl max-h-[90vh]"
+      >
+        <div className="space-y-6 overflow-y-auto max-h-[calc(90vh-14rem)] pr-1">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-slate-700">First name</label>
+              <Label htmlFor={`${formId}-first-name`}>First name</Label>
               <Input
+                id={`${formId}-first-name`}
                 placeholder="First name"
                 value={form.firstName}
                 onChange={(e) => setForm((p) => ({ ...p, firstName: e.target.value }))}
@@ -282,8 +291,9 @@ export function AddHiringProspectDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-slate-700">Last name</label>
+              <Label htmlFor={`${formId}-last-name`}>Last name</Label>
               <Input
+                id={`${formId}-last-name`}
                 placeholder="Last name"
                 value={form.lastName}
                 onChange={(e) => setForm((p) => ({ ...p, lastName: e.target.value }))}
@@ -291,8 +301,9 @@ export function AddHiringProspectDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-slate-700">Email</label>
+              <Label htmlFor={`${formId}-email`}>Email</Label>
               <Input
+                id={`${formId}-email`}
                 type="email"
                 placeholder="Email"
                 value={form.email}
@@ -305,12 +316,11 @@ export function AddHiringProspectDialog({
               placeholder="Phone number"
               value={form.phone}
               onChange={(v) => setForm((p) => ({ ...p, phone: v }))}
-              labelClassName="text-sm font-medium text-slate-700"
               disabled={submitting}
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700">Add a note</label>
+            <Label>Add a note</Label>
             <ProspectNoteEditor
               value={form.note}
               onChange={(value) => setForm((p) => ({ ...p, note: value }))}
@@ -334,18 +344,16 @@ export function AddHiringProspectDialog({
                 });
               }}
             />
-            <label
+            <Label
               htmlFor={checkboxId}
-              className="text-sm text-slate-700 leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+              className="font-normal cursor-pointer peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
             >
               Do you want to add the prospect to the funnels?
-            </label>
+            </Label>
           </div>
           {form.addToFunnel ? (
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700" htmlFor={funnelSelectId}>
-                Choose funnel(s)
-              </label>
+              <Label htmlFor={funnelSelectId}>Choose funnel(s)</Label>
               <Select
                 value={form.funnelId || undefined}
                 onValueChange={(value) => setForm((p) => ({ ...p, funnelId: value }))}
@@ -365,12 +373,19 @@ export function AddHiringProspectDialog({
             </div>
           ) : null}
         </div>
-        <DialogFooter className="border-t bg-slate-50 px-6 py-4">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
+        <div className="flex gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-cyan-500/20">
+          <Button
+            type="button"
+            variant="outline"
+            className="flex-1"
+            onClick={() => onOpenChange(false)}
+            disabled={submitting}
+          >
             Cancel
           </Button>
           <Button
             type="button"
+            className="flex-1"
             onClick={() => void handleSubmit()}
             disabled={
               submitting ||
@@ -381,8 +396,8 @@ export function AddHiringProspectDialog({
           >
             {submitting ? "Adding…" : "Add"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </Modal>
+    </>
   );
 }
